@@ -3,7 +3,8 @@
 namespace App\Http\Controllers;
 
 use App\Models\ItemCategory;
-use App\Models\LojaProduto;
+use App\Models\Product;
+use App\Models\ProductVariant;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -15,7 +16,10 @@ class AdminLojaProdutoController extends Controller
 {
     public function index(Request $request): Response|JsonResponse
     {
-        $query = LojaProduto::query()->with(['categoria:id,nome', 'variantes'])->ordered();
+        $query = Product::query()
+            ->with(['category:id,nome', 'variants'])
+            ->allowSale()
+            ->ordered();
 
         if ($request->filled('categoria_id')) {
             $query->where('categoria_id', $request->string('categoria_id')->value());
@@ -26,7 +30,7 @@ class AdminLojaProdutoController extends Controller
         }
 
         if ($request->boolean('stock_baixo')) {
-            $query->whereColumn('stock_atual', '<=', 'stock_minimo');
+            $query->whereRaw('(stock - COALESCE(stock_reservado, 0)) <= stock_minimo');
         }
 
         if ($request->filled('search')) {
@@ -38,7 +42,7 @@ class AdminLojaProdutoController extends Controller
             });
         }
 
-        $products = $query->get()->map(fn (LojaProduto $produto) => $this->serializeProduct($produto))->values()->all();
+        $products = $query->get()->map(fn (Product $produto) => $this->serializeProduct($produto))->values()->all();
 
         if ($request->is('api/*')) {
             return response()->json($products);
@@ -61,53 +65,58 @@ class AdminLojaProdutoController extends Controller
 
     public function store(Request $request): JsonResponse
     {
-        $validated = $this->validatePayload($request);
-        $validated['slug'] = $this->resolveSlug($validated['slug'] ?? null, $validated['nome']);
+        $validated = $this->normalizePayload($this->validatePayload($request));
 
-        $product = LojaProduto::create($validated);
+        $product = Product::create($validated);
         $this->syncVariants($product, $request->input('variantes', []));
 
-        return response()->json($this->serializeProduct($product->fresh(['categoria', 'variantes'])), 201);
+        return response()->json($this->serializeProduct($product->fresh(['category', 'variants'])), 201);
     }
 
-    public function show(Request $request, LojaProduto $produto): JsonResponse
+    public function show(Request $request, Product $produto): JsonResponse
     {
-        return response()->json($this->serializeProduct($produto->load(['categoria', 'variantes'])));
+        return response()->json($this->serializeProduct($produto->load(['category', 'variants'])));
     }
 
-    public function edit(LojaProduto $produto): Response
+    public function edit(Product $produto): Response
     {
         return Inertia::render('Admin/Store/AdminProductForm', [
-            'product' => $this->serializeProduct($produto->load(['categoria', 'variantes'])),
+            'product' => $this->serializeProduct($produto->load(['category', 'variants'])),
             'categories' => $this->categoriesPayload(),
         ]);
     }
 
-    public function update(Request $request, LojaProduto $produto): JsonResponse
+    public function update(Request $request, Product $produto): JsonResponse
     {
-        $validated = $this->validatePayload($request, $produto);
-        $validated['slug'] = $this->resolveSlug($validated['slug'] ?? $produto->slug, $validated['nome']);
+        $validated = $this->normalizePayload(
+            $this->validatePayload($request, $produto),
+            $produto,
+        );
 
         $produto->update($validated);
         $this->syncVariants($produto, $request->input('variantes', []));
 
-        return response()->json($this->serializeProduct($produto->fresh(['categoria', 'variantes'])));
+        return response()->json($this->serializeProduct($produto->fresh(['category', 'variants'])));
     }
 
-    public function destroy(LojaProduto $produto): JsonResponse
+    public function destroy(Product $produto): JsonResponse
     {
-        $produto->delete();
+        $produto->update([
+            'visible_in_store' => false,
+            'allow_sale' => false,
+            'destaque' => false,
+        ]);
 
-        return response()->json(['message' => 'Produto removido com sucesso.']);
+        return response()->json(['message' => 'Produto removido da loja com sucesso.']);
     }
 
-    private function validatePayload(Request $request, ?LojaProduto $produto = null): array
+    private function validatePayload(Request $request, ?Product $produto = null): array
     {
         return $request->validate([
             'categoria_id' => ['nullable', 'uuid', 'exists:item_categories,id'],
-            'codigo' => ['nullable', 'string', 'max:100', Rule::unique('loja_produtos', 'codigo')->ignore($produto?->id)],
+            'codigo' => ['nullable', 'string', 'max:100', Rule::unique('products', 'codigo')->ignore($produto?->id)],
             'nome' => ['required', 'string', 'max:255'],
-            'slug' => ['nullable', 'string', 'max:255', Rule::unique('loja_produtos', 'slug')->ignore($produto?->id)],
+            'slug' => ['nullable', 'string', 'max:255', Rule::unique('products', 'slug')->ignore($produto?->id)],
             'descricao' => ['nullable', 'string'],
             'preco' => ['required', 'numeric', 'min:0'],
             'imagem_principal_path' => ['nullable', 'string', 'max:255'],
@@ -120,10 +129,36 @@ class AdminLojaProdutoController extends Controller
         ]);
     }
 
-    private function syncVariants(LojaProduto $produto, array $variantes): void
+    private function normalizePayload(array $validated, ?Product $produto = null): array
+    {
+        $salePrice = (float) $validated['preco'];
+
+        return [
+            'categoria_id' => $validated['categoria_id'] ?? null,
+            'codigo' => $validated['codigo'] ?? null,
+            'nome' => $validated['nome'],
+            'slug' => $this->resolveSlug($validated['slug'] ?? $produto?->slug, $validated['nome']),
+            'descricao' => $validated['descricao'] ?? null,
+            'preco' => $produto?->preco ?? $salePrice,
+            'preco_venda' => $salePrice,
+            'stock' => (int) ($validated['stock_atual'] ?? 0),
+            'stock_minimo' => $validated['stock_minimo'] ?? 0,
+            'imagem' => $validated['imagem_principal_path'] ?? null,
+            'ativo' => (bool) $validated['ativo'],
+            'visible_in_store' => (bool) $validated['ativo'],
+            'destaque' => (bool) $validated['destaque'],
+            'allow_sale' => true,
+            'allow_request' => false,
+            'allow_loan' => false,
+            'track_stock' => (bool) $validated['gere_stock'],
+            'ordem' => $validated['ordem'] ?? null,
+        ];
+    }
+
+    private function syncVariants(Product $produto, array $variantes): void
     {
         $existingIds = collect($variantes)->pluck('id')->filter()->all();
-        $produto->variantes()->whereNotIn('id', $existingIds)->delete();
+        $produto->variants()->whereNotIn('id', $existingIds)->delete();
 
         foreach ($variantes as $variant) {
             $payload = validator($variant, [
@@ -137,18 +172,23 @@ class AdminLojaProdutoController extends Controller
                 'ativo' => ['required', 'boolean'],
             ])->validate();
 
-            $produto->variantes()->updateOrCreate(
-                ['id' => $payload['id'] ?? null],
-                [
-                    'nome' => $payload['nome'] ?? null,
-                    'tamanho' => $payload['tamanho'] ?? null,
-                    'cor' => $payload['cor'] ?? null,
-                    'sku' => $payload['sku'] ?? null,
-                    'preco_extra' => $payload['preco_extra'] ?? 0,
-                    'stock_atual' => $payload['stock_atual'] ?? 0,
-                    'ativo' => $payload['ativo'],
-                ]
-            );
+            $variantId = $payload['id'] ?? null;
+
+            $variantModel = filled($variantId)
+                ? $produto->variants()->whereKey($variantId)->firstOrFail()
+                : new ProductVariant(['product_id' => $produto->id]);
+
+            $variantModel->fill([
+                'nome' => $payload['nome'] ?? null,
+                'tamanho' => $payload['tamanho'] ?? null,
+                'cor' => $payload['cor'] ?? null,
+                'sku' => $payload['sku'] ?? null,
+                'preco_extra' => $payload['preco_extra'] ?? 0,
+                'stock' => $payload['stock_atual'] ?? 0,
+                'ativo' => $payload['ativo'],
+            ]);
+            $variantModel->product_id = $produto->id;
+            $variantModel->save();
         }
     }
 
@@ -167,7 +207,7 @@ class AdminLojaProdutoController extends Controller
         return Str::slug($slug ?: $name);
     }
 
-    private function serializeProduct(LojaProduto $produto): array
+    private function serializeProduct(Product $produto): array
     {
         return [
             'id' => $produto->id,
@@ -176,26 +216,27 @@ class AdminLojaProdutoController extends Controller
             'nome' => $produto->nome,
             'slug' => $produto->slug,
             'descricao' => $produto->descricao,
-            'preco' => (float) $produto->preco,
-            'imagem_principal_path' => $produto->imagem_principal_path,
+            'preco' => (float) $produto->sale_price,
+            'imagem_principal_path' => $produto->imagem,
             'ativo' => (bool) $produto->ativo,
             'destaque' => (bool) $produto->destaque,
-            'gere_stock' => (bool) $produto->gere_stock,
-            'stock_atual' => (int) $produto->stock_atual,
+            'gere_stock' => (bool) $produto->tracks_stock,
+            'stock_atual' => (int) $produto->stock,
             'stock_minimo' => $produto->stock_minimo,
+            'tem_stock_baixo' => $produto->is_low_stock,
             'ordem' => $produto->ordem,
-            'categoria' => $produto->categoria ? [
-                'id' => $produto->categoria->id,
-                'nome' => $produto->categoria->nome,
+            'categoria' => $produto->category ? [
+                'id' => $produto->category->id,
+                'nome' => $produto->category->nome,
             ] : null,
-            'variantes' => $produto->variantes->map(fn ($variante) => [
+            'variantes' => $produto->variants->map(fn ($variante) => [
                 'id' => $variante->id,
                 'nome' => $variante->nome,
                 'tamanho' => $variante->tamanho,
                 'cor' => $variante->cor,
                 'sku' => $variante->sku,
                 'preco_extra' => (float) $variante->preco_extra,
-                'stock_atual' => (int) $variante->stock_atual,
+                'stock_atual' => (int) $variante->stock,
                 'ativo' => (bool) $variante->ativo,
             ])->values(),
         ];

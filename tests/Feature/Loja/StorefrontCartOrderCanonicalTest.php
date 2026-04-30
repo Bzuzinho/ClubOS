@@ -54,8 +54,6 @@ class StorefrontCartOrderCanonicalTest extends TestCase
         $this->assertDatabaseHas('loja_carrinho_itens', [
             'article_id' => $product->id,
             'product_variant_id' => $variant->id,
-            'loja_produto_id' => null,
-            'loja_produto_variante_id' => null,
             'quantidade' => 2,
         ]);
     }
@@ -97,7 +95,6 @@ class StorefrontCartOrderCanonicalTest extends TestCase
             'loja_encomenda_id' => $order->id,
             'article_id' => $product->id,
             'product_variant_id' => null,
-            'loja_produto_id' => null,
             'quantidade' => 3,
             'descricao' => 'Casaco Clube',
         ]);

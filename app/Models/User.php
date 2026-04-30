@@ -261,21 +261,6 @@ class User extends Authenticatable
         return $this->hasMany(Sale::class, 'user_id');
     }
 
-    public function storeOrders(): HasMany
-    {
-        return $this->hasMany(StoreOrder::class, 'user_id');
-    }
-
-    public function targetStoreOrders(): HasMany
-    {
-        return $this->hasMany(StoreOrder::class, 'target_user_id');
-    }
-
-    public function storeCartItems(): HasMany
-    {
-        return $this->hasMany(StoreCartItem::class, 'user_id');
-    }
-
     public function salesMade(): HasMany
     {
         return $this->hasMany(Sale::class, 'seller_id');

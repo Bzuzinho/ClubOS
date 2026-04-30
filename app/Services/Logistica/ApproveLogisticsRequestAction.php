@@ -34,15 +34,6 @@ class ApproveLogisticsRequestAction
                     'reference_id' => $request->id,
                     'notes' => 'Reserva de stock na aprovação da requisição',
                 ], $actor);
-
-                $this->registerStockMovementAction->execute([
-                    'article_id' => $item->article_id,
-                    'movement_type' => 'exit',
-                    'quantity' => (int) $item->quantity,
-                    'reference_type' => 'logistics_request',
-                    'reference_id' => $request->id,
-                    'notes' => 'Baixa de stock físico na aprovação da requisição',
-                ], $actor);
             }
 
             $request->update([

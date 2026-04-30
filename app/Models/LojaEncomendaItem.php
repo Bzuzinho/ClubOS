@@ -16,8 +16,6 @@ class LojaEncomendaItem extends Model
         'loja_encomenda_id',
         'article_id',
         'product_variant_id',
-        'loja_produto_id',
-        'loja_produto_variante_id',
         'descricao',
         'quantidade',
         'preco_unitario',
@@ -35,19 +33,9 @@ class LojaEncomendaItem extends Model
         return $this->belongsTo(LojaEncomenda::class, 'loja_encomenda_id');
     }
 
-    public function produto(): BelongsTo
-    {
-        return $this->belongsTo(LojaProduto::class, 'loja_produto_id');
-    }
-
     public function article(): BelongsTo
     {
         return $this->belongsTo(Product::class, 'article_id');
-    }
-
-    public function variante(): BelongsTo
-    {
-        return $this->belongsTo(LojaProdutoVariante::class, 'loja_produto_variante_id');
     }
 
     public function productVariant(): BelongsTo

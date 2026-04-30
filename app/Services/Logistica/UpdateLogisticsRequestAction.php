@@ -9,13 +9,15 @@ use App\Models\LogisticsRequest;
 use App\Models\LogisticsRequestItem;
 use App\Models\Product;
 use App\Models\User;
+use App\Services\Catalog\CanonicalProductStockService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 class UpdateLogisticsRequestAction
 {
     public function __construct(
-        private RegisterStockMovementAction $registerStockMovementAction
+        private RegisterStockMovementAction $registerStockMovementAction,
+        private readonly CanonicalProductStockService $stockService,
     ) {
     }
 
@@ -60,7 +62,16 @@ class UpdateLogisticsRequestAction
             foreach ($items as $item) {
                 $product = Product::query()->findOrFail($item['article_id']);
                 $quantity = (int) $item['quantity'];
-                $unitPrice = (float) ($item['unit_price'] ?? 0);
+
+                if ($quantity <= 0) {
+                    throw ValidationException::withMessages([
+                        'items' => 'Quantidade inválida nos itens da requisição.',
+                    ]);
+                }
+
+                $unitPrice = isset($item['unit_price'])
+                    ? (float) $item['unit_price']
+                    : $this->stockService->defaultUnitPrice($product);
                 $lineTotal = $quantity * $unitPrice;
 
                 LogisticsRequestItem::create([
@@ -99,34 +110,25 @@ class UpdateLogisticsRequestAction
                 }
 
                 if (in_array($logisticsRequest->status, ['approved', 'invoiced'], true)) {
-                    $this->registerStockMovementAction->execute([
-                        'article_id' => $articleId,
-                        'movement_type' => 'reservation',
-                        'quantity' => $delta,
-                        'reference_type' => 'logistics_request',
-                        'reference_id' => $logisticsRequest->id,
-                        'notes' => 'Ajuste de reserva por edição da requisição',
-                    ], $actor);
-
                     if ($delta > 0) {
                         $this->registerStockMovementAction->execute([
                             'article_id' => $articleId,
-                            'movement_type' => 'exit',
+                            'movement_type' => 'reservation',
                             'quantity' => $delta,
                             'reference_type' => 'logistics_request',
                             'reference_id' => $logisticsRequest->id,
-                            'notes' => 'Ajuste de stock físico por aumento da requisição',
+                            'notes' => 'Ajuste de reserva por aumento da requisição',
                         ], $actor);
                     }
 
                     if ($delta < 0) {
                         $this->registerStockMovementAction->execute([
                             'article_id' => $articleId,
-                            'movement_type' => 'return',
+                            'movement_type' => 'cancel_reservation',
                             'quantity' => abs($delta),
                             'reference_type' => 'logistics_request',
                             'reference_id' => $logisticsRequest->id,
-                            'notes' => 'Reposição de stock físico por redução da requisição',
+                            'notes' => 'Libertação de reserva por redução da requisição',
                         ], $actor);
                     }
                 }

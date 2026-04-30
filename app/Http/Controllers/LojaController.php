@@ -63,7 +63,9 @@ class LojaController extends Controller
     {
         return $this->heroService->activeItems()
             ->map(function ($item) {
-                $product = $this->catalogService->resolveHeroProduct($item->produto_id);
+                $product = $item->article && $item->article->ativo && $item->article->visible_in_store
+                    ? $item->article
+                    : null;
 
                 return [
                     'id' => $item->id,
@@ -123,8 +125,8 @@ class LojaController extends Controller
         }
 
         $items = $cart->itens->map(function ($item) {
-            $product = $item->article ?? $item->produto;
-            $variant = $item->productVariant ?? $item->variante;
+            $product = $item->article;
+            $variant = $item->productVariant;
 
             return [
                 'id' => $item->id,

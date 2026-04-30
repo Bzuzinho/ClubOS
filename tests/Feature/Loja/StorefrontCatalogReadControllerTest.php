@@ -4,9 +4,7 @@ namespace Tests\Feature\Loja;
 
 use App\Models\ItemCategory;
 use App\Models\LojaHeroItem;
-use App\Models\LojaProduto;
 use App\Models\Product;
-use App\Models\ProductCatalogMigration;
 use App\Models\ProductVariant;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -149,19 +147,9 @@ class StorefrontCatalogReadControllerTest extends TestCase
             ->assertJsonPath('0.nome', 'Equipamento');
     }
 
-    public function test_hero_endpoint_resolves_canonical_product_via_mapping_table(): void
+    public function test_hero_endpoint_uses_canonical_article_target(): void
     {
         $user = User::factory()->create();
-        $legacyProduct = LojaProduto::query()->create([
-            'codigo' => 'LEG-HERO-001',
-            'nome' => 'Legacy Hero',
-            'slug' => 'legacy-hero',
-            'preco' => 12,
-            'ativo' => true,
-            'destaque' => true,
-            'gere_stock' => false,
-            'stock_atual' => 0,
-        ]);
         $canonicalProduct = Product::query()->create([
             'codigo' => 'CAN-HERO-001',
             'slug' => 'hero-canonico',
@@ -171,17 +159,10 @@ class StorefrontCatalogReadControllerTest extends TestCase
             'visible_in_store' => true,
         ]);
 
-        ProductCatalogMigration::query()->create([
-            'legacy_source' => 'loja_produtos',
-            'legacy_id' => $legacyProduct->id,
-            'product_id' => $canonicalProduct->id,
-            'migrated_at' => now(),
-        ]);
-
         LojaHeroItem::query()->create([
             'titulo_principal' => 'Hero principal',
             'tipo_destino' => LojaHeroItem::DESTINO_PRODUTO,
-            'produto_id' => $legacyProduct->id,
+            'article_id' => $canonicalProduct->id,
             'ativo' => true,
             'ordem' => 1,
         ]);

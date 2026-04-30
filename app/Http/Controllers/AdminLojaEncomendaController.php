@@ -19,7 +19,7 @@ class AdminLojaEncomendaController extends Controller
     public function index(Request $request): Response|JsonResponse
     {
         $query = LojaEncomenda::query()
-            ->with(['itens.variante', 'user:id,nome_completo', 'targetUser:id,nome_completo'])
+            ->with(['itens.article', 'itens.productVariant', 'user:id,nome_completo', 'targetUser:id,nome_completo'])
             ->ordered();
 
         if ($request->filled('estado')) {
@@ -44,7 +44,7 @@ class AdminLojaEncomendaController extends Controller
 
     public function show(Request $request, LojaEncomenda $encomenda): Response|JsonResponse
     {
-        $payload = $this->serializeOrder($encomenda->load(['itens.produto', 'itens.variante', 'user:id,nome_completo', 'targetUser:id,nome_completo']), true);
+        $payload = $this->serializeOrder($encomenda->load(['itens.article', 'itens.productVariant', 'user:id,nome_completo', 'targetUser:id,nome_completo']), true);
 
         if ($request->is('api/*')) {
             return response()->json($payload);
@@ -84,14 +84,27 @@ class AdminLojaEncomendaController extends Controller
                 'id' => $encomenda->targetUser->id,
                 'nome_completo' => $encomenda->targetUser->nome_completo,
             ] : null,
-            'items' => $withItems ? $encomenda->itens->map(fn ($item) => [
-                'id' => $item->id,
-                'descricao' => $item->descricao,
-                'quantidade' => (int) $item->quantidade,
-                'preco_unitario' => (float) $item->preco_unitario,
-                'total_linha' => (float) $item->total_linha,
-                'variante' => $item->variante?->etiqueta,
-            ])->values() : [],
+            'items' => $withItems ? $encomenda->itens->map(function ($item) {
+                $product = $item->article;
+                $variant = $item->productVariant;
+
+                return [
+                    'id' => $item->id,
+                    'descricao' => $item->descricao,
+                    'quantidade' => (int) $item->quantidade,
+                    'preco_unitario' => (float) $item->preco_unitario,
+                    'total_linha' => (float) $item->total_linha,
+                    'produto' => $product ? [
+                        'id' => $product->id,
+                        'slug' => $product->slug,
+                        'nome' => $product->nome,
+                    ] : null,
+                    'variante' => $variant ? [
+                        'id' => $variant->id,
+                        'etiqueta' => $variant->label ?? $variant->etiqueta,
+                    ] : null,
+                ];
+            })->values() : [],
         ];
     }
 }

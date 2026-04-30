@@ -6,11 +6,17 @@ use App\Models\LogisticsRequest;
 use App\Models\LogisticsRequestItem;
 use App\Models\Product;
 use App\Models\User;
+use App\Services\Catalog\CanonicalProductStockService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 class CreateLogisticsRequestAction
 {
+    public function __construct(
+        private readonly CanonicalProductStockService $stockService,
+    ) {
+    }
+
     public function execute(array $data, ?User $actor = null): LogisticsRequest
     {
         return DB::transaction(function () use ($data, $actor) {
@@ -40,16 +46,20 @@ class CreateLogisticsRequestAction
                     throw ValidationException::withMessages(['items' => 'Quantidade inválida nos itens da requisição.']);
                 }
 
-                $available = (int) $product->stock - (int) ($product->stock_reservado ?? 0);
                 $allowOverdraw = (bool) ($data['allow_overdraw'] ?? false);
 
-                if (!$allowOverdraw && $quantity > $available) {
-                    throw ValidationException::withMessages([
-                        'items' => "Stock insuficiente para o artigo {$product->nome}.",
-                    ]);
+                if (! $allowOverdraw) {
+                    $this->stockService->ensureAvailable(
+                        $product,
+                        $quantity,
+                        'items',
+                        "Stock insuficiente para o artigo {$product->nome}.",
+                    );
                 }
 
-                $unitPrice = isset($item['unit_price']) ? (float) $item['unit_price'] : (float) $product->preco;
+                $unitPrice = isset($item['unit_price'])
+                    ? (float) $item['unit_price']
+                    : $this->stockService->defaultUnitPrice($product);
                 $lineTotal = $unitPrice * $quantity;
 
                 LogisticsRequestItem::create([

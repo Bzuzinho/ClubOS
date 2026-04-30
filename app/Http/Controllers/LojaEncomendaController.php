@@ -19,7 +19,7 @@ class LojaEncomendaController extends Controller
     public function index(Request $request): Response|JsonResponse
     {
         $query = LojaEncomenda::query()
-            ->with(['itens.article', 'itens.productVariant', 'itens.produto', 'itens.variante', 'user:id,nome_completo', 'targetUser:id,nome_completo'])
+            ->with(['itens.article', 'itens.productVariant', 'user:id,nome_completo', 'targetUser:id,nome_completo'])
             ->ordered();
 
         $this->encomendaService->visibleForUser($query, $request->user());
@@ -48,7 +48,7 @@ class LojaEncomendaController extends Controller
         $this->encomendaService->visibleForUser($query, $request->user());
         abort_unless($query->exists(), 404);
 
-        $encomenda->load(['itens.article.category', 'itens.productVariant', 'itens.produto.categoria', 'itens.variante', 'user:id,nome_completo', 'targetUser:id,nome_completo']);
+        $encomenda->load(['itens.article.category', 'itens.productVariant', 'user:id,nome_completo', 'targetUser:id,nome_completo']);
         $payload = $this->serializeOrder($encomenda, true);
 
         if ($request->is('api/*')) {
@@ -79,8 +79,8 @@ class LojaEncomendaController extends Controller
                 'nome_completo' => $encomenda->targetUser->nome_completo,
             ] : null,
             'items' => $withItems ? $encomenda->itens->map(function ($item) {
-                $product = $item->article ?? $item->produto;
-                $variant = $item->productVariant ?? $item->variante;
+                $product = $item->article;
+                $variant = $item->productVariant;
 
                 return [
                     'id' => $item->id,

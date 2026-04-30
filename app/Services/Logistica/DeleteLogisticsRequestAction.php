@@ -38,20 +38,11 @@ class DeleteLogisticsRequestAction
                 if (in_array($logisticsRequest->status, ['approved', 'invoiced'], true)) {
                     $this->registerStockMovementAction->execute([
                         'article_id' => $item->article_id,
-                        'movement_type' => 'reservation',
-                        'quantity' => -((int) $item->quantity),
-                        'reference_type' => 'logistics_request',
-                        'reference_id' => $logisticsRequest->id,
-                        'notes' => 'Libertação de reserva por eliminação da requisição',
-                    ], $actor);
-
-                    $this->registerStockMovementAction->execute([
-                        'article_id' => $item->article_id,
-                        'movement_type' => 'return',
+                        'movement_type' => 'cancel_reservation',
                         'quantity' => (int) $item->quantity,
                         'reference_type' => 'logistics_request',
                         'reference_id' => $logisticsRequest->id,
-                        'notes' => 'Reposição de stock físico por eliminação da requisição',
+                        'notes' => 'Libertação de reserva por eliminação da requisição',
                     ], $actor);
                 }
 

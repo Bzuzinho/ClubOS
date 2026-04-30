@@ -16,7 +16,7 @@ class LojaHeroService
         }
 
         return LojaHeroItem::query()
-            ->with(['produto', 'categoria'])
+            ->with(['article', 'categoria'])
             ->active()
             ->visibleNow()
             ->ordered()
@@ -30,7 +30,7 @@ class LojaHeroService
         }
 
         return LojaHeroItem::query()
-            ->with(['produto:id,nome,slug', 'categoria:id,nome'])
+            ->with(['article:id,nome,slug', 'categoria:id,nome'])
             ->ordered()
             ->get();
     }
@@ -41,7 +41,7 @@ class LojaHeroService
             'ativo' => ! $item->ativo,
         ]);
 
-        return $item->fresh(['produto', 'categoria']);
+        return $item->fresh(['article', 'categoria']);
     }
 
     public function reorder(array $orderedIds): void

@@ -45,20 +45,11 @@ class LojaCarrinhoController extends Controller
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'article_id' => ['nullable', 'uuid', 'exists:products,id'],
+            'article_id' => ['required', 'uuid', 'exists:products,id'],
             'product_variant_id' => ['nullable', 'uuid', 'exists:product_variants,id'],
-            'loja_produto_id' => ['nullable', 'uuid', 'exists:loja_produtos,id'],
-            'loja_produto_variante_id' => ['nullable', 'uuid', 'exists:loja_produto_variantes,id'],
             'quantidade' => ['required', 'integer', 'min:1'],
             'observacoes' => ['nullable', 'string'],
         ]);
-
-        $validated['article_id'] = $validated['article_id'] ?? $validated['loja_produto_id'] ?? null;
-        $validated['product_variant_id'] = $validated['product_variant_id'] ?? $validated['loja_produto_variante_id'] ?? null;
-
-        if (! filled($validated['article_id'])) {
-            abort(422, 'O produto selecionado e obrigatorio.');
-        }
 
         $cart = $this->carrinhoService->addItem($request->user(), $validated);
 
@@ -71,12 +62,9 @@ class LojaCarrinhoController extends Controller
 
         $validated = $request->validate([
             'product_variant_id' => ['nullable', 'uuid', 'exists:product_variants,id'],
-            'loja_produto_variante_id' => ['nullable', 'uuid', 'exists:loja_produto_variantes,id'],
             'quantidade' => ['required', 'integer', 'min:1'],
             'observacoes' => ['nullable', 'string'],
         ]);
-
-        $validated['product_variant_id'] = $validated['product_variant_id'] ?? $validated['loja_produto_variante_id'] ?? null;
 
         $cart = $this->carrinhoService->updateItem($request->user(), $item, $validated);
 
@@ -123,8 +111,8 @@ class LojaCarrinhoController extends Controller
         }
 
         $items = $cart->itens->map(function ($item) {
-            $product = $item->article ?? $item->produto;
-            $variant = $item->productVariant ?? $item->variante;
+            $product = $item->article;
+            $variant = $item->productVariant;
 
             return [
                 'id' => $item->id,

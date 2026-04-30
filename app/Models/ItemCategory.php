@@ -41,11 +41,6 @@ class ItemCategory extends Model
         });
     }
 
-    public function lojaProdutos(): HasMany
-    {
-        return $this->hasMany(LojaProduto::class, 'categoria_id');
-    }
-
     public function products(): HasMany
     {
         return $this->hasMany(Product::class, 'categoria_id');

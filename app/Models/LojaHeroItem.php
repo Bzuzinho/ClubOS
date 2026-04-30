@@ -24,7 +24,7 @@ class LojaHeroItem extends Model
         'descricao',
         'texto_botao',
         'tipo_destino',
-        'produto_id',
+        'article_id',
         'categoria_id',
         'url_destino',
         'imagem_desktop_path',
@@ -65,9 +65,9 @@ class LojaHeroItem extends Model
         return $query->orderBy('ordem')->orderByDesc('created_at');
     }
 
-    public function produto(): BelongsTo
+    public function article(): BelongsTo
     {
-        return $this->belongsTo(LojaProduto::class, 'produto_id');
+        return $this->belongsTo(Product::class, 'article_id');
     }
 
     public function categoria(): BelongsTo

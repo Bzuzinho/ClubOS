@@ -3,20 +3,13 @@
 namespace App\Services\Loja;
 
 use App\Models\ItemCategory;
-use App\Models\LojaProduto;
 use App\Models\Product;
 use App\Models\ProductVariant;
-use App\Services\Catalog\CanonicalProductCatalogService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 
 class StorefrontCatalogService
 {
-    public function __construct(
-        private readonly CanonicalProductCatalogService $catalogService,
-    ) {
-    }
-
     public function categoriesPayload(): array
     {
         return ItemCategory::query()
@@ -79,39 +72,11 @@ class StorefrontCatalogService
             ->where('slug', $slug)
             ->first();
 
-        if (! $product) {
-            $legacyProduct = LojaProduto::query()
-                ->where('slug', $slug)
-                ->first();
-
-            $product = $legacyProduct
-                ? $this->catalogService->resolveFromLegacyStoreProductId($legacyProduct->id)
-                : null;
-
-            if ($product) {
-                $product->load([
-                    'category:id,nome',
-                    'variants' => fn ($variantQuery) => $variantQuery->active()->orderBy('nome')->orderBy('tamanho')->orderBy('cor'),
-                ]);
-            }
-        }
-
         if (! $product || ! $product->ativo || ! $product->visible_in_store) {
             throw (new ModelNotFoundException())->setModel(Product::class, [$slug]);
         }
 
         return $this->serializeProduct($product);
-    }
-
-    public function resolveHeroProduct(?string $legacyStoreProductId): ?Product
-    {
-        $product = $this->catalogService->resolveFromLegacyStoreProductId($legacyStoreProductId);
-
-        if (! $product || ! $product->ativo || ! $product->visible_in_store) {
-            return null;
-        }
-
-        return $product;
     }
 
     public function serializeProduct(Product $product): array

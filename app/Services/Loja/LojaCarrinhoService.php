@@ -7,8 +7,7 @@ use App\Models\LojaCarrinhoItem;
 use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Models\User;
-use App\Services\Catalog\CanonicalProductCatalogService;
-use App\Services\Catalog\CanonicalProductVariantService;
+use App\Services\Catalog\CanonicalProductStockService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -16,16 +15,14 @@ use Illuminate\Validation\ValidationException;
 class LojaCarrinhoService
 {
     public function __construct(
-        private readonly LojaStockService $stockService,
-        private readonly CanonicalProductCatalogService $catalogService,
-        private readonly CanonicalProductVariantService $variantService,
+        private readonly CanonicalProductStockService $stockService,
     ) {
     }
 
     public function getOpenCart(User $user): ?LojaCarrinho
     {
         return LojaCarrinho::query()
-            ->with(['itens.article.category', 'itens.productVariant', 'itens.produto.categoria', 'itens.variante'])
+            ->with(['itens.article.category', 'itens.productVariant'])
             ->open()
             ->where('user_id', $user->id)
             ->latest('updated_at')
@@ -57,8 +54,6 @@ class LojaCarrinhoService
                 ->findOrFail($payload['article_id']);
 
             $variante = $this->resolveVariant($produto, $payload['product_variant_id'] ?? null, true);
-            $legacyProductId = $this->catalogService->resolveLegacyStoreProductIdFromProductId($produto->id);
-            $legacyVariantId = $this->variantService->resolveLegacyStoreVariantIdFromProductVariantId($variante?->id);
 
             $existingItem = LojaCarrinhoItem::query()
                 ->where('loja_carrinho_id', $cart->id)
@@ -76,17 +71,15 @@ class LojaCarrinhoService
                 ->first();
 
             $finalQuantity = $quantity + (int) ($existingItem?->quantidade ?? 0);
-            $this->stockService->ensureDisponivel($produto, $variante, $finalQuantity);
+            $this->stockService->ensureAvailableForStore($produto, $variante, $finalQuantity);
 
-            $unitPrice = $this->stockService->unitPrice($produto, $variante);
+            $unitPrice = $this->stockService->saleUnitPrice($produto, $variante);
             $lineTotal = $unitPrice * $finalQuantity;
 
             if ($existingItem) {
                 $existingItem->update([
                     'article_id' => $produto->id,
                     'product_variant_id' => $variante?->id,
-                    'loja_produto_id' => $legacyProductId,
-                    'loja_produto_variante_id' => $legacyVariantId,
                     'quantidade' => $finalQuantity,
                     'preco_unitario' => $unitPrice,
                     'total_linha' => $lineTotal,
@@ -96,8 +89,6 @@ class LojaCarrinhoService
                     'loja_carrinho_id' => $cart->id,
                     'article_id' => $produto->id,
                     'product_variant_id' => $variante?->id,
-                    'loja_produto_id' => $legacyProductId,
-                    'loja_produto_variante_id' => $legacyVariantId,
                     'quantidade' => $finalQuantity,
                     'preco_unitario' => $unitPrice,
                     'total_linha' => $lineTotal,
@@ -126,20 +117,18 @@ class LojaCarrinhoService
             $produto = Product::query()
                 ->with('variants')
                 ->lockForUpdate()
-                ->findOrFail($this->resolveArticleId($item));
+                ->findOrFail($this->requireArticleId($item));
 
             $varianteId = $payload['product_variant_id'] ?? $item->product_variant_id;
             $variante = $this->resolveVariant($produto, $varianteId, false);
             $quantity = max(1, (int) ($payload['quantidade'] ?? $item->quantidade));
 
-            $this->stockService->ensureDisponivel($produto, $variante, $quantity);
-            $unitPrice = $this->stockService->unitPrice($produto, $variante);
+            $this->stockService->ensureAvailableForStore($produto, $variante, $quantity);
+            $unitPrice = $this->stockService->saleUnitPrice($produto, $variante);
 
             $item->update([
                 'article_id' => $produto->id,
                 'product_variant_id' => $variante?->id,
-                'loja_produto_id' => $this->catalogService->resolveLegacyStoreProductIdFromProductId($produto->id),
-                'loja_produto_variante_id' => $this->variantService->resolveLegacyStoreVariantIdFromProductVariantId($variante?->id),
                 'quantidade' => $quantity,
                 'preco_unitario' => $unitPrice,
                 'total_linha' => $unitPrice * $quantity,
@@ -182,7 +171,7 @@ class LojaCarrinhoService
 
     private function freshCart(LojaCarrinho $cart): LojaCarrinho
     {
-        return $cart->fresh(['itens.article.category', 'itens.productVariant', 'itens.produto.categoria', 'itens.variante']);
+        return $cart->fresh(['itens.article.category', 'itens.productVariant']);
     }
 
     private function resolveVariant(Product $produto, ?string $variantId, bool $enforceWhenVariantsExist): ?ProductVariant
@@ -211,22 +200,14 @@ class LojaCarrinhoService
         return $variante;
     }
 
-    private function resolveArticleId(LojaCarrinhoItem $item): string
+    private function requireArticleId(LojaCarrinhoItem $item): string
     {
         if (filled($item->article_id)) {
             return $item->article_id;
         }
 
-        $resolved = $this->catalogService->resolveFromLegacyStoreProductId($item->loja_produto_id)?->id;
-
-        if (! $resolved) {
-            throw ValidationException::withMessages([
-                'article_id' => 'O item do carrinho nao esta associado a um produto canonico valido.',
-            ]);
-        }
-
-        $item->forceFill(['article_id' => $resolved])->save();
-
-        return $resolved;
+        throw ValidationException::withMessages([
+            'article_id' => 'O item do carrinho nao esta associado a um produto canonico valido.',
+        ]);
     }
 }

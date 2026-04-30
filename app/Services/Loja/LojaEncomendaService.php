@@ -9,8 +9,7 @@ use App\Models\LojaEncomendaItem;
 use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Models\User;
-use App\Services\Catalog\CanonicalProductCatalogService;
-use App\Services\Catalog\CanonicalProductVariantService;
+use App\Services\Catalog\CanonicalProductStockService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -20,11 +19,9 @@ class LojaEncomendaService
 {
     public function __construct(
         private readonly LojaCarrinhoService $carrinhoService,
-        private readonly LojaStockService $stockService,
+        private readonly CanonicalProductStockService $stockService,
         private readonly LojaFinanceiroService $financeiroService,
         private readonly StoreProfileResolver $profileResolver,
-        private readonly CanonicalProductCatalogService $catalogService,
-        private readonly CanonicalProductVariantService $variantService,
     ) {
     }
 
@@ -63,29 +60,27 @@ class LojaEncomendaService
             $subtotal = 0;
 
             foreach ($cart->itens as $cartItem) {
-                $produto = Product::query()->lockForUpdate()->findOrFail($this->resolveArticleId($cartItem));
+                $produto = Product::query()->lockForUpdate()->findOrFail($this->requireArticleId($cartItem));
                 $variante = $cartItem->product_variant_id
                     ? ProductVariant::query()->lockForUpdate()->findOrFail($cartItem->product_variant_id)
                     : null;
 
-                $this->stockService->ensureDisponivel($produto, $variante, (int) $cartItem->quantidade);
+                $this->stockService->ensureAvailableForStore($produto, $variante, (int) $cartItem->quantidade);
 
-                $unitPrice = $this->stockService->unitPrice($produto, $variante);
+                $unitPrice = $this->stockService->saleUnitPrice($produto, $variante);
                 $lineTotal = $unitPrice * (int) $cartItem->quantidade;
 
                 LojaEncomendaItem::create([
                     'loja_encomenda_id' => $order->id,
                     'article_id' => $produto->id,
                     'product_variant_id' => $variante?->id,
-                    'loja_produto_id' => $this->catalogService->resolveLegacyStoreProductIdFromProductId($produto->id),
-                    'loja_produto_variante_id' => $this->variantService->resolveLegacyStoreVariantIdFromProductVariantId($variante?->id),
                     'descricao' => $this->buildDescricao($produto, $variante),
                     'quantidade' => (int) $cartItem->quantidade,
                     'preco_unitario' => $unitPrice,
                     'total_linha' => $lineTotal,
                 ]);
 
-                $this->stockService->decrement($produto, $variante, (int) $cartItem->quantidade);
+                $this->stockService->decrementOnSale($produto, $variante, (int) $cartItem->quantidade);
                 $subtotal += $lineTotal;
             }
 
@@ -103,7 +98,7 @@ class LojaEncomendaService
                 'estado' => LojaCarrinho::ESTADO_CONVERTIDO,
             ]);
 
-            return $order->fresh(['itens.article.category', 'itens.productVariant', 'itens.produto.categoria', 'itens.variante', 'user', 'targetUser']);
+            return $order->fresh(['itens.article.category', 'itens.productVariant', 'user', 'targetUser']);
         });
     }
 
@@ -135,7 +130,7 @@ class LojaEncomendaService
             'updated_by' => $actor->id,
         ]);
 
-        return $encomenda->fresh(['itens.article.category', 'itens.productVariant', 'itens.produto.categoria', 'itens.variante', 'user', 'targetUser']);
+        return $encomenda->fresh(['itens.article.category', 'itens.productVariant', 'user', 'targetUser']);
     }
 
     public function visibleForUser(Builder $query, User $user): Builder
@@ -172,23 +167,15 @@ class LojaEncomendaService
         return $produto->nome . ' - ' . $variante->label;
     }
 
-    private function resolveArticleId(LojaCarrinhoItem $item): string
+    private function requireArticleId(LojaCarrinhoItem $item): string
     {
         if (filled($item->article_id)) {
             return $item->article_id;
         }
 
-        $resolved = $this->catalogService->resolveFromLegacyStoreProductId($item->loja_produto_id)?->id;
-
-        if (! $resolved) {
-            throw ValidationException::withMessages([
-                'article_id' => 'O item do carrinho nao esta associado a um produto canonico valido.',
-            ]);
-        }
-
-        $item->forceFill(['article_id' => $resolved])->save();
-
-        return $resolved;
+        throw ValidationException::withMessages([
+            'article_id' => 'O item do carrinho nao esta associado a um produto canonico valido.',
+        ]);
     }
 
     private function generateNumero(): string

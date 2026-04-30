@@ -25,9 +25,6 @@ use App\Http\Controllers\LojaCarrinhoController;
 use App\Http\Controllers\LojaController;
 use App\Http\Controllers\LojaEncomendaController;
 use App\Http\Controllers\LojaProdutoController;
-use App\Http\Controllers\StoreCartController;
-use App\Http\Controllers\StoreController;
-use App\Http\Controllers\StoreOrderController;
 use App\Http\Controllers\PatrocinosController;
 use App\Http\Controllers\ComunicacaoController;
 use App\Http\Controllers\CampanhasMarketingController;
@@ -105,6 +102,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::redirect('/portal/loja', '/loja')
         ->name('portal.shop');
     Route::get('/loja', [LojaController::class, 'index'])->name('store.front.index');
+    Route::get('/loja', [LojaController::class, 'index'])->name('loja.index');
     Route::get('/loja/produto/{produto:slug}', [LojaProdutoController::class, 'show'])->name('store.front.product.show');
     Route::get('/loja/carrinho', [LojaCarrinhoController::class, 'show'])->name('store.front.cart.show');
     Route::get('/loja/historico', [LojaEncomendaController::class, 'index'])->name('store.front.orders.index');

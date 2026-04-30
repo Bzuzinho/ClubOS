@@ -28,11 +28,11 @@ class DeliverLogisticsRequestAction
             foreach ($request->items as $item) {
                 $this->registerStockMovementAction->execute([
                     'article_id' => $item->article_id,
-                    'movement_type' => 'reservation',
-                    'quantity' => -((int) $item->quantity),
+                    'movement_type' => 'deliver_reservation',
+                    'quantity' => (int) $item->quantity,
                     'reference_type' => 'logistics_request',
                     'reference_id' => $request->id,
-                    'notes' => 'Libertação de reserva na entrega da requisição',
+                    'notes' => 'Consumo da reserva na entrega da requisição',
                 ], $actor);
             }
 
