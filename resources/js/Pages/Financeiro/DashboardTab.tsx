@@ -43,55 +43,51 @@ export function DashboardTab({ faturas, lancamentos, movimentos, extratos, centr
     today.setHours(0, 0, 0, 0);
     return today;
   };
+  const isSameMonth = (dateValue?: string | null) => {
+    if (!dateValue) return false;
+
+    const date = new Date(dateValue);
+
+    return !Number.isNaN(date.getTime()) &&
+      date.getMonth() === new Date().getMonth() &&
+      date.getFullYear() === new Date().getFullYear();
+  };
   const isFutureInvoice = (fatura: Fatura) => new Date(fatura.data_fatura) > getStartOfToday();
   const faturasAtivas = (faturas || []).filter((f) => !isFutureInvoice(f));
 
   const stats = useMemo(() => {
-    const now = new Date();
-    const currentMonth = now.getMonth();
-    const currentYear = now.getFullYear();
+    const today = getStartOfToday();
 
     const mensalidades = faturasAtivas.filter((f) => f.tipo === 'mensalidade');
 
-    const valorMensalidadesEmitidas = mensalidades.reduce(
-      (sum, f) => sum + toNumber(f.valor_total),
-      0
-    );
+    const mensalidadesVencidas = mensalidades.filter((f) => {
+      if (f.estado_pagamento === 'pago' || f.estado_pagamento === 'cancelado') return false;
 
-    const valorMensalidadesPagas = mensalidades
-      .filter((f) => f.estado_pagamento === 'pago')
-      .reduce((sum, f) => sum + toNumber(f.valor_total), 0);
+      const dataVencimento = new Date(f.data_vencimento);
 
-    const valorMensalidadesPendentes = mensalidades
-      .filter((f) => f.estado_pagamento === 'pendente')
-      .reduce((sum, f) => sum + toNumber(f.valor_total), 0);
-
-    const mensalidadesVencidas = mensalidades.filter((f) => f.estado_pagamento === 'vencido');
+      return !Number.isNaN(dataVencimento.getTime()) && dataVencimento < today;
+    });
 
     const valorMensalidadesVencidas = mensalidadesVencidas.reduce(
       (sum, f) => sum + toNumber(f.valor_total),
       0
     );
 
-    const movimentosReceitaPendentes = (movimentos || [])
-      .filter((m) => m.classificacao === 'receita' && m.estado_pagamento !== 'pago')
-      .reduce((sum, m) => sum + toNumber(m.valor_total), 0);
-
-    const valorPendentes = valorMensalidadesVencidas + movimentosReceitaPendentes;
+    const valorPendentes = (movimentos || [])
+      .filter((m) => m.estado_pagamento !== 'pago' && m.estado_pagamento !== 'cancelado')
+      .reduce((sum, m) => sum + Math.abs(toNumber(m.valor_total)), 0);
 
     const faturasCobradasMes = faturasAtivas
       .filter((f) => {
         if (f.estado_pagamento !== 'pago') return false;
-        const data = new Date(f.data_emissao);
-        return data.getMonth() === currentMonth && data.getFullYear() === currentYear;
+        return isSameMonth(f.data_emissao);
       })
       .reduce((sum, f) => sum + toNumber(f.valor_total), 0);
 
     const receitasMovimentosMes = (movimentos || [])
       .filter((m) => {
         if (m.classificacao !== 'receita' || m.estado_pagamento !== 'pago') return false;
-        const data = new Date(m.data_emissao);
-        return data.getMonth() === currentMonth && data.getFullYear() === currentYear;
+        return isSameMonth(m.data_emissao);
       })
       .reduce((sum, m) => sum + toNumber(m.valor_total), 0);
 
@@ -99,18 +95,10 @@ export function DashboardTab({ faturas, lancamentos, movimentos, extratos, centr
 
     const despesasMes = (movimentos || [])
       .filter((m) => {
-        if (m.classificacao !== 'despesa') return false;
-        const data = new Date(m.data_emissao);
-        return data.getMonth() === currentMonth && data.getFullYear() === currentYear;
+        if (m.classificacao !== 'despesa' || m.estado_pagamento !== 'pago') return false;
+        return isSameMonth(m.data_emissao);
       })
       .reduce((sum, m) => sum + Math.abs(toNumber(m.valor_total)), 0);
-
-    const valorMovimentosMes = (movimentos || [])
-      .filter((m) => {
-        const data = new Date(m.data_emissao);
-        return data.getMonth() === currentMonth && data.getFullYear() === currentYear;
-      })
-      .reduce((sum, m) => sum + toNumber(m.valor_total), 0);
 
     const receitasTotal = (lancamentos || [])
       .filter((l) => l.tipo === 'receita')
@@ -120,24 +108,14 @@ export function DashboardTab({ faturas, lancamentos, movimentos, extratos, centr
       .filter((l) => l.tipo === 'despesa')
       .reduce((sum, l) => sum + toNumber(l.valor), 0);
 
-    const totalGeral =
-      valorMensalidadesEmitidas +
-      valorMensalidadesPagas +
-      valorMensalidadesPendentes +
-      valorMensalidadesVencidas +
-      valorMovimentosMes;
+    const totalGeral = receitasMes - despesasMes;
 
     return {
-      mensalidadesVencidas: mensalidadesVencidas.length,
-      valorMensalidadesEmitidas,
-      valorMensalidadesPagas,
-      valorMensalidadesPendentes,
       valorMensalidadesVencidas,
       valorPendentes,
       mensalidadesCobradas: faturasCobradasMes,
       receitasMes,
       despesasMes,
-      valorMovimentosMes,
       receitasTotal,
       despesasTotal,
       totalGeral,
@@ -262,7 +240,7 @@ export function DashboardTab({ faturas, lancamentos, movimentos, extratos, centr
             <div className="min-w-0 flex-1">
               <p className="text-xs text-muted-foreground font-medium leading-tight">Mensalidades Vencidas</p>
               <p className="text-lg sm:text-xl font-bold text-red-600 mt-0.5 truncate">
-                {stats.mensalidadesVencidas}
+                €{stats.valorMensalidadesVencidas.toFixed(2)}
               </p>
             </div>
             <div className="p-1.5 rounded-lg bg-red-50 flex-shrink-0">

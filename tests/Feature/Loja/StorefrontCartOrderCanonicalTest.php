@@ -60,6 +60,7 @@ class StorefrontCartOrderCanonicalTest extends TestCase
 
     public function test_submit_order_uses_canonical_article_ids_and_decrements_stock(): void
     {
+        $admin = User::factory()->admin()->create(['nome_completo' => 'Admin Loja']);
         $user = User::factory()->create();
         $product = Product::query()->create([
             'codigo' => 'CAN-ORDER-001',
@@ -101,6 +102,13 @@ class StorefrontCartOrderCanonicalTest extends TestCase
 
         $product->refresh();
         $this->assertSame(6, (int) $product->stock);
+        $this->assertDatabaseHas('in_app_alerts', [
+            'user_id' => $admin->id,
+            'title' => 'Nova encomenda na Loja',
+            'link' => '/admin/loja/encomendas/' . $order->id,
+            'type' => 'warning',
+            'is_read' => false,
+        ]);
 
         $this->actingAs($user)
             ->getJson('/api/loja/encomendas/' . $order->id)

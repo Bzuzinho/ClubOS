@@ -1,262 +1,97 @@
-# Spark Original UI - Laravel Migration
+# ClubOS
 
-Laravel 11 + Inertia React migration of GitHub Spark template.
+Aplicação de gestão de clube construída com Laravel 11, Inertia React, Vite e Tailwind.
 
-## Quick Start
+## Stack atual
 
-### With Docker (Recommended)
-```bash
-docker-compose up -d
-composer install && npm install
-cp .env.example .env
-php artisan key:generate
-php artisan migrate:fresh
-npm run dev & php artisan serve
-```
+- Backend: Laravel 11, PHP 8.3, Composer
+- Frontend: React + Inertia + Vite + Tailwind
+- Base de dados: PostgreSQL/Neon quando aplicável; SQLite apenas para cenários locais controlados
+- Cache e filas: Redis em ambientes configurados, com fallback local conforme `.env`
+- Deploy: Oracle VM via SSH
 
-### Without Docker (Local)
-```bash
-cp .env.local.example .env
-php artisan key:generate
-php artisan migrate:fresh
-npm run dev & php artisan serve
-```
+## Módulos principais
 
-See [docs/SETUP.md](docs/SETUP.md) for detailed setup instructions.
+- Membros
+- Portal
+- Família
+- Desportivo
+- Financeiro
+- Eventos
+- Comunicação
+- Loja
+- Logística
+- Patrocínios
+- Configurações
 
-## Tech Stack
+## Requisitos
 
-- **Backend:** Laravel 11 + PHP 8.3
-- **Frontend:** React 18 + Inertia.js + Vite
-- **Database:** PostgreSQL 16
-- **Cache/Sessions:** Redis 7 (production) / File (local)
-- **Styling:** Tailwind CSS
-
-## Naming Conventions
-
-This project uses **100% Portuguese naming** for:
-- ✅ PostgreSQL database column names
-- ✅ Laravel Models (`$fillable`, `$casts`)
-- ✅ Eloquent relationships (foreign key names)
-- ✅ Database migrations
-- ✅ Controllers (queries)
-
-**Examples:**
-- ✅ `data_inicio` (not `start_date`)
-- ✅ `estado` (not `status`)
-- ✅ `titulo` (not `title`)
-- ✅ `criado_por` (not `created_by`)
-
-**Exception:** Core Laravel framework fields remain in English:
-- `name`, `email`, `password` (authentication)
-- `created_at`, `updated_at` (timestamps)
-- `remember_token` (sessions)
-
-## Development
-
-```bash
-# Start development servers
-npm run dev          # Vite dev server
-php artisan serve    # Laravel dev server
-
-# Run tests
-php artisan test
-
-# Check code style
-./vendor/bin/pint
-```
-
-## Architecture
-
-- **Models:** Eloquent ORM with relationships
-- **Controllers:** RESTful API endpoints
-- **Validation:** Form Requests
-- **Auth:** Laravel Breeze (Inertia React)
-- **UI Components:** React + Tailwind
-
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for detailed architecture info.
-
----
-
-# BSCN Club Management System
-
-Sistema completo de gestão de clube desportivo desenvolvido com Laravel 11 + Inertia.js + React.
-
-## 📋 Sobre o Projeto
-
-Sistema web completo para gestão de clubes desportivos que inclui:
-
-- ✅ **Dashboard** - Visão geral e estatísticas
-- ✅ **Gestão de Membros** - Atletas, sócios, staff
-- ✅ **Eventos** - Treinos, competições, convocatórias
-- ✅ **Módulo Desportivo** - Planeamento de treinos, resultados
-- ✅ **Financeiro** - Faturas, mensalidades, movimentos
-- ✅ **Loja/Inventário** - Produtos e vendas
-- ✅ **Patrocínios** - Gestão de patrocinadores
-- ✅ **Marketing** - Campanhas e comunicações
-- ✅ **Comunicação** - Sistema de notificações
-- ✅ **Configurações** - Personalização do sistema
-
-Migrado de **Spark** (React SPA com key-value storage) para **Laravel 11** com base de dados relacional e arquitetura moderna.
-
-## 🚀 Instalação Rápida
-
-### Pré-requisitos
-
-- PHP >= 8.3
+- PHP 8.3
 - Composer
-- Node.js >= 18
-- NPM ou Yarn
-- PostgreSQL 16
+- Node.js 20
+- npm
+- PostgreSQL
 
-### Passo a Passo
+## Instalação
 
 ```bash
-# 1. Clone o repositório
-git clone https://github.com/Bzuzinho/spark-original-ui.git
-cd spark-original-ui
-
-# 2. Instalar dependências PHP
 composer install
-
-# 3. Configurar ambiente
+npm ci
 cp .env.example .env
 php artisan key:generate
-
-# 4. Configurar base de dados PostgreSQL
-# Configurar variáveis no .env com credenciais PostgreSQL
-
-# 5. Executar migrações
-php artisan migrate --seed
-
-# 6. Criar link simbólico para storage
 php artisan storage:link
+php artisan migrate
+```
 
-# 7. Instalar dependências frontend
-npm install
+Ajuste o `.env` antes de migrar, em especial as credenciais de base de dados, cache, filas e mail.
 
-# 8. Build do frontend
-npm run build
+## Desenvolvimento
 
-# 9. Iniciar servidor
+```bash
 php artisan serve
-```
-
-Acesse em: **http://localhost:8000**
-
-**Credenciais padrão:**
-- Email: `admin@test.com`
-- Password: `password`
-
-### Dados de Demonstração (Opcional)
-
-Para popular o sistema com dados de exemplo:
-
-```bash
-php artisan db:seed --class=DemoSeeder
-```
-
-Isso criará:
-- 100 membros (75 atletas + 25 sócios/staff)
-- 30 eventos (passados e futuros)
-- 20 treinos
-- 10 patrocinadores
-- 15 produtos
-- 50 transações financeiras
-- Mensalidades e faturas
-
-## 🛠️ Desenvolvimento
-
-### Frontend com HMR
-
-```bash
 npm run dev
 ```
 
-### Executar Testes
+O frontend principal vive em `resources/js`, com páginas Inertia em `resources/js/Pages` e componentes reutilizáveis em `resources/js/Components`.
+
+## Build e testes
 
 ```bash
-# Todos os testes
 php artisan test
-
-# Com cobertura
-php artisan test --coverage
-
-# Testes específicos
-php artisan test --filter=FullWorkflowTest
+npm run build
 ```
 
-### Linting
+## Deploy
+
+O deploy para a Oracle VM é manual e pressupõe código já revisto, commitado e enviado para `main`.
 
 ```bash
-# PHP (Laravel Pint)
-./vendor/bin/pint
-
-# TypeScript/React  
-npm run lint
+npm run deploy:vm
 ```
 
-## 📚 Documentação
+Consulte `docs/deploy/DEPLOY.md` e `docs/deploy/DEPLOY_WORKFLOW.md` antes de executar deploy.
 
-- **[MIGRATION_COMPLETE.md](MIGRATION_COMPLETE.md)** - Documentação completa da migração
-- **[API_DOCUMENTATION.md](API_DOCUMENTATION.md)** - Documentação de todos os endpoints
-- **[DEPLOY.md](DEPLOY.md)** - Guia de deploy para produção
-- **[MAPPING.md](MAPPING.md)** - Mapeamento Spark → Laravel
+## Estrutura do projeto
 
-## ✅ Verificação da Instalação
-
-Execute o script de verificação para confirmar que tudo está correto:
-
-```bash
-./verify-migration.sh
+```text
+app/                  Código Laravel
+bootstrap/            Bootstrap da aplicação
+config/               Configuração
+database/             Migrations, seeders e factories
+docs/                 Documentação ativa e arquivo histórico
+public/               Assets públicos e build Vite
+resources/js/         Frontend Inertia React
+routes/               Rotas web e API
+storage/              Ficheiros gerados pela aplicação
+tests/                Testes automatizados
 ```
 
-Este script verifica:
-- ✅ Versão do PHP
-- ✅ Dependências instaladas
-- ✅ Migrações executadas
-- ✅ Testes passando
-- ✅ Build do frontend
-- ✅ Rotas configuradas
-- ✅ Modelos existentes
-- ✅ Páginas React criadas
-- ✅ Documentação completa
+## Documentação
 
-## 🏗️ Arquitetura
-
-### Backend
-- **Framework:** Laravel 11
-- **Database:** PostgreSQL (prod)
-- **Authentication:** Laravel Breeze + Sanctum
-- **API:** RESTful com Inertia.js
-
-### Frontend
-- **UI Framework:** React 18 + TypeScript
-- **Routing:** Inertia.js
-- **Styling:** Tailwind CSS
-- **Icons:** Phosphor Icons
-- **Components:** Radix UI
-
-### Estrutura
-
-```
-├── app/
-│   ├── Http/Controllers/    # Controllers
-│   ├── Models/              # Eloquent Models (40+)
-│   └── Http/Requests/       # Form Requests
-├── database/
-│   ├── migrations/          # Database migrations
-│   └── seeders/             # Seeders
-├── resources/js/
-│   ├── Pages/              # Inertia Pages
-│   └── Components/         # React Components
-├── routes/
-│   ├── web.php            # Web routes
-│   └── api.php            # API routes
-└── tests/
-    ├── Feature/           # Feature tests
-    └── Integration/       # Integration tests
-```
+- `docs/architecture/` para setup e notas técnicas de arquitetura
+- `docs/deploy/` para procedimentos de deploy
+- `docs/modules/` para documentação funcional e técnica de módulos ainda ativos
+- `docs/archive/` para histórico de migração, relatórios de fase e documentação obsoleta
 
 ## 🚢 Deploy em Produção
 

@@ -1,5 +1,6 @@
 import { Head, router, usePage } from '@inertiajs/react';
-import { ArrowRight, Package, ShoppingBag, Truck, TriangleAlert } from 'lucide-react';
+import { ArrowRight, BellRing, Package, ShoppingBag, Truck, TriangleAlert } from 'lucide-react';
+import { Alert, AlertDescription, AlertTitle } from '@/Components/ui/alert';
 import { Card, CardContent, CardHeader, CardTitle } from '@/Components/ui/card';
 import { Button } from '@/Components/ui/button';
 import { SmallMetric, SectionTitle } from '@/components/sports/shared';
@@ -32,6 +33,8 @@ type PageProps = SharedPageProps<AdminStoreDashboardProps>;
 export default function AdminStoreDashboard() {
     const { props } = usePage<PageProps>();
     const { dashboard } = props;
+    const storeAlerts = (props.communicationAlerts?.recent ?? []).filter((alert) => alert.link?.startsWith('/admin/loja/encomendas/'));
+    const unreadStoreAlerts = storeAlerts.filter((alert) => !alert.is_read);
 
     return (
         <StoreAdminShell
@@ -42,6 +45,33 @@ export default function AdminStoreDashboard() {
             <Head title="Administração da Loja" />
 
             <div className="space-y-3">
+                {unreadStoreAlerts.length > 0 ? (
+                    <Alert className="border-amber-200 bg-amber-50 text-amber-950">
+                        <BellRing className="h-4 w-4 text-amber-600" />
+                        <AlertTitle>Novas encomendas para validar</AlertTitle>
+                        <AlertDescription>
+                            <div className="space-y-3">
+                                <p>
+                                    Existem {unreadStoreAlerts.length} alerta(s) de nova compra na loja do utilizador por tratar.
+                                </p>
+                                <div className="grid gap-2 md:grid-cols-2">
+                                    {unreadStoreAlerts.slice(0, 3).map((alert) => (
+                                        <button
+                                            key={alert.id}
+                                            type="button"
+                                            onClick={() => router.visit(alert.link || '/admin/loja/encomendas')}
+                                            className="rounded-md border border-amber-200 bg-white px-3 py-2 text-left transition hover:border-amber-300 hover:bg-amber-100/60"
+                                        >
+                                            <span className="block text-sm font-semibold text-slate-900">{alert.title}</span>
+                                            <span className="mt-1 block text-xs text-slate-600">{alert.message}</span>
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        </AlertDescription>
+                    </Alert>
+                ) : null}
+
                 <div className="grid gap-2 grid-cols-2 xl:grid-cols-4">
                     <SmallMetric label="Produtos ativos" value={dashboard.total_produtos_ativos} hint="catálogo publicado" icon={<Package className="h-4 w-4 text-blue-600" />} />
                     <SmallMetric label="Sem stock" value={dashboard.produtos_sem_stock} hint="reposições pendentes" icon={<TriangleAlert className="h-4 w-4 text-amber-600" />} />

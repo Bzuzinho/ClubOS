@@ -4,12 +4,14 @@ namespace App\Services\Communication;
 
 use App\Models\InAppAlert;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Cache;
 
 class InAppAlertService
 {
     public function createAlerts(array $payload, Collection $recipients): int
     {
         $created = 0;
+        $affectedUserIds = [];
 
         foreach ($recipients as $recipient) {
             if (empty($recipient['user_id'])) {
@@ -28,8 +30,11 @@ class InAppAlertService
                 'visible_until' => $payload['visible_until'] ?? null,
             ]);
 
+            $affectedUserIds[] = (string) $recipient['user_id'];
             $created++;
         }
+
+        $this->forgetSharedAlertCaches($affectedUserIds);
 
         return $created;
     }
@@ -42,6 +47,8 @@ class InAppAlertService
                 'is_read' => true,
                 'read_at' => now(),
             ]);
+
+        $this->forgetSharedAlertCache($userId);
     }
 
     public function markAsUnread(string $alertId, string $userId): void
@@ -52,6 +59,8 @@ class InAppAlertService
                 'is_read' => false,
                 'read_at' => null,
             ]);
+
+        $this->forgetSharedAlertCache($userId);
     }
 
     public function markAllAsRead(string $userId): void
@@ -62,6 +71,8 @@ class InAppAlertService
                 'is_read' => true,
                 'read_at' => now(),
             ]);
+
+        $this->forgetSharedAlertCache($userId);
     }
 
     public function unreadCount(string $userId): int
@@ -96,5 +107,20 @@ class InAppAlertService
         InAppAlert::where('id', $alertId)
             ->where('user_id', $userId)
             ->delete();
+
+        $this->forgetSharedAlertCache($userId);
+    }
+
+    private function forgetSharedAlertCaches(array $userIds): void
+    {
+        collect($userIds)
+            ->filter()
+            ->unique()
+            ->each(fn (string $userId) => $this->forgetSharedAlertCache($userId));
+    }
+
+    private function forgetSharedAlertCache(string $userId): void
+    {
+        Cache::forget('shared:communication_alerts:' . $userId);
     }
 }

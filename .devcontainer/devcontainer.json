@@ -1,1 +1,27 @@
-{"name": "spark-original-ui (Node 20)", "image": "mcr.microsoft.com/devcontainers/base:ubuntu", "features": {"ghcr.io/devcontainers/features/node:1": {"version": "20"}, "ghcr.io/devcontainers/features/sshd:1": {"version": "latest"}}, "postCreateCommand": "node -v && npm -v"}
+{
+	"name": "ClubOS Laravel 11 + Inertia React",
+	"build": {
+		"dockerfile": "Dockerfile",
+		"context": ".."
+	},
+	"features": {
+		"ghcr.io/devcontainers/features/node:1": {
+			"version": "20"
+		},
+		"ghcr.io/devcontainers/features/sshd:1": {
+			"version": "latest"
+		}
+	},
+	"customizations": {
+		"vscode": {
+			"extensions": [
+				"bmewburn.vscode-intelephense-client",
+				"xdebug.php-debug",
+				"bradlc.vscode-tailwindcss",
+				"esbenp.prettier-vscode"
+			]
+		}
+	},
+	"postCreateCommand": "bash .devcontainer/post-create.sh",
+	"remoteUser": "vscode"
+}

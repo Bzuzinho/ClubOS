@@ -218,13 +218,12 @@ if [[ "$(git rev-parse --abbrev-ref HEAD 2>/dev/null)" != "main" ]]; then
   exit 1
 fi
 
-if ! git config user.email >/dev/null 2>&1 || ! git config user.name >/dev/null 2>&1; then
-  echo "❌ Git user.name/user.email não configurados neste repositório."
-  echo "   Corre: git config user.name 'Teu Nome' && git config user.email 'teu@email.com'"
+if [[ -n "$(git status --porcelain 2>/dev/null)" ]]; then
+  echo "❌ Existem alterações locais não commitadas. Faça commit/push manualmente antes de executar o deploy."
   exit 1
 fi
 
-echo "   ✔ branch=main, git user configurado"
+echo "   ✔ branch=main, working tree limpo"
 
 # ===== [1/6] Build frontend no Codespace =====
 echo ""
@@ -241,33 +240,23 @@ if [[ ! -f "public/build/manifest.json" ]]; then
 fi
 echo "   ✔ Build OK (public/build/manifest.json presente)"
 
-# ===== [2/6] Git sync + commit + push =====
+# ===== [2/6] Validar sincronização Git =====
 echo ""
-echo "==> [2/6] Sincronizar Git (auto-commit + rebase + push)"
+echo "==> [2/6] Confirmar que main já foi enviada conscientemente"
 
-if [[ -n "$(git status --porcelain 2>/dev/null)" ]]; then
-  AUTO_COMMIT_MSG="${AUTO_COMMIT_MSG:-chore(deploy): auto-commit before vm deploy $(date +%Y-%m-%d_%H-%M-%S)}"
-  echo "    Alterações locais detectadas — auto commit"
-  git add -A
-  if git diff --cached --quiet; then
-    echo "    Sem alterações staged após git add -A"
-  else
-    git commit -m "${AUTO_COMMIT_MSG}"
-    echo "   ✔ Auto-commit criado"
-  fi
-else
-  echo "    Working tree limpo — sem auto-commit"
-fi
-
-echo "    fetch/rebase com origin/main ..."
+echo "    fetch origin/main ..."
 git fetch origin main
-if ! git merge-base --is-ancestor origin/main HEAD; then
-  git pull --rebase origin main
+
+LOCAL_HEAD="$(git rev-parse HEAD)"
+REMOTE_HEAD="$(git rev-parse origin/main)"
+
+if [[ "${LOCAL_HEAD}" != "${REMOTE_HEAD}" ]]; then
+  echo "❌ O commit local atual ainda não corresponde a origin/main."
+  echo "   Faça commit/push manualmente antes de executar o deploy."
+  exit 1
 fi
 
-echo "    push origin main ..."
-git push origin main
-echo "   ✔ Push OK"
+echo "   ✔ main local sincronizada com origin/main"
 
 # ===== [3/6] Garantir SSH funcional =====
 echo ""

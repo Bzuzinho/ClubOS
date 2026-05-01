@@ -10,7 +10,9 @@ use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Models\User;
 use App\Services\Catalog\CanonicalProductStockService;
+use App\Services\Communication\InAppAlertService;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
@@ -22,6 +24,7 @@ class LojaEncomendaService
         private readonly CanonicalProductStockService $stockService,
         private readonly LojaFinanceiroService $financeiroService,
         private readonly StoreProfileResolver $profileResolver,
+        private readonly InAppAlertService $inAppAlertService,
     ) {
     }
 
@@ -94,43 +97,54 @@ class LojaEncomendaService
                 $order->update(['fatura_id' => $faturaId]);
             }
 
+            $freshOrder = $order->fresh(['itens.article.category', 'itens.productVariant', 'user', 'targetUser']);
+            $this->dispatchOperationalAlert($freshOrder);
+
             $cart->update([
                 'estado' => LojaCarrinho::ESTADO_CONVERTIDO,
             ]);
 
-            return $order->fresh(['itens.article.category', 'itens.productVariant', 'user', 'targetUser']);
+            return $freshOrder;
         });
     }
 
     public function updateEstado(LojaEncomenda $encomenda, string $estado, User $actor): LojaEncomenda
     {
-        $estado = trim($estado);
-        $allowedStates = [
-            LojaEncomenda::ESTADO_PENDENTE,
-            LojaEncomenda::ESTADO_APROVADO,
-            LojaEncomenda::ESTADO_PREPARADO,
-            LojaEncomenda::ESTADO_ENTREGUE,
-            LojaEncomenda::ESTADO_CANCELADO,
-        ];
+        return DB::transaction(function () use ($encomenda, $estado, $actor) {
+            $estado = trim($estado);
+            $allowedStates = [
+                LojaEncomenda::ESTADO_PENDENTE,
+                LojaEncomenda::ESTADO_APROVADO,
+                LojaEncomenda::ESTADO_PREPARADO,
+                LojaEncomenda::ESTADO_ENTREGUE,
+                LojaEncomenda::ESTADO_CANCELADO,
+            ];
 
-        if (! in_array($estado, $allowedStates, true)) {
-            throw ValidationException::withMessages([
-                'estado' => 'Estado de encomenda inválido.',
+            if (! in_array($estado, $allowedStates, true)) {
+                throw ValidationException::withMessages([
+                    'estado' => 'Estado de encomenda inválido.',
+                ]);
+            }
+
+            $encomenda = LojaEncomenda::query()->whereKey($encomenda->id)->lockForUpdate()->firstOrFail();
+
+            if ($encomenda->estado === LojaEncomenda::ESTADO_ENTREGUE && $estado === LojaEncomenda::ESTADO_CANCELADO) {
+                throw ValidationException::withMessages([
+                    'estado' => 'Não é possível cancelar uma encomenda já entregue.',
+                ]);
+            }
+
+            $encomenda->update([
+                'estado' => $estado,
+                'updated_by' => $actor->id,
             ]);
-        }
 
-        if ($encomenda->estado === LojaEncomenda::ESTADO_ENTREGUE && $estado === LojaEncomenda::ESTADO_CANCELADO) {
-            throw ValidationException::withMessages([
-                'estado' => 'Não é possível cancelar uma encomenda já entregue.',
-            ]);
-        }
+            if ($estado === LojaEncomenda::ESTADO_ENTREGUE) {
+                $this->financeiroService->syncDeliveredRevenueMovement($encomenda);
+            }
 
-        $encomenda->update([
-            'estado' => $estado,
-            'updated_by' => $actor->id,
-        ]);
-
-        return $encomenda->fresh(['itens.article.category', 'itens.productVariant', 'user', 'targetUser']);
+            return $encomenda->fresh(['itens.article.category', 'itens.productVariant', 'user', 'targetUser']);
+        });
     }
 
     public function visibleForUser(Builder $query, User $user): Builder
@@ -185,5 +199,43 @@ class LojaEncomendaService
         } while (LojaEncomenda::query()->where('numero', $numero)->exists());
 
         return $numero;
+    }
+
+    private function dispatchOperationalAlert(LojaEncomenda $order): void
+    {
+        $recipients = $this->operationalRecipients();
+
+        if ($recipients->isEmpty()) {
+            return;
+        }
+
+        $customerName = $order->user?->nome_completo ?: $order->user?->name ?: 'utilizador sem nome';
+        $targetSuffix = $order->targetUser && $order->target_user_id !== $order->user_id
+            ? ' para ' . ($order->targetUser->nome_completo ?: $order->targetUser->name ?: 'perfil associado')
+            : '';
+
+        $this->inAppAlertService->createAlerts([
+            'title' => 'Nova encomenda na Loja',
+            'message' => sprintf('Foi gerada a encomenda %s por %s%s.', $order->numero, $customerName, $targetSuffix),
+            'link' => '/admin/loja/encomendas/' . $order->id,
+            'type' => 'warning',
+        ], $recipients);
+    }
+
+    private function operationalRecipients(): Collection
+    {
+        return User::query()
+            ->where(function (Builder $builder) {
+                $builder->where('estado', 'ativo')->orWhereNull('estado');
+            })
+            ->where(function (Builder $builder) {
+                $builder->whereIn('perfil', ['admin', 'administrador', 'gestor', 'logistica'])
+                    ->orWhereJsonContains('tipo_membro', 'admin')
+                    ->orWhereJsonContains('tipo_membro', 'gestor')
+                    ->orWhereJsonContains('tipo_membro', 'logistica');
+            })
+            ->get(['id'])
+            ->map(fn (User $recipient) => ['user_id' => (string) $recipient->id])
+            ->values();
     }
 }

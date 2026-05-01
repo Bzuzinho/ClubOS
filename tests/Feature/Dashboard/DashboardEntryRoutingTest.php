@@ -3,6 +3,8 @@
 namespace Tests\Feature\Dashboard;
 
 use App\Http\Middleware\HandleInertiaRequests;
+use App\Models\Invoice;
+use App\Models\Movement;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -135,6 +137,47 @@ class DashboardEntryRoutingTest extends TestCase
         $response->assertOk();
         $response->assertJsonPath('component', 'Dashboard/Atleta');
         $response->assertJsonPath('props.has_family', false);
+    }
+
+    public function test_athlete_dashboard_current_account_includes_financial_movements(): void
+    {
+        $athlete = User::factory()->athlete()->create([
+            'tipo_membro' => ['atleta'],
+        ]);
+
+        Invoice::query()->create([
+            'user_id' => $athlete->id,
+            'mes' => 'Mensalidade Abril',
+            'data_fatura' => now()->subDay()->toDateString(),
+            'data_emissao' => now()->subDay()->toDateString(),
+            'data_vencimento' => now()->addDays(7)->toDateString(),
+            'valor_total' => 40,
+            'oculta' => false,
+            'estado_pagamento' => 'pendente',
+            'tipo' => 'mensalidade',
+        ]);
+
+        $firstResponse = $this->inertiaGetAs($athlete, '/dashboard');
+
+        $firstResponse->assertOk();
+        $firstResponse->assertJsonPath('props.component', null);
+        $firstResponse->assertJsonPath('props.resumo.conta_corrente', 40);
+
+        Movement::query()->create([
+            'user_id' => $athlete->id,
+            'classificacao' => 'receita',
+            'data_emissao' => now()->toDateString(),
+            'data_vencimento' => now()->addDays(5)->toDateString(),
+            'valor_total' => 15,
+            'estado_pagamento' => 'pendente',
+            'tipo' => 'material',
+            'referencia_pagamento' => 'LOJA-001',
+        ]);
+
+        $secondResponse = $this->inertiaGetAs($athlete, '/dashboard');
+
+        $secondResponse->assertOk();
+        $secondResponse->assertJsonPath('props.resumo.conta_corrente', 55);
     }
 
     public function test_family_route_requires_family_access_and_renders_family_portal(): void

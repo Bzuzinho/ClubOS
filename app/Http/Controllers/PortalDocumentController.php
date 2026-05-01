@@ -6,6 +6,7 @@ use App\Models\Season;
 use App\Models\User;
 use App\Models\UserDocument;
 use App\Services\Family\FamilyService;
+use Illuminate\Filesystem\FilesystemAdapter;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -98,7 +99,7 @@ class PortalDocumentController extends Controller
             'expiry_date' => ['nullable', 'date'],
         ]);
 
-        $path = $request->file('file')->store('portal/documents', 'public');
+        $path = $request->file('file')->store('private/user-documents', 'local');
 
         $user->documents()->create([
             'type' => $validated['type'],
@@ -508,15 +509,25 @@ class PortalDocumentController extends Controller
     {
         /** @var User $user */
         $user = $request->user();
+        $disk = $this->userDocumentDisk($document);
 
         abort_unless((string) $document->user_id === (string) $user->id, 404);
-        abort_unless(Storage::disk('public')->exists($document->file_path), 404);
+        abort_unless($disk->exists($document->file_path), 404);
 
         $filename = $this->downloadFilename($document->type, $document->file_path, $document->name);
 
         return $download
-            ? Storage::disk('public')->download($document->file_path, $filename)
-            : Storage::disk('public')->response($document->file_path, $filename, ['Content-Disposition' => 'inline; filename="' . $filename . '"']);
+            ? $disk->download($document->file_path, $filename)
+            : $disk->response($document->file_path, $filename, ['Content-Disposition' => 'inline; filename="' . $filename . '"']);
+    }
+
+    private function userDocumentDisk(UserDocument $document): FilesystemAdapter
+    {
+        if (Storage::disk('local')->exists($document->file_path)) {
+            return Storage::disk('local');
+        }
+
+        return Storage::disk('public');
     }
 
     private function legacyDocumentPath(User $user, string $documentType): ?string

@@ -7,6 +7,7 @@ use App\Models\InternalMessage;
 use App\Models\InternalMessageRecipient;
 use App\Models\Invoice;
 use App\Models\LogisticsRequest;
+use App\Models\Movement;
 use App\Models\Product;
 use App\Models\Result;
 use App\Models\User;
@@ -389,8 +390,17 @@ class PortalPageController extends Controller
             ->orderByDesc('created_at')
             ->get();
 
+        $financeMovements = Movement::query()
+            ->where('user_id', $user->id)
+            ->where('classificacao', 'receita')
+            ->orderByDesc('data_emissao')
+            ->orderByDesc('created_at')
+            ->get();
+
         $movements = $invoices
             ->map(fn (Invoice $invoice) => $this->mapPaymentMovement($invoice, $today))
+            ->concat($financeMovements->map(fn (Movement $movement) => $this->mapFinancialMovement($movement, $today)))
+            ->sortByDesc(fn (array $movement) => sprintf('%s-%s', $movement['date'] ?? '', $movement['id']))
             ->values();
 
         $openInvoices = $movements
@@ -481,7 +491,7 @@ class PortalPageController extends Controller
             'date' => optional($invoice->data_emissao ?: $invoice->data_fatura)->toDateString(),
             'due_date' => optional($invoice->data_vencimento)->toDateString(),
             'amount' => round((float) $invoice->valor_total, 2),
-            'status' => $this->normalizePaymentStatus($invoice, $today),
+            'status' => $this->normalizeStatus((string) $invoice->estado_pagamento, $invoice->data_vencimento, $today),
             'reference' => $invoice->referencia_pagamento,
             'receipt_number' => $invoice->numero_recibo,
             'payment_method' => null,
@@ -494,11 +504,34 @@ class PortalPageController extends Controller
     }
 
     /**
+     * @return array<string, mixed>
+     */
+    private function mapFinancialMovement(Movement $movement, Carbon $today): array
+    {
+        return [
+            'id' => $movement->id,
+            'description' => $movement->referencia_pagamento ? 'Loja - ' . $movement->referencia_pagamento : 'Movimento material',
+            'date' => optional($movement->data_emissao)->toDateString(),
+            'due_date' => optional($movement->data_vencimento)->toDateString(),
+            'amount' => round((float) $movement->valor_total, 2),
+            'status' => $this->normalizeStatus((string) $movement->estado_pagamento, $movement->data_vencimento, $today),
+            'reference' => $movement->referencia_pagamento,
+            'receipt_number' => $movement->numero_recibo,
+            'payment_method' => $movement->metodo_pagamento,
+            'actions' => [
+                'can_view_receipt' => filled($movement->numero_recibo),
+                'can_view_detail' => true,
+                'can_pay' => false,
+            ],
+        ];
+    }
+
+    /**
      * @return array{key:string,label:string}
      */
-    private function normalizePaymentStatus(Invoice $invoice, Carbon $today): array
+    private function normalizeStatus(string $rawStatus, mixed $dueDate, Carbon $today): array
     {
-        $rawStatus = strtolower(trim((string) $invoice->estado_pagamento));
+        $rawStatus = strtolower(trim($rawStatus));
 
         if ($rawStatus === 'cancelado') {
             return ['key' => 'cancelled', 'label' => 'Cancelado'];
@@ -512,7 +545,7 @@ class PortalPageController extends Controller
             return ['key' => 'partial', 'label' => 'Parcial'];
         }
 
-        if ($rawStatus === 'vencido' || ($invoice->data_vencimento && $invoice->data_vencimento->lt($today))) {
+        if ($rawStatus === 'vencido' || ($dueDate && $dueDate->lt($today))) {
             return ['key' => 'overdue', 'label' => 'Vencido'];
         }
 

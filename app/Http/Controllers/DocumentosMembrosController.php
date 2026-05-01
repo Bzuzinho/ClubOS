@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\User;
 use App\Models\UserDocument;
+use Illuminate\Filesystem\FilesystemAdapter;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Storage;
@@ -36,7 +37,7 @@ class DocumentosMembrosController extends Controller
         ]);
 
         // Store the file
-        $path = $request->file('file')->store('documents', 'public');
+        $path = $request->file('file')->store('private/user-documents', 'local');
 
         $document = $member->documents()->create([
             'type' => $validated['type'],
@@ -65,7 +66,7 @@ class DocumentosMembrosController extends Controller
 
         // Delete file from storage
         if ($document->file_path) {
-            Storage::disk('public')->delete($document->file_path);
+            $this->userDocumentDisk($document)->delete($document->file_path);
         }
 
         $document->delete();
@@ -73,5 +74,14 @@ class DocumentosMembrosController extends Controller
         return response()->json([
             'message' => 'Documento eliminado com sucesso!',
         ]);
+    }
+
+    private function userDocumentDisk(UserDocument $document): FilesystemAdapter
+    {
+        if (Storage::disk('local')->exists($document->file_path)) {
+            return Storage::disk('local');
+        }
+
+        return Storage::disk('public');
     }
 }

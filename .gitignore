@@ -25,6 +25,8 @@ dist-ssr
 *.sw?
 
 .env
+.env.*
+!.env.example
 **/agent-eval-report*
 packages
 pids
@@ -32,6 +34,8 @@ pids
 #.devcontainer/
 
 .spark-workbench-id
+.phpunit.result.cache
+test-results/
 
 # Laravel
 /vendor/
@@ -45,6 +49,10 @@ Homestead.yaml
 # Database
 /database/*.sqlite
 /database/*.sqlite-journal
+*.sqlite
+*.sqlite-journal
+*.sql
+*.dump
 
 # Cache
 /bootstrap/cache/*
@@ -61,8 +69,12 @@ vite.config.spark.backup.ts
 .env.db.tmp
 *.backup
 *.bak
+*.old
 *.swp
 *.swo
+.tmp/
+.venv/
+.venv-*/
 
 # Build artifacts
 /public/build/*
