@@ -6,6 +6,7 @@ use App\Models\Competition;
 use App\Models\Prova;
 use App\Models\Training;
 use App\Models\TrainingAthlete;
+use App\Models\TrainingTypeConfig;
 use App\Models\User;
 use App\Services\Desportivo\PrepareTrainingAthletesAction;
 use App\Services\Desportivo\Queries\GetCompetitionListSummary;
@@ -20,19 +21,30 @@ class SportsCanonicalFlowTest extends TestCase
     public function test_training_creation_flow(): void
     {
         $user = User::factory()->create();
+        $trainingType = TrainingTypeConfig::create([
+            'codigo' => 'tecnico',
+            'nome' => 'Treino Técnico',
+            'nome_en' => 'Technical Training',
+            'descricao' => 'Foco técnico',
+            'cor' => '#3B82F6',
+            'ativo' => true,
+            'ordem' => 1,
+        ]);
+
         $this->actingAs($user);
 
         $response = $this->postJson('/api/desportivo/trainings', [
             'data' => '2026-03-10',
-            'tipo_treino' => 'tecnico',
+            'tipo_treino' => $trainingType->nome,
             'descricao_treino' => 'Treino tecnico',
             'volume_planeado_m' => 4200,
         ]);
 
         $response->assertCreated();
         $this->assertDatabaseHas('trainings', [
-            'tipo_treino' => 'tecnico',
-            'volume_planeado_m' => 4200,        ]);
+            'tipo_treino' => $trainingType->nome,
+            'volume_planeado_m' => 4200,
+        ]);
     }
 
     public function test_athlete_assignment_to_training_flow(): void

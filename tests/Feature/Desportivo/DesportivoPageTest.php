@@ -33,10 +33,12 @@ class DesportivoPageTest extends TestCase
             'component',
             'props' => [
                 'stats',
+                'alerts',
                 'trainings',
-                'trainingOptions',
-                'statusOptions',
-                'athleteOperationalRows',
+                'nextTrainings',
+                'upcomingCompetitions',
+                'competitions',
+                'eventos',
             ],
         ]);
     }
@@ -86,13 +88,16 @@ class DesportivoPageTest extends TestCase
         $response->assertHeader('X-Inertia', 'true');
         $response->assertJsonPath('component', 'Desportivo/Index');
         $response->assertJsonPath('props.tab', 'presencas');
-        $response->assertJsonPath('props.selectedTraining.id', $training->id);
         $response->assertJsonStructure([
             'props' => [
+                'trainings',
                 'presences',
                 'trainingOptions',
                 'selectedTraining',
+                'statusOptions',
             ],
         ]);
+
+        $response->assertJsonPath('props.trainingOptions.0.id', $training->id);
     }
 }

@@ -6,10 +6,10 @@ use Tests\TestCase;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use App\Models\User;
 use App\Models\Event;
-use App\Models\EventType;
 use App\Models\Invoice;
 use App\Models\Product;
 use Carbon\Carbon;
+use Illuminate\Support\Str;
 
 class PerformanceTest extends TestCase
 {
@@ -59,7 +59,7 @@ class PerformanceTest extends TestCase
         User::factory()->count(200)->create();
 
         $start = microtime(true);
-        $response = $this->get('/members');
+        $response = $this->get(route('membros.index'));
         $duration = microtime(true) - $start;
 
         $response->assertStatus(200);
@@ -76,23 +76,22 @@ class PerformanceTest extends TestCase
         $admin = User::where('email', 'admin@test.com')->first();
         $this->actingAs($admin);
 
-        $eventType = EventType::first();
-
         // Create 100 events
         for ($i = 0; $i < 100; $i++) {
             Event::create([
-                'nome' => "Event {$i}",
-                'tipo' => $eventType->id,
-                'data_inicio' => Carbon::now()->addDays(rand(-30, 30))->format('Y-m-d H:i:s'),
-                'data_fim' => Carbon::now()->addDays(rand(-30, 30))->addHours(2)->format('Y-m-d H:i:s'),
+                'titulo' => "Evento {$i}",
+                'tipo' => 'prova',
+                'estado' => 'agendado',
+                'data_inicio' => Carbon::now()->addDays(rand(-30, 30))->format('Y-m-d'),
+                'data_fim' => Carbon::now()->addDays(rand(-30, 30))->addDays(1)->format('Y-m-d'),
                 'local' => 'Test Venue',
                 'descricao' => 'Performance test event',
-                'escalao' => ['Juvenis'],
+                'criado_por' => $admin->id,
             ]);
         }
 
         $start = microtime(true);
-        $response = $this->get('/events');
+        $response = $this->get(route('eventos.index'));
         $duration = microtime(true) - $start;
 
         $response->assertStatus(200);
@@ -115,18 +114,20 @@ class PerformanceTest extends TestCase
         foreach ($users as $user) {
             for ($i = 0; $i < 5; $i++) {
                 Invoice::create([
-                    'numero' => "INV-{$user->id}-{$i}",
                     'user_id' => $user->id,
+                    'data_fatura' => now()->subMonths($i)->format('Y-m-d'),
+                    'mes' => now()->subMonths($i)->translatedFormat('F'),
                     'data_emissao' => now()->subMonths($i)->format('Y-m-d'),
                     'data_vencimento' => now()->subMonths($i)->addDays(15)->format('Y-m-d'),
                     'valor_total' => rand(30, 100),
-                    'estado' => rand(0, 1) ? 'pago' : 'pendente',
+                    'estado_pagamento' => rand(0, 1) ? 'pago' : 'pendente',
+                    'tipo' => 'mensalidade',
                 ]);
             }
         }
 
         $start = microtime(true);
-        $response = $this->get('/financial');
+        $response = $this->get(route('financeiro.index'));
         $duration = microtime(true) - $start;
 
         $response->assertStatus(200);
@@ -148,9 +149,13 @@ class PerformanceTest extends TestCase
             Product::create([
                 'nome' => "Product {$i}",
                 'descricao' => "Description for product {$i}",
+                'codigo' => sprintf('PROD-%03d', $i),
                 'preco' => rand(5, 50),
                 'stock' => rand(0, 100),
+                'stock_minimo' => 0,
                 'ativo' => true,
+                'visible_in_store' => true,
+                'allow_sale' => true,
             ]);
         }
 
@@ -193,6 +198,7 @@ class PerformanceTest extends TestCase
         for ($i = 0; $i < 100; $i++) {
             $userData[] = [
                 'name' => "Bulk User {$i}",
+                'id' => (string) Str::uuid(),
                 'email' => "bulk{$i}@test.com",
                 'password' => bcrypt('password'),
                 'numero_socio' => str_pad($i + 1000, 4, '0', STR_PAD_LEFT),
@@ -206,6 +212,7 @@ class PerformanceTest extends TestCase
                 'consentimento' => true,
                 'afiliacao' => false,
                 'declaracao_de_transporte' => false,
+                'ativo_desportivo' => false,
                 'created_at' => now(),
                 'updated_at' => now(),
             ];

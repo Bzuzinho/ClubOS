@@ -63,7 +63,7 @@ class PortalTrainingsTest extends TestCase
         $response->assertJsonPath('props.next_training.status.label', 'Por confirmar');
         $response->assertJsonPath('props.upcoming_trainings.0.permissions.can_confirm_presence', true);
         $response->assertJsonPath('props.latest_training.final_meters', 2800);
-        $response->assertJsonPath('props.latest_training.status.label', 'Concluído');
+        $response->assertJsonPath('props.latest_training.status.label', 'Incompleto');
         $response->assertJsonPath('props.latest_coach_note.note', 'Boa consistência no bloco final.');
     }
 

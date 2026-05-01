@@ -62,7 +62,7 @@ class FullWorkflowTest extends TestCase
         $this->assertEquals('atleta', $member->perfil);
 
         // 3. Create an event
-        $eventType = EventType::where('name', 'Treino')->first();
+        $eventType = EventType::where('nome', 'Treino')->first();
         $this->assertNotNull($eventType);
 
         $event = Event::create([
