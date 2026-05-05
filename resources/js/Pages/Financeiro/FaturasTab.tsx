@@ -237,7 +237,63 @@ export function FaturasTab({
   const refreshInvoices = () => {
     router.reload({
       only: ['faturas', 'faturaItens', 'lancamentos'],
+      preserveScroll: true,
     });
+  };
+
+  const liquidateInvoice = async (
+    invoiceId: string,
+    payload: {
+      user_id: string;
+      data_emissao: string;
+      data_vencimento: string;
+      data_fatura?: string;
+      mes?: string | null;
+      tipo: Fatura['tipo'];
+      valor_total: number;
+      estado_pagamento?: Fatura['estado_pagamento'];
+      numero_recibo?: string | null;
+      centro_custo_id?: string | null;
+      observacoes?: string | null;
+      origem_tipo?: Fatura['origem_tipo'] | null;
+      origem_id?: string | null;
+      oculta?: boolean;
+      items: Array<{
+        descricao: string;
+        quantidade: number;
+        valor_unitario: number;
+        imposto_percentual?: number;
+        total_linha: number;
+        produto_id?: string;
+        centro_custo_id?: string | null;
+      }>;
+    },
+  ) => {
+    try {
+      const response = await axios.put(route('financeiro.update', invoiceId), payload, {
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+          'X-Requested-With': 'XMLHttpRequest',
+          'X-CSRF-TOKEN': getCsrfToken(),
+        },
+        withCredentials: true,
+      });
+
+      return response.data.invoice as Fatura & { items?: FaturaItem[] };
+    } catch (error) {
+      if (axios.isAxiosError(error)) {
+        const responseData = error.response?.data as
+          | { message?: string; errors?: Record<string, string[]> }
+          | undefined;
+        const validationErrors = responseData?.errors
+          ? Object.values(responseData.errors).flat().join(' ')
+          : '';
+        throw new Error(validationErrors || responseData?.message || 'Erro ao liquidar fatura');
+      }
+
+      throw error;
+    }
   };
 
   const [formData, setFormData] = useState({
@@ -350,7 +406,7 @@ export function FaturasTab({
               },
             ];
 
-        const updated = await persistInvoiceUpdate(faturaId, {
+        const updated = await liquidateInvoice(faturaId, {
           user_id: fatura.user_id,
           data_emissao: fatura.data_emissao,
           data_vencimento: fatura.data_vencimento,

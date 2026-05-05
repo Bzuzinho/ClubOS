@@ -353,6 +353,61 @@ export function FiscalDocumentsTab() {
     setDetailsOpen(true);
   };
 
+  const renderRequestActions = (request: FiscalDocumentRequest, align: 'start' | 'end' = 'start') => {
+    const canMarkIssued = request.status === 'pending' || request.status === 'in_progress' || request.status === 'error_data';
+    const canMarkError = request.status !== 'issued' && request.status !== 'cancelled';
+    const canCancel = request.status !== 'issued' && request.status !== 'cancelled';
+    const actionPrefix = `request:${request.id}`;
+
+    return (
+      <div className={`flex flex-wrap gap-2 ${align === 'end' ? 'justify-end' : ''}`}>
+        {request.status === 'pending' ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={submitting === `${actionPrefix}:progress`}
+            onClick={() => void handleAction(
+              `${actionPrefix}:progress`,
+              route('financeiro.fiscal-document-requests.mark-in-progress', request.id),
+              {},
+              'Pedido marcado como em tratamento.',
+            )}
+          >
+            <PencilSimple size={16} className="mr-1.5" />
+            Tratar
+          </Button>
+        ) : null}
+
+        {canMarkIssued ? (
+          <Button type="button" size="sm" variant="outline" onClick={() => openIssuedModal(request)}>
+            <CheckCircle size={16} className="mr-1.5" />
+            Emitido
+          </Button>
+        ) : null}
+
+        {canMarkError ? (
+          <Button type="button" size="sm" variant="outline" onClick={() => openErrorModal(request)}>
+            <WarningCircle size={16} className="mr-1.5" />
+            Erro dados
+          </Button>
+        ) : null}
+
+        {canCancel ? (
+          <Button type="button" size="sm" variant="outline" onClick={() => openCancelModal(request)}>
+            <XCircle size={16} className="mr-1.5" />
+            Cancelar
+          </Button>
+        ) : null}
+
+        <Button type="button" size="sm" variant="ghost" onClick={() => openDetailsModal(request)}>
+          <Eye size={16} className="mr-1.5" />
+          Ver
+        </Button>
+      </div>
+    );
+  };
+
   return (
     <div className="space-y-4">
       <Card className="p-4 sm:p-5">
@@ -464,34 +519,75 @@ export function FiscalDocumentsTab() {
             Nao existem documentos fiscais pendentes para os filtros selecionados.
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <Table>
+          <>
+            <div className="space-y-3 p-4 xl:hidden">
+              {requests.map((request) => {
+                const alert = getRequestAlert(request);
+
+                return (
+                  <div key={request.id} className="rounded-lg border bg-background p-4 shadow-sm">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div className="flex flex-wrap gap-2">
+                        <Badge variant="outline" className={STATUS_BADGE_CLASSNAMES[request.status]}>
+                          {STATUS_LABELS[request.status]}
+                        </Badge>
+                        <Badge variant="outline" className={PRIORITY_BADGE_CLASSNAMES[request.priority]}>
+                          {PRIORITY_LABELS[request.priority]}
+                        </Badge>
+                        {alert ? (
+                          <Badge variant="outline" className="border-orange-200 bg-orange-50 text-orange-700">
+                            <ClockCounterClockwise size={12} className="mr-1" />
+                            {alert}
+                          </Badge>
+                        ) : null}
+                      </div>
+                      <div className="text-xs text-muted-foreground">{formatDate(request.created_at, true)}</div>
+                    </div>
+
+                    <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                      <DetailItem label="Cliente" value={getCustomerLabel(request)} multiline />
+                      <DetailItem label="NIF" value={request.customer_tax_number || request.user?.nif || 'Sem NIF'} />
+                      <DetailItem label="Tipo documento" value={DOCUMENT_TYPE_LABELS[request.document_type] || request.document_type} />
+                      <DetailItem label="Valor" value={formatCurrency(request.amount)} />
+                      <DetailItem label="Data pagamento" value={formatDate(request.paid_at)} />
+                      <DetailItem label="Prazo/limite" value={formatDate(request.due_at)} />
+                      <DetailItem label="Referencia interna" value={request.internal_reference || '—'} multiline />
+                      <DetailItem label="Provider" value={getProviderLabel(request.provider)} />
+                      <DetailItem label="Nº documento externo" value={request.external_document_number || '—'} multiline />
+                    </div>
+
+                    <div className="mt-4 border-t pt-3">
+                      {renderRequestActions(request)}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="hidden xl:block">
+              <Table className="table-fixed">
               <TableHeader>
                 <TableRow>
-                  <TableHead>Estado</TableHead>
-                  <TableHead>Prioridade</TableHead>
-                  <TableHead>Cliente/Utilizador</TableHead>
-                  <TableHead>Tipo documento</TableHead>
-                  <TableHead>Valor</TableHead>
-                  <TableHead>Data pagamento</TableHead>
-                  <TableHead>Prazo/limite</TableHead>
-                  <TableHead>Referencia interna</TableHead>
-                  <TableHead>Nº documento externo</TableHead>
-                  <TableHead>Criado em</TableHead>
-                  <TableHead className="text-right">Acoes</TableHead>
+                  <TableHead className="whitespace-normal">Estado</TableHead>
+                  <TableHead className="whitespace-normal">Prioridade</TableHead>
+                  <TableHead className="whitespace-normal">Cliente/Utilizador</TableHead>
+                  <TableHead className="whitespace-normal">Tipo documento</TableHead>
+                  <TableHead className="whitespace-normal">Valor</TableHead>
+                  <TableHead className="whitespace-normal">Data pagamento</TableHead>
+                  <TableHead className="whitespace-normal">Prazo/limite</TableHead>
+                  <TableHead className="whitespace-normal">Referencia interna</TableHead>
+                  <TableHead className="whitespace-normal">Nº documento externo</TableHead>
+                  <TableHead className="whitespace-normal">Criado em</TableHead>
+                  <TableHead className="text-right whitespace-normal">Acoes</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {requests.map((request) => {
                   const alert = getRequestAlert(request);
-                  const canMarkIssued = request.status === 'pending' || request.status === 'in_progress' || request.status === 'error_data';
-                  const canMarkError = request.status !== 'issued' && request.status !== 'cancelled';
-                  const canCancel = request.status !== 'issued' && request.status !== 'cancelled';
-                  const actionPrefix = `request:${request.id}`;
 
                   return (
                     <TableRow key={request.id}>
-                      <TableCell>
+                      <TableCell className="align-top whitespace-normal break-words">
                         <div className="flex flex-col gap-1">
                           <Badge variant="outline" className={STATUS_BADGE_CLASSNAMES[request.status]}>
                             {STATUS_LABELS[request.status]}
@@ -504,80 +600,37 @@ export function FiscalDocumentsTab() {
                           ) : null}
                         </div>
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="align-top whitespace-normal break-words">
                         <Badge variant="outline" className={PRIORITY_BADGE_CLASSNAMES[request.priority]}>
                           {PRIORITY_LABELS[request.priority]}
                         </Badge>
                       </TableCell>
-                      <TableCell>
-                        <div className="min-w-[180px]">
-                          <div className="font-medium text-foreground">{getCustomerLabel(request)}</div>
+                      <TableCell className="align-top whitespace-normal break-words">
+                        <div className="max-w-[15rem]">
+                          <div className="font-medium text-foreground break-words">{getCustomerLabel(request)}</div>
                           <div className="text-xs text-muted-foreground">{request.customer_tax_number || request.user?.nif || 'Sem NIF'}</div>
                         </div>
                       </TableCell>
-                      <TableCell>{DOCUMENT_TYPE_LABELS[request.document_type] || request.document_type}</TableCell>
-                      <TableCell>{formatCurrency(request.amount)}</TableCell>
-                      <TableCell>{formatDate(request.paid_at)}</TableCell>
-                      <TableCell>{formatDate(request.due_at)}</TableCell>
-                      <TableCell>
-                        <div className="min-w-[140px] text-sm text-foreground">{request.internal_reference || '—'}</div>
+                      <TableCell className="align-top whitespace-normal break-words">{DOCUMENT_TYPE_LABELS[request.document_type] || request.document_type}</TableCell>
+                      <TableCell className="align-top whitespace-normal break-words">{formatCurrency(request.amount)}</TableCell>
+                      <TableCell className="align-top whitespace-normal break-words">{formatDate(request.paid_at)}</TableCell>
+                      <TableCell className="align-top whitespace-normal break-words">{formatDate(request.due_at)}</TableCell>
+                      <TableCell className="align-top whitespace-normal break-words">
+                        <div className="max-w-[12rem] text-sm text-foreground break-words">{request.internal_reference || '—'}</div>
                         <div className="text-xs text-muted-foreground">{getProviderLabel(request.provider)}</div>
                       </TableCell>
-                      <TableCell>{request.external_document_number || '—'}</TableCell>
-                      <TableCell>{formatDate(request.created_at, true)}</TableCell>
-                      <TableCell>
-                        <div className="flex flex-wrap justify-end gap-2">
-                          {request.status === 'pending' ? (
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="outline"
-                              disabled={submitting === `${actionPrefix}:progress`}
-                              onClick={() => void handleAction(
-                                `${actionPrefix}:progress`,
-                                route('financeiro.fiscal-document-requests.mark-in-progress', request.id),
-                                {},
-                                'Pedido marcado como em tratamento.',
-                              )}
-                            >
-                              <PencilSimple size={16} className="mr-1.5" />
-                              Tratar
-                            </Button>
-                          ) : null}
-
-                          {canMarkIssued ? (
-                            <Button type="button" size="sm" variant="outline" onClick={() => openIssuedModal(request)}>
-                              <CheckCircle size={16} className="mr-1.5" />
-                              Emitido
-                            </Button>
-                          ) : null}
-
-                          {canMarkError ? (
-                            <Button type="button" size="sm" variant="outline" onClick={() => openErrorModal(request)}>
-                              <WarningCircle size={16} className="mr-1.5" />
-                              Erro dados
-                            </Button>
-                          ) : null}
-
-                          {canCancel ? (
-                            <Button type="button" size="sm" variant="outline" onClick={() => openCancelModal(request)}>
-                              <XCircle size={16} className="mr-1.5" />
-                              Cancelar
-                            </Button>
-                          ) : null}
-
-                          <Button type="button" size="sm" variant="ghost" onClick={() => openDetailsModal(request)}>
-                            <Eye size={16} className="mr-1.5" />
-                            Ver
-                          </Button>
-                        </div>
+                      <TableCell className="align-top whitespace-normal break-words">{request.external_document_number || '—'}</TableCell>
+                      <TableCell className="align-top whitespace-normal break-words">{formatDate(request.created_at, true)}</TableCell>
+                      <TableCell className="align-top whitespace-normal break-words">
+                        {renderRequestActions(request, 'end')}
                       </TableCell>
                     </TableRow>
                   );
                 })}
               </TableBody>
-            </Table>
-          </div>
+              </Table>
+            </div>
+          </>
         )}
 
         <div className="flex flex-col gap-3 border-t px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between">
