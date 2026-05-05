@@ -18,6 +18,7 @@ use App\Models\MapaConciliacao;
 use App\Models\Product;
 use App\Models\User;
 use App\Services\Club\ClubSettingsService;
+use App\Services\Financeiro\FiscalDocumentRequestService;
 use App\Services\Financeiro\ReconciliationAliasService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -859,6 +860,7 @@ class FinanceiroController extends Controller
 
         $lancamentos = [];
         $mapas = [];
+        $mapasPorFatura = [];
         $faturasAtualizadas = [];
         $movimentosAtualizados = [];
         $faturasAfetadas = [];
@@ -914,7 +916,7 @@ class FinanceiroController extends Controller
                 'metodo_pagamento' => 'transferencia',
             ]);
 
-            $mapas[] = MapaConciliacao::create([
+            $mapa = MapaConciliacao::create([
                 'extrato_id' => $extrato->id,
                 'lancamento_id' => $entry->id,
                 'fatura_id' => $fatura?->id,
@@ -925,6 +927,12 @@ class FinanceiroController extends Controller
                 'status' => 'confirmado',
                 'regra_usada' => 'manual',
             ]);
+
+            $mapas[] = $mapa;
+
+            if ($fatura?->id) {
+                $mapasPorFatura[$fatura->id] = $mapa;
+            }
 
             $lancamentos[] = $entry;
             $totalConciliado += $valorItem;
@@ -953,6 +961,23 @@ class FinanceiroController extends Controller
             }
             $fatura->save();
             $faturasAtualizadas[] = $fatura;
+
+            if ($fatura->estado_pagamento === 'pago' && isset($mapasPorFatura[$fatura->id])) {
+                try {
+                    app(FiscalDocumentRequestService::class)->createFromReconciliation($mapasPorFatura[$fatura->id], [
+                        'paid_at' => $extrato->data_movimento,
+                        'bank_statement_id' => $extrato->id,
+                        'financial_entry_id' => $mapasPorFatura[$fatura->id]->lancamento_id,
+                        'created_by' => $request->user()?->id,
+                    ]);
+                } catch (\Throwable $exception) {
+                    \Log::warning('FinanceiroController::conciliarExtrato - fiscal request creation failed', [
+                        'invoice_id' => $fatura->id,
+                        'bank_statement_id' => $extrato->id,
+                        'error' => $exception->getMessage(),
+                    ]);
+                }
+            }
         }
 
         foreach ($movimentosAfetados as $movimentoId => $estadoAnterior) {

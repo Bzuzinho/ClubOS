@@ -29,6 +29,8 @@ interface BancoTabProps {
   users: User[];
 }
 
+// Fiscal document request queue will be hooked here after reconciliation is confirmed.
+
 export function BancoTab({
   extratos,
   setExtratos,

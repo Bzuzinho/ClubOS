@@ -38,6 +38,7 @@ use App\Http\Controllers\ConfiguracoesDesportivoController;
 use App\Http\Controllers\LogisticaController;
 use App\Http\Controllers\EquipasController;
 use App\Http\Controllers\Financeiro\BankReconciliationAliasController;
+use App\Http\Controllers\Financeiro\FiscalDocumentRequestController;
 use App\Http\Controllers\PortalTrainingController;
 use App\Http\Controllers\PortalEventController;
 use App\Http\Controllers\MembrosEquipaController;
@@ -115,6 +116,10 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::post('/portal/familia/membros', [FamilyPortalController::class, 'storeMember'])
         ->name('portal.family.members.store');
     
+    Route::get('financeiro/fiscal-document-requests', [FiscalDocumentRequestController::class, 'index'])
+        ->middleware(['module.access:financeiro', 'permission.access:financeiro.dashboard,view'])
+        ->name('financeiro.fiscal-document-requests.index');
+
     // Resource routes
     Route::resource('membros', MembrosController::class)
         ->middleware('module.access:membros')
@@ -467,6 +472,28 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::delete('/extratos/{extrato}', [FinanceiroController::class, 'destroyExtrato'])->name('financeiro.extratos.destroy');
         Route::post('/extratos/{extrato}/conciliar', [FinanceiroController::class, 'conciliarExtrato'])->name('financeiro.extratos.conciliar');
         Route::post('/extratos/{extrato}/desconciliar', [FinanceiroController::class, 'desconciliarExtrato'])->name('financeiro.extratos.desconciliar');
+
+        Route::post('/fiscal-document-requests', [FiscalDocumentRequestController::class, 'store'])
+            ->middleware('permission.access:financeiro.dashboard,edit')
+            ->name('financeiro.fiscal-document-requests.store');
+        Route::patch('/fiscal-document-requests/{fiscalDocumentRequest}', [FiscalDocumentRequestController::class, 'update'])
+            ->middleware('permission.access:financeiro.dashboard,edit')
+            ->name('financeiro.fiscal-document-requests.update');
+        Route::post('/fiscal-document-requests/{fiscalDocumentRequest}/mark-in-progress', [FiscalDocumentRequestController::class, 'markInProgress'])
+            ->middleware('permission.access:financeiro.dashboard,edit')
+            ->name('financeiro.fiscal-document-requests.mark-in-progress');
+        Route::post('/fiscal-document-requests/{fiscalDocumentRequest}/mark-issued', [FiscalDocumentRequestController::class, 'markIssued'])
+            ->middleware('permission.access:financeiro.dashboard,edit')
+            ->name('financeiro.fiscal-document-requests.mark-issued');
+        Route::post('/fiscal-document-requests/{fiscalDocumentRequest}/mark-cancelled', [FiscalDocumentRequestController::class, 'markCancelled'])
+            ->middleware('permission.access:financeiro.dashboard,edit')
+            ->name('financeiro.fiscal-document-requests.mark-cancelled');
+        Route::post('/fiscal-document-requests/{fiscalDocumentRequest}/mark-error-data', [FiscalDocumentRequestController::class, 'markErrorData'])
+            ->middleware('permission.access:financeiro.dashboard,edit')
+            ->name('financeiro.fiscal-document-requests.mark-error-data');
+        Route::delete('/fiscal-document-requests/{fiscalDocumentRequest}', [FiscalDocumentRequestController::class, 'destroy'])
+            ->middleware('permission.access:financeiro.dashboard,delete')
+            ->name('financeiro.fiscal-document-requests.destroy');
     });
 });
 
