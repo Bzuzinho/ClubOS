@@ -226,6 +226,7 @@ export function FaturasTab({
   const [dataInicioMensalidades, setDataInicioMensalidades] = useState('');
   const [editingFaturaId, setEditingFaturaId] = useState<string | null>(null);
   const [showFutureInvoices, setShowFutureInvoices] = useState(false);
+  const [creatingFiscalRequestId, setCreatingFiscalRequestId] = useState<string | null>(null);
 
   const invoiceTypeOptions = (invoiceTypes || []).filter((type) => type.ativo);
   const getInvoiceTypeLabel = (tipo: string) => {
@@ -490,6 +491,48 @@ export function FaturasTab({
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Erro ao apagar fatura';
       toast.error(message);
+    }
+  };
+
+  const handleCreateFiscalDocumentRequest = async (faturaId: string) => {
+    setCreatingFiscalRequestId(faturaId);
+
+    try {
+      const response = await fetch(route('financeiro.invoices.fiscal-document-request.store', faturaId), {
+        method: 'POST',
+        headers: {
+          Accept: 'application/json',
+          'X-Requested-With': 'XMLHttpRequest',
+          'X-CSRF-TOKEN': getCsrfToken(),
+        },
+        credentials: 'same-origin',
+      });
+
+      let data: any = null;
+      try {
+        data = await response.json();
+      } catch (error) {
+        data = null;
+      }
+
+      const message = data?.message || 'Nao foi possivel criar o pedido fiscal.';
+
+      if (!response.ok) {
+        throw new Error(message);
+      }
+
+      if (response.status === 201) {
+        toast.success(`${message} Consulte a tab Emissao Fiscal.`);
+      } else {
+        toast.info(message);
+      }
+
+      refreshInvoices();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Erro ao criar pedido fiscal';
+      toast.error(message);
+    } finally {
+      setCreatingFiscalRequestId(null);
     }
   };
 
@@ -1594,6 +1637,18 @@ export function FaturasTab({
                           >
                             <PencilSimple size={14} />
                           </Button>
+                          {fatura.estado_pagamento === 'pago' && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 px-2 text-[11px]"
+                              onClick={() => handleCreateFiscalDocumentRequest(fatura.id)}
+                              disabled={creatingFiscalRequestId === fatura.id}
+                              title="Criar pedido fiscal"
+                            >
+                              Criar pedido fiscal
+                            </Button>
+                          )}
                           <button
                             type="button"
                             className="inline-flex h-7 w-7 items-center justify-center rounded-md hover:bg-accent"
@@ -1627,7 +1682,7 @@ export function FaturasTab({
                     <TableHead className="flex-1 min-w-[120px]">Vencimento</TableHead>
                     <TableHead className="hidden sm:table-cell w-24 text-right">Valor</TableHead>
                     <TableHead className="hidden md:table-cell w-20">Estado</TableHead>
-                    <TableHead className="w-20 text-right">Acoes</TableHead>
+                    <TableHead className="w-48 text-right">Acoes</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -1664,6 +1719,18 @@ export function FaturasTab({
                               {(fatura.estado_pagamento === 'pendente' || fatura.estado_pagamento === 'vencido') && (
                                 <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => handleAbrirDialogoRecibo(fatura.id)} title="Liquidar">
                                   <Check size={14} />
+                                </Button>
+                              )}
+                              {fatura.estado_pagamento === 'pago' && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-7 px-2 text-[11px]"
+                                  onClick={() => handleCreateFiscalDocumentRequest(fatura.id)}
+                                  disabled={creatingFiscalRequestId === fatura.id}
+                                  title="Criar pedido fiscal"
+                                >
+                                  Criar pedido fiscal
                                 </Button>
                               )}
                               <button

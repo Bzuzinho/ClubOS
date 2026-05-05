@@ -473,6 +473,10 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::post('/extratos/{extrato}/conciliar', [FinanceiroController::class, 'conciliarExtrato'])->name('financeiro.extratos.conciliar');
         Route::post('/extratos/{extrato}/desconciliar', [FinanceiroController::class, 'desconciliarExtrato'])->name('financeiro.extratos.desconciliar');
 
+        Route::post('/invoices/{invoice}/fiscal-document-request', [FiscalDocumentRequestController::class, 'createFromInvoice'])
+            ->middleware('permission.access:financeiro.dashboard,edit')
+            ->name('financeiro.invoices.fiscal-document-request.store');
+
         Route::post('/fiscal-document-requests', [FiscalDocumentRequestController::class, 'store'])
             ->middleware('permission.access:financeiro.dashboard,edit')
             ->name('financeiro.fiscal-document-requests.store');

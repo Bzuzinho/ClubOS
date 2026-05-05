@@ -9,6 +9,26 @@ use Illuminate\Support\Carbon;
 
 class FiscalDocumentRequestService
 {
+    public function findActiveForInvoice($invoice, ?string $provider = null, ?string $documentType = null): ?FiscalDocumentRequest
+    {
+        $invoiceId = $invoice instanceof Invoice ? $invoice->id : $invoice;
+
+        $query = FiscalDocumentRequest::query()
+            ->where('invoice_id', $invoiceId)
+            ->where('provider', $provider ?? FiscalDocumentRequest::PROVIDER_WINTOUCH)
+            ->whereIn('status', [
+                FiscalDocumentRequest::STATUS_PENDING,
+                FiscalDocumentRequest::STATUS_IN_PROGRESS,
+                FiscalDocumentRequest::STATUS_ISSUED,
+            ]);
+
+        if ($documentType !== null) {
+            $query->where('document_type', $documentType);
+        }
+
+        return $query->latest('created_at')->first();
+    }
+
     public function createFromReconciliation($reconciliation, array $options = []): ?FiscalDocumentRequest
     {
         $invoiceId = data_get($reconciliation, 'fatura_id')
@@ -43,17 +63,7 @@ class FiscalDocumentRequestService
         $provider = $options['provider'] ?? FiscalDocumentRequest::PROVIDER_WINTOUCH;
         $documentType = $options['document_type'] ?? FiscalDocumentRequest::DOCUMENT_TYPE_RECEIPT;
 
-        $existingRequest = FiscalDocumentRequest::query()
-            ->where('invoice_id', $resolvedInvoice->id)
-            ->where('provider', $provider)
-            ->where('document_type', $documentType)
-            ->whereIn('status', [
-                FiscalDocumentRequest::STATUS_PENDING,
-                FiscalDocumentRequest::STATUS_IN_PROGRESS,
-                FiscalDocumentRequest::STATUS_ISSUED,
-            ])
-            ->latest('created_at')
-            ->first();
+        $existingRequest = $this->findActiveForInvoice($resolvedInvoice, $provider, $documentType);
 
         if ($existingRequest) {
             return $existingRequest;

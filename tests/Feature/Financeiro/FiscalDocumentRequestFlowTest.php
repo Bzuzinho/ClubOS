@@ -248,7 +248,74 @@ class FiscalDocumentRequestFlowTest extends TestCase
             ->assertJsonPath('data.0.internal_reference', 'FISC-ALFA-1');
     }
 
-    private function createInvoice(): Invoice
+    public function test_it_creates_manual_request_for_paid_invoice(): void
+    {
+        $user = User::factory()->admin()->create();
+        $invoice = $this->createInvoice('pago');
+
+        $response = $this->actingAs($user)->postJson(
+            route('financeiro.invoices.fiscal-document-request.store', $invoice)
+        );
+
+        $response
+            ->assertCreated()
+            ->assertJsonPath('message', 'Pedido fiscal criado com sucesso.')
+            ->assertJsonPath('data.invoice_id', $invoice->id)
+            ->assertJsonPath('data.provider', FiscalDocumentRequest::PROVIDER_WINTOUCH)
+            ->assertJsonPath('data.document_type', FiscalDocumentRequest::DOCUMENT_TYPE_RECEIPT);
+
+        $this->assertDatabaseHas('fiscal_document_requests', [
+            'invoice_id' => $invoice->id,
+            'provider' => FiscalDocumentRequest::PROVIDER_WINTOUCH,
+            'document_type' => FiscalDocumentRequest::DOCUMENT_TYPE_RECEIPT,
+        ]);
+    }
+
+    public function test_it_does_not_create_manual_request_for_unpaid_invoice(): void
+    {
+        $user = User::factory()->admin()->create();
+        $invoice = $this->createInvoice('pendente');
+
+        $response = $this->actingAs($user)->postJson(
+            route('financeiro.invoices.fiscal-document-request.store', $invoice)
+        );
+
+        $response
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'So e possivel criar pedido fiscal para faturas pagas.');
+
+        $this->assertDatabaseMissing('fiscal_document_requests', [
+            'invoice_id' => $invoice->id,
+        ]);
+    }
+
+    public function test_it_returns_existing_manual_request_for_the_same_paid_invoice(): void
+    {
+        $user = User::factory()->admin()->create();
+        $invoice = $this->createInvoice('pago');
+
+        $existing = FiscalDocumentRequest::create([
+            'invoice_id' => $invoice->id,
+            'user_id' => $invoice->user_id,
+            'provider' => FiscalDocumentRequest::PROVIDER_WINTOUCH,
+            'document_type' => FiscalDocumentRequest::DOCUMENT_TYPE_RECEIPT,
+            'status' => FiscalDocumentRequest::STATUS_PENDING,
+            'priority' => FiscalDocumentRequest::PRIORITY_NORMAL,
+        ]);
+
+        $response = $this->actingAs($user)->postJson(
+            route('financeiro.invoices.fiscal-document-request.store', $invoice)
+        );
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('message', 'Ja existe pedido fiscal para esta fatura.')
+            ->assertJsonPath('data.id', $existing->id);
+
+        $this->assertDatabaseCount('fiscal_document_requests', 1);
+    }
+
+    private function createInvoice(string $estadoPagamento = 'pendente'): Invoice
     {
         $user = User::factory()->create([
             'nome_completo' => 'Socio Fiscal',
@@ -272,7 +339,7 @@ class FiscalDocumentRequestFlowTest extends TestCase
             'data_emissao' => '2026-05-01',
             'data_vencimento' => '2026-05-05',
             'valor_total' => 55.00,
-            'estado_pagamento' => 'pendente',
+            'estado_pagamento' => $estadoPagamento,
             'numero_recibo' => null,
             'referencia_pagamento' => 'REF-2026-05',
             'centro_custo_id' => $costCenter->id,

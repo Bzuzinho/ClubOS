@@ -111,6 +111,33 @@ class FiscalDocumentRequestController extends Controller
         ], 201);
     }
 
+    public function createFromInvoice(Request $request, Invoice $invoice): JsonResponse
+    {
+        if ($invoice->estado_pagamento !== 'pago') {
+            return response()->json([
+                'message' => 'So e possivel criar pedido fiscal para faturas pagas.',
+            ], 422);
+        }
+
+        $existingRequest = $this->service->findActiveForInvoice($invoice);
+
+        if ($existingRequest) {
+            return response()->json([
+                'message' => 'Ja existe pedido fiscal para esta fatura.',
+                'data' => $existingRequest->load(['invoice', 'user', 'bankStatement']),
+            ]);
+        }
+
+        $fiscalRequest = $this->service->createFromInvoice($invoice, [
+            'created_by' => $request->user()?->id,
+        ]);
+
+        return response()->json([
+            'message' => 'Pedido fiscal criado com sucesso.',
+            'data' => $fiscalRequest->load(['invoice', 'user', 'bankStatement']),
+        ], 201);
+    }
+
     public function update(Request $request, FiscalDocumentRequest $fiscalDocumentRequest): JsonResponse
     {
         $validated = $request->validate($this->updateRules());
