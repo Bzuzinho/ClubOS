@@ -5,30 +5,14 @@ import { Card } from '@/Components/ui/card';
 import { Input } from '@/Components/ui/input';
 import { Badge } from '@/Components/ui/badge';
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/Components/ui/select';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-  DialogFooter,
-} from '@/Components/ui/dialog';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
+  AlertDialog as ConfirmDialog,
+  AlertDialogAction as ConfirmDialogAction,
+  AlertDialogCancel as ConfirmDialogCancel,
+  AlertDialogContent as ConfirmDialogContent,
+  AlertDialogDescription as ConfirmDialogDescription,
+  AlertDialogFooter as ConfirmDialogFooter,
+  AlertDialogHeader as ConfirmDialogHeader,
+  AlertDialogTitle as ConfirmDialogTitle,
 } from '@/Components/ui/alert-dialog';
 import { Label } from '@/Components/ui/label';
 import { Textarea } from '@/Components/ui/textarea';
@@ -311,7 +295,7 @@ export function EventosList({
       hora_fim: '',
       local: '',
       local_detalhes: '',
-      tipo: 'evento_interno',
+      tipo: defaultEventTypeValue,
       tipo_piscina: '',
       visibilidade: 'publico',
       escaloes_elegiveis: [],
@@ -332,6 +316,10 @@ export function EventosList({
       recorrencia_dias_semana: [],
     });
     setEditingEvent(null);
+  };
+
+  const closeEventModal = () => {
+    setDialogOpen(false);
   };
 
   const toggleEventSelection = (eventId: string) => {
@@ -462,25 +450,39 @@ export function EventosList({
               Eliminar ({selectedEvents.size})
             </Button>
           )}
-          <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-            <DialogTrigger asChild>
-              <Button onClick={() => resetForm()} className="h-8 text-xs">
-                <Plus size={14} className="mr-1.5" />
-                Novo Evento
-              </Button>
-            </DialogTrigger>
-            {dialogOpen ? (
-            <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle>
-                {editingEvent ? 'Editar Evento' : 'Novo Evento'}
-              </DialogTitle>
-              <DialogDescription>
-                {editingEvent
-                  ? 'Atualize os detalhes do evento'
-                  : 'Crie um novo evento desportivo ou atividade do clube'}
-              </DialogDescription>
-            </DialogHeader>
+          <Button
+            onClick={() => {
+              resetForm();
+              setDialogOpen(true);
+            }}
+            className="h-8 text-xs"
+          >
+            <Plus size={14} className="mr-1.5" />
+            Novo Evento
+          </Button>
+
+          {dialogOpen ? (
+            <div
+              className="fixed inset-0 z-50 flex items-start justify-center bg-black/45 p-4 pt-10 sm:items-center"
+              onClick={closeEventModal}
+            >
+              <div
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="event-modal-title"
+                className="w-full max-w-4xl max-h-[90vh] overflow-y-auto rounded-lg border bg-background p-6 shadow-xl"
+                onClick={(event) => event.stopPropagation()}
+              >
+                <div className="space-y-1">
+                  <h2 id="event-modal-title" className="text-lg font-semibold">
+                    {editingEvent ? 'Editar Evento' : 'Novo Evento'}
+                  </h2>
+                  <p className="text-sm text-muted-foreground">
+                    {editingEvent
+                      ? 'Atualize os detalhes do evento'
+                      : 'Crie um novo evento desportivo ou atividade do clube'}
+                  </p>
+                </div>
 
             <div className="space-y-6">
               {/* Informações Básicas */}
@@ -503,51 +505,48 @@ export function EventosList({
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="tipo">Tipo *</Label>
-                    <Select
+                    <select
+                      id="tipo"
                       value={formData.tipo}
-                      onValueChange={(value) =>
+                      onChange={(event) =>
                         setFormData({
                           ...formData,
-                          tipo: value,
-                          tipo_piscina: value === 'prova' ? formData.tipo_piscina : '',
+                          tipo: event.target.value,
+                          tipo_piscina: event.target.value === 'prova' ? formData.tipo_piscina : '',
                         })
                       }
+                      className="flex h-9 w-full rounded-md border border-input bg-white px-3 py-2 text-sm shadow-xs outline-none"
                     >
-                      <SelectTrigger id="tipo" className="bg-white">
-                        <SelectValue placeholder="Selecionar..." />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {eventTypeOptions.map((option) => (
-                          <SelectItem key={option.value} value={option.value}>
-                            {option.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                      {eventTypeOptions.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
                   </div>
 
                   <div className="space-y-2">
                     <Label htmlFor="centro_custo_id">Centro de Custo</Label>
-                    <Select
+                    <select
+                      id="centro_custo_id"
                       value={formData.centro_custo_id || 'none'}
-                      onValueChange={(value) =>
-                        setFormData({ ...formData, centro_custo_id: value === 'none' ? '' : value })
+                      onChange={(event) =>
+                        setFormData({
+                          ...formData,
+                          centro_custo_id: event.target.value === 'none' ? '' : event.target.value,
+                        })
                       }
+                      className="flex h-9 w-full rounded-md border border-input bg-white px-3 py-2 text-sm shadow-xs outline-none"
                     >
-                      <SelectTrigger id="centro_custo_id" className="bg-white">
-                        <SelectValue placeholder="Selecionar..." />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="none">Nenhum</SelectItem>
-                        {(costCenters || [])
-                          .filter((cc) => cc.ativo !== false)
-                          .map((cc) => (
-                            <SelectItem key={cc.id} value={cc.id}>
-                              {cc.codigo ? `${cc.codigo} - ${cc.nome}` : cc.nome}
-                            </SelectItem>
-                          ))}
-                      </SelectContent>
-                    </Select>
+                      <option value="none">Nenhum</option>
+                      {(costCenters || [])
+                        .filter((cc) => cc.ativo !== false)
+                        .map((cc) => (
+                          <option key={cc.id} value={cc.id}>
+                            {cc.codigo ? `${cc.codigo} - ${cc.nome}` : cc.nome}
+                          </option>
+                        ))}
+                    </select>
                   </div>
                 </div>
 
@@ -650,21 +649,19 @@ export function EventosList({
                   {formData.tipo === 'prova' && (
                     <div className="space-y-2">
                       <Label htmlFor="tipo_piscina">Tipo de Piscina</Label>
-                      <Select
+                      <select
+                        id="tipo_piscina"
                         value={formData.tipo_piscina}
-                        onValueChange={(value) =>
-                          setFormData({ ...formData, tipo_piscina: value })
+                        onChange={(event) =>
+                          setFormData({ ...formData, tipo_piscina: event.target.value })
                         }
+                        className="flex h-9 w-full rounded-md border border-input bg-white px-3 py-2 text-sm shadow-xs outline-none"
                       >
-                        <SelectTrigger id="tipo_piscina" className="bg-white">
-                          <SelectValue placeholder="Selecionar..." />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="piscina_25m">Piscina de 25m</SelectItem>
-                          <SelectItem value="piscina_50m">Piscina de 50m</SelectItem>
-                          <SelectItem value="aguas_abertas">Águas Abertas</SelectItem>
-                        </SelectContent>
-                      </Select>
+                        <option value="">Selecionar...</option>
+                        <option value="piscina_25m">Piscina de 25m</option>
+                        <option value="piscina_50m">Piscina de 50m</option>
+                        <option value="aguas_abertas">Águas Abertas</option>
+                      </select>
                     </div>
                   )}
                 </div>
@@ -880,41 +877,35 @@ export function EventosList({
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="visibilidade">Visibilidade</Label>
-                    <Select
+                    <select
+                      id="visibilidade"
                       value={formData.visibilidade}
-                      onValueChange={(value) =>
-                        setFormData({ ...formData, visibilidade: value })
+                      onChange={(event) =>
+                        setFormData({ ...formData, visibilidade: event.target.value })
                       }
+                      className="flex h-9 w-full rounded-md border border-input bg-white px-3 py-2 text-sm shadow-xs outline-none"
                     >
-                      <SelectTrigger id="visibilidade" className="bg-white">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="publico">Público</SelectItem>
-                        <SelectItem value="privado">Privado</SelectItem>
-                        <SelectItem value="interno">Interno</SelectItem>
-                      </SelectContent>
-                    </Select>
+                      <option value="publico">Público</option>
+                      <option value="privado">Privado</option>
+                      <option value="interno">Interno</option>
+                    </select>
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="estado">Estado</Label>
-                    <Select
+                    <select
+                      id="estado"
                       value={formData.estado}
-                      onValueChange={(value) =>
-                        setFormData({ ...formData, estado: value })
+                      onChange={(event) =>
+                        setFormData({ ...formData, estado: event.target.value })
                       }
+                      className="flex h-9 w-full rounded-md border border-input bg-white px-3 py-2 text-sm shadow-xs outline-none"
                     >
-                      <SelectTrigger id="estado" className="bg-white">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="rascunho">Rascunho</SelectItem>
-                        <SelectItem value="agendado">Agendado</SelectItem>
-                        <SelectItem value="em_curso">A decorrer</SelectItem>
-                        <SelectItem value="concluido">Concluído</SelectItem>
-                        <SelectItem value="cancelado">Cancelado</SelectItem>
-                      </SelectContent>
-                    </Select>
+                      <option value="rascunho">Rascunho</option>
+                      <option value="agendado">Agendado</option>
+                      <option value="em_curso">A decorrer</option>
+                      <option value="concluido">Concluído</option>
+                      <option value="cancelado">Cancelado</option>
+                    </select>
                   </div>
                 </div>
               </div>
@@ -1012,17 +1003,17 @@ export function EventosList({
               </div>
             </div>
 
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setDialogOpen(false)}>
+                <div className="mt-6 flex justify-end gap-2">
+              <Button variant="outline" onClick={closeEventModal}>
                 Cancelar
               </Button>
               <Button onClick={handleSave} disabled={isSubmitting}>
                 {isSubmitting ? 'A guardar...' : 'Guardar'}
               </Button>
-            </DialogFooter>
-          </DialogContent>
-            ) : null}
-        </Dialog>
+                </div>
+              </div>
+            </div>
+          ) : null}
       </div>
       </div>
 
@@ -1302,7 +1293,10 @@ export function EventosList({
                         <button
                           type="button"
                           className="inline-flex h-7 px-2 items-center justify-center rounded-md hover:bg-accent"
-                          onClick={() => setSelectedEvents(new Set([event.id])) || setIsBulkDeleteDialogOpen(true)}
+                          onClick={() => {
+                            setSelectedEvents(new Set([event.id]));
+                            setIsBulkDeleteDialogOpen(true);
+                          }}
                           title="Apagar"
                         >
                           <Trash size={14} />
@@ -1318,27 +1312,27 @@ export function EventosList({
       )}
 
       {/* AlertDialog - Confirmação de Eliminação em Massa */}
-      <AlertDialog open={isBulkDeleteDialogOpen} onOpenChange={setIsBulkDeleteDialogOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Confirmar Eliminação em Massa</AlertDialogTitle>
-            <AlertDialogDescription>
+      <ConfirmDialog open={isBulkDeleteDialogOpen} onOpenChange={setIsBulkDeleteDialogOpen}>
+        <ConfirmDialogContent>
+          <ConfirmDialogHeader>
+            <ConfirmDialogTitle>Confirmar Eliminação em Massa</ConfirmDialogTitle>
+            <ConfirmDialogDescription>
               Tem a certeza que deseja eliminar <strong>{selectedEvents.size}</strong>{' '}
               evento(s) selecionado(s)? Esta ação não pode ser desfeita.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={isBulkDeleting}>Cancelar</AlertDialogCancel>
-            <AlertDialogAction
+            </ConfirmDialogDescription>
+          </ConfirmDialogHeader>
+          <ConfirmDialogFooter>
+            <ConfirmDialogCancel disabled={isBulkDeleting}>Cancelar</ConfirmDialogCancel>
+            <ConfirmDialogAction
               onClick={handleBulkDelete}
               disabled={isBulkDeleting}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               {isBulkDeleting ? 'Eliminando...' : 'Eliminar'}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+            </ConfirmDialogAction>
+          </ConfirmDialogFooter>
+        </ConfirmDialogContent>
+      </ConfirmDialog>
     </div>
   );
 }
