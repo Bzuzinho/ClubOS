@@ -164,3 +164,94 @@ export interface AgeGroup {
   id: string;
   nome: string;
 }
+
+export type FiscalDocumentRequestStatus =
+  | 'pending'
+  | 'in_progress'
+  | 'issued'
+  | 'error_data'
+  | 'cancelled'
+  | 'not_applicable'
+  | 'api_error';
+
+export type FiscalDocumentRequestDocumentType =
+  | 'invoice'
+  | 'receipt'
+  | 'invoice_receipt'
+  | 'credit_note'
+  | 'other';
+
+export type FiscalDocumentRequestPriority = 'low' | 'normal' | 'high' | 'urgent';
+
+export interface FiscalDocumentRequestInvoice {
+  id: string;
+  user_id?: string | null;
+  valor_total?: number | string | null;
+  estado_pagamento?: string | null;
+  numero_recibo?: string | null;
+  referencia_pagamento?: string | null;
+}
+
+export interface FiscalDocumentRequestRelatedUser {
+  id: string;
+  name?: string | null;
+  nome_completo?: string | null;
+  email?: string | null;
+  nif?: string | null;
+  morada?: string | null;
+  codigo_postal?: string | null;
+  localidade?: string | null;
+}
+
+export interface FiscalDocumentRequestBankStatement {
+  id: string;
+  data_movimento?: string | null;
+  descricao?: string | null;
+  referencia?: string | null;
+}
+
+export interface FiscalDocumentRequestReconciliation {
+  id: string;
+  extrato_id?: string | null;
+  lancamento_id?: string | null;
+  fatura_id?: string | null;
+  movimento_id?: string | null;
+  valor_conciliado?: number | string | null;
+}
+
+export interface FiscalDocumentRequest {
+  id: string;
+  provider: string;
+  document_type: FiscalDocumentRequestDocumentType;
+  status: FiscalDocumentRequestStatus;
+  priority: FiscalDocumentRequestPriority;
+  amount?: number | string | null;
+  paid_at?: string | null;
+  due_at?: string | null;
+  customer_name?: string | null;
+  customer_tax_number?: string | null;
+  customer_email?: string | null;
+  customer_address?: string | null;
+  description?: string | null;
+  internal_reference?: string | null;
+  external_document_number?: string | null;
+  external_document_id?: string | null;
+  external_document_url?: string | null;
+  external_series?: string | null;
+  issued_at?: string | null;
+  handled_at?: string | null;
+  last_error?: string | null;
+  notes?: string | null;
+  metadata?: Record<string, unknown> | null;
+  created_at?: string | null;
+  invoice_id?: string | null;
+  bank_statement_id?: string | null;
+  mapa_conciliacao_id?: string | null;
+  financial_entry_id?: string | null;
+  invoice?: FiscalDocumentRequestInvoice | null;
+  user?: FiscalDocumentRequestRelatedUser | null;
+  bank_statement?: FiscalDocumentRequestBankStatement | null;
+  bankStatement?: FiscalDocumentRequestBankStatement | null;
+  mapa_conciliacao?: FiscalDocumentRequestReconciliation | null;
+  mapaConciliacao?: FiscalDocumentRequestReconciliation | null;
+}

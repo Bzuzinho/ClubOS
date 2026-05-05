@@ -3,7 +3,7 @@ import { Suspense, lazy, useState } from 'react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { moduleTabbedContentClass, moduleTabsClass, moduleViewportClass } from '@/lib/module-layout';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/Components/ui/tabs';
-import { ChartLineUp, Receipt, ArrowsDownUp, Bank, ChartBar } from '@phosphor-icons/react';
+import { ChartLineUp, Receipt, ArrowsDownUp, Bank, ChartBar, FileText } from '@phosphor-icons/react';
 import {
   Fatura,
   FaturaItem,
@@ -25,6 +25,7 @@ const FaturasTab = lazy(() => import('./FaturasTab').then((module) => ({ default
 const MovimentosTab = lazy(() => import('./MovimentosTab').then((module) => ({ default: module.MovimentosTab })));
 const BancoTab = lazy(() => import('./BancoTab').then((module) => ({ default: module.BancoTab })));
 const RelatoriosTab = lazy(() => import('./RelatoriosTab').then((module) => ({ default: module.RelatoriosTab })));
+const FiscalDocumentsTab = lazy(() => import('./FiscalDocumentsTab').then((module) => ({ default: module.FiscalDocumentsTab })));
 
 function TabFallback() {
   return <div className="py-8 text-sm text-muted-foreground">A carregar...</div>;
@@ -86,7 +87,7 @@ export default function FinanceiroIndex({
       <div className={moduleViewportClass}>
         <Tabs value={activeTab} onValueChange={setActiveTab} className={moduleTabsClass}>
           <div className="w-full">
-            <TabsList className="grid h-auto w-full shrink-0 grid-cols-2 gap-1 p-1 text-[11px] sm:h-9 sm:grid-cols-5 sm:text-xs">
+            <TabsList className="grid h-auto w-full shrink-0 grid-cols-2 gap-1 p-1 text-[11px] sm:h-9 sm:grid-cols-6 sm:text-xs">
               <TabsTrigger value="dashboard" className="flex h-8 items-center justify-center gap-1 px-2 py-1 text-[11px] leading-none sm:h-7 sm:text-xs">
                 <ChartLineUp size={14} />
                 <span>Dashboard</span>
@@ -106,6 +107,10 @@ export default function FinanceiroIndex({
               <TabsTrigger value="relatorios" className="flex h-8 items-center justify-center gap-1 px-2 py-1 text-[11px] leading-none sm:h-7 sm:text-xs">
                 <ChartBar size={14} />
                 <span>Relatorios</span>
+              </TabsTrigger>
+              <TabsTrigger value="emissao-fiscal" className="flex h-8 items-center justify-center gap-1 px-2 py-1 text-[11px] leading-none sm:h-7 sm:text-xs">
+                <FileText size={14} />
+                <span>Emissao Fiscal</span>
               </TabsTrigger>
             </TabsList>
           </div>
@@ -198,6 +203,14 @@ export default function FinanceiroIndex({
                   users={users || []}
                   ageGroups={ageGroups || []}
                 />
+              </Suspense>
+            ) : null}
+          </TabsContent>
+
+          <TabsContent value="emissao-fiscal" className={moduleTabbedContentClass}>
+            {activeTab === 'emissao-fiscal' ? (
+              <Suspense fallback={<TabFallback />}>
+                <FiscalDocumentsTab />
               </Suspense>
             ) : null}
           </TabsContent>

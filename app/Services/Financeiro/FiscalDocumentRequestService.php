@@ -96,7 +96,7 @@ class FiscalDocumentRequestService
 
         $request->fill([
             'status' => FiscalDocumentRequest::STATUS_ISSUED,
-            'document_type' => $data['document_type'],
+            'document_type' => $data['document_type'] ?? $request->document_type,
             'external_document_number' => $data['external_document_number'],
             'external_document_id' => $data['external_document_id'] ?? $request->external_document_id,
             'external_document_url' => $data['external_document_url'] ?? $request->external_document_url,
@@ -126,13 +126,14 @@ class FiscalDocumentRequestService
         return $request->refresh();
     }
 
-    public function markErrorData(FiscalDocumentRequest $request, string $error, ?string $userId = null): FiscalDocumentRequest
+    public function markErrorData(FiscalDocumentRequest $request, string $error, ?string $notes = null, ?string $userId = null): FiscalDocumentRequest
     {
         $request->fill([
             'status' => FiscalDocumentRequest::STATUS_ERROR_DATA,
             'handled_by' => $userId,
             'handled_at' => now(),
             'last_error' => $error,
+            'notes' => $notes ?? $request->notes,
         ]);
         $request->save();
 

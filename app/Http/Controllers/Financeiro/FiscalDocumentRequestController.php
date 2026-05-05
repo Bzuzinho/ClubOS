@@ -8,6 +8,7 @@ use App\Models\Invoice;
 use App\Services\Financeiro\FiscalDocumentRequestService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Validation\Rule;
 
 class FiscalDocumentRequestController extends Controller
@@ -19,41 +20,76 @@ class FiscalDocumentRequestController extends Controller
 
     public function index(Request $request): JsonResponse
     {
+        $validated = $request->validate([
+            'status' => ['nullable', Rule::in(FiscalDocumentRequest::STATUSES)],
+            'provider' => ['nullable', 'string', 'max:50'],
+            'document_type' => ['nullable', Rule::in(FiscalDocumentRequest::DOCUMENT_TYPES)],
+            'search' => ['nullable', 'string', 'max:255'],
+            'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
+            'overdue' => ['nullable', 'boolean'],
+            'user_id' => ['nullable', 'string'],
+            'invoice_id' => ['nullable', 'string'],
+        ]);
+
         $query = FiscalDocumentRequest::query()
             ->with([
-                'invoice:id,user_id,valor_total,estado_pagamento',
-                'user:id,name,nome_completo,email,nif',
+                'invoice:id,user_id,valor_total,estado_pagamento,numero_recibo,referencia_pagamento',
+                'user:id,name,nome_completo,email,nif,morada,codigo_postal,localidade',
                 'bankStatement:id,data_movimento,descricao,referencia',
+                'mapaConciliacao:id,extrato_id,lancamento_id,fatura_id,movimento_id,valor_conciliado',
             ])
             ->latest('created_at');
 
-        if ($request->filled('status')) {
-            $query->where('status', $request->string('status')->value());
+        if (!empty($validated['status'])) {
+            $query->where('status', $validated['status']);
         }
 
-        if ($request->filled('provider')) {
-            $query->forProvider($request->string('provider')->value());
+        if (!empty($validated['provider'])) {
+            $query->forProvider($validated['provider']);
         }
 
-        if ($request->filled('document_type')) {
-            $query->where('document_type', $request->string('document_type')->value());
+        if (!empty($validated['document_type'])) {
+            $query->where('document_type', $validated['document_type']);
         }
 
-        if ($request->boolean('overdue')) {
+        if (!empty($validated['overdue'])) {
             $query->overdue();
         }
 
-        if ($request->filled('user_id')) {
-            $query->where('user_id', $request->string('user_id')->value());
+        if (!empty($validated['user_id'])) {
+            $query->where('user_id', $validated['user_id']);
         }
 
-        if ($request->filled('invoice_id')) {
-            $query->where('invoice_id', $request->string('invoice_id')->value());
+        if (!empty($validated['invoice_id'])) {
+            $query->where('invoice_id', $validated['invoice_id']);
         }
 
-        return response()->json([
-            'data' => $query->get(),
-        ]);
+        if (!empty($validated['search'])) {
+            $search = trim($validated['search']);
+
+            $query->where(function (Builder $builder) use ($search): void {
+                $like = '%' . str_replace(['%', '_'], ['\\%', '\\_'], $search) . '%';
+
+                $builder
+                    ->where('customer_name', 'like', $like)
+                    ->orWhere('customer_tax_number', 'like', $like)
+                    ->orWhere('internal_reference', 'like', $like)
+                    ->orWhere('external_document_number', 'like', $like)
+                    ->orWhere('description', 'like', $like)
+                    ->orWhereHas('user', function (Builder $userQuery) use ($like): void {
+                        $userQuery
+                            ->where('name', 'like', $like)
+                            ->orWhere('nome_completo', 'like', $like)
+                            ->orWhere('nif', 'like', $like)
+                            ->orWhere('email', 'like', $like);
+                    });
+            });
+        }
+
+        $perPage = (int) ($validated['per_page'] ?? 50);
+        $results = $query->paginate($perPage)->withQueryString();
+
+        return response()->json($results);
     }
 
     public function store(Request $request): JsonResponse
@@ -97,7 +133,7 @@ class FiscalDocumentRequestController extends Controller
     {
         $validated = $request->validate([
             'external_document_number' => ['required', 'string', 'max:100'],
-            'document_type' => ['required', Rule::in(FiscalDocumentRequest::DOCUMENT_TYPES)],
+            'document_type' => ['nullable', Rule::in(FiscalDocumentRequest::DOCUMENT_TYPES)],
             'issued_at' => ['nullable', 'date'],
             'external_document_id' => ['nullable', 'string'],
             'external_document_url' => ['nullable', 'string'],
@@ -113,22 +149,26 @@ class FiscalDocumentRequestController extends Controller
     public function markCancelled(Request $request, FiscalDocumentRequest $fiscalDocumentRequest): JsonResponse
     {
         $validated = $request->validate([
-            'reason' => ['nullable', 'string'],
+            'reason' => ['required', 'string'],
         ]);
 
         return response()->json([
-            'data' => $this->service->markCancelled($fiscalDocumentRequest, $validated['reason'] ?? null, $request->user()?->id),
+            'data' => $this->service->markCancelled($fiscalDocumentRequest, $validated['reason'], $request->user()?->id),
         ]);
     }
 
     public function markErrorData(Request $request, FiscalDocumentRequest $fiscalDocumentRequest): JsonResponse
     {
         $validated = $request->validate([
-            'error' => ['required', 'string'],
+            'last_error' => ['nullable', 'required_without:error', 'string'],
+            'error' => ['nullable', 'required_without:last_error', 'string'],
+            'notes' => ['nullable', 'string'],
         ]);
 
+        $error = $validated['last_error'] ?? $validated['error'];
+
         return response()->json([
-            'data' => $this->service->markErrorData($fiscalDocumentRequest, $validated['error'], $request->user()?->id),
+            'data' => $this->service->markErrorData($fiscalDocumentRequest, $error, $validated['notes'] ?? null, $request->user()?->id),
         ]);
     }
 

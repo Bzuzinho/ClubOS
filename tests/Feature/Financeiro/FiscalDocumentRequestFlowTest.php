@@ -118,6 +118,136 @@ class FiscalDocumentRequestFlowTest extends TestCase
         ]);
     }
 
+    public function test_request_can_be_marked_as_issued_via_http(): void
+    {
+        $user = User::factory()->admin()->create();
+
+        $request = FiscalDocumentRequest::create([
+            'provider' => FiscalDocumentRequest::PROVIDER_WINTOUCH,
+            'document_type' => FiscalDocumentRequest::DOCUMENT_TYPE_RECEIPT,
+            'status' => FiscalDocumentRequest::STATUS_IN_PROGRESS,
+            'priority' => FiscalDocumentRequest::PRIORITY_NORMAL,
+        ]);
+
+        $response = $this->actingAs($user)->postJson(
+            route('financeiro.fiscal-document-requests.mark-issued', $request),
+            [
+                'external_document_number' => 'RC 2026/25',
+                'issued_at' => '2026-05-05',
+                'notes' => 'Emitido manualmente',
+            ]
+        );
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('data.status', FiscalDocumentRequest::STATUS_ISSUED)
+            ->assertJsonPath('data.external_document_number', 'RC 2026/25');
+
+        $this->assertDatabaseHas('fiscal_document_requests', [
+            'id' => $request->id,
+            'status' => FiscalDocumentRequest::STATUS_ISSUED,
+            'external_document_number' => 'RC 2026/25',
+            'issued_by' => $user->id,
+        ]);
+    }
+
+    public function test_request_can_be_marked_with_data_error_via_http(): void
+    {
+        $user = User::factory()->admin()->create();
+
+        $request = FiscalDocumentRequest::create([
+            'provider' => FiscalDocumentRequest::PROVIDER_WINTOUCH,
+            'document_type' => FiscalDocumentRequest::DOCUMENT_TYPE_RECEIPT,
+            'status' => FiscalDocumentRequest::STATUS_PENDING,
+            'priority' => FiscalDocumentRequest::PRIORITY_NORMAL,
+        ]);
+
+        $response = $this->actingAs($user)->postJson(
+            route('financeiro.fiscal-document-requests.mark-error-data', $request),
+            [
+                'last_error' => 'NIF em falta',
+                'notes' => 'Validar ficha do cliente',
+            ]
+        );
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('data.status', FiscalDocumentRequest::STATUS_ERROR_DATA)
+            ->assertJsonPath('data.last_error', 'NIF em falta');
+
+        $this->assertDatabaseHas('fiscal_document_requests', [
+            'id' => $request->id,
+            'status' => FiscalDocumentRequest::STATUS_ERROR_DATA,
+            'last_error' => 'NIF em falta',
+            'notes' => 'Validar ficha do cliente',
+        ]);
+    }
+
+    public function test_request_can_be_cancelled_via_http(): void
+    {
+        $user = User::factory()->admin()->create();
+
+        $request = FiscalDocumentRequest::create([
+            'provider' => FiscalDocumentRequest::PROVIDER_WINTOUCH,
+            'document_type' => FiscalDocumentRequest::DOCUMENT_TYPE_RECEIPT,
+            'status' => FiscalDocumentRequest::STATUS_PENDING,
+            'priority' => FiscalDocumentRequest::PRIORITY_NORMAL,
+        ]);
+
+        $response = $this->actingAs($user)->postJson(
+            route('financeiro.fiscal-document-requests.mark-cancelled', $request),
+            [
+                'reason' => 'Pedido anulado pelo operador',
+            ]
+        );
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('data.status', FiscalDocumentRequest::STATUS_CANCELLED)
+            ->assertJsonPath('data.last_error', 'Pedido anulado pelo operador');
+
+        $this->assertDatabaseHas('fiscal_document_requests', [
+            'id' => $request->id,
+            'status' => FiscalDocumentRequest::STATUS_CANCELLED,
+            'last_error' => 'Pedido anulado pelo operador',
+            'handled_by' => $user->id,
+        ]);
+    }
+
+    public function test_it_can_search_pending_requests(): void
+    {
+        $user = User::factory()->admin()->create();
+
+        FiscalDocumentRequest::create([
+            'provider' => FiscalDocumentRequest::PROVIDER_WINTOUCH,
+            'document_type' => FiscalDocumentRequest::DOCUMENT_TYPE_RECEIPT,
+            'status' => FiscalDocumentRequest::STATUS_PENDING,
+            'priority' => FiscalDocumentRequest::PRIORITY_NORMAL,
+            'customer_name' => 'Cliente Alfa',
+            'internal_reference' => 'FISC-ALFA-1',
+        ]);
+
+        FiscalDocumentRequest::create([
+            'provider' => FiscalDocumentRequest::PROVIDER_WINTOUCH,
+            'document_type' => FiscalDocumentRequest::DOCUMENT_TYPE_RECEIPT,
+            'status' => FiscalDocumentRequest::STATUS_PENDING,
+            'priority' => FiscalDocumentRequest::PRIORITY_NORMAL,
+            'customer_name' => 'Cliente Beta',
+            'internal_reference' => 'FISC-BETA-1',
+        ]);
+
+        $response = $this->actingAs($user)->getJson(route('financeiro.fiscal-document-requests.index', [
+            'status' => FiscalDocumentRequest::STATUS_PENDING,
+            'search' => 'ALFA',
+            'per_page' => 10,
+        ]));
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('total', 1)
+            ->assertJsonPath('data.0.internal_reference', 'FISC-ALFA-1');
+    }
+
     private function createInvoice(): Invoice
     {
         $user = User::factory()->create([
