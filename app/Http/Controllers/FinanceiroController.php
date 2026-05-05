@@ -18,6 +18,7 @@ use App\Models\MapaConciliacao;
 use App\Models\Product;
 use App\Models\User;
 use App\Services\Club\ClubSettingsService;
+use App\Services\Financeiro\ReconciliationAliasService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Storage;
@@ -972,6 +973,20 @@ class FinanceiroController extends Controller
             }
             $movimento->save();
             $movimentosAtualizados[] = $movimento;
+        }
+
+        $resolvedUserId = collect($lancamentos)
+            ->pluck('user_id')
+            ->filter()
+            ->first() ?? ($data['user_id'] ?? null);
+
+        if ($resolvedUserId) {
+            app(ReconciliationAliasService::class)->suggestFromConfirmedReconciliation(
+                $extrato,
+                $resolvedUserId,
+                null,
+                $request->user()?->id,
+            );
         }
 
         $this->invalidateFinanceiroCaches();

@@ -246,6 +246,8 @@ export function BancoTab({
   const sugestoesAutomaticas = useMemo(() => {
     if (!selectedExtrato) return [];
 
+    // Backend now supports persistent bank reconciliation aliases; connect this tab to the aliases endpoints when the dedicated UI is introduced.
+
     const descricaoLower = selectedExtrato.descricao.toLowerCase();
     const sugestoes: Array<{ tipo: 'fatura' | 'user'; data: any; score: number }> = [];
 

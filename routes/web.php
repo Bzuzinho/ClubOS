@@ -37,6 +37,7 @@ use App\Http\Controllers\ConfiguracoesController;
 use App\Http\Controllers\ConfiguracoesDesportivoController;
 use App\Http\Controllers\LogisticaController;
 use App\Http\Controllers\EquipasController;
+use App\Http\Controllers\Financeiro\BankReconciliationAliasController;
 use App\Http\Controllers\PortalTrainingController;
 use App\Http\Controllers\PortalEventController;
 use App\Http\Controllers\MembrosEquipaController;
@@ -226,6 +227,20 @@ Route::middleware(['auth', 'verified'])->group(function () {
         ->middlewareFor(['store', 'edit', 'update'], 'permission.access:financeiro.dashboard,edit')
         ->middlewareFor(['destroy'], 'permission.access:financeiro.dashboard,delete')
         ->except(['create']);
+    Route::prefix('financeiro')->name('financeiro.')->middleware('module.access:financeiro')->group(function () {
+        Route::get('bank-aliases', [BankReconciliationAliasController::class, 'index'])
+            ->middleware('permission.access:financeiro.dashboard,view')
+            ->name('bank-aliases.index');
+        Route::post('bank-aliases', [BankReconciliationAliasController::class, 'store'])
+            ->middleware('permission.access:financeiro.dashboard,edit')
+            ->name('bank-aliases.store');
+        Route::patch('bank-aliases/{alias}', [BankReconciliationAliasController::class, 'update'])
+            ->middleware('permission.access:financeiro.dashboard,edit')
+            ->name('bank-aliases.update');
+        Route::delete('bank-aliases/{alias}', [BankReconciliationAliasController::class, 'destroy'])
+            ->middleware('permission.access:financeiro.dashboard,delete')
+            ->name('bank-aliases.destroy');
+    });
     Route::prefix('logistica')->middleware('module.access:logistica')->group(function () {
         Route::get('/', [LogisticaController::class, 'index'])->name('logistica.index');
         Route::post('/requisicoes', [LogisticaController::class, 'storeRequest'])->name('logistica.requisicoes.store');
