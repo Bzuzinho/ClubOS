@@ -17,11 +17,17 @@ class MapaConciliacao extends Model
         'lancamento_id',
         'fatura_id',
         'movimento_id',
+        'payment_id',
+        'payment_allocation_id',
         'estado_fatura_anterior',
         'estado_movimento_anterior',
         'valor_conciliado',
         'status',
         'regra_usada',
+    ];
+
+    protected $casts = [
+        'valor_conciliado' => 'decimal:2',
     ];
 
     public function extrato(): BelongsTo
@@ -32,5 +38,20 @@ class MapaConciliacao extends Model
     public function lancamento(): BelongsTo
     {
         return $this->belongsTo(FinancialEntry::class, 'lancamento_id');
+    }
+
+    public function invoice(): BelongsTo
+    {
+        return $this->belongsTo(Invoice::class, 'fatura_id');
+    }
+
+    public function payment(): BelongsTo
+    {
+        return $this->belongsTo(Payment::class, 'payment_id');
+    }
+
+    public function paymentAllocation(): BelongsTo
+    {
+        return $this->belongsTo(PaymentAllocation::class, 'payment_allocation_id');
     }
 }

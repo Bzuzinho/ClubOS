@@ -233,6 +233,15 @@ Route::middleware(['auth', 'verified'])->group(function () {
         ->middlewareFor(['destroy'], 'permission.access:financeiro.dashboard,delete')
         ->except(['create']);
     Route::prefix('financeiro')->name('financeiro.')->middleware('module.access:financeiro')->group(function () {
+        Route::post('payments/allocate', [FinanceiroController::class, 'storePayment'])
+            ->middleware('permission.access:financeiro.dashboard,edit')
+            ->name('payments.allocate');
+        Route::get('invoices/open', [FinanceiroController::class, 'openInvoices'])
+            ->middleware('permission.access:financeiro.dashboard,view')
+            ->name('invoices.open');
+        Route::get('bank-statements/unreconciled', [FinanceiroController::class, 'unreconciledBankStatements'])
+            ->middleware('permission.access:financeiro.dashboard,view')
+            ->name('bank-statements.unreconciled');
         Route::get('bank-aliases', [BankReconciliationAliasController::class, 'index'])
             ->middleware('permission.access:financeiro.dashboard,view')
             ->name('bank-aliases.index');

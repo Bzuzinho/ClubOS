@@ -29,15 +29,20 @@ export interface Fatura {
   data_emissao: string;
   data_vencimento: string;
   valor_total: number;
+  valor_pago?: number | null;
+  valor_em_aberto?: number | null;
   oculta?: boolean;
   estado_pagamento: 'pendente' | 'pago' | 'vencido' | 'parcial' | 'cancelado';
+  data_pagamento?: string | null;
   numero_recibo?: string | null;
   referencia_pagamento?: string | null;
+  metodo_pagamento?: string | null;
   centro_custo_id?: string | null;
   tipo: string;
   origem_tipo?: 'evento' | 'stock' | 'patrocinio' | 'manual' | null;
   origem_id?: string | null;
   observacoes?: string | null;
+  pagamento_observacoes?: string | null;
   created_at?: string | null;
 }
 
@@ -91,6 +96,9 @@ export interface ExtratoBancario {
   ficheiro_id?: string | null;
   centro_custo_id?: string | null;
   conciliado: boolean;
+  valor_conciliado?: number | null;
+  valor_por_conciliar?: number | null;
+  conciliacao_status?: 'unreconciled' | 'partial' | 'reconciled' | null;
   lancamento_id?: string | null;
   created_at?: string | null;
 }

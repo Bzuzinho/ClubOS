@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Invoice extends Model
@@ -19,22 +20,30 @@ class Invoice extends Model
         'data_emissao',
         'data_vencimento',
         'valor_total',
+        'valor_pago',
+        'valor_em_aberto',
         'oculta',
         'estado_pagamento',
+        'data_pagamento',
         'numero_recibo',
         'referencia_pagamento',
+        'metodo_pagamento',
         'centro_custo_id',
         'tipo',
         'origem_tipo',
         'origem_id',
         'observacoes',
+        'pagamento_observacoes',
     ];
 
     protected $casts = [
         'data_fatura' => 'date',
         'data_emissao' => 'date',
         'data_vencimento' => 'date',
+        'data_pagamento' => 'date',
         'valor_total' => 'decimal:2',
+        'valor_pago' => 'decimal:2',
+        'valor_em_aberto' => 'decimal:2',
         'oculta' => 'boolean',
     ];
 
@@ -51,5 +60,23 @@ class Invoice extends Model
     public function items(): HasMany
     {
         return $this->hasMany(InvoiceItem::class, 'fatura_id');
+    }
+
+    public function paymentAllocations(): HasMany
+    {
+        return $this->hasMany(PaymentAllocation::class, 'invoice_id');
+    }
+
+    public function payments(): BelongsToMany
+    {
+        return $this->belongsToMany(Payment::class, 'payment_allocations', 'invoice_id', 'payment_id')
+            ->using(PaymentAllocation::class)
+            ->withPivot(['id', 'amount', 'status', 'allocated_at', 'notes', 'metadata'])
+            ->withTimestamps();
+    }
+
+    public function fiscalDocumentRequests(): HasMany
+    {
+        return $this->hasMany(FiscalDocumentRequest::class, 'invoice_id');
     }
 }

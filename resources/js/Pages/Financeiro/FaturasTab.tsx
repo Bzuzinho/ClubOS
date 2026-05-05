@@ -25,6 +25,7 @@ interface FaturasTabProps {
   setLancamentos: React.Dispatch<React.SetStateAction<LancamentoFinanceiro[]>>;
   conciliacoes: ConciliacaoMapa[];
   setConciliacoes: React.Dispatch<React.SetStateAction<ConciliacaoMapa[]>>;
+  extratos: ExtratoBancario[];
   setExtratos: React.Dispatch<React.SetStateAction<ExtratoBancario[]>>;
   users: User[];
   mensalidades: MonthlyFee[];
@@ -43,6 +44,7 @@ export function FaturasTab({
   setLancamentos,
   conciliacoes,
   setConciliacoes,
+  extratos,
   setExtratos,
   users,
   mensalidades,
@@ -221,7 +223,15 @@ export function FaturasTab({
   const [selectedUserId, setSelectedUserId] = useState<string>('');
   const [selectedFaturaId, setSelectedFaturaId] = useState<string | null>(null);
   const [selectedFaturas, setSelectedFaturas] = useState<Set<string>>(new Set());
-  const [numeroRecibo, setNumeroRecibo] = useState<string>('');
+  const [selectedBankStatementId, setSelectedBankStatementId] = useState<string>('none');
+  const [paymentDate, setPaymentDate] = useState<string>(format(new Date(), 'yyyy-MM-dd'));
+  const [paymentMethod, setPaymentMethod] = useState<string>('transferencia');
+  const [paymentReference, setPaymentReference] = useState<string>('');
+  const [paymentNotes, setPaymentNotes] = useState<string>('');
+  const [paymentAmount, setPaymentAmount] = useState<string>('0.00');
+  const [paymentAllocations, setPaymentAllocations] = useState<Record<string, string>>({});
+  const [paymentCreateCredit, setPaymentCreateCredit] = useState(false);
+  const [paymentSubmitting, setPaymentSubmitting] = useState(false);
   const [gerarParaTodos, setGerarParaTodos] = useState(false);
   const [dataInicioMensalidades, setDataInicioMensalidades] = useState('');
   const [editingFaturaId, setEditingFaturaId] = useState<string | null>(null);
@@ -241,59 +251,36 @@ export function FaturasTab({
     });
   };
 
-  const liquidateInvoice = async (
-    invoiceId: string,
-    payload: {
-      user_id: string;
-      data_emissao: string;
-      data_vencimento: string;
-      data_fatura?: string;
-      mes?: string | null;
-      tipo: Fatura['tipo'];
-      valor_total: number;
-      estado_pagamento?: Fatura['estado_pagamento'];
-      numero_recibo?: string | null;
-      centro_custo_id?: string | null;
-      observacoes?: string | null;
-      origem_tipo?: Fatura['origem_tipo'] | null;
-      origem_id?: string | null;
-      oculta?: boolean;
-      items: Array<{
-        descricao: string;
-        quantidade: number;
-        valor_unitario: number;
-        imposto_percentual?: number;
-        total_linha: number;
-        produto_id?: string;
-        centro_custo_id?: string | null;
-      }>;
-    },
-  ) => {
-    try {
-      const response = await axios.put(route('financeiro.update', invoiceId), payload, {
-        headers: {
-          Accept: 'application/json',
-          'Content-Type': 'application/json',
-          'X-Requested-With': 'XMLHttpRequest',
-          'X-CSRF-TOKEN': getCsrfToken(),
-        },
-        withCredentials: true,
-      });
+  const formatAmount = (value: number) => value.toFixed(2);
 
-      return response.data.invoice as Fatura & { items?: FaturaItem[] };
-    } catch (error) {
-      if (axios.isAxiosError(error)) {
-        const responseData = error.response?.data as
-          | { message?: string; errors?: Record<string, string[]> }
-          | undefined;
-        const validationErrors = responseData?.errors
-          ? Object.values(responseData.errors).flat().join(' ')
-          : '';
-        throw new Error(validationErrors || responseData?.message || 'Erro ao liquidar fatura');
-      }
-
-      throw error;
+  const getInvoiceOutstandingAmount = (invoice: Fatura) => {
+    if (invoice.valor_em_aberto !== null && invoice.valor_em_aberto !== undefined) {
+      return Math.max(toNumber(invoice.valor_em_aberto, 0), 0);
     }
+
+    if (invoice.estado_pagamento === 'pago') {
+      return 0;
+    }
+
+    if (invoice.valor_pago !== null && invoice.valor_pago !== undefined) {
+      return Math.max(toNumber(invoice.valor_total) - toNumber(invoice.valor_pago, 0), 0);
+    }
+
+    return toNumber(invoice.valor_total, 0);
+  };
+
+  const resetPaymentDialog = () => {
+    setDialogReciboOpen(false);
+    setSelectedFaturaId(null);
+    setSelectedBankStatementId('none');
+    setPaymentDate(format(new Date(), 'yyyy-MM-dd'));
+    setPaymentMethod('transferencia');
+    setPaymentReference('');
+    setPaymentNotes('');
+    setPaymentAmount('0.00');
+    setPaymentAllocations({});
+    setPaymentCreateCredit(false);
+    setPaymentSubmitting(false);
   };
 
   const [formData, setFormData] = useState({
@@ -352,135 +339,193 @@ export function FaturasTab({
       });
   }, [faturas, estadoFilter, showFutureInvoices]);
 
-  const handleAbrirDialogoRecibo = (faturaId?: string, reciboAtual?: string | null) => {
-    if (faturaId) {
-      setSelectedFaturaId(faturaId);
-      setSelectedFaturas(new Set());
-    } else {
-      setSelectedFaturaId(null);
+  const paymentInvoices = useMemo(() => {
+    const ids = selectedFaturaId ? [selectedFaturaId] : Array.from(selectedFaturas);
+
+    return ids
+      .map((invoiceId) => (faturas || []).find((invoice) => invoice.id === invoiceId))
+      .filter((invoice): invoice is Fatura => Boolean(invoice));
+  }, [faturas, selectedFaturaId, selectedFaturas]);
+
+  const availableBankStatements = useMemo(() => {
+    return (extratos || []).filter((statement) => {
+      const remaining = statement.valor_por_conciliar !== null && statement.valor_por_conciliar !== undefined
+        ? Math.abs(toNumber(statement.valor_por_conciliar, 0))
+        : Math.abs(toNumber(statement.valor, 0));
+
+      if (remaining <= 0.009) {
+        return false;
+      }
+
+      return !statement.conciliado || statement.conciliacao_status === 'partial';
+    });
+  }, [extratos]);
+
+  const selectedBankStatement = useMemo(() => {
+    if (selectedBankStatementId === 'none') {
+      return null;
     }
-    setNumeroRecibo(reciboAtual || '');
+
+    return availableBankStatements.find((statement) => statement.id === selectedBankStatementId) || null;
+  }, [availableBankStatements, selectedBankStatementId]);
+
+  const totalOpenAmount = useMemo(() => {
+    return paymentInvoices.reduce((sum, invoice) => sum + getInvoiceOutstandingAmount(invoice), 0);
+  }, [paymentInvoices]);
+
+  const totalAllocatedAmount = useMemo(() => {
+    return paymentInvoices.reduce((sum, invoice) => sum + toNumber(paymentAllocations[invoice.id], 0), 0);
+  }, [paymentAllocations, paymentInvoices]);
+
+  const totalAvailableAmount = selectedBankStatement
+    ? Math.abs(
+        toNumber(
+          selectedBankStatement.valor_por_conciliar,
+          Math.abs(toNumber(selectedBankStatement.valor, 0)),
+        ),
+      )
+    : toNumber(paymentAmount, 0);
+
+  const paymentDifference = totalAvailableAmount - totalAllocatedAmount;
+
+  const handleAbrirDialogoRecibo = (faturaId?: string) => {
+    const invoiceIds = faturaId ? [faturaId] : Array.from(selectedFaturas);
+    const eligibleInvoices = invoiceIds
+      .map((invoiceId) => (faturas || []).find((invoice) => invoice.id === invoiceId))
+      .filter((invoice): invoice is Fatura => Boolean(invoice))
+      .filter((invoice) => !['pago', 'cancelado'].includes(invoice.estado_pagamento));
+
+    if (eligibleInvoices.length === 0) {
+      toast.error('Selecione pelo menos uma fatura em aberto para registar pagamento');
+      return;
+    }
+
+    if (!faturaId && eligibleInvoices.length !== invoiceIds.length) {
+      toast.info('As faturas pagas ou canceladas foram ignoradas neste pagamento.');
+    }
+
+    const defaultAllocations = Object.fromEntries(
+      eligibleInvoices.map((invoice) => [invoice.id, formatAmount(getInvoiceOutstandingAmount(invoice))])
+    );
+
+    setSelectedFaturaId(faturaId || null);
+    if (faturaId) {
+      setSelectedFaturas(new Set());
+    }
+    setSelectedBankStatementId('none');
+    setPaymentDate(format(new Date(), 'yyyy-MM-dd'));
+    setPaymentMethod('transferencia');
+    setPaymentReference('');
+    setPaymentNotes('');
+    setPaymentAllocations(defaultAllocations);
+    setPaymentAmount(formatAmount(eligibleInvoices.reduce((sum, invoice) => sum + getInvoiceOutstandingAmount(invoice), 0)));
+    setPaymentCreateCredit(false);
     setDialogReciboOpen(true);
   };
 
   const handleConfirmarLiquidacao = async () => {
-    const faturasParaLiquidar = selectedFaturaId ? [selectedFaturaId] : Array.from(selectedFaturas);
-
-    if (faturasParaLiquidar.length === 0) return;
-
-    if (!numeroRecibo.trim()) {
-      toast.error('Por favor, insira o numero do recibo');
+    if (paymentInvoices.length === 0) {
       return;
     }
 
-    const faturasMap = new Map((faturas || []).map((f) => [f.id, f]));
-    const novosLancamentos: LancamentoFinanceiro[] = [];
+    const allocations = paymentInvoices
+      .map((invoice) => ({
+        invoice_id: invoice.id,
+        amount: roundToCents(toNumber(paymentAllocations[invoice.id], 0)),
+      }))
+      .filter((allocation) => allocation.amount > 0);
+
+    if (allocations.length === 0) {
+      toast.error('Indique pelo menos uma alocacao com valor superior a zero');
+      return;
+    }
+
+    if (totalAvailableAmount <= 0) {
+      toast.error('Indique um valor de pagamento valido');
+      return;
+    }
+
+    if (paymentDifference < -0.009) {
+      toast.error('As alocacoes excedem o valor disponivel para pagamento');
+      return;
+    }
+
+    setPaymentSubmitting(true);
 
     try {
-      for (const faturaId of faturasParaLiquidar) {
-        const fatura = faturasMap.get(faturaId);
-        if (!fatura) continue;
+      const response = await axios.post(route('financeiro.payments.allocate'), {
+        bank_statement_id: selectedBankStatement?.id,
+        amount: selectedBankStatement ? undefined : totalAvailableAmount,
+        payment_date: selectedBankStatement ? undefined : paymentDate,
+        method: paymentMethod || undefined,
+        reference: paymentReference || undefined,
+        notes: paymentNotes || undefined,
+        create_credit: paymentCreateCredit,
+        allocations,
+      }, {
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+          'X-Requested-With': 'XMLHttpRequest',
+          'X-CSRF-TOKEN': getCsrfToken(),
+        },
+        withCredentials: true,
+      });
 
-        const itens = (faturaItens || [])
-          .filter((item) => item.fatura_id === faturaId)
-          .map((item) => ({
-            descricao: item.descricao,
-            quantidade: item.quantidade,
-            valor_unitario: item.valor_unitario,
-            imposto_percentual: item.imposto_percentual,
-            total_linha: item.total_linha,
-            produto_id: item.produto_id || undefined,
-            centro_custo_id: item.centro_custo_id || fatura.centro_custo_id || undefined,
-          }));
+      const updatedInvoices = Array.isArray(response.data?.invoices) ? response.data.invoices as Fatura[] : [];
+      const updatedStatement = response.data?.bank_statement as ExtratoBancario | undefined;
+      const summary = response.data?.summary as {
+        all_paid?: boolean;
+        has_partial_invoice?: boolean;
+        created_credit?: boolean;
+        bank_statement_reconciled?: boolean;
+      } | undefined;
 
-        const fallbackItems = itens.length
-          ? itens
-          : [
-              {
-                descricao: `Fatura ${fatura.tipo}`,
-                quantidade: 1,
-                valor_unitario: fatura.valor_total,
-                imposto_percentual: 0,
-                total_linha: fatura.valor_total,
-                centro_custo_id: fatura.centro_custo_id || undefined,
-              },
-            ];
-
-        const updated = await liquidateInvoice(faturaId, {
-          user_id: fatura.user_id,
-          data_emissao: fatura.data_emissao,
-          data_vencimento: fatura.data_vencimento,
-          data_fatura: fatura.data_fatura,
-          mes: fatura.mes || null,
-          tipo: fatura.tipo,
-          valor_total: fatura.valor_total,
-          estado_pagamento: 'pago',
-          numero_recibo: numeroRecibo.trim(),
-          centro_custo_id: fatura.centro_custo_id || undefined,
-          observacoes: fatura.observacoes || undefined,
-          origem_tipo: fatura.origem_tipo || null,
-          origem_id: fatura.origem_id || null,
-          oculta: fatura.oculta || false,
-          items: fallbackItems,
-        });
-
-        setFaturas((current) => (current || []).map((f) => (f.id === faturaId ? updated : f)));
-        if (updated.items) {
-          setFaturaItens((current) => {
-            const filtered = (current || []).filter((item) => item.fatura_id !== faturaId);
-            return [...filtered, ...updated.items!];
-          });
-        }
+      if (updatedInvoices.length > 0) {
+        const updatedById = new Map(updatedInvoices.map((invoice) => [invoice.id, invoice]));
+        setFaturas((current) => (current || []).map((invoice) => updatedById.get(invoice.id) || invoice));
       }
+
+      if (updatedStatement?.id) {
+        setExtratos((current) => (current || []).map((statement) => (
+          statement.id === updatedStatement.id ? { ...statement, ...updatedStatement } : statement
+        )));
+      }
+
+      if (summary?.created_credit) {
+        toast.success('Pagamento registado e excedente guardado em conta corrente.');
+      } else if (summary?.bank_statement_reconciled) {
+        toast.success('Pagamento registado e linha bancaria conciliada.');
+      } else if (summary?.has_partial_invoice) {
+        toast.success('Pagamento parcial registado.');
+      } else if (summary?.all_paid) {
+        toast.success('Pagamento registado e pedido fiscal criado.');
+      } else {
+        toast.success('Pagamento registado com sucesso.');
+      }
+
+      refreshInvoices();
+      resetPaymentDialog();
+      setSelectedFaturas(new Set());
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Erro ao liquidar fatura';
+      const message = axios.isAxiosError(error)
+        ? (error.response?.data?.message || Object.values(error.response?.data?.errors || {}).flat().join(' ') || 'Erro ao registar pagamento')
+        : error instanceof Error
+          ? error.message
+          : 'Erro ao registar pagamento';
       toast.error(message);
-      return;
+    } finally {
+      setPaymentSubmitting(false);
     }
+  };
 
-    faturasParaLiquidar.forEach((faturaId) => {
-      const fatura = faturasMap.get(faturaId);
-      if (!fatura) return;
-      const jaExiste = (lancamentos || []).some((l) => l.fatura_id === faturaId);
-      if (jaExiste) return;
+  const roundToCents = (value: number) => Math.round(value * 100) / 100;
 
-      novosLancamentos.push({
-        id: crypto.randomUUID(),
-        data: new Date().toISOString().split('T')[0],
-        tipo: 'receita' as const,
-        categoria: 'Pagamento de Fatura',
-        descricao: `Pagamento de fatura ${fatura.tipo} - ${getUserName(fatura.user_id)} - Recibo: ${numeroRecibo.trim()}`,
-        valor: fatura.valor_total,
-        centro_custo_id: fatura.centro_custo_id,
-        user_id: fatura.user_id,
-        fatura_id: faturaId,
-        origem_tipo: fatura.origem_tipo || undefined,
-        origem_id: fatura.origem_id || undefined,
-        metodo_pagamento: 'dinheiro',
-        created_at: new Date().toISOString(),
-      });
-    });
-
-    setLancamentos((current) => {
-      const updated = (current || []).map((l) => {
-        if (!l.fatura_id || !faturasParaLiquidar.includes(l.fatura_id)) return l;
-        const fatura = faturasMap.get(l.fatura_id);
-        if (!fatura) return l;
-        return {
-          ...l,
-          metodo_pagamento: l.metodo_pagamento || 'dinheiro',
-          descricao: `Pagamento de fatura ${fatura.tipo} - ${getUserName(fatura.user_id)} - Recibo: ${numeroRecibo.trim()}`,
-        };
-      });
-      return [...updated, ...novosLancamentos];
-    });
-
-    toast.success(`${faturasParaLiquidar.length} fatura(s) liquidada(s) com recibo ${numeroRecibo.trim()}`);
-    refreshInvoices();
-    setDialogReciboOpen(false);
-    setSelectedFaturaId(null);
-    setSelectedFaturas(new Set());
-    setNumeroRecibo('');
+  const updatePaymentAllocation = (invoiceId: string, value: string) => {
+    setPaymentAllocations((current) => ({
+      ...current,
+      [invoiceId]: value,
+    }));
   };
 
   const handleToggleFaturaSelection = (faturaId: string) => {
@@ -1249,7 +1294,7 @@ export function FaturasTab({
                 size="sm"
               >
                 <Check className="mr-1 sm:mr-2" size={16} />
-                Liquidar ({selectedFaturas.size})
+                Pagamento ({selectedFaturas.size})
               </Button>
               <Button
                 variant="destructive"
@@ -1684,6 +1729,17 @@ export function FaturasTab({
                           </div>
                         </div>
                         <div className="flex flex-col gap-1">
+                          {!['pago', 'cancelado'].includes(fatura.estado_pagamento) && (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-7 w-7 p-0"
+                              onClick={() => handleAbrirDialogoRecibo(fatura.id)}
+                              title="Registar pagamento"
+                            >
+                              <Check size={14} />
+                            </Button>
+                          )}
                           <Button
                             size="sm"
                             variant="ghost"
@@ -1772,8 +1828,8 @@ export function FaturasTab({
                               <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => handleEditarFatura(fatura.id)} title="Editar">
                                 <PencilSimple size={14} />
                               </Button>
-                              {(fatura.estado_pagamento === 'pendente' || fatura.estado_pagamento === 'vencido') && (
-                                <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => handleAbrirDialogoRecibo(fatura.id)} title="Liquidar">
+                              {!['pago', 'cancelado'].includes(fatura.estado_pagamento) && (
+                                <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => handleAbrirDialogoRecibo(fatura.id)} title="Registar pagamento">
                                   <Check size={14} />
                                 </Button>
                               )}
@@ -1810,58 +1866,209 @@ export function FaturasTab({
       </Card>
 
       <Dialog open={dialogReciboOpen} onOpenChange={setDialogReciboOpen}>
-        <DialogContent className="w-[95vw] sm:w-full max-w-md">
+        <DialogContent className="w-[95vw] sm:w-full max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="text-base sm:text-lg">
-              {selectedFaturaId ? 'Liquidar Fatura' : `Liquidar ${selectedFaturas.size} Fatura(s)`}
+              {selectedFaturaId ? 'Registar Pagamento' : `Registar Pagamento de ${paymentInvoices.length} Fatura(s)`}
             </DialogTitle>
             <DialogDescription>
-              {selectedFaturaId
-                ? 'Confirme o pagamento da fatura com o numero de recibo'
-                : `Confirme o pagamento de ${selectedFaturas.size} fatura(s) com o mesmo numero de recibo`}
+              Registe o pagamento desta fatura. Pode associar uma linha do extrato bancario e repartir o valor por uma ou varias faturas. O numero do recibo/documento fiscal sera preenchido apenas na Emissao Fiscal, apos emissao na Wintouch.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="numero-recibo" className="text-sm">
-                Numero do Recibo *
-              </Label>
-              <Input
-                id="numero-recibo"
-                placeholder="Ex: REC-2025-001"
-                value={numeroRecibo}
-                onChange={(e) => setNumeroRecibo(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    handleConfirmarLiquidacao();
-                  }
-                }}
-                autoFocus
-                className="text-sm"
-              />
-              <p className="text-xs text-muted-foreground">
-                {selectedFaturaId
-                  ? 'Insira o numero do recibo para confirmar o pagamento desta fatura.'
-                  : 'Este numero de recibo sera usado para todas as faturas selecionadas.'}
-              </p>
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label className="text-sm">Linha do Extrato Bancario</Label>
+                <Select
+                  value={selectedBankStatementId}
+                  onValueChange={(value) => {
+                    setSelectedBankStatementId(value);
+
+                    if (value === 'none') {
+                      setPaymentDate(format(new Date(), 'yyyy-MM-dd'));
+                      return;
+                    }
+
+                    const statement = availableBankStatements.find((item) => item.id === value);
+                    if (!statement) {
+                      return;
+                    }
+
+                    setPaymentDate(statement.data_movimento);
+                    setPaymentMethod('transferencia');
+                    setPaymentReference(statement.referencia || '');
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Sem associar linha bancaria" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Sem associar linha bancaria</SelectItem>
+                    {availableBankStatements.map((statement) => {
+                      const remaining = statement.valor_por_conciliar !== null && statement.valor_por_conciliar !== undefined
+                        ? Math.abs(toNumber(statement.valor_por_conciliar, 0))
+                        : Math.abs(toNumber(statement.valor, 0));
+
+                      return (
+                        <SelectItem key={statement.id} value={statement.id}>
+                          {format(new Date(statement.data_movimento), 'dd/MM/yyyy')} · {statement.referencia || statement.descricao} · €{remaining.toFixed(2)}
+                        </SelectItem>
+                      );
+                    })}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-sm">Valor a pagar/alocar</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={selectedBankStatement ? totalAvailableAmount.toFixed(2) : paymentAmount}
+                  onChange={(event) => setPaymentAmount(event.target.value)}
+                  disabled={Boolean(selectedBankStatement)}
+                />
+                <p className="text-xs text-muted-foreground">
+                  {selectedBankStatement
+                    ? 'Quando existe linha bancaria, o valor vem do montante por conciliar dessa linha.'
+                    : 'Use este valor para pagamentos manuais totais ou parciais.'}
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-sm">Data do pagamento</Label>
+                <Input
+                  type="date"
+                  value={paymentDate}
+                  onChange={(event) => setPaymentDate(event.target.value)}
+                  disabled={Boolean(selectedBankStatement)}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-sm">Metodo</Label>
+                <Input value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value)} placeholder="transferencia, multibanco, numerario..." />
+              </div>
+
+              <div className="space-y-2 md:col-span-2">
+                <Label className="text-sm">Referencia</Label>
+                <Input value={paymentReference} onChange={(event) => setPaymentReference(event.target.value)} placeholder="Referencia do pagamento ou da transferencia" />
+              </div>
+
+              <div className="space-y-2 md:col-span-2">
+                <Label className="text-sm">Notas</Label>
+                <Textarea
+                  rows={3}
+                  value={paymentNotes}
+                  onChange={(event) => setPaymentNotes(event.target.value)}
+                  placeholder="Observacoes internas do pagamento"
+                />
+              </div>
             </div>
+
+            <Card className="p-4">
+              <div className="space-y-3">
+                <div>
+                  <h3 className="text-sm font-semibold">Faturas a liquidar</h3>
+                  <p className="text-xs text-muted-foreground">Pode repartir o valor por uma ou varias faturas e ajustar os montantes para pagamento parcial.</p>
+                </div>
+
+                <div className="space-y-3">
+                  {paymentInvoices.map((invoice) => {
+                    const outstanding = getInvoiceOutstandingAmount(invoice);
+
+                    return (
+                      <div key={invoice.id} className="grid gap-3 rounded-lg border p-3 md:grid-cols-[minmax(0,1fr)_140px] md:items-end">
+                        <div className="min-w-0">
+                          <div className="text-sm font-medium text-foreground">{getUserName(invoice.user_id)} · {getInvoiceTypeLabel(invoice.tipo)}</div>
+                          <div className="mt-1 text-xs text-muted-foreground">
+                            Em aberto: €{outstanding.toFixed(2)} · Vencimento: {format(new Date(invoice.data_vencimento), 'dd/MM/yyyy')}
+                          </div>
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs">Valor alocado</Label>
+                          <Input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            max={outstanding.toFixed(2)}
+                            value={paymentAllocations[invoice.id] ?? ''}
+                            onChange={(event) => updatePaymentAllocation(invoice.id, event.target.value)}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </Card>
+
+            <Card className="p-4">
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                <div>
+                  <div className="text-xs uppercase tracking-wide text-muted-foreground">Total das faturas</div>
+                  <div className="mt-1 text-lg font-semibold">€{totalOpenAmount.toFixed(2)}</div>
+                </div>
+                <div>
+                  <div className="text-xs uppercase tracking-wide text-muted-foreground">Total a pagar/alocar</div>
+                  <div className="mt-1 text-lg font-semibold">€{totalAvailableAmount.toFixed(2)}</div>
+                </div>
+                <div>
+                  <div className="text-xs uppercase tracking-wide text-muted-foreground">Total alocado</div>
+                  <div className="mt-1 text-lg font-semibold">€{totalAllocatedAmount.toFixed(2)}</div>
+                </div>
+                <div>
+                  <div className="text-xs uppercase tracking-wide text-muted-foreground">Diferenca</div>
+                  <div className={`mt-1 text-lg font-semibold ${paymentDifference < -0.009 ? 'text-rose-600' : paymentDifference > 0.009 ? 'text-amber-600' : 'text-emerald-600'}`}>
+                    €{Math.abs(paymentDifference).toFixed(2)}
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    {paymentDifference < -0.009
+                      ? 'Falta pagar'
+                      : paymentDifference > 0.009
+                        ? 'Excedente'
+                        : 'Sem diferenca'}
+                  </div>
+                </div>
+              </div>
+
+              {selectedBankStatement ? (
+                <div className="mt-3 rounded-md border bg-muted/40 p-3 text-xs text-muted-foreground">
+                  Linha bancaria selecionada: {selectedBankStatement.descricao} · {selectedBankStatement.referencia || 'sem referencia'} · saldo por conciliar €{totalAvailableAmount.toFixed(2)}
+                </div>
+              ) : null}
+
+              {paymentDifference > 0.009 ? (
+                <div className="mt-4 flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3">
+                  <Checkbox
+                    id="guardar-credito"
+                    checked={paymentCreateCredit}
+                    onCheckedChange={(checked) => setPaymentCreateCredit(checked === true)}
+                  />
+                  <div>
+                    <Label htmlFor="guardar-credito" className="text-sm font-medium">
+                      Guardar excedente como credito em conta corrente
+                    </Label>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      O valor excedente fica disponivel para abater em futuras faturas.
+                    </p>
+                  </div>
+                </div>
+              ) : null}
+            </Card>
           </div>
           <DialogFooter className="flex-col sm:flex-row gap-2">
             <Button
               variant="outline"
-              onClick={() => {
-                setDialogReciboOpen(false);
-                setSelectedFaturaId(null);
-                setNumeroRecibo('');
-              }}
+              onClick={resetPaymentDialog}
               className="w-full sm:w-auto"
             >
               Cancelar
             </Button>
-            <Button onClick={handleConfirmarLiquidacao} className="w-full sm:w-auto">
+            <Button onClick={handleConfirmarLiquidacao} className="w-full sm:w-auto" disabled={paymentSubmitting || paymentInvoices.length === 0 || totalAllocatedAmount <= 0 || paymentDifference < -0.009}>
               <Check className="mr-2" size={16} />
-              Confirmar Liquidacao
+              Confirmar Pagamento
             </Button>
           </DialogFooter>
         </DialogContent>

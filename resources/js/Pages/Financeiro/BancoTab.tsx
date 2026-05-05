@@ -30,6 +30,9 @@ interface BancoTabProps {
 }
 
 // Fiscal document request queue will be hooked here after reconciliation is confirmed.
+// The inverse payment-allocation UI from a bank statement should use
+// financeiro.bank-statements.unreconciled + financeiro.invoices.open +
+// financeiro.payments.allocate, which are now available on the backend.
 
 export function BancoTab({
   extratos,

@@ -50,4 +50,14 @@ class Familia extends Model
             ])
             ->withTimestamps();
     }
+
+    public function payments(): HasMany
+    {
+        return $this->hasMany(Payment::class, 'family_id');
+    }
+
+    public function accountCredits(): HasMany
+    {
+        return $this->hasMany(AccountCredit::class, 'family_id');
+    }
 }

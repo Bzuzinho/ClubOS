@@ -69,6 +69,17 @@ class FiscalDocumentRequestService
             return $existingRequest;
         }
 
+        $reusableRequest = FiscalDocumentRequest::query()
+            ->where('invoice_id', $resolvedInvoice->id)
+            ->where('provider', $provider)
+            ->where('document_type', $documentType)
+            ->whereIn('status', [
+                FiscalDocumentRequest::STATUS_ERROR_DATA,
+                FiscalDocumentRequest::STATUS_API_ERROR,
+            ])
+            ->latest('created_at')
+            ->first();
+
         $payload = array_merge(
             $this->buildInvoicePayload($resolvedInvoice),
             Arr::except($options, ['provider', 'document_type'])
@@ -84,6 +95,13 @@ class FiscalDocumentRequestService
 
         $payload['status'] = $status;
         $payload['last_error'] = $payload['last_error'] ?? $lastError;
+
+        if ($reusableRequest) {
+            $reusableRequest->fill($payload);
+            $reusableRequest->save();
+
+            return $reusableRequest->refresh();
+        }
 
         return FiscalDocumentRequest::create($payload);
     }
@@ -166,14 +184,14 @@ class FiscalDocumentRequestService
         return [
             'user_id' => $invoice->user_id,
             'amount' => $invoice->valor_total,
-            'paid_at' => null,
+            'paid_at' => $invoice->data_pagamento,
             'due_at' => $invoice->data_vencimento,
             'customer_name' => $user?->nome_completo ?: $user?->name,
             'customer_tax_number' => $user?->nif,
             'customer_email' => $user?->email,
             'customer_address' => !empty($addressParts) ? implode("\n", $addressParts) : null,
             'description' => $description !== '' ? $description : 'Pedido de documento fiscal pendente.',
-            'internal_reference' => $invoice->numero_recibo ?: $invoice->referencia_pagamento ?: $invoice->id,
+            'internal_reference' => $invoice->referencia_pagamento ?: $invoice->id,
             'cost_center_id' => $invoice->centro_custo_id,
             'metadata' => [
                 'invoice_type' => $invoice->tipo,

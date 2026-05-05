@@ -15,21 +15,30 @@ use App\Models\MonthlyFee;
 use App\Models\Movement;
 use App\Models\MovementItem;
 use App\Models\MapaConciliacao;
+use App\Models\Payment;
 use App\Models\Product;
 use App\Models\User;
 use App\Services\Club\ClubSettingsService;
 use App\Services\Financeiro\FiscalDocumentRequestService;
+use App\Services\Financeiro\PaymentAllocationService;
 use App\Services\Financeiro\ReconciliationAliasService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Storage;
 use Inertia\Inertia;
 use Inertia\Response;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Validation\ValidationException;
 
 class FinanceiroController extends Controller
 {
+    public function __construct(
+        private readonly PaymentAllocationService $paymentAllocationService,
+    ) {
+    }
+
     public function index(): Response
     {
         if ($this->shouldUseIndexCache(request())) {
@@ -428,6 +437,261 @@ class FinanceiroController extends Controller
 
         return redirect()->route('financeiro.index')
             ->with('success', 'Fatura eliminada com sucesso!');
+    }
+
+    public function storePayment(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'bank_statement_id' => ['nullable', 'exists:bank_statements,id'],
+            'amount' => ['nullable', 'numeric', 'gt:0'],
+            'payment_date' => ['nullable', 'date'],
+            'method' => ['nullable', 'string', 'max:50'],
+            'reference' => ['nullable', 'string', 'max:255'],
+            'notes' => ['nullable', 'string'],
+            'create_credit' => ['nullable', 'boolean'],
+            'family_id' => ['nullable', 'exists:familias,id'],
+            'allocations' => ['required', 'array', 'min:1'],
+            'allocations.*.invoice_id' => ['required', 'exists:invoices,id'],
+            'allocations.*.amount' => ['required', 'numeric', 'gt:0'],
+            'allocations.*.notes' => ['nullable', 'string'],
+        ]);
+
+        $allocations = collect($data['allocations'])
+            ->map(fn (array $allocation) => [
+                'invoice_id' => $allocation['invoice_id'],
+                'amount' => round(abs((float) $allocation['amount']), 2),
+                'notes' => $allocation['notes'] ?? null,
+            ])
+            ->values()
+            ->all();
+
+        $invoiceIds = collect($allocations)->pluck('invoice_id')->unique()->values();
+        $invoicesBefore = Invoice::query()->whereIn('id', $invoiceIds)->get()->keyBy('id');
+        $fiscalRequestsBefore = DB::table('fiscal_document_requests')
+            ->whereIn('invoice_id', $invoiceIds)
+            ->count();
+
+        try {
+            if (!empty($data['bank_statement_id'])) {
+                $bankStatement = BankStatement::query()->findOrFail($data['bank_statement_id']);
+                $payment = $this->paymentAllocationService->createFromBankStatement($bankStatement, $allocations, [
+                    'method' => $data['method'] ?? null,
+                    'reference' => $data['reference'] ?? null,
+                    'notes' => $data['notes'] ?? null,
+                    'family_id' => $data['family_id'] ?? null,
+                    'create_credit' => (bool) ($data['create_credit'] ?? false),
+                    'created_by' => $request->user()?->id,
+                ]);
+            } else {
+                $payment = $this->paymentAllocationService->createPayment([
+                    'amount' => $data['amount'] ?? collect($allocations)->sum('amount'),
+                    'payment_date' => $data['payment_date'] ?? now()->toDateString(),
+                    'method' => $data['method'] ?? null,
+                    'reference' => $data['reference'] ?? null,
+                    'notes' => $data['notes'] ?? null,
+                    'family_id' => $data['family_id'] ?? null,
+                    'user_id' => $invoiceIds->count() === 1 ? $invoicesBefore->first()?->user_id : null,
+                    'source' => Payment::SOURCE_MANUAL,
+                    'created_by' => $request->user()?->id,
+                ]);
+
+                $payment = $this->paymentAllocationService->allocatePayment($payment, $allocations, [
+                    'create_credit' => (bool) ($data['create_credit'] ?? false),
+                    'created_by' => $request->user()?->id,
+                    'notes' => $data['notes'] ?? null,
+                ]);
+            }
+        } catch (ValidationException $exception) {
+            throw $exception;
+        }
+
+        $updatedInvoices = Invoice::query()
+            ->whereIn('id', $invoiceIds)
+            ->orderBy('data_emissao', 'desc')
+            ->get();
+        $updatedBankStatement = $payment->bankStatement?->fresh();
+        $activeFiscalRequests = DB::table('fiscal_document_requests')
+            ->whereIn('invoice_id', $invoiceIds)
+            ->whereIn('status', ['pending', 'in_progress', 'issued', 'error_data', 'api_error'])
+            ->count();
+        $hasPartialInvoice = $updatedInvoices->contains(fn (Invoice $invoice) => $invoice->estado_pagamento === 'parcial');
+        $allPaid = $updatedInvoices->isNotEmpty()
+            && $updatedInvoices->every(fn (Invoice $invoice) => $invoice->estado_pagamento === 'pago');
+
+        $this->invalidateFinanceiroCaches();
+
+        return response()->json([
+            'payment' => $payment->load(['allocations.invoice', 'credits', 'bankStatement']),
+            'invoices' => $updatedInvoices,
+            'bank_statement' => $updatedBankStatement,
+            'summary' => [
+                'all_paid' => $allPaid,
+                'has_partial_invoice' => $hasPartialInvoice,
+                'created_credit' => $payment->credits()->exists(),
+                'bank_statement_reconciled' => $updatedBankStatement?->conciliado ?? false,
+                'bank_statement_partial' => ($updatedBankStatement?->conciliacao_status ?? null) === 'partial',
+                'active_fiscal_requests' => $activeFiscalRequests,
+                'new_fiscal_requests' => max($activeFiscalRequests - $fiscalRequestsBefore, 0),
+                'affected_invoice_count' => $updatedInvoices->count(),
+            ],
+        ]);
+    }
+
+    public function openInvoices(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'user_id' => ['nullable', 'exists:users,id'],
+            'family_id' => ['nullable', 'exists:familias,id'],
+            'search' => ['nullable', 'string'],
+            'overdue' => ['nullable', 'boolean'],
+            'per_page' => ['nullable', 'integer', 'min:1', 'max:200'],
+        ]);
+
+        $perPage = (int) ($data['per_page'] ?? 25);
+        $search = trim((string) ($data['search'] ?? ''));
+        $overdue = filter_var($data['overdue'] ?? false, FILTER_VALIDATE_BOOLEAN);
+
+        $query = Invoice::query()
+            ->with('user:id,nome_completo,name')
+            ->whereIn('estado_pagamento', ['pendente', 'vencido', 'parcial']);
+
+        if (!empty($data['user_id'])) {
+            $query->where('user_id', $data['user_id']);
+        }
+
+        if (!empty($data['family_id'])) {
+            $familyId = $data['family_id'];
+            $query->whereHas('user.families', function ($familyQuery) use ($familyId) {
+                $familyQuery->where('familias.id', $familyId);
+            });
+        }
+
+        if ($search !== '') {
+            $query->where(function ($nestedQuery) use ($search) {
+                $nestedQuery
+                    ->where('tipo', 'ilike', "%{$search}%")
+                    ->orWhere('mes', 'ilike', "%{$search}%")
+                    ->orWhere('referencia_pagamento', 'ilike', "%{$search}%")
+                    ->orWhereHas('user', function ($userQuery) use ($search) {
+                        $userQuery
+                            ->where('nome_completo', 'ilike', "%{$search}%")
+                            ->orWhere('name', 'ilike', "%{$search}%")
+                            ->orWhere('numero_socio', 'ilike', "%{$search}%");
+                    });
+            });
+        }
+
+        if ($overdue) {
+            $query->whereDate('data_vencimento', '<', now()->toDateString());
+        }
+
+        $paginator = $query
+            ->orderBy('data_vencimento')
+            ->paginate($perPage)
+            ->through(function (Invoice $invoice) {
+                $paidAmount = (float) ($invoice->valor_pago ?? 0);
+                $outstandingAmount = $invoice->valor_em_aberto !== null
+                    ? (float) $invoice->valor_em_aberto
+                    : max((float) $invoice->valor_total - $paidAmount, 0);
+
+                return [
+                    'id' => $invoice->id,
+                    'user_id' => $invoice->user_id,
+                    'user_name' => $invoice->user?->nome_completo ?? $invoice->user?->name,
+                    'valor_total' => (float) $invoice->valor_total,
+                    'valor_pago' => $paidAmount,
+                    'valor_em_aberto' => $outstandingAmount,
+                    'estado_pagamento' => $invoice->estado_pagamento,
+                    'data_fatura' => optional($invoice->data_fatura)?->toDateString(),
+                    'vencimento' => optional($invoice->data_vencimento)?->toDateString(),
+                    'mes' => $invoice->mes,
+                    'tipo' => $invoice->tipo,
+                ];
+            });
+
+        return response()->json($paginator);
+    }
+
+    public function unreconciledBankStatements(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'search' => ['nullable', 'string'],
+            'amount' => ['nullable', 'numeric'],
+            'date_from' => ['nullable', 'date'],
+            'date_to' => ['nullable', 'date'],
+            'user_id' => ['nullable', 'exists:users,id'],
+            'family_id' => ['nullable', 'exists:familias,id'],
+            'per_page' => ['nullable', 'integer', 'min:1', 'max:200'],
+        ]);
+
+        $perPage = (int) ($data['per_page'] ?? 25);
+        $search = trim((string) ($data['search'] ?? ''));
+
+        $query = BankStatement::query()
+            ->where(function ($nestedQuery) {
+                $nestedQuery
+                    ->where('conciliado', false)
+                    ->orWhere('conciliacao_status', '!=', 'reconciled')
+                    ->orWhereNull('conciliacao_status');
+            });
+
+        if ($search !== '') {
+            $query->where(function ($nestedQuery) use ($search) {
+                $nestedQuery
+                    ->where('descricao', 'ilike', "%{$search}%")
+                    ->orWhere('referencia', 'ilike', "%{$search}%")
+                    ->orWhere('conta', 'ilike', "%{$search}%");
+            });
+        }
+
+        if (isset($data['amount'])) {
+            $query->where('valor', (float) $data['amount']);
+        }
+
+        if (!empty($data['date_from'])) {
+            $query->whereDate('data_movimento', '>=', $data['date_from']);
+        }
+
+        if (!empty($data['date_to'])) {
+            $query->whereDate('data_movimento', '<=', $data['date_to']);
+        }
+
+        if (!empty($data['user_id'])) {
+            $query->whereHas('payments', function ($paymentQuery) use ($data) {
+                $paymentQuery->where('user_id', $data['user_id']);
+            });
+        }
+
+        if (!empty($data['family_id'])) {
+            $query->whereHas('payments', function ($paymentQuery) use ($data) {
+                $paymentQuery->where('family_id', $data['family_id']);
+            });
+        }
+
+        $paginator = $query
+            ->orderByDesc('data_movimento')
+            ->paginate($perPage)
+            ->through(function (BankStatement $statement) {
+                $valorConciliado = (float) ($statement->valor_conciliado ?? 0);
+                $valorPorConciliar = $statement->valor_por_conciliar !== null
+                    ? (float) $statement->valor_por_conciliar
+                    : max(abs((float) $statement->valor) - $valorConciliado, 0);
+
+                return [
+                    'id' => $statement->id,
+                    'data_movimento' => optional($statement->data_movimento)?->toDateString(),
+                    'descricao' => $statement->descricao,
+                    'referencia' => $statement->referencia,
+                    'valor' => (float) $statement->valor,
+                    'conta' => $statement->conta,
+                    'conciliado' => (bool) $statement->conciliado,
+                    'valor_conciliado' => $valorConciliado,
+                    'valor_por_conciliar' => $valorPorConciliar,
+                    'conciliacao_status' => $statement->conciliacao_status ?: ((bool) $statement->conciliado ? 'reconciled' : 'unreconciled'),
+                ];
+            });
+
+        return response()->json($paginator);
     }
 
     public function storeMovimento(Request $request)

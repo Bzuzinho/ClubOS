@@ -1,5 +1,5 @@
 import { Head } from '@inertiajs/react';
-import { Suspense, lazy, useState } from 'react';
+import { Suspense, lazy, useEffect, useState } from 'react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { moduleTabbedContentClass, moduleTabsClass, moduleViewportClass } from '@/lib/module-layout';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/Components/ui/tabs';
@@ -72,6 +72,38 @@ export default function FinanceiroIndex({
   const [conciliacoesState, setConciliacoes] = useState<ConciliacaoMapa[]>(conciliacoes || []);
   const [productsState, setProducts] = useState<Product[]>(products || []);
 
+  useEffect(() => {
+    setFaturas(faturas || []);
+  }, [faturas]);
+
+  useEffect(() => {
+    setFaturaItens(faturaItens || []);
+  }, [faturaItens]);
+
+  useEffect(() => {
+    setMovimentos(movimentos || []);
+  }, [movimentos]);
+
+  useEffect(() => {
+    setMovimentoItens(movimentoItens || []);
+  }, [movimentoItens]);
+
+  useEffect(() => {
+    setLancamentos(lancamentos || []);
+  }, [lancamentos]);
+
+  useEffect(() => {
+    setExtratos(extratos || []);
+  }, [extratos]);
+
+  useEffect(() => {
+    setConciliacoes(conciliacoes || []);
+  }, [conciliacoes]);
+
+  useEffect(() => {
+    setProducts(products || []);
+  }, [products]);
+
   return (
     <AuthenticatedLayout
       fullWidth
@@ -141,6 +173,7 @@ export default function FinanceiroIndex({
                   setLancamentos={setLancamentos}
                   conciliacoes={conciliacoesState}
                   setConciliacoes={setConciliacoes}
+                  extratos={extratosState}
                   setExtratos={setExtratos}
                   users={users || []}
                   mensalidades={mensalidades || []}
