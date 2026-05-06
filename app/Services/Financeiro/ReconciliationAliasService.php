@@ -89,6 +89,64 @@ class ReconciliationAliasService
         ]);
     }
 
+    public function learnFromConfirmedReconciliation(BankStatement $bankStatement, ?string $userId, ?string $familyId = null, ?string $createdBy = null): array
+    {
+        if (!$userId) {
+            return [];
+        }
+
+        $resolvedFamilyId = $familyId ?: $this->resolveFamilyId($userId);
+        $candidates = [
+            ['type' => 'description_text', 'value' => $bankStatement->descricao],
+            ['type' => 'mb_reference', 'value' => $bankStatement->referencia],
+        ];
+        $learned = [];
+
+        foreach ($candidates as $candidate) {
+            $value = trim((string) ($candidate['value'] ?? ''));
+            $normalizedValue = $this->normalizer->normalize($value);
+
+            if ($normalizedValue === '') {
+                continue;
+            }
+
+            $alias = BankReconciliationAlias::query()
+                ->where('user_id', $userId)
+                ->where('family_id', $resolvedFamilyId)
+                ->where('type', $candidate['type'])
+                ->where('normalized_value', $normalizedValue)
+                ->first();
+
+            if ($alias) {
+                $alias->fill([
+                    'value' => $value,
+                    'last_matched_at' => now(),
+                    'match_count' => (int) $alias->match_count + 1,
+                ]);
+                $alias->save();
+                $learned[] = $alias->refresh();
+
+                continue;
+            }
+
+            $learned[] = $this->createAlias([
+                'user_id' => $userId,
+                'family_id' => $resolvedFamilyId,
+                'type' => $candidate['type'],
+                'value' => $value,
+                'normalized_value' => $normalizedValue,
+                'is_confirmed' => false,
+                'confidence' => 50,
+                'source' => 'learned_from_reconciliation',
+                'last_matched_at' => now(),
+                'match_count' => 1,
+                'created_by' => $createdBy,
+            ]);
+        }
+
+        return $learned;
+    }
+
     public function findPossibleMatches(string $bankDescription, ?float $amount = null): Collection
     {
         $normalizedDescription = $this->normalizer->normalize($bankDescription);

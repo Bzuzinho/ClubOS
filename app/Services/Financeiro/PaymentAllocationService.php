@@ -3,6 +3,7 @@
 namespace App\Services\Financeiro;
 
 use App\Models\AccountCredit;
+use App\Models\BankReconciliationSuggestion;
 use App\Models\BankStatement;
 use App\Models\Familia;
 use App\Models\FinancialEntry;
@@ -169,6 +170,7 @@ class PaymentAllocationService
                         bankStatement: $bankStatement,
                         entry: $entry,
                         previousStatus: $previousStatuses[$invoice->id] ?? $invoice->estado_pagamento,
+                        options: $options,
                     );
                 }
             }
@@ -236,7 +238,7 @@ class PaymentAllocationService
                 'method' => $options['method'] ?? 'transferencia',
                 'reference' => $options['reference'] ?? $bankStatement->referencia,
                 'description' => $options['description'] ?? $bankStatement->descricao,
-                'source' => Payment::SOURCE_BANK_STATEMENT,
+                'source' => $options['source'] ?? Payment::SOURCE_BANK_STATEMENT,
                 'status' => Payment::STATUS_CONFIRMED,
                 'created_by' => $options['created_by'] ?? null,
                 'notes' => $options['notes'] ?? null,
@@ -517,10 +519,16 @@ class PaymentAllocationService
         BankStatement $bankStatement,
         FinancialEntry $entry,
         ?string $previousStatus,
+        array $options = [],
     ): MapaConciliacao {
         $mapa = MapaConciliacao::query()->firstOrNew([
             'payment_allocation_id' => $allocation->id,
         ]);
+
+        $suggestionId = $options['suggestion_id'] ?? null;
+        $suggestion = $suggestionId
+            ? BankReconciliationSuggestion::query()->find($suggestionId)
+            : null;
 
         $mapa->fill([
             'extrato_id' => $bankStatement->id,
@@ -528,12 +536,15 @@ class PaymentAllocationService
             'fatura_id' => $invoice->id,
             'payment_id' => $payment->id,
             'payment_allocation_id' => $allocation->id,
+            'bank_reconciliation_suggestion_id' => $suggestion?->id,
             'estado_fatura_anterior' => $previousStatus,
             'valor_conciliado' => $allocation->amount,
             'status' => 'confirmado',
-            'regra_usada' => $payment->source === Payment::SOURCE_BANK_STATEMENT
+            'regra_usada' => $options['map_rule'] ?? ($payment->source === Payment::SOURCE_BANK_STATEMENT
                 ? 'bank_statement_allocation'
-                : 'manual_payment_allocation',
+                : 'manual_payment_allocation'),
+            'score' => $options['suggestion_score'] ?? $suggestion?->score,
+            'metadata' => $options['map_metadata'] ?? null,
         ]);
         $mapa->save();
 

@@ -19,15 +19,20 @@ class MapaConciliacao extends Model
         'movimento_id',
         'payment_id',
         'payment_allocation_id',
+        'bank_reconciliation_suggestion_id',
         'estado_fatura_anterior',
         'estado_movimento_anterior',
         'valor_conciliado',
         'status',
         'regra_usada',
+        'score',
+        'metadata',
     ];
 
     protected $casts = [
         'valor_conciliado' => 'decimal:2',
+        'score' => 'integer',
+        'metadata' => 'array',
     ];
 
     public function extrato(): BelongsTo
@@ -53,5 +58,10 @@ class MapaConciliacao extends Model
     public function paymentAllocation(): BelongsTo
     {
         return $this->belongsTo(PaymentAllocation::class, 'payment_allocation_id');
+    }
+
+    public function suggestion(): BelongsTo
+    {
+        return $this->belongsTo(BankReconciliationSuggestion::class, 'bank_reconciliation_suggestion_id');
     }
 }

@@ -1,5 +1,5 @@
-import { useState, useMemo, type ChangeEvent } from 'react';
-import { ExtratoBancario, LancamentoFinanceiro, Fatura, CentroCusto, User, Movimento, ConciliacaoMapa } from './types';
+import { useEffect, useState, useMemo, type ChangeEvent } from 'react';
+import { ExtratoBancario, LancamentoFinanceiro, Fatura, CentroCusto, User, Movimento, ConciliacaoMapa, BankReconciliationSuggestion, OpenInvoiceListItem } from './types';
 import { Button } from '@/Components/ui/button';
 import { Card } from '@/Components/ui/card';
 import { Input } from '@/Components/ui/input';
@@ -51,6 +51,12 @@ export function BancoTab({
     const token = document.querySelector('meta[name="csrf-token"]') as HTMLMetaElement | null;
     return token?.content || '';
   };
+  const buildJsonHeaders = () => ({
+    'Content-Type': 'application/json',
+    Accept: 'application/json',
+    'X-Requested-With': 'XMLHttpRequest',
+    'X-CSRF-TOKEN': getCsrfToken(),
+  });
   const toNumber = (value: unknown, fallback = 0): number => {
     if (typeof value === 'number' && !Number.isNaN(value)) return value;
     if (typeof value === 'string' && value.trim() !== '') {
@@ -97,7 +103,11 @@ export function BancoTab({
   const [dialogEditOpen, setDialogEditOpen] = useState(false);
   const [dialogImportOpen, setDialogImportOpen] = useState(false);
   const [dialogMappingOpen, setDialogMappingOpen] = useState(false);
+  const [suggestionsDialogOpen, setSuggestionsDialogOpen] = useState(false);
+  const [manualAllocationDialogOpen, setManualAllocationDialogOpen] = useState(false);
   const [selectedExtrato, setSelectedExtrato] = useState<ExtratoBancario | null>(null);
+  const [selectedSuggestionExtrato, setSelectedSuggestionExtrato] = useState<ExtratoBancario | null>(null);
+  const [selectedManualAllocationExtrato, setSelectedManualAllocationExtrato] = useState<ExtratoBancario | null>(null);
   const [editingExtrato, setEditingExtrato] = useState<ExtratoBancario | null>(null);
   const [userPickerOpen, setUserPickerOpen] = useState(false);
   const [userSearchTerm, setUserSearchTerm] = useState('');
@@ -125,6 +135,16 @@ export function BancoTab({
     conta: '',
     referencia: '',
   });
+  const [reconciliationSuggestions, setReconciliationSuggestions] = useState<BankReconciliationSuggestion[]>([]);
+  const [suggestionCounts, setSuggestionCounts] = useState<Record<string, number>>({});
+  const [suggestionsLoading, setSuggestionsLoading] = useState(false);
+  const [suggestionActionId, setSuggestionActionId] = useState<string | null>(null);
+  const [openInvoices, setOpenInvoices] = useState<OpenInvoiceListItem[]>([]);
+  const [invoiceSearchTerm, setInvoiceSearchTerm] = useState('');
+  const [manualAllocations, setManualAllocations] = useState<Record<string, string>>({});
+  const [manualCreateCredit, setManualCreateCredit] = useState(false);
+  const [manualNotes, setManualNotes] = useState('');
+  const [manualInvoicesLoading, setManualInvoicesLoading] = useState(false);
 
   const getColumnLetter = (index: number) => {
     let letter = '';
@@ -287,6 +307,346 @@ export function BancoTab({
 
     return sugestoes.sort((a, b) => b.score - a.score).slice(0, 5);
   }, [selectedExtrato, faturas, users]);
+
+  const syncFinancialStateFromPayment = (data: {
+    invoices?: Fatura[];
+    bank_statement?: ExtratoBancario;
+    summary?: { new_fiscal_requests?: number; created_credit?: boolean };
+  }) => {
+    if (Array.isArray(data.invoices)) {
+      setFaturas((current) =>
+        (current || []).map((invoice) => {
+          const updated = data.invoices?.find((candidate) => candidate.id === invoice.id);
+          return updated ? { ...invoice, ...updated } : invoice;
+        })
+      );
+    }
+
+    if (data.bank_statement) {
+      setExtratos((current) =>
+        (current || []).map((statement) => (statement.id === data.bank_statement?.id ? { ...statement, ...data.bank_statement } : statement))
+      );
+    }
+  };
+
+  const loadSuggestionCounts = async () => {
+    try {
+      const url = new URL(route('financeiro.bank-reconciliation-suggestions.index'), window.location.origin);
+      url.searchParams.set('status', 'suggested');
+      url.searchParams.set('per_page', '200');
+
+      const response = await fetch(url.toString(), {
+        method: 'GET',
+        headers: {
+          Accept: 'application/json',
+          'X-Requested-With': 'XMLHttpRequest',
+        },
+        credentials: 'same-origin',
+      });
+
+      if (!response.ok) {
+        return;
+      }
+
+      const payload = await response.json();
+      const items = Array.isArray(payload?.data) ? payload.data : Array.isArray(payload?.suggestions) ? payload.suggestions : [];
+      const counts = items.reduce((acc: Record<string, number>, suggestion: BankReconciliationSuggestion) => {
+        if (!suggestion.bank_statement_id) {
+          return acc;
+        }
+
+        acc[suggestion.bank_statement_id] = (acc[suggestion.bank_statement_id] || 0) + 1;
+        return acc;
+      }, {});
+
+      setSuggestionCounts(counts);
+    } catch {
+    }
+  };
+
+  useEffect(() => {
+    void loadSuggestionCounts();
+  }, [extratos.length]);
+
+  useEffect(() => {
+    if (!manualAllocationDialogOpen) {
+      return;
+    }
+
+    const timeout = window.setTimeout(() => {
+      void loadOpenInvoices(invoiceSearchTerm);
+    }, 250);
+
+    return () => window.clearTimeout(timeout);
+  }, [invoiceSearchTerm, manualAllocationDialogOpen]);
+
+  const loadSuggestionsForExtrato = async (extrato: ExtratoBancario) => {
+    setSuggestionsLoading(true);
+
+    try {
+      const url = new URL(route('financeiro.bank-reconciliation-suggestions.index'), window.location.origin);
+      url.searchParams.set('bank_statement_id', extrato.id);
+      url.searchParams.set('per_page', '50');
+
+      const response = await fetch(url.toString(), {
+        method: 'GET',
+        headers: {
+          Accept: 'application/json',
+          'X-Requested-With': 'XMLHttpRequest',
+        },
+        credentials: 'same-origin',
+      });
+
+      if (!response.ok) {
+        throw new Error('Erro ao carregar sugestoes');
+      }
+
+      const payload = await response.json();
+      setReconciliationSuggestions(Array.isArray(payload?.data) ? payload.data : []);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Erro ao carregar sugestoes';
+      toast.error(message);
+    } finally {
+      setSuggestionsLoading(false);
+    }
+  };
+
+  const handleGenerateSuggestions = async (extrato: ExtratoBancario, openDialog = false) => {
+    setSuggestionActionId(extrato.id);
+
+    try {
+      const response = await fetch(route('financeiro.bank-statements.generate-suggestions', extrato.id), {
+        method: 'POST',
+        headers: buildJsonHeaders(),
+        credentials: 'same-origin',
+      });
+
+      if (!response.ok) {
+        throw new Error('Erro ao gerar sugestoes');
+      }
+
+      const payload = await response.json();
+      const suggestions = Array.isArray(payload?.suggestions) ? payload.suggestions : [];
+      setSuggestionCounts((current) => ({ ...current, [extrato.id]: suggestions.length }));
+
+      if (openDialog) {
+        setSelectedSuggestionExtrato(extrato);
+        setReconciliationSuggestions(suggestions);
+        setSuggestionsDialogOpen(true);
+      }
+
+      toast.success(suggestions.length > 0 ? `${suggestions.length} sugestao(oes) gerada(s)` : 'Nao foram encontradas sugestoes');
+      await loadSuggestionCounts();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Erro ao gerar sugestoes';
+      toast.error(message);
+    } finally {
+      setSuggestionActionId(null);
+    }
+  };
+
+  const handleOpenSuggestions = async (extrato: ExtratoBancario) => {
+    setSelectedSuggestionExtrato(extrato);
+    setSuggestionsDialogOpen(true);
+    await loadSuggestionsForExtrato(extrato);
+  };
+
+  const handleConfirmSuggestion = async (suggestion: BankReconciliationSuggestion) => {
+    setSuggestionActionId(suggestion.id);
+
+    try {
+      const response = await fetch(route('financeiro.bank-reconciliation-suggestions.confirm', suggestion.id), {
+        method: 'POST',
+        headers: buildJsonHeaders(),
+        credentials: 'same-origin',
+        body: JSON.stringify({
+          create_credit: suggestion.unallocated_amount > 0.009,
+        }),
+      });
+
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.message || 'Erro ao confirmar sugestao');
+      }
+
+      const payload = await response.json();
+      syncFinancialStateFromPayment(payload);
+      await loadSuggestionCounts();
+
+      if (selectedSuggestionExtrato) {
+        await loadSuggestionsForExtrato(selectedSuggestionExtrato);
+      }
+
+      if ((payload?.summary?.new_fiscal_requests || 0) > 0) {
+        toast.success('Pagamento conciliado. Pedido fiscal criado para as faturas liquidadas.');
+      } else {
+        toast.success('Sugestao confirmada com sucesso.');
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Erro ao confirmar sugestao';
+      toast.error(message);
+    } finally {
+      setSuggestionActionId(null);
+    }
+  };
+
+  const handleRejectSuggestion = async (suggestion: BankReconciliationSuggestion) => {
+    setSuggestionActionId(suggestion.id);
+
+    try {
+      const response = await fetch(route('financeiro.bank-reconciliation-suggestions.reject', suggestion.id), {
+        method: 'POST',
+        headers: buildJsonHeaders(),
+        credentials: 'same-origin',
+        body: JSON.stringify({ reason: 'Rejeitada manualmente na tab Banco' }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Erro ao rejeitar sugestao');
+      }
+
+      if (selectedSuggestionExtrato) {
+        await loadSuggestionsForExtrato(selectedSuggestionExtrato);
+      }
+      await loadSuggestionCounts();
+      toast.success('Sugestao rejeitada.');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Erro ao rejeitar sugestao';
+      toast.error(message);
+    } finally {
+      setSuggestionActionId(null);
+    }
+  };
+
+  const loadOpenInvoices = async (search = '', userId?: string) => {
+    setManualInvoicesLoading(true);
+
+    try {
+      const url = new URL(route('financeiro.invoices.open'), window.location.origin);
+      url.searchParams.set('per_page', '50');
+      if (search.trim() !== '') {
+        url.searchParams.set('search', search.trim());
+      }
+      if (userId) {
+        url.searchParams.set('user_id', userId);
+      }
+
+      const response = await fetch(url.toString(), {
+        method: 'GET',
+        headers: {
+          Accept: 'application/json',
+          'X-Requested-With': 'XMLHttpRequest',
+        },
+        credentials: 'same-origin',
+      });
+
+      if (!response.ok) {
+        throw new Error('Erro ao carregar faturas em aberto');
+      }
+
+      const payload = await response.json();
+      setOpenInvoices(Array.isArray(payload?.data) ? payload.data : []);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Erro ao carregar faturas em aberto';
+      toast.error(message);
+    } finally {
+      setManualInvoicesLoading(false);
+    }
+  };
+
+  const openManualAllocationDialog = async (extrato: ExtratoBancario) => {
+    setSelectedManualAllocationExtrato(extrato);
+    setManualAllocationDialogOpen(true);
+    setManualAllocations({});
+    setManualCreateCredit(false);
+    setManualNotes('');
+    setInvoiceSearchTerm('');
+    await loadOpenInvoices();
+  };
+
+  const manualStatementAmount = selectedManualAllocationExtrato
+    ? Math.abs(toNumber(selectedManualAllocationExtrato.valor_por_conciliar, Math.abs(toNumber(selectedManualAllocationExtrato.valor))))
+    : 0;
+  const manualAllocatedTotal = Object.values(manualAllocations).reduce((sum, value) => sum + toNumber(value, 0), 0);
+  const manualDifference = Math.max(manualStatementAmount - manualAllocatedTotal, 0);
+
+  const handleManualAllocationSubmit = async () => {
+    if (!selectedManualAllocationExtrato) {
+      return;
+    }
+
+    const allocations = Object.entries(manualAllocations)
+      .map(([invoiceId, amount]) => ({
+        invoice_id: invoiceId,
+        amount: toNumber(amount, 0),
+      }))
+      .filter((allocation) => allocation.amount > 0);
+
+    if (allocations.length === 0) {
+      toast.error('Indique pelo menos uma alocacao com valor superior a zero.');
+      return;
+    }
+
+    if (manualAllocatedTotal - manualStatementAmount > 0.009) {
+      toast.error('O total alocado nao pode exceder o valor por conciliar da linha bancaria.');
+      return;
+    }
+
+    if (manualDifference > 0.009 && !manualCreateCredit) {
+      toast.warning('Existe excedente. Ative a opcao de credito ou ajuste as alocacoes antes de confirmar.');
+      return;
+    }
+
+    try {
+      const response = await fetch(route('financeiro.bank-statements.allocate', selectedManualAllocationExtrato.id), {
+        method: 'POST',
+        headers: buildJsonHeaders(),
+        credentials: 'same-origin',
+        body: JSON.stringify({
+          create_credit: manualCreateCredit,
+          notes: manualNotes || undefined,
+          allocations,
+        }),
+      });
+
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.message || 'Erro ao alocar manualmente a linha bancaria');
+      }
+
+      const payload = await response.json();
+      syncFinancialStateFromPayment(payload);
+      await loadSuggestionCounts();
+      setManualAllocationDialogOpen(false);
+
+      if ((payload?.summary?.new_fiscal_requests || 0) > 0) {
+        toast.success('Pagamento conciliado. Pedido fiscal criado para as faturas liquidadas.');
+      } else if (payload?.summary?.has_partial_invoice) {
+        toast.success('Alocacao manual registada. A fatura continua parcial ate liquidacao total.');
+      } else {
+        toast.success('Alocacao manual registada com sucesso.');
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Erro ao alocar manualmente';
+      toast.error(message);
+    }
+  };
+
+  const getReconciliationBadge = (extrato: ExtratoBancario) => {
+    if (extrato.conciliado || extrato.conciliacao_status === 'reconciled') {
+      return <Badge className="text-[10px] md:text-xs whitespace-nowrap bg-green-100 text-green-800">Conciliado</Badge>;
+    }
+
+    if (extrato.conciliacao_status === 'partial') {
+      return <Badge className="text-[10px] md:text-xs whitespace-nowrap bg-amber-100 text-amber-800">Parcial</Badge>;
+    }
+
+    if ((suggestionCounts[extrato.id] || 0) > 0) {
+      return <Badge className="text-[10px] md:text-xs whitespace-nowrap bg-blue-100 text-blue-800">Sugestoes encontradas</Badge>;
+    }
+
+    return <Badge className="text-[10px] md:text-xs whitespace-nowrap bg-slate-100 text-slate-800">Sem sugestoes</Badge>;
+  };
 
   const handleAddExtrato = async () => {
     if (!formData.descricao || formData.valor === 0) {
@@ -1267,9 +1627,7 @@ export function BancoTab({
                       </div>
                       <div className="mt-1 break-words text-xs text-muted-foreground">{extrato.descricao}</div>
                     </div>
-                    <Badge className={`shrink-0 text-[10px] ${extrato.conciliado ? 'bg-green-100 text-green-800' : 'bg-orange-100 text-orange-800'}`}>
-                      {extrato.conciliado ? 'Conciliado' : 'Pendente'}
-                    </Badge>
+                    {getReconciliationBadge(extrato)}
                   </div>
 
                   <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
@@ -1313,26 +1671,53 @@ export function BancoTab({
                         Desconciliar
                       </Button>
                     ) : (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => {
-                          setSelectedExtrato(extrato);
-                          setConciliacaoItens([]);
-                          setCatalogData({
-                            tipo: extrato.valor >= 0 ? 'receita' : 'despesa',
-                            centro_custo_id: extrato.centro_custo_id || '',
-                            fatura_id: '',
-                            user_id: '',
-                            movimento_id: '',
-                          });
-                          setDialogCatalogOpen(true);
-                        }}
-                        className="h-8 px-2"
-                      >
-                        <ArrowsLeftRight size={12} className="mr-1" />
-                        Catalogar
-                      </Button>
+                      <>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => void handleGenerateSuggestions(extrato, true)}
+                          className="h-8 px-2"
+                          disabled={suggestionActionId === extrato.id}
+                        >
+                          Gerar sugestoes
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => void handleOpenSuggestions(extrato)}
+                          className="h-8 px-2"
+                        >
+                          Ver sugestoes
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => void openManualAllocationDialog(extrato)}
+                          className="h-8 px-2"
+                        >
+                          Alocar
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => {
+                            setSelectedExtrato(extrato);
+                            setConciliacaoItens([]);
+                            setCatalogData({
+                              tipo: extrato.valor >= 0 ? 'receita' : 'despesa',
+                              centro_custo_id: extrato.centro_custo_id || '',
+                              fatura_id: '',
+                              user_id: '',
+                              movimento_id: '',
+                            });
+                            setDialogCatalogOpen(true);
+                          }}
+                          className="h-8 px-2"
+                        >
+                          <ArrowsLeftRight size={12} className="mr-1" />
+                          Catalogar
+                        </Button>
+                      </>
                     )}
                   </div>
                 </div>
@@ -1378,12 +1763,10 @@ export function BancoTab({
                           {getCentroCustoName(extrato.centro_custo_id)}
                         </TableCell>
                         <TableCell>
-                          <Badge className={`text-[10px] md:text-xs whitespace-nowrap ${extrato.conciliado ? 'bg-green-100 text-green-800' : 'bg-orange-100 text-orange-800'}`}>
-                            {extrato.conciliado ? 'Conciliado' : 'Pendente'}
-                          </Badge>
+                          {getReconciliationBadge(extrato)}
                         </TableCell>
                         <TableCell className="text-right">
-                          <div className="flex gap-1 md:gap-2 justify-end whitespace-nowrap">
+                          <div className="flex flex-wrap gap-1 md:gap-2 justify-end whitespace-nowrap">
                             <Button
                               size="sm"
                               variant="ghost"
@@ -1411,26 +1794,56 @@ export function BancoTab({
                                 <span className="hidden md:inline">Desconciliar</span>
                               </Button>
                             ) : (
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => {
-                                  setSelectedExtrato(extrato);
-                                  setConciliacaoItens([]);
-                                  setCatalogData({
-                                    tipo: extrato.valor >= 0 ? 'receita' : 'despesa',
-                                    centro_custo_id: extrato.centro_custo_id || '',
-                                    fatura_id: '',
-                                    user_id: '',
-                                    movimento_id: '',
-                                  });
-                                  setDialogCatalogOpen(true);
-                                }}
-                                className="text-[10px] md:text-xs h-7 md:h-8 px-2 md:px-3"
-                              >
-                                <ArrowsLeftRight size={12} className="mr-0 md:mr-1" />
-                                <span className="hidden md:inline">Catalogar</span>
-                              </Button>
+                              <>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => void handleGenerateSuggestions(extrato)}
+                                  className="text-[10px] md:text-xs h-7 md:h-8 px-2 md:px-3"
+                                  disabled={suggestionActionId === extrato.id}
+                                >
+                                  <span className="hidden md:inline">Gerar sugestoes</span>
+                                  <span className="md:hidden">Gerar</span>
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => void handleOpenSuggestions(extrato)}
+                                  className="text-[10px] md:text-xs h-7 md:h-8 px-2 md:px-3"
+                                >
+                                  <span className="hidden md:inline">Ver sugestoes</span>
+                                  <span className="md:hidden">Ver</span>
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => void openManualAllocationDialog(extrato)}
+                                  className="text-[10px] md:text-xs h-7 md:h-8 px-2 md:px-3"
+                                >
+                                  <span className="hidden md:inline">Alocar manualmente</span>
+                                  <span className="md:hidden">Alocar</span>
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => {
+                                    setSelectedExtrato(extrato);
+                                    setConciliacaoItens([]);
+                                    setCatalogData({
+                                      tipo: extrato.valor >= 0 ? 'receita' : 'despesa',
+                                      centro_custo_id: extrato.centro_custo_id || '',
+                                      fatura_id: '',
+                                      user_id: '',
+                                      movimento_id: '',
+                                    });
+                                    setDialogCatalogOpen(true);
+                                  }}
+                                  className="text-[10px] md:text-xs h-7 md:h-8 px-2 md:px-3"
+                                >
+                                  <ArrowsLeftRight size={12} className="mr-0 md:mr-1" />
+                                  <span className="hidden md:inline">Catalogar</span>
+                                </Button>
+                              </>
                             )}
                           </div>
                         </TableCell>
@@ -1756,6 +2169,247 @@ export function BancoTab({
               Catalogar e Conciliar
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={suggestionsDialogOpen}
+        onOpenChange={(open) => {
+          setSuggestionsDialogOpen(open);
+          if (!open) {
+            setSelectedSuggestionExtrato(null);
+            setReconciliationSuggestions([]);
+          }
+        }}
+      >
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Sugestoes de Conciliacao Assistida</DialogTitle>
+            <DialogDescription>Analise o score, a explicacao e confirme ou rejeite as sugestoes para esta linha bancaria.</DialogDescription>
+          </DialogHeader>
+
+          {selectedSuggestionExtrato ? (
+            <div className="space-y-4">
+              <Card className="p-4 bg-muted/40">
+                <div className="grid gap-2 md:grid-cols-4 text-sm">
+                  <div>
+                    <div className="text-muted-foreground text-xs uppercase">Data</div>
+                    <div>{format(new Date(selectedSuggestionExtrato.data_movimento), 'dd/MM/yyyy')}</div>
+                  </div>
+                  <div className="md:col-span-2">
+                    <div className="text-muted-foreground text-xs uppercase">Descricao</div>
+                    <div>{selectedSuggestionExtrato.descricao}</div>
+                  </div>
+                  <div>
+                    <div className="text-muted-foreground text-xs uppercase">Valor</div>
+                    <div className="font-semibold">€{Math.abs(toNumber(selectedSuggestionExtrato.valor)).toFixed(2)}</div>
+                  </div>
+                  <div>
+                    <div className="text-muted-foreground text-xs uppercase">Referencia</div>
+                    <div>{selectedSuggestionExtrato.referencia || '-'}</div>
+                  </div>
+                  <div>
+                    <div className="text-muted-foreground text-xs uppercase">Conta</div>
+                    <div>{selectedSuggestionExtrato.conta || '-'}</div>
+                  </div>
+                  <div>
+                    <div className="text-muted-foreground text-xs uppercase">Estado</div>
+                    <div>{getReconciliationBadge(selectedSuggestionExtrato)}</div>
+                  </div>
+                </div>
+              </Card>
+
+              <div className="flex justify-end">
+                <Button variant="outline" onClick={() => void handleGenerateSuggestions(selectedSuggestionExtrato, true)} disabled={suggestionActionId === selectedSuggestionExtrato.id}>
+                  Gerar novamente
+                </Button>
+              </div>
+
+              {suggestionsLoading ? (
+                <div className="py-8 text-center text-sm text-muted-foreground">A carregar sugestoes...</div>
+              ) : reconciliationSuggestions.length === 0 ? (
+                <div className="py-8 text-center text-sm text-muted-foreground">Sem sugestoes para esta linha bancaria.</div>
+              ) : (
+                <div className="space-y-3">
+                  {reconciliationSuggestions
+                    .slice()
+                    .sort((left, right) => right.score - left.score)
+                    .map((suggestion) => (
+                      <Card key={suggestion.id} className="p-4 space-y-3">
+                        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                          <div>
+                            <div className="font-semibold">
+                              {suggestion.user?.nome_completo || suggestion.family?.nome || 'Contexto nao identificado'}
+                            </div>
+                            <div className="text-xs text-muted-foreground mt-1">
+                              Score {suggestion.score} · Confianca {suggestion.confidence_label || 'low'}
+                            </div>
+                          </div>
+                          <div className="flex gap-2">
+                            <Badge className="bg-blue-100 text-blue-800">{suggestion.score}</Badge>
+                            <Badge variant="outline">{suggestion.confidence_label || 'low'}</Badge>
+                          </div>
+                        </div>
+
+                        <div className="space-y-2 text-sm">
+                          {(suggestion.suggested_allocations || []).map((allocation) => {
+                            const invoice = (faturas || []).find((item) => item.id === allocation.invoice_id);
+                            const invoiceUser = invoice ? (users || []).find((item) => item.id === invoice.user_id) : null;
+
+                            return (
+                              <div key={`${suggestion.id}-${allocation.invoice_id}`} className="rounded-md border p-3">
+                                <div className="font-medium">{invoiceUser?.nome_completo || suggestion.user?.nome_completo || 'Fatura'}</div>
+                                <div className="text-xs text-muted-foreground">
+                                  {invoice?.tipo || 'fatura'} · alocar €{toNumber(allocation.amount).toFixed(2)} · {allocation.reason || 'sem justificacao adicional'}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+
+                        <div className="grid gap-2 text-xs text-muted-foreground md:grid-cols-3">
+                          <div>Total alocado: €{toNumber(suggestion.total_allocated_amount).toFixed(2)}</div>
+                          <div>Excedente/credito: €{toNumber(suggestion.unallocated_amount).toFixed(2)}</div>
+                          <div>Regras: {(suggestion.matched_rules || []).join(', ') || '-'}</div>
+                        </div>
+
+                        <div className="text-sm">{suggestion.explanation || 'Sem explicacao adicional.'}</div>
+
+                        <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+                          <Button variant="outline" onClick={() => void handleRejectSuggestion(suggestion)} disabled={suggestionActionId === suggestion.id}>
+                            Rejeitar
+                          </Button>
+                          <Button onClick={() => void handleConfirmSuggestion(suggestion)} disabled={suggestionActionId === suggestion.id}>
+                            Confirmar sugestao
+                          </Button>
+                        </div>
+                      </Card>
+                    ))}
+                </div>
+              )}
+            </div>
+          ) : null}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={manualAllocationDialogOpen}
+        onOpenChange={(open) => {
+          setManualAllocationDialogOpen(open);
+          if (!open) {
+            setSelectedManualAllocationExtrato(null);
+            setOpenInvoices([]);
+            setManualAllocations({});
+            setManualCreateCredit(false);
+            setManualNotes('');
+            setInvoiceSearchTerm('');
+          }
+        }}
+      >
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Alocacao Manual da Linha Bancaria</DialogTitle>
+            <DialogDescription>Escolha uma ou varias faturas em aberto, distribua os valores e decida se o excedente deve virar credito.</DialogDescription>
+          </DialogHeader>
+
+          {selectedManualAllocationExtrato ? (
+            <div className="space-y-4">
+              <Card className="p-4 bg-muted/40">
+                <div className="grid gap-2 md:grid-cols-4 text-sm">
+                  <div>
+                    <div className="text-muted-foreground text-xs uppercase">Data</div>
+                    <div>{format(new Date(selectedManualAllocationExtrato.data_movimento), 'dd/MM/yyyy')}</div>
+                  </div>
+                  <div className="md:col-span-2">
+                    <div className="text-muted-foreground text-xs uppercase">Descricao</div>
+                    <div>{selectedManualAllocationExtrato.descricao}</div>
+                  </div>
+                  <div>
+                    <div className="text-muted-foreground text-xs uppercase">Valor disponivel</div>
+                    <div className="font-semibold">€{manualStatementAmount.toFixed(2)}</div>
+                  </div>
+                </div>
+              </Card>
+
+              <div className="space-y-2">
+                <Label>Pesquisar faturas por nome, NIF, numero de socio ou familia</Label>
+                <Input value={invoiceSearchTerm} onChange={(event) => setInvoiceSearchTerm(event.target.value)} placeholder="Nome, NIF, numero de socio ou familia" />
+              </div>
+
+              <Card className="p-3 max-h-[320px] overflow-y-auto">
+                {manualInvoicesLoading ? (
+                  <div className="py-6 text-center text-sm text-muted-foreground">A carregar faturas em aberto...</div>
+                ) : openInvoices.length === 0 ? (
+                  <div className="py-6 text-center text-sm text-muted-foreground">Nao foram encontradas faturas em aberto.</div>
+                ) : (
+                  <div className="space-y-3">
+                    {openInvoices.map((invoice) => (
+                      <div key={invoice.id} className="grid gap-3 rounded-lg border p-3 md:grid-cols-[minmax(0,1fr)_140px] md:items-end">
+                        <div>
+                          <div className="font-medium text-sm">{invoice.user_name || 'Utilizador'}</div>
+                          <div className="text-xs text-muted-foreground">
+                            {invoice.tipo} · em aberto €{toNumber(invoice.valor_em_aberto).toFixed(2)} · vencimento {invoice.vencimento ? format(new Date(invoice.vencimento), 'dd/MM/yyyy') : '-'}
+                          </div>
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs">Valor a alocar</Label>
+                          <Input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            max={toNumber(invoice.valor_em_aberto).toFixed(2)}
+                            value={manualAllocations[invoice.id] ?? ''}
+                            onChange={(event) => setManualAllocations((current) => ({ ...current, [invoice.id]: event.target.value }))}
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </Card>
+
+              <Card className="p-4">
+                <div className="grid gap-3 md:grid-cols-3 text-sm">
+                  <div>
+                    <div className="text-xs uppercase tracking-wide text-muted-foreground">Total da linha</div>
+                    <div className="mt-1 text-lg font-semibold">€{manualStatementAmount.toFixed(2)}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs uppercase tracking-wide text-muted-foreground">Total alocado</div>
+                    <div className="mt-1 text-lg font-semibold">€{manualAllocatedTotal.toFixed(2)}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs uppercase tracking-wide text-muted-foreground">Diferenca</div>
+                    <div className={`mt-1 text-lg font-semibold ${manualDifference > 0.009 ? 'text-amber-600' : 'text-emerald-600'}`}>
+                      €{manualDifference.toFixed(2)}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-4 flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3">
+                  <Checkbox id="manual-create-credit" checked={manualCreateCredit} onCheckedChange={(checked) => setManualCreateCredit(checked === true)} />
+                  <div>
+                    <Label htmlFor="manual-create-credit" className="text-sm font-medium">Guardar excedente como credito em conta corrente</Label>
+                    <p className="mt-1 text-xs text-muted-foreground">Se existir excedente e esta opcao estiver ativa, a linha bancaria fica totalmente tratada.</p>
+                  </div>
+                </div>
+
+                <div className="mt-4 space-y-2">
+                  <Label>Observacoes</Label>
+                  <Textarea rows={3} value={manualNotes} onChange={(event) => setManualNotes(event.target.value)} placeholder="Observacoes internas da alocacao manual" />
+                </div>
+              </Card>
+
+              <DialogFooter className="flex-col sm:flex-row gap-2">
+                <Button variant="outline" onClick={() => setManualAllocationDialogOpen(false)} className="w-full sm:w-auto">
+                  Cancelar
+                </Button>
+                <Button onClick={() => void handleManualAllocationSubmit()} className="w-full sm:w-auto">
+                  Confirmar alocacao manual
+                </Button>
+              </DialogFooter>
+            </div>
+          ) : null}
         </DialogContent>
       </Dialog>
 

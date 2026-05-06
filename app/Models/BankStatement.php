@@ -53,6 +53,11 @@ class BankStatement extends Model
         return $this->hasMany(Payment::class, 'bank_statement_id');
     }
 
+    public function suggestions(): HasMany
+    {
+        return $this->hasMany(BankReconciliationSuggestion::class, 'bank_statement_id');
+    }
+
     public function reconciliationMaps(): HasMany
     {
         return $this->hasMany(MapaConciliacao::class, 'extrato_id');

@@ -1740,6 +1740,8 @@ export function FaturasTab({
                 .sort((a, b) => new Date(b.data_emissao).getTime() - new Date(a.data_emissao).getTime())
                 .map((fatura) => {
                   const userName = getUserName(fatura.user_id);
+                  const paidAmount = Math.max(toNumber(fatura.valor_pago, 0), 0);
+                  const outstandingAmount = getInvoiceOutstandingAmount(fatura);
                   return (
                     <Card key={fatura.id} className="p-3 cursor-pointer transition-all hover:shadow-lg hover:border-primary/50">
                       <div className="flex items-start gap-2">
@@ -1748,6 +1750,24 @@ export function FaturasTab({
                           <h3 className="font-semibold text-[12px] truncate">{userName}</h3>
                           <p className="text-[10px] text-muted-foreground">{getInvoiceTypeLabel(fatura.tipo)}</p>
                           <div className="text-sm font-semibold text-primary mt-1">€{toNumber(fatura.valor_total).toFixed(2)}</div>
+                          <div className="mt-2 grid grid-cols-2 gap-2 text-[10px] text-muted-foreground">
+                            <div>
+                              <div>Total</div>
+                              <div className="font-medium text-foreground">€{toNumber(fatura.valor_total).toFixed(2)}</div>
+                            </div>
+                            <div>
+                              <div>Pago</div>
+                              <div className="font-medium text-foreground">€{paidAmount.toFixed(2)}</div>
+                            </div>
+                            <div>
+                              <div>Em aberto</div>
+                              <div className="font-medium text-foreground">€{outstandingAmount.toFixed(2)}</div>
+                            </div>
+                            <div>
+                              <div>Estado</div>
+                              <div className="mt-1">{getEstadoBadge(fatura.estado_pagamento)}</div>
+                            </div>
+                          </div>
                           <div className="flex gap-1 mt-1">
                             {getEstadoBadge(fatura.estado_pagamento)}
                           </div>
@@ -1820,6 +1840,8 @@ export function FaturasTab({
                     <TableHead className="hidden lg:table-cell w-28">Data Emissao</TableHead>
                     <TableHead className="flex-1 min-w-[120px]">Vencimento</TableHead>
                     <TableHead className="hidden sm:table-cell w-24 text-right">Valor</TableHead>
+                    <TableHead className="hidden lg:table-cell w-24 text-right">Pago</TableHead>
+                    <TableHead className="hidden lg:table-cell w-28 text-right">Em Aberto</TableHead>
                     <TableHead className="hidden md:table-cell w-20">Estado</TableHead>
                     <TableHead className="w-48 text-right">Acoes</TableHead>
                   </TableRow>
@@ -1827,14 +1849,18 @@ export function FaturasTab({
                 <TableBody>
                   {filteredFaturas.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={8} className="text-center text-muted-foreground py-8">
+                      <TableCell colSpan={10} className="text-center text-muted-foreground py-8">
                         Nenhuma fatura encontrada
                       </TableCell>
                     </TableRow>
                   ) : (
                     filteredFaturas
                       .sort((a, b) => new Date(b.data_emissao).getTime() - new Date(a.data_emissao).getTime())
-                      .map((fatura) => (
+                      .map((fatura) => {
+                        const paidAmount = Math.max(toNumber(fatura.valor_pago, 0), 0);
+                        const outstandingAmount = getInvoiceOutstandingAmount(fatura);
+
+                        return (
                         <TableRow key={fatura.id}>
                           <TableCell>
                             <Checkbox
@@ -1849,6 +1875,8 @@ export function FaturasTab({
                           <TableCell className="hidden lg:table-cell text-xs">{format(new Date(fatura.data_emissao), 'dd/MM/yyyy')}</TableCell>
                           <TableCell className="text-xs">{format(new Date(fatura.data_vencimento), 'dd/MM/yyyy')}</TableCell>
                           <TableCell className="hidden sm:table-cell font-semibold text-xs text-right">€{toNumber(fatura.valor_total).toFixed(2)}</TableCell>
+                          <TableCell className="hidden lg:table-cell text-xs text-right">€{paidAmount.toFixed(2)}</TableCell>
+                          <TableCell className="hidden lg:table-cell text-xs text-right">€{outstandingAmount.toFixed(2)}</TableCell>
                           <TableCell className="hidden md:table-cell text-xs">{getEstadoBadge(fatura.estado_pagamento)}</TableCell>
                           <TableCell>
                             <div className="flex items-center justify-end gap-1">
@@ -1883,7 +1911,7 @@ export function FaturasTab({
                             </div>
                           </TableCell>
                         </TableRow>
-                      ))
+                      )})
                   )}
                 </TableBody>
               </Table>

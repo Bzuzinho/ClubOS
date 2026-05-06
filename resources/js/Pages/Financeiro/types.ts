@@ -111,9 +111,59 @@ export interface ConciliacaoMapa {
   lancamento_id: string;
   fatura_id?: string | null;
   movimento_id?: string | null;
+  payment_id?: string | null;
+  payment_allocation_id?: string | null;
+  bank_reconciliation_suggestion_id?: string | null;
   estado_fatura_anterior?: string | null;
   estado_movimento_anterior?: string | null;
   valor_conciliado?: number | null;
+  status?: string | null;
+  regra_usada?: string | null;
+  score?: number | null;
+  metadata?: Record<string, unknown> | null;
+}
+
+export interface BankReconciliationSuggestionAllocation {
+  invoice_id: string;
+  amount: number;
+  reason?: string | null;
+}
+
+export interface BankReconciliationSuggestion {
+  id: string;
+  bank_statement_id: string;
+  user_id?: string | null;
+  family_id?: string | null;
+  status: 'suggested' | 'confirmed' | 'rejected' | 'expired';
+  score: number;
+  confidence_label?: 'very_high' | 'high' | 'medium' | 'low' | null;
+  total_bank_amount: number;
+  total_allocated_amount: number;
+  unallocated_amount: number;
+  suggested_allocations?: BankReconciliationSuggestionAllocation[] | null;
+  matched_rules?: string[] | null;
+  explanation?: string | null;
+  rejection_reason?: string | null;
+  bank_statement?: ExtratoBancario | null;
+  user?: Pick<User, 'id' | 'nome_completo' | 'numero_socio' | 'nif'> | null;
+  family?: { id: string; nome: string } | null;
+  created_at?: string | null;
+  confirmed_at?: string | null;
+  rejected_at?: string | null;
+}
+
+export interface OpenInvoiceListItem {
+  id: string;
+  user_id: string;
+  user_name?: string | null;
+  valor_total: number;
+  valor_pago: number;
+  valor_em_aberto: number;
+  estado_pagamento: Fatura['estado_pagamento'];
+  data_fatura?: string | null;
+  vencimento?: string | null;
+  mes?: string | null;
+  tipo: string;
 }
 
 export interface Movimento {

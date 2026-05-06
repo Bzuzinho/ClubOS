@@ -38,6 +38,7 @@ use App\Http\Controllers\ConfiguracoesDesportivoController;
 use App\Http\Controllers\LogisticaController;
 use App\Http\Controllers\EquipasController;
 use App\Http\Controllers\Financeiro\BankReconciliationAliasController;
+use App\Http\Controllers\Financeiro\BankReconciliationSuggestionController;
 use App\Http\Controllers\Financeiro\FiscalDocumentRequestController;
 use App\Http\Controllers\PortalTrainingController;
 use App\Http\Controllers\PortalEventController;
@@ -242,6 +243,24 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::get('bank-statements/unreconciled', [FinanceiroController::class, 'unreconciledBankStatements'])
             ->middleware('permission.access:financeiro.dashboard,view')
             ->name('bank-statements.unreconciled');
+        Route::get('bank-reconciliation-suggestions', [BankReconciliationSuggestionController::class, 'index'])
+            ->middleware('permission.access:financeiro.dashboard,view')
+            ->name('bank-reconciliation-suggestions.index');
+        Route::post('bank-statements/{bankStatement}/generate-suggestions', [BankReconciliationSuggestionController::class, 'generateForBankStatement'])
+            ->middleware('permission.access:financeiro.dashboard,edit')
+            ->name('bank-statements.generate-suggestions');
+        Route::post('bank-reconciliation-suggestions/generate', [BankReconciliationSuggestionController::class, 'generate'])
+            ->middleware('permission.access:financeiro.dashboard,edit')
+            ->name('bank-reconciliation-suggestions.generate');
+        Route::post('bank-reconciliation-suggestions/{suggestion}/confirm', [BankReconciliationSuggestionController::class, 'confirm'])
+            ->middleware('permission.access:financeiro.dashboard,edit')
+            ->name('bank-reconciliation-suggestions.confirm');
+        Route::post('bank-reconciliation-suggestions/{suggestion}/reject', [BankReconciliationSuggestionController::class, 'reject'])
+            ->middleware('permission.access:financeiro.dashboard,edit')
+            ->name('bank-reconciliation-suggestions.reject');
+        Route::post('bank-statements/{bankStatement}/allocate', [BankReconciliationSuggestionController::class, 'allocate'])
+            ->middleware('permission.access:financeiro.dashboard,edit')
+            ->name('bank-statements.allocate');
         Route::get('bank-aliases', [BankReconciliationAliasController::class, 'index'])
             ->middleware('permission.access:financeiro.dashboard,view')
             ->name('bank-aliases.index');
