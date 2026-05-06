@@ -132,6 +132,12 @@ class PaymentAllocationService
                     ]);
                 }
 
+                $invoice = $this->repairStaleManualPaymentState($invoice, [
+                    'cancelled_by' => $createdBy,
+                    'cancelled_at' => now(),
+                ]);
+                $invoices->put($invoice->id, $invoice);
+
                 $openAmount = $this->getInvoiceOutstandingAmount($invoice);
                 if ($amount - $openAmount > 0.009) {
                     throw ValidationException::withMessages([
@@ -283,6 +289,135 @@ class PaymentAllocationService
         return $invoice->refresh();
     }
 
+    public function reverseInvoicePayments(Invoice $invoice, array $options = []): Invoice
+    {
+        return DB::transaction(function () use ($invoice, $options) {
+            $invoice = $invoice->fresh();
+            $allocations = PaymentAllocation::query()
+                ->confirmed()
+                ->where('invoice_id', $invoice->id)
+                ->with(['payment.bankStatement'])
+                ->get();
+
+            if ($allocations->isEmpty()) {
+                $invoice->forceFill([
+                    'valor_pago' => 0,
+                    'valor_em_aberto' => round((float) $invoice->valor_total, 2),
+                    'data_pagamento' => null,
+                    'metodo_pagamento' => null,
+                    'referencia_pagamento' => null,
+                    'pagamento_observacoes' => null,
+                ]);
+                $invoice->save();
+
+                return $invoice->refresh();
+            }
+
+            $paymentIds = [];
+            $bankStatementIds = [];
+
+            foreach ($allocations as $allocation) {
+                if ($allocation->payment_id) {
+                    $paymentIds[] = $allocation->payment_id;
+                }
+
+                if ($allocation->payment?->bank_statement_id) {
+                    $bankStatementIds[] = $allocation->payment->bank_statement_id;
+                }
+
+                MapaConciliacao::query()
+                    ->where('payment_allocation_id', $allocation->id)
+                    ->delete();
+
+                FinancialEntry::query()
+                    ->where('origem_tipo', 'payment_allocation')
+                    ->where('origem_id', $allocation->id)
+                    ->delete();
+
+                $allocation->forceFill([
+                    'status' => PaymentAllocation::STATUS_CANCELLED,
+                ]);
+                $allocation->save();
+                $allocation->delete();
+            }
+
+            foreach (array_values(array_unique($paymentIds)) as $paymentId) {
+                $payment = Payment::query()->find($paymentId);
+
+                if (!$payment) {
+                    continue;
+                }
+
+                $payment = $this->syncPaymentBalances($payment->fresh());
+                $hasConfirmedAllocations = PaymentAllocation::query()
+                    ->confirmed()
+                    ->where('payment_id', $payment->id)
+                    ->exists();
+                $hasActiveCredits = AccountCredit::query()
+                    ->where('payment_id', $payment->id)
+                    ->where('status', '!=', AccountCredit::STATUS_CANCELLED)
+                    ->exists();
+
+                if (!$hasConfirmedAllocations && !$hasActiveCredits && $payment->source === Payment::SOURCE_MANUAL) {
+                    $payment->forceFill([
+                        'status' => Payment::STATUS_CANCELLED,
+                        'cancelled_by' => $options['cancelled_by'] ?? null,
+                        'cancelled_at' => $options['cancelled_at'] ?? now(),
+                    ]);
+                    $payment->save();
+                }
+            }
+
+            foreach (array_values(array_unique($bankStatementIds)) as $bankStatementId) {
+                $bankStatement = BankStatement::query()->find($bankStatementId);
+
+                if ($bankStatement) {
+                    $this->syncBankStatementStatus($bankStatement->fresh());
+                }
+            }
+
+            $invoice->forceFill([
+                'valor_pago' => 0,
+                'valor_em_aberto' => round((float) $invoice->valor_total, 2),
+                'data_pagamento' => null,
+                'metodo_pagamento' => null,
+                'referencia_pagamento' => null,
+                'pagamento_observacoes' => null,
+            ]);
+            $invoice->save();
+
+            return $invoice->refresh();
+        });
+    }
+
+    private function repairStaleManualPaymentState(Invoice $invoice, array $options = []): Invoice
+    {
+        if (in_array($invoice->estado_pagamento, ['pago', 'parcial', 'cancelado'], true)) {
+            return $invoice;
+        }
+
+        $confirmedAllocations = PaymentAllocation::query()
+            ->confirmed()
+            ->where('invoice_id', $invoice->id)
+            ->with('payment')
+            ->get();
+
+        if ($confirmedAllocations->isEmpty()) {
+            return $invoice;
+        }
+
+        $hasOnlyManualPayments = $confirmedAllocations->every(
+            fn (PaymentAllocation $allocation) => $allocation->payment?->source === Payment::SOURCE_MANUAL
+                && $allocation->payment?->status === Payment::STATUS_CONFIRMED
+        );
+
+        if (!$hasOnlyManualPayments) {
+            return $invoice;
+        }
+
+        return $this->reverseInvoicePayments($invoice, $options);
+    }
+
     private function getInvoicePaidAmount(Invoice $invoice): float
     {
         $allocationPaid = round((float) PaymentAllocation::query()
@@ -292,7 +427,9 @@ class PaymentAllocationService
         $legacyEntryPaid = round((float) FinancialEntry::query()
             ->where('fatura_id', $invoice->id)
             ->sum('valor'), 2);
-        $trackedPaid = round((float) ($invoice->valor_pago ?? 0), 2);
+        $trackedPaid = in_array($invoice->estado_pagamento, ['pago', 'parcial'], true)
+            ? round((float) ($invoice->valor_pago ?? 0), 2)
+            : 0.0;
 
         return round(max($allocationPaid, $legacyEntryPaid, $trackedPaid), 2);
     }

@@ -17,6 +17,7 @@ use App\Models\Movement;
 use App\Models\MovementItem;
 use App\Models\MapaConciliacao;
 use App\Models\Payment;
+use App\Models\PaymentAllocation;
 use App\Models\Product;
 use App\Models\User;
 use App\Services\Club\ClubSettingsService;
@@ -60,7 +61,7 @@ class FinanceiroController extends Controller
     {
         try {
             $faturas = Cache::remember('financeiro:faturas', 60, fn () =>
-                Invoice::query()
+                $this->invoiceFinancialSnapshotQuery()
                     ->withExists([
                         'fiscalDocumentRequests as has_fiscal_document_request',
                         'fiscalDocumentRequests as has_registered_fiscal_document' => function ($query): void {
@@ -73,9 +74,11 @@ class FinanceiroController extends Controller
                     ->limit(1000)
                     ->get()
                     ->map(function ($fatura) {
-                    $fatura->valor_total = (float) $fatura->valor_total;
-                    return $fatura;
-                })
+                        $fatura = $this->normalizeInvoiceFinancialAmounts($fatura);
+                        $fatura->valor_total = (float) $fatura->valor_total;
+
+                        return $fatura;
+                    })
             );
         } catch (\Exception $e) {
             \Log::error('FinanceiroController::index - Faturas query failed: ' . $e->getMessage());
@@ -334,13 +337,13 @@ class FinanceiroController extends Controller
             }
         }
 
+        $this->invalidateFinanceiroCaches();
+
         if ($request->expectsJson()) {
             return response()->json([
                 'invoice' => $invoice->load('items'),
             ]);
         }
-
-        $this->invalidateFinanceiroCaches();
 
         return redirect()->route('financeiro.index')
             ->with('success', 'Fatura criada com sucesso!');
@@ -365,6 +368,17 @@ class FinanceiroController extends Controller
     {
         $data = $request->validated();
 
+        $requestedStatus = $data['estado_pagamento'] ?? $financeiro->estado_pagamento;
+        $isManualPaymentReversal = in_array($financeiro->estado_pagamento, ['pago', 'parcial'], true)
+            && !in_array($requestedStatus, ['pago', 'parcial'], true);
+
+        if ($isManualPaymentReversal) {
+            $financeiro = $this->paymentAllocationService->reverseInvoicePayments($financeiro, [
+                'cancelled_by' => $request->user()?->id,
+                'cancelled_at' => now(),
+            ]);
+        }
+
         $financeiro->update([
             'user_id' => $data['user_id'],
             'data_fatura' => $data['data_fatura'] ?? $data['data_emissao'],
@@ -373,7 +387,7 @@ class FinanceiroController extends Controller
             'data_vencimento' => $data['data_vencimento'],
             'valor_total' => $data['valor_total'],
             'oculta' => $data['oculta'] ?? $financeiro->oculta,
-            'estado_pagamento' => $data['estado_pagamento'] ?? $financeiro->estado_pagamento,
+            'estado_pagamento' => $requestedStatus,
             'numero_recibo' => $data['numero_recibo'] ?? $financeiro->numero_recibo,
             'referencia_pagamento' => $data['referencia_pagamento'] ?? $financeiro->referencia_pagamento,
             'centro_custo_id' => $data['centro_custo_id'] ?? null,
@@ -426,13 +440,13 @@ class FinanceiroController extends Controller
             }
         }
 
+        $this->invalidateFinanceiroCaches();
+
         if ($request->expectsJson()) {
             return response()->json([
                 'invoice' => $financeiro->load('items'),
             ]);
         }
-
-        $this->invalidateFinanceiroCaches();
 
         return redirect()->route('financeiro.index')
             ->with('success', 'Fatura atualizada com sucesso!');
@@ -442,11 +456,11 @@ class FinanceiroController extends Controller
     {
         $financeiro->delete();
 
+        $this->invalidateFinanceiroCaches();
+
         if (request()->expectsJson()) {
             return response()->json(['success' => true]);
         }
-
-        $this->invalidateFinanceiroCaches();
 
         return redirect()->route('financeiro.index')
             ->with('success', 'Fatura eliminada com sucesso!');
@@ -568,6 +582,8 @@ class FinanceiroController extends Controller
             ->with('user:id,nome_completo,name')
             ->whereIn('estado_pagamento', ['pendente', 'vencido', 'parcial']);
 
+        $query = $this->applyInvoiceFinancialSnapshotColumns($query);
+
         if (!empty($data['user_id'])) {
             $query->where('user_id', $data['user_id']);
         }
@@ -602,10 +618,9 @@ class FinanceiroController extends Controller
             ->orderBy('data_vencimento')
             ->paginate($perPage)
             ->through(function (Invoice $invoice) {
+                $invoice = $this->normalizeInvoiceFinancialAmounts($invoice);
                 $paidAmount = (float) ($invoice->valor_pago ?? 0);
-                $outstandingAmount = $invoice->valor_em_aberto !== null
-                    ? (float) $invoice->valor_em_aberto
-                    : max((float) $invoice->valor_total - $paidAmount, 0);
+                $outstandingAmount = (float) ($invoice->valor_em_aberto ?? 0);
 
                 return [
                     'id' => $invoice->id,
@@ -623,6 +638,54 @@ class FinanceiroController extends Controller
             });
 
         return response()->json($paginator);
+    }
+
+    private function normalizeInvoiceFinancialAmounts(Invoice $invoice): Invoice
+    {
+        $trackedPaidAmount = in_array($invoice->estado_pagamento, ['pago', 'parcial'], true)
+            ? (float) ($invoice->valor_pago ?? 0)
+            : 0.0;
+        $confirmedAllocationPaid = (float) ($invoice->confirmed_payment_allocations_sum ?? 0);
+        $legacyEntryPaid = (float) ($invoice->legacy_financial_entries_sum ?? 0);
+        $paidAmount = round(max($trackedPaidAmount, $confirmedAllocationPaid, $legacyEntryPaid), 2);
+        $fallbackOutstanding = max((float) $invoice->valor_total - $paidAmount, 0);
+        $persistedOutstanding = $invoice->valor_em_aberto !== null
+            ? max((float) $invoice->valor_em_aberto, 0)
+            : null;
+
+        // Legacy invoices can carry valor_em_aberto = 0 while still pending.
+        if ($invoice->estado_pagamento !== 'pago' && $fallbackOutstanding > 0 && ($persistedOutstanding === null || $persistedOutstanding <= 0)) {
+            $invoice->valor_em_aberto = $fallbackOutstanding;
+        } elseif ($persistedOutstanding !== null) {
+            $invoice->valor_em_aberto = $persistedOutstanding;
+        } else {
+            $invoice->valor_em_aberto = $fallbackOutstanding;
+        }
+
+        $invoice->valor_pago = $paidAmount;
+
+        return $invoice;
+    }
+
+    private function invoiceFinancialSnapshotQuery()
+    {
+        return $this->applyInvoiceFinancialSnapshotColumns(Invoice::query());
+    }
+
+    private function applyInvoiceFinancialSnapshotColumns($query)
+    {
+        return $query
+            ->withSum([
+                'paymentAllocations as confirmed_payment_allocations_sum' => function ($paymentAllocationQuery): void {
+                    $paymentAllocationQuery->where('status', PaymentAllocation::STATUS_CONFIRMED);
+                },
+            ], 'amount')
+            ->selectSub(
+                FinancialEntry::query()
+                    ->selectRaw('COALESCE(SUM(valor), 0)')
+                    ->whereColumn('fatura_id', 'invoices.id'),
+                'legacy_financial_entries_sum'
+            );
     }
 
     public function unreconciledBankStatements(Request $request): JsonResponse

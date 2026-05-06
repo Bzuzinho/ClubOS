@@ -254,19 +254,32 @@ export function FaturasTab({
   const formatAmount = (value: number) => value.toFixed(2);
 
   const getInvoiceOutstandingAmount = (invoice: Fatura) => {
-    if (invoice.valor_em_aberto !== null && invoice.valor_em_aberto !== undefined) {
-      return Math.max(toNumber(invoice.valor_em_aberto, 0), 0);
-    }
+    const totalAmount = Math.max(toNumber(invoice.valor_total, 0), 0);
+    const paidAmount = Math.max(toNumber(invoice.valor_pago, 0), 0);
+    const persistedOutstanding = invoice.valor_em_aberto !== null && invoice.valor_em_aberto !== undefined
+      ? Math.max(toNumber(invoice.valor_em_aberto, 0), 0)
+      : null;
 
     if (invoice.estado_pagamento === 'pago') {
       return 0;
     }
 
-    if (invoice.valor_pago !== null && invoice.valor_pago !== undefined) {
-      return Math.max(toNumber(invoice.valor_total) - toNumber(invoice.valor_pago, 0), 0);
+    if (persistedOutstanding !== null && persistedOutstanding > 0) {
+      return persistedOutstanding;
     }
 
-    return toNumber(invoice.valor_total, 0);
+    const calculatedOutstanding = Math.max(totalAmount - paidAmount, 0);
+
+    if (calculatedOutstanding > 0) {
+      return calculatedOutstanding;
+    }
+
+    // Legacy/inconsistent rows can report 0 open amount while still pending or overdue.
+    if (totalAmount > 0 && invoice.estado_pagamento !== 'cancelado') {
+      return totalAmount;
+    }
+
+    return 0;
   };
 
   const resetPaymentDialog = () => {
@@ -368,6 +381,14 @@ export function FaturasTab({
 
     return availableBankStatements.find((statement) => statement.id === selectedBankStatementId) || null;
   }, [availableBankStatements, selectedBankStatementId]);
+
+  const editingInvoice = useMemo(() => {
+    if (!editingFaturaId) {
+      return null;
+    }
+
+    return (faturas || []).find((invoice) => invoice.id === editingFaturaId) || null;
+  }, [editingFaturaId, faturas]);
 
   const totalOpenAmount = useMemo(() => {
     return paymentInvoices.reduce((sum, invoice) => sum + getInvoiceOutstandingAmount(invoice), 0);

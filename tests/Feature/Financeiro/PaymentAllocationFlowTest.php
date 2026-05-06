@@ -6,11 +6,14 @@ use App\Models\AccountCredit;
 use App\Models\BankStatement;
 use App\Models\CostCenter;
 use App\Models\FiscalDocumentRequest;
+use App\Models\FinancialEntry;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
+use App\Models\MapaConciliacao;
 use App\Models\Payment;
 use App\Models\PaymentAllocation;
 use App\Models\User;
+use App\Models\InvoiceType;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -241,6 +244,161 @@ class PaymentAllocationFlowTest extends TestCase
             ->assertJsonValidationErrors('allocations');
     }
 
+    public function test_it_accepts_payment_for_pending_invoice_with_stale_tracked_paid_amount(): void
+    {
+        $admin = User::factory()->admin()->create();
+        [$invoice] = $this->createInvoicesForUser([25.00]);
+
+        $invoice->forceFill([
+            'estado_pagamento' => 'vencido',
+            'valor_pago' => 25.00,
+            'valor_em_aberto' => 0,
+        ])->save();
+
+        $response = $this->actingAs($admin)->postJson(route('financeiro.payments.allocate'), [
+            'amount' => 25.00,
+            'payment_date' => '2026-05-05',
+            'allocations' => [
+                ['invoice_id' => $invoice->id, 'amount' => 25.00],
+            ],
+        ]);
+
+        $response->assertOk();
+
+        $invoice->refresh();
+
+        $this->assertSame('pago', $invoice->estado_pagamento);
+        $this->assertSame('25.00', $invoice->valor_pago);
+        $this->assertSame('0.00', $invoice->valor_em_aberto);
+    }
+
+    public function test_it_reverses_manual_payment_tracking_when_invoice_is_changed_back_to_overdue(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $this->createInvoiceType();
+        [$invoice] = $this->createInvoicesForUser([25.00]);
+
+        $this->actingAs($admin)->postJson(route('financeiro.payments.allocate'), [
+            'amount' => 25.00,
+            'payment_date' => '2026-05-05',
+            'method' => 'transferencia',
+            'reference' => 'TRX-REVERSAO',
+            'allocations' => [
+                ['invoice_id' => $invoice->id, 'amount' => 25.00],
+            ],
+        ])->assertOk();
+
+        $payment = Payment::query()->where('reference', 'TRX-REVERSAO')->firstOrFail();
+        $allocation = PaymentAllocation::query()->where('payment_id', $payment->id)->firstOrFail();
+
+        $response = $this->actingAs($admin)->putJson(route('financeiro.update', $invoice), [
+            'user_id' => $invoice->user_id,
+            'data_fatura' => optional($invoice->data_fatura)->toDateString(),
+            'data_emissao' => $invoice->data_emissao->toDateString(),
+            'data_vencimento' => $invoice->data_vencimento->toDateString(),
+            'mes' => $invoice->mes,
+            'tipo' => $invoice->tipo,
+            'estado_pagamento' => 'vencido',
+            'valor_total' => (float) $invoice->valor_total,
+            'oculta' => false,
+            'centro_custo_id' => $invoice->centro_custo_id,
+            'numero_recibo' => $invoice->numero_recibo,
+            'referencia_pagamento' => $invoice->referencia_pagamento,
+            'origem_tipo' => $invoice->origem_tipo,
+            'origem_id' => $invoice->origem_id,
+            'observacoes' => $invoice->observacoes,
+            'items' => [[
+                'descricao' => 'Mensalidade 1',
+                'quantidade' => 1,
+                'valor_unitario' => 25.00,
+                'imposto_percentual' => 0,
+                'total_linha' => 25.00,
+                'produto_id' => null,
+                'centro_custo_id' => $invoice->centro_custo_id,
+            ]],
+        ]);
+
+        $response->assertOk();
+
+        $invoice->refresh();
+        $payment->refresh();
+
+        $this->assertSame('vencido', $invoice->estado_pagamento);
+        $this->assertSame('0.00', $invoice->valor_pago);
+        $this->assertSame('25.00', $invoice->valor_em_aberto);
+        $this->assertSame(Payment::STATUS_CANCELLED, $payment->status);
+        $this->assertFalse(PaymentAllocation::query()->whereKey($allocation->id)->exists());
+        $this->assertTrue(PaymentAllocation::withTrashed()->whereKey($allocation->id)->where('status', PaymentAllocation::STATUS_CANCELLED)->exists());
+        $this->assertDatabaseCount('financial_entries', 0);
+        $this->assertDatabaseCount('mapa_conciliacao', 0);
+
+        $this->actingAs($admin)->postJson(route('financeiro.payments.allocate'), [
+            'amount' => 25.00,
+            'payment_date' => '2026-05-06',
+            'method' => 'transferencia',
+            'reference' => 'TRX-CORRIGIDO',
+            'allocations' => [
+                ['invoice_id' => $invoice->id, 'amount' => 25.00],
+            ],
+        ])->assertOk();
+
+        $invoice->refresh();
+
+        $this->assertSame('pago', $invoice->estado_pagamento);
+        $this->assertSame('25.00', $invoice->valor_pago);
+        $this->assertSame('0.00', $invoice->valor_em_aberto);
+    }
+
+    public function test_it_auto_repairs_stale_manual_allocations_before_registering_a_corrected_payment(): void
+    {
+        $admin = User::factory()->admin()->create();
+        [$invoice] = $this->createInvoicesForUser([25.00]);
+
+        $this->actingAs($admin)->postJson(route('financeiro.payments.allocate'), [
+            'amount' => 25.00,
+            'payment_date' => '2026-05-05',
+            'method' => 'transferencia',
+            'reference' => 'TRX-STUCK-OLD',
+            'allocations' => [
+                ['invoice_id' => $invoice->id, 'amount' => 25.00],
+            ],
+        ])->assertOk();
+
+        $oldPayment = Payment::query()->where('reference', 'TRX-STUCK-OLD')->firstOrFail();
+        $oldAllocation = PaymentAllocation::query()->where('payment_id', $oldPayment->id)->firstOrFail();
+
+        $invoice->forceFill([
+            'estado_pagamento' => 'vencido',
+            'valor_pago' => 25.00,
+            'valor_em_aberto' => 0,
+        ])->save();
+
+        $response = $this->actingAs($admin)->postJson(route('financeiro.payments.allocate'), [
+            'amount' => 25.00,
+            'payment_date' => '2026-05-06',
+            'method' => 'transferencia',
+            'reference' => 'TRX-STUCK-NEW',
+            'allocations' => [
+                ['invoice_id' => $invoice->id, 'amount' => 25.00],
+            ],
+        ]);
+
+        $response->assertOk();
+
+        $invoice->refresh();
+        $oldPayment->refresh();
+
+        $this->assertSame('pago', $invoice->estado_pagamento);
+        $this->assertSame('25.00', $invoice->valor_pago);
+        $this->assertSame('0.00', $invoice->valor_em_aberto);
+        $this->assertSame(Payment::STATUS_CANCELLED, $oldPayment->status);
+        $this->assertTrue(PaymentAllocation::withTrashed()->whereKey($oldAllocation->id)->where('status', PaymentAllocation::STATUS_CANCELLED)->exists());
+        $this->assertDatabaseHas('payments', [
+            'reference' => 'TRX-STUCK-NEW',
+            'status' => Payment::STATUS_CONFIRMED,
+        ]);
+    }
+
     public function test_it_rejects_reusing_a_fully_reconciled_bank_statement(): void
     {
         $admin = User::factory()->admin()->create();
@@ -347,5 +505,17 @@ class PaymentAllocationFlowTest extends TestCase
             'referencia' => sprintf('TRX-%s', number_format($amount, 2, '', '')),
             'conciliado' => false,
         ]);
+    }
+
+    private function createInvoiceType(): void
+    {
+        InvoiceType::query()->firstOrCreate(
+            ['codigo' => 'mensalidade'],
+            [
+                'nome' => 'Mensalidade',
+                'descricao' => 'Mensalidade',
+                'ativo' => true,
+            ],
+        );
     }
 }
