@@ -7,9 +7,11 @@ use App\Models\CostCenter;
 use App\Models\FiscalDocumentRequest;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
+use App\Models\InvoiceType;
 use App\Models\User;
 use App\Services\Financeiro\FiscalDocumentRequestService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Validation\ValidationException;
 use Tests\TestCase;
 
 class FiscalDocumentRequestFlowTest extends TestCase
@@ -62,6 +64,84 @@ class FiscalDocumentRequestFlowTest extends TestCase
         $this->assertSame(FiscalDocumentRequest::STATUS_ISSUED, $updated->status);
         $this->assertSame('RC 2026/15', $updated->external_document_number);
         $this->assertSame($user->id, $updated->issued_by);
+        $this->assertSame($user->id, $updated->handled_by);
+        $this->assertNotNull($updated->handled_at);
+    }
+
+    public function test_invoice_status_change_to_paid_creates_pending_fiscal_request(): void
+    {
+        $invoice = $this->createInvoice('pendente');
+
+        $invoice->update([
+            'estado_pagamento' => 'pago',
+            'data_pagamento' => '2026-05-05',
+        ]);
+
+        $this->assertDatabaseHas('fiscal_document_requests', [
+            'invoice_id' => $invoice->id,
+            'status' => FiscalDocumentRequest::STATUS_PENDING,
+            'external_document_number' => null,
+        ]);
+    }
+
+    public function test_paid_invoice_reversion_without_wintouch_number_soft_deletes_fiscal_request(): void
+    {
+        $invoice = $this->createInvoice('pendente');
+
+        $invoice->update([
+            'estado_pagamento' => 'pago',
+            'data_pagamento' => '2026-05-05',
+        ]);
+
+        $request = FiscalDocumentRequest::query()->where('invoice_id', $invoice->id)->firstOrFail();
+
+        $invoice->update([
+            'estado_pagamento' => 'pendente',
+            'data_pagamento' => null,
+        ]);
+
+        $this->assertSoftDeleted('fiscal_document_requests', [
+            'id' => $request->id,
+        ]);
+    }
+
+    public function test_paid_invoice_reversion_with_wintouch_number_is_blocked(): void
+    {
+        $invoice = $this->createInvoice('pendente');
+
+        $invoice->update([
+            'estado_pagamento' => 'pago',
+            'data_pagamento' => '2026-05-05',
+        ]);
+
+        $request = FiscalDocumentRequest::query()->where('invoice_id', $invoice->id)->firstOrFail();
+
+        app(FiscalDocumentRequestService::class)->markIssued($request, [
+            'external_document_number' => 'RC 2026/99',
+            'issued_at' => '2026-05-05 10:00:00',
+        ]);
+
+        try {
+            $invoice->update([
+                'estado_pagamento' => 'pendente',
+                'data_pagamento' => null,
+            ]);
+
+            $this->fail('Expected invoice status change to be blocked.');
+        } catch (ValidationException $exception) {
+            $this->assertSame(
+                FiscalDocumentRequestService::INVOICE_STATUS_CHANGE_BLOCK_MESSAGE,
+                $exception->errors()['estado_pagamento'][0] ?? null,
+            );
+        }
+
+        $invoice->refresh();
+
+        $this->assertSame('pago', $invoice->estado_pagamento);
+        $this->assertDatabaseHas('fiscal_document_requests', [
+            'id' => $request->id,
+            'external_document_number' => 'RC 2026/99',
+        ]);
     }
 
     public function test_it_lists_pending_requests(): void
@@ -148,6 +228,7 @@ class FiscalDocumentRequestFlowTest extends TestCase
             'status' => FiscalDocumentRequest::STATUS_ISSUED,
             'external_document_number' => 'RC 2026/25',
             'issued_by' => $user->id,
+            'handled_by' => $user->id,
         ]);
     }
 
@@ -183,7 +264,61 @@ class FiscalDocumentRequestFlowTest extends TestCase
         ]);
     }
 
-    public function test_request_can_be_cancelled_via_http(): void
+    public function test_request_without_external_document_can_be_deleted_via_http(): void
+    {
+        $user = User::factory()->admin()->create();
+
+        $request = FiscalDocumentRequest::create([
+            'provider' => FiscalDocumentRequest::PROVIDER_WINTOUCH,
+            'document_type' => FiscalDocumentRequest::DOCUMENT_TYPE_RECEIPT,
+            'status' => FiscalDocumentRequest::STATUS_PENDING,
+            'priority' => FiscalDocumentRequest::PRIORITY_NORMAL,
+        ]);
+
+        $response = $this->actingAs($user)->deleteJson(
+            route('financeiro.fiscal-document-requests.destroy', $request)
+        );
+
+        $response
+            ->assertNoContent();
+
+        $this->assertSoftDeleted('fiscal_document_requests', [
+            'id' => $request->id,
+        ]);
+    }
+
+    public function test_request_with_external_document_cannot_be_deleted_via_http(): void
+    {
+        $user = User::factory()->admin()->create();
+
+        $request = FiscalDocumentRequest::create([
+            'provider' => FiscalDocumentRequest::PROVIDER_WINTOUCH,
+            'document_type' => FiscalDocumentRequest::DOCUMENT_TYPE_RECEIPT,
+            'status' => FiscalDocumentRequest::STATUS_ISSUED,
+            'priority' => FiscalDocumentRequest::PRIORITY_NORMAL,
+            'external_document_number' => 'RC 2026/50',
+        ]);
+
+        $response = $this->actingAs($user)->deleteJson(
+            route('financeiro.fiscal-document-requests.destroy', $request)
+        );
+
+        $response
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('request');
+
+        $this->assertSame(
+            FiscalDocumentRequestService::DELETE_WITH_DOCUMENT_MESSAGE,
+            $response->json('errors.request.0')
+        );
+
+        $this->assertDatabaseHas('fiscal_document_requests', [
+            'id' => $request->id,
+            'external_document_number' => 'RC 2026/50',
+        ]);
+    }
+
+    public function test_request_without_external_document_cannot_be_cancelled_via_http(): void
     {
         $user = User::factory()->admin()->create();
 
@@ -202,14 +337,47 @@ class FiscalDocumentRequestFlowTest extends TestCase
         );
 
         $response
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('request');
+
+        $this->assertSame(
+            FiscalDocumentRequestService::CANCEL_WITHOUT_DOCUMENT_MESSAGE,
+            $response->json('errors.request.0')
+        );
+    }
+
+    public function test_request_with_external_document_can_be_cancelled_via_http_and_keeps_document_number(): void
+    {
+        $user = User::factory()->admin()->create();
+
+        $request = FiscalDocumentRequest::create([
+            'provider' => FiscalDocumentRequest::PROVIDER_WINTOUCH,
+            'document_type' => FiscalDocumentRequest::DOCUMENT_TYPE_RECEIPT,
+            'status' => FiscalDocumentRequest::STATUS_ISSUED,
+            'priority' => FiscalDocumentRequest::PRIORITY_NORMAL,
+            'external_document_number' => 'RC 2026/51',
+            'external_series' => 'A',
+            'issued_at' => '2026-05-05 10:00:00',
+        ]);
+
+        $response = $this->actingAs($user)->postJson(
+            route('financeiro.fiscal-document-requests.mark-cancelled', $request),
+            [
+                'reason' => 'Documento anulado na Wintouch',
+            ]
+        );
+
+        $response
             ->assertOk()
             ->assertJsonPath('data.status', FiscalDocumentRequest::STATUS_CANCELLED)
-            ->assertJsonPath('data.last_error', 'Pedido anulado pelo operador');
+            ->assertJsonPath('data.last_error', 'Documento anulado na Wintouch')
+            ->assertJsonPath('data.external_document_number', 'RC 2026/51');
 
         $this->assertDatabaseHas('fiscal_document_requests', [
             'id' => $request->id,
             'status' => FiscalDocumentRequest::STATUS_CANCELLED,
-            'last_error' => 'Pedido anulado pelo operador',
+            'last_error' => 'Documento anulado na Wintouch',
+            'external_document_number' => 'RC 2026/51',
             'handled_by' => $user->id,
         ]);
     }
@@ -251,7 +419,7 @@ class FiscalDocumentRequestFlowTest extends TestCase
     public function test_it_creates_manual_request_for_paid_invoice(): void
     {
         $user = User::factory()->admin()->create();
-        $invoice = $this->createInvoice('pago');
+        $invoice = Invoice::withoutEvents(fn () => $this->createInvoice('pago'));
 
         $response = $this->actingAs($user)->postJson(
             route('financeiro.invoices.fiscal-document-request.store', $invoice)
@@ -292,7 +460,7 @@ class FiscalDocumentRequestFlowTest extends TestCase
     public function test_it_returns_existing_manual_request_for_the_same_paid_invoice(): void
     {
         $user = User::factory()->admin()->create();
-        $invoice = $this->createInvoice('pago');
+        $invoice = Invoice::withoutEvents(fn () => $this->createInvoice('pago'));
 
         $existing = FiscalDocumentRequest::create([
             'invoice_id' => $invoice->id,
@@ -317,6 +485,8 @@ class FiscalDocumentRequestFlowTest extends TestCase
 
     private function createInvoice(string $estadoPagamento = 'pendente'): Invoice
     {
+        $this->createInvoiceType();
+
         $user = User::factory()->create([
             'nome_completo' => 'Socio Fiscal',
             'nif' => '123456789',
@@ -369,5 +539,17 @@ class FiscalDocumentRequestFlowTest extends TestCase
         ]);
 
         return $invoice;
+    }
+
+    private function createInvoiceType(): void
+    {
+        InvoiceType::query()->firstOrCreate(
+            ['codigo' => 'mensalidade'],
+            [
+                'nome' => 'Mensalidade',
+                'descricao' => 'Mensalidade',
+                'ativo' => true,
+            ],
+        );
     }
 }

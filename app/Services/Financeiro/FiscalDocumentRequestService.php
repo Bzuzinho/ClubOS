@@ -6,9 +6,16 @@ use App\Models\FiscalDocumentRequest;
 use App\Models\Invoice;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Carbon;
+use Illuminate\Validation\ValidationException;
 
 class FiscalDocumentRequestService
 {
+    public const INVOICE_STATUS_CHANGE_BLOCK_MESSAGE = 'Esta fatura ja tem documento Wintouch registado. Para alterar o estado e necessario regularizar/anular o documento fiscal.';
+
+    public const DELETE_WITH_DOCUMENT_MESSAGE = 'Nao e possivel apagar um pedido com documento Wintouch registado. Deve ser cancelado/anulado.';
+
+    public const CANCEL_WITHOUT_DOCUMENT_MESSAGE = 'So e possivel cancelar/anular pedidos com documento Wintouch registado.';
+
     public function findActiveForInvoice($invoice, ?string $provider = null, ?string $documentType = null): ?FiscalDocumentRequest
     {
         $invoiceId = $invoice instanceof Invoice ? $invoice->id : $invoice;
@@ -27,6 +34,70 @@ class FiscalDocumentRequestService
         }
 
         return $query->latest('created_at')->first();
+    }
+
+    public function syncInvoicePaymentStatus(Invoice $invoice, ?string $previousStatus = null, array $options = []): ?FiscalDocumentRequest
+    {
+        $invoice = $invoice->loadMissing(['user', 'items']);
+
+        if ($invoice->estado_pagamento === 'pago') {
+            return $this->createFromInvoice($invoice, $options);
+        }
+
+        if ($previousStatus === 'pago') {
+            $this->deletePendingForInvoice($invoice);
+        }
+
+        return null;
+    }
+
+    public function ensureInvoiceStatusCanChangeFromPaid(Invoice $invoice, ?string $nextStatus): void
+    {
+        if ($invoice->getOriginal('estado_pagamento') !== 'pago' || $nextStatus === 'pago') {
+            return;
+        }
+
+        if ($this->invoiceHasRegisteredDocument($invoice)) {
+            throw ValidationException::withMessages([
+                'estado_pagamento' => self::INVOICE_STATUS_CHANGE_BLOCK_MESSAGE,
+            ]);
+        }
+    }
+
+    public function invoiceHasRegisteredDocument($invoice): bool
+    {
+        $invoiceId = $invoice instanceof Invoice ? $invoice->id : $invoice;
+
+        return FiscalDocumentRequest::query()
+            ->where('invoice_id', $invoiceId)
+            ->whereNotNull('external_document_number')
+            ->where('external_document_number', '!=', '')
+            ->exists();
+    }
+
+    public function deletePendingForInvoice($invoice): int
+    {
+        $invoiceId = $invoice instanceof Invoice ? $invoice->id : $invoice;
+
+        return FiscalDocumentRequest::query()
+            ->where('invoice_id', $invoiceId)
+            ->where(function ($query): void {
+                $query
+                    ->whereNull('external_document_number')
+                    ->orWhere('external_document_number', '');
+            })
+            ->delete();
+    }
+
+    public function deleteRequest(FiscalDocumentRequest $request): void
+    {
+        if ($this->requestHasRegisteredDocument($request)) {
+            throw ValidationException::withMessages([
+                'request' => self::DELETE_WITH_DOCUMENT_MESSAGE,
+            ]);
+        }
+
+        $request->delete();
     }
 
     public function createFromReconciliation($reconciliation, array $options = []): ?FiscalDocumentRequest
@@ -143,6 +214,12 @@ class FiscalDocumentRequestService
 
     public function markCancelled(FiscalDocumentRequest $request, ?string $reason = null, ?string $userId = null): FiscalDocumentRequest
     {
+        if (! $this->requestHasRegisteredDocument($request)) {
+            throw ValidationException::withMessages([
+                'request' => self::CANCEL_WITHOUT_DOCUMENT_MESSAGE,
+            ]);
+        }
+
         $request->fill([
             'status' => FiscalDocumentRequest::STATUS_CANCELLED,
             'handled_by' => $userId,
@@ -152,6 +229,11 @@ class FiscalDocumentRequestService
         $request->save();
 
         return $request->refresh();
+    }
+
+    public function requestHasRegisteredDocument(FiscalDocumentRequest $request): bool
+    {
+        return filled($request->external_document_number);
     }
 
     public function markErrorData(FiscalDocumentRequest $request, string $error, ?string $notes = null, ?string $userId = null): FiscalDocumentRequest

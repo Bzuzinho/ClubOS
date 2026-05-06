@@ -14,8 +14,6 @@ import {
   ClockCounterClockwise,
   Eye,
   FileText,
-  PencilSimple,
-  WarningCircle,
   XCircle,
 } from '@phosphor-icons/react';
 import { format, isBefore, parseISO, startOfDay, subDays } from 'date-fns';
@@ -43,11 +41,11 @@ type PaginationMeta = {
 };
 
 const STATUS_LABELS: Record<FiscalDocumentRequestStatus, string> = {
-  pending: 'Pendente',
-  in_progress: 'Em tratamento',
-  issued: 'Emitido',
+  pending: 'Por tratar',
+  in_progress: 'Por tratar',
+  issued: 'Recibo emitido',
   error_data: 'Erro de dados',
-  cancelled: 'Cancelado',
+  cancelled: 'Cancelado/anulado',
   not_applicable: 'Nao aplicavel',
   api_error: 'Erro API',
 };
@@ -175,17 +173,12 @@ export function FiscalDocumentsTab() {
   const [selectedRequest, setSelectedRequest] = useState<FiscalDocumentRequest | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [issuedOpen, setIssuedOpen] = useState(false);
-  const [errorOpen, setErrorOpen] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
   const [issuedForm, setIssuedForm] = useState({
     external_document_number: '',
     external_series: '',
     issued_at: format(new Date(), 'yyyy-MM-dd'),
     external_document_url: '',
-    notes: '',
-  });
-  const [errorForm, setErrorForm] = useState({
-    last_error: '',
     notes: '',
   });
   const [cancelReason, setCancelReason] = useState('');
@@ -262,20 +255,28 @@ export function FiscalDocumentsTab() {
     await loadRequests(1, DEFAULT_FILTERS);
   };
 
-  const handleAction = async (actionKey: string, endpoint: string, payload: Record<string, unknown>, successMessage: string, onSuccess?: () => void) => {
+  const handleAction = async (
+    actionKey: string,
+    endpoint: string,
+    payload: Record<string, unknown> | undefined,
+    successMessage: string,
+    onSuccess?: () => void,
+    method = 'POST',
+  ) => {
     setSubmitting(actionKey);
 
     try {
+      const hasBody = method !== 'DELETE' && method !== 'GET';
       const response = await fetch(endpoint, {
-        method: 'POST',
+        method,
         headers: {
-          'Content-Type': 'application/json',
           Accept: 'application/json',
           'X-Requested-With': 'XMLHttpRequest',
           'X-CSRF-TOKEN': getCsrfToken(),
+          ...(hasBody ? { 'Content-Type': 'application/json' } : {}),
         },
         credentials: 'same-origin',
-        body: JSON.stringify(payload),
+        ...(hasBody ? { body: JSON.stringify(payload ?? {}) } : {}),
       });
 
       const data = await parseJsonResponse(response);
@@ -333,15 +334,6 @@ export function FiscalDocumentsTab() {
     setIssuedOpen(true);
   };
 
-  const openErrorModal = (request: FiscalDocumentRequest) => {
-    setSelectedRequest(request);
-    setErrorForm({
-      last_error: request.last_error || '',
-      notes: request.notes || '',
-    });
-    setErrorOpen(true);
-  };
-
   const openCancelModal = (request: FiscalDocumentRequest) => {
     setSelectedRequest(request);
     setCancelReason(request.last_error || '');
@@ -353,50 +345,52 @@ export function FiscalDocumentsTab() {
     setDetailsOpen(true);
   };
 
+  const handleDeleteRequest = async (request: FiscalDocumentRequest) => {
+    const confirmed = window.confirm('Apagar esta linha da fila fiscal? Esta acao remove o pedido pendente.');
+
+    if (!confirmed) {
+      return;
+    }
+
+    await handleAction(
+      `request:${request.id}:delete`,
+      route('financeiro.fiscal-document-requests.destroy', request.id),
+      undefined,
+      'Linha apagada com sucesso.',
+      undefined,
+      'DELETE',
+    );
+  };
+
   const renderRequestActions = (request: FiscalDocumentRequest, align: 'start' | 'end' = 'start') => {
-    const canMarkIssued = request.status === 'pending' || request.status === 'in_progress' || request.status === 'error_data';
-    const canMarkError = request.status !== 'issued' && request.status !== 'cancelled';
-    const canCancel = request.status !== 'issued' && request.status !== 'cancelled';
+    const hasExternalDocument = Boolean(request.external_document_number?.trim());
     const actionPrefix = `request:${request.id}`;
 
     return (
       <div className={`flex flex-wrap gap-2 ${align === 'end' ? 'justify-end' : ''}`}>
-        {request.status === 'pending' ? (
+        {!hasExternalDocument ? (
+          <Button type="button" size="sm" variant="outline" onClick={() => openIssuedModal(request)}>
+            <CheckCircle size={16} className="mr-1.5" />
+            Tratar manualmente
+          </Button>
+        ) : null}
+
+        {hasExternalDocument ? (
+          <Button type="button" size="sm" variant="outline" onClick={() => openCancelModal(request)}>
+            <XCircle size={16} className="mr-1.5" />
+            Cancelar/anular
+          </Button>
+        ) : null}
+
+        {!hasExternalDocument ? (
           <Button
             type="button"
             size="sm"
             variant="outline"
-            disabled={submitting === `${actionPrefix}:progress`}
-            onClick={() => void handleAction(
-              `${actionPrefix}:progress`,
-              route('financeiro.fiscal-document-requests.mark-in-progress', request.id),
-              {},
-              'Pedido marcado como em tratamento.',
-            )}
+            disabled={submitting === `${actionPrefix}:delete`}
+            onClick={() => void handleDeleteRequest(request)}
           >
-            <PencilSimple size={16} className="mr-1.5" />
-            Tratar
-          </Button>
-        ) : null}
-
-        {canMarkIssued ? (
-          <Button type="button" size="sm" variant="outline" onClick={() => openIssuedModal(request)}>
-            <CheckCircle size={16} className="mr-1.5" />
-            Emitido
-          </Button>
-        ) : null}
-
-        {canMarkError ? (
-          <Button type="button" size="sm" variant="outline" onClick={() => openErrorModal(request)}>
-            <WarningCircle size={16} className="mr-1.5" />
-            Erro dados
-          </Button>
-        ) : null}
-
-        {canCancel ? (
-          <Button type="button" size="sm" variant="outline" onClick={() => openCancelModal(request)}>
-            <XCircle size={16} className="mr-1.5" />
-            Cancelar
+            Apagar linha
           </Button>
         ) : null}
 
@@ -415,7 +409,7 @@ export function FiscalDocumentsTab() {
           <div>
             <h2 className="text-sm font-semibold text-foreground">Emissao Fiscal</h2>
             <p className="mt-1 text-xs text-muted-foreground">
-              Gestao manual da fila fiscal pendente para emissao e tratamento operacional.
+              Esta area mostra pagamentos liquidados que ainda precisam de recibo/documento fiscal na Wintouch. Quando emitir o documento na Wintouch, use 'Tratar manualmente' para registar o numero.
             </p>
           </div>
 
@@ -664,8 +658,8 @@ export function FiscalDocumentsTab() {
       <Dialog open={issuedOpen} onOpenChange={setIssuedOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Marcar como emitido</DialogTitle>
-            <DialogDescription>Regista os dados do documento emitido externamente.</DialogDescription>
+            <DialogTitle>Tratar manualmente</DialogTitle>
+            <DialogDescription>Registe o numero do documento emitido na Wintouch e conclua este pedido.</DialogDescription>
           </DialogHeader>
 
           <div className="grid gap-3 py-2">
@@ -739,67 +733,12 @@ export function FiscalDocumentsTab() {
                     notes: issuedForm.notes.trim() || null,
                     document_type: selectedRequest.document_type,
                   },
-                  'Pedido marcado como emitido.',
+                  'Documento fiscal registado com sucesso.',
                   () => setIssuedOpen(false),
                 );
               }}
             >
-              Confirmar emitido
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={errorOpen} onOpenChange={setErrorOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Marcar erro de dados</DialogTitle>
-            <DialogDescription>Regista o motivo para bloquear a emissao deste pedido.</DialogDescription>
-          </DialogHeader>
-
-          <div className="grid gap-3 py-2">
-            <div className="space-y-1.5">
-              <Label htmlFor="error-reason">Motivo</Label>
-              <Textarea
-                id="error-reason"
-                rows={4}
-                value={errorForm.last_error}
-                onChange={(event) => setErrorForm((current) => ({ ...current, last_error: event.target.value }))}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="error-notes">Notas</Label>
-              <Textarea
-                id="error-notes"
-                rows={3}
-                value={errorForm.notes}
-                onChange={(event) => setErrorForm((current) => ({ ...current, notes: event.target.value }))}
-              />
-            </div>
-          </div>
-
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setErrorOpen(false)}>
-              Fechar
-            </Button>
-            <Button
-              type="button"
-              disabled={!selectedRequest || !errorForm.last_error.trim() || submitting === `request:${selectedRequest?.id}:error`}
-              onClick={() => {
-                if (!selectedRequest) return;
-                void handleAction(
-                  `request:${selectedRequest.id}:error`,
-                  route('financeiro.fiscal-document-requests.mark-error-data', selectedRequest.id),
-                  {
-                    last_error: errorForm.last_error.trim(),
-                    notes: errorForm.notes.trim() || null,
-                  },
-                  'Pedido marcado com erro de dados.',
-                  () => setErrorOpen(false),
-                );
-              }}
-            >
-              Confirmar erro
+              Guardar documento
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -808,12 +747,12 @@ export function FiscalDocumentsTab() {
       <Dialog open={cancelOpen} onOpenChange={setCancelOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Cancelar pedido</DialogTitle>
-            <DialogDescription>Indica o motivo do cancelamento da emissao fiscal.</DialogDescription>
+            <DialogTitle>Cancelar/anular</DialogTitle>
+            <DialogDescription>Indique o motivo do cancelamento/anulacao do documento fiscal.</DialogDescription>
           </DialogHeader>
 
           <div className="space-y-1.5 py-2">
-            <Label htmlFor="cancel-reason">Motivo</Label>
+            <Label htmlFor="cancel-reason">Motivo do cancelamento</Label>
             <Textarea
               id="cancel-reason"
               rows={4}
@@ -836,12 +775,12 @@ export function FiscalDocumentsTab() {
                   `request:${selectedRequest.id}:cancel`,
                   route('financeiro.fiscal-document-requests.mark-cancelled', selectedRequest.id),
                   { reason: cancelReason.trim() },
-                  'Pedido cancelado com sucesso.',
+                  'Pedido cancelado/anulado com sucesso.',
                   () => setCancelOpen(false),
                 );
               }}
             >
-              Confirmar cancelamento
+              Confirmar anulacao
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -889,7 +828,11 @@ export function FiscalDocumentsTab() {
                   multiline
                 />
                 <DetailItem label="Notas" value={selectedRequest.notes || '—'} multiline />
-                <DetailItem label="Erro" value={selectedRequest.last_error || '—'} multiline />
+                <DetailItem
+                  label={selectedRequest.status === 'cancelled' ? 'Motivo do cancelamento' : 'Erro'}
+                  value={selectedRequest.last_error || '—'}
+                  multiline
+                />
                 <DetailItem label="Documento externo" value={selectedRequest.external_document_number || '—'} />
                 <DetailItem label="URL externa" value={selectedRequest.external_document_url || '—'} multiline />
               </div>

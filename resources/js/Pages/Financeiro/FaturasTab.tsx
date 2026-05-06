@@ -637,6 +637,12 @@ export function FaturasTab({
     }
   };
 
+  const canShowCreateFiscalFallback = (fatura: Fatura) => {
+    return fatura.estado_pagamento === 'pago'
+      && !fatura.has_fiscal_document_request
+      && !fatura.has_registered_fiscal_document;
+  };
+
   const getDataInicioMensalidades = (user: User) => {
     if (dataInicioMensalidades) {
       const parsed = new Date(dataInicioMensalidades);
@@ -1749,16 +1755,16 @@ export function FaturasTab({
                           >
                             <PencilSimple size={14} />
                           </Button>
-                          {fatura.estado_pagamento === 'pago' && (
+                          {canShowCreateFiscalFallback(fatura) && (
                             <Button
                               size="sm"
                               variant="outline"
                               className="h-7 px-2 text-[11px]"
                               onClick={() => handleCreateFiscalDocumentRequest(fatura.id)}
                               disabled={creatingFiscalRequestId === fatura.id}
-                              title="Criar pedido fiscal"
+                              title="Criar pedido fiscal em falta"
                             >
-                              Criar pedido fiscal
+                              Criar pedido fiscal em falta
                             </Button>
                           )}
                           <button
@@ -1833,16 +1839,16 @@ export function FaturasTab({
                                   <Check size={14} />
                                 </Button>
                               )}
-                              {fatura.estado_pagamento === 'pago' && (
+                              {canShowCreateFiscalFallback(fatura) && (
                                 <Button
                                   size="sm"
                                   variant="outline"
                                   className="h-7 px-2 text-[11px]"
                                   onClick={() => handleCreateFiscalDocumentRequest(fatura.id)}
                                   disabled={creatingFiscalRequestId === fatura.id}
-                                  title="Criar pedido fiscal"
+                                  title="Criar pedido fiscal em falta"
                                 >
-                                  Criar pedido fiscal
+                                  Criar pedido fiscal em falta
                                 </Button>
                               )}
                               <button

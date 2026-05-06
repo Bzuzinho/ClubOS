@@ -7,6 +7,7 @@ use App\Http\Requests\UpdateInvoiceRequest;
 use App\Models\AgeGroup;
 use App\Models\BankStatement;
 use App\Models\CostCenter;
+use App\Models\FiscalDocumentRequest;
 use App\Models\FinancialEntry;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
@@ -59,7 +60,19 @@ class FinanceiroController extends Controller
     {
         try {
             $faturas = Cache::remember('financeiro:faturas', 60, fn () =>
-                Invoice::orderBy('data_emissao', 'desc')->limit(1000)->get()->map(function ($fatura) {
+                Invoice::query()
+                    ->withExists([
+                        'fiscalDocumentRequests as has_fiscal_document_request',
+                        'fiscalDocumentRequests as has_registered_fiscal_document' => function ($query): void {
+                            $query
+                                ->whereNotNull('external_document_number')
+                                ->where('external_document_number', '!=', '');
+                        },
+                    ])
+                    ->orderBy('data_emissao', 'desc')
+                    ->limit(1000)
+                    ->get()
+                    ->map(function ($fatura) {
                     $fatura->valor_total = (float) $fatura->valor_total;
                     return $fatura;
                 })
@@ -1365,6 +1378,7 @@ class FinanceiroController extends Controller
 
     private function invalidateFinanceiroCaches(): void
     {
+        Cache::forget('financeiro:index');
         Cache::forget('financeiro:faturas');
         Cache::forget('financeiro:fatura_itens');
         Cache::forget('financeiro:movimentos');

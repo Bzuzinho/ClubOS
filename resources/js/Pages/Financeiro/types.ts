@@ -43,6 +43,8 @@ export interface Fatura {
   origem_id?: string | null;
   observacoes?: string | null;
   pagamento_observacoes?: string | null;
+  has_fiscal_document_request?: boolean;
+  has_registered_fiscal_document?: boolean;
   created_at?: string | null;
 }
 

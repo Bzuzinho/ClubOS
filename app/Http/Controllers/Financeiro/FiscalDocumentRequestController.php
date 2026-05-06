@@ -201,7 +201,7 @@ class FiscalDocumentRequestController extends Controller
 
     public function destroy(FiscalDocumentRequest $fiscalDocumentRequest): JsonResponse
     {
-        $fiscalDocumentRequest->delete();
+        $this->service->deleteRequest($fiscalDocumentRequest);
 
         return response()->json([], 204);
     }
