@@ -120,6 +120,38 @@ class BankReconciliationSuggestionFlowTest extends TestCase
         $this->assertContains('matched_member_number', $response->json('suggestions.0.matched_rules'));
     }
 
+    public function test_it_falls_back_to_amount_matching_when_name_query_returns_only_weak_candidates(): void
+    {
+        $admin = User::factory()->admin()->create();
+
+        User::factory()->create(['nome_completo' => 'Beatriz Silva da Conceicao']);
+        User::factory()->create(['nome_completo' => 'Ana Luisa Silva Rodrigues']);
+        User::factory()->create(['nome_completo' => 'Beatriz Silva Santos']);
+
+        $user = $this->createFinanceUser([
+            'nome_completo' => 'Ines da Silva Guerra Figueiredo',
+            'email' => 'ines-' . uniqid() . '@example.com',
+        ]);
+        $invoice = $this->createInvoice($user, 30.00, 'mensalidade', '2026-03-11');
+        $statement = $this->createBankStatement(30.00, 'TRF CR INTRAB 264 DE INES DA SILVA GUERRA FIGUEIREDO');
+
+        $response = $this->actingAs($admin)
+            ->postJson(route('financeiro.bank-statements.generate-suggestions', $statement));
+
+        $response->assertOk();
+
+        $matchingSuggestion = collect($response->json('suggestions'))
+            ->first(function (array $suggestion) use ($user, $invoice) {
+                return ($suggestion['user_id'] ?? null) === $user->id
+                    && collect($suggestion['suggested_allocations'] ?? [])->contains(function (array $allocation) use ($invoice) {
+                        return ($allocation['invoice_id'] ?? null) === $invoice->id
+                            && (float) ($allocation['amount'] ?? 0) === 30.0;
+                    });
+            });
+
+        $this->assertNotNull($matchingSuggestion);
+    }
+
     public function test_confirming_suggestion_creates_payment_and_allocations(): void
     {
         $admin = User::factory()->admin()->create();

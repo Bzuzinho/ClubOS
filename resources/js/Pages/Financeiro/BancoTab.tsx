@@ -57,6 +57,25 @@ export function BancoTab({
     'X-Requested-With': 'XMLHttpRequest',
     'X-CSRF-TOKEN': getCsrfToken(),
   });
+  const buildRouteUrl = (name: string, params?: string | number | Record<string, unknown>, query?: Record<string, string>) => {
+    const routePath = route(name, params);
+    const baseUrl = routePath.startsWith('http')
+      ? routePath
+      : `${window.location.origin}${routePath.startsWith('/') ? routePath : `/${routePath}`}`;
+
+    if (!query || Object.keys(query).length === 0) {
+      return baseUrl;
+    }
+
+    const url = new URL(baseUrl);
+    Object.entries(query).forEach(([key, value]) => {
+      if (value !== '') {
+        url.searchParams.set(key, value);
+      }
+    });
+
+    return url.toString();
+  };
   const toNumber = (value: unknown, fallback = 0): number => {
     if (typeof value === 'number' && !Number.isNaN(value)) return value;
     if (typeof value === 'string' && value.trim() !== '') {
@@ -87,6 +106,21 @@ export function BancoTab({
     if (!value) return '';
     if (typeof value === 'string') {
       const trimmed = value.trim();
+      const ptDateMatch = trimmed.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2}|\d{4})$/);
+      if (ptDateMatch) {
+        const day = parseInt(ptDateMatch[1], 10);
+        const month = parseInt(ptDateMatch[2], 10);
+        let year = parseInt(ptDateMatch[3], 10);
+
+        if (year < 100) {
+          year += 2000;
+        }
+
+        if (day >= 1 && day <= 31 && month >= 1 && month <= 12) {
+          return format(new Date(year, month - 1, day), 'yyyy-MM-dd');
+        }
+      }
+
       if (/^\d{4}-\d{2}-\d{2}/.test(trimmed)) {
         return trimmed.slice(0, 10);
       }
@@ -136,6 +170,7 @@ export function BancoTab({
     referencia: '',
   });
   const [reconciliationSuggestions, setReconciliationSuggestions] = useState<BankReconciliationSuggestion[]>([]);
+  const [suggestionCache, setSuggestionCache] = useState<Record<string, BankReconciliationSuggestion[]>>({});
   const [suggestionCounts, setSuggestionCounts] = useState<Record<string, number>>({});
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
   const [suggestionActionId, setSuggestionActionId] = useState<string | null>(null);
@@ -198,6 +233,11 @@ export function BancoTab({
     user_id: '',
     movimento_id: '',
   });
+
+  const normalizeDateInputValue = (value: string | Date | null | undefined): string => {
+    const normalized = getMovementDateKey(value);
+    return normalized || format(new Date(), 'yyyy-MM-dd');
+  };
 
   const valorExtrato = selectedExtrato ? Math.abs(toNumber(selectedExtrato.valor)) : 0;
   const totalConciliacao = conciliacaoItens.reduce((sum, item) => sum + toNumber(item.valor), 0);
@@ -329,45 +369,6 @@ export function BancoTab({
     }
   };
 
-  const loadSuggestionCounts = async () => {
-    try {
-      const url = new URL(route('financeiro.bank-reconciliation-suggestions.index'), window.location.origin);
-      url.searchParams.set('status', 'suggested');
-      url.searchParams.set('per_page', '200');
-
-      const response = await fetch(url.toString(), {
-        method: 'GET',
-        headers: {
-          Accept: 'application/json',
-          'X-Requested-With': 'XMLHttpRequest',
-        },
-        credentials: 'same-origin',
-      });
-
-      if (!response.ok) {
-        return;
-      }
-
-      const payload = await response.json();
-      const items = Array.isArray(payload?.data) ? payload.data : Array.isArray(payload?.suggestions) ? payload.suggestions : [];
-      const counts = items.reduce((acc: Record<string, number>, suggestion: BankReconciliationSuggestion) => {
-        if (!suggestion.bank_statement_id) {
-          return acc;
-        }
-
-        acc[suggestion.bank_statement_id] = (acc[suggestion.bank_statement_id] || 0) + 1;
-        return acc;
-      }, {});
-
-      setSuggestionCounts(counts);
-    } catch {
-    }
-  };
-
-  useEffect(() => {
-    void loadSuggestionCounts();
-  }, [extratos.length]);
-
   useEffect(() => {
     if (!manualAllocationDialogOpen) {
       return;
@@ -381,41 +382,21 @@ export function BancoTab({
   }, [invoiceSearchTerm, manualAllocationDialogOpen]);
 
   const loadSuggestionsForExtrato = async (extrato: ExtratoBancario) => {
-    setSuggestionsLoading(true);
+    const cachedSuggestions = suggestionCache[extrato.id];
 
-    try {
-      const url = new URL(route('financeiro.bank-reconciliation-suggestions.index'), window.location.origin);
-      url.searchParams.set('bank_statement_id', extrato.id);
-      url.searchParams.set('per_page', '50');
-
-      const response = await fetch(url.toString(), {
-        method: 'GET',
-        headers: {
-          Accept: 'application/json',
-          'X-Requested-With': 'XMLHttpRequest',
-        },
-        credentials: 'same-origin',
-      });
-
-      if (!response.ok) {
-        throw new Error('Erro ao carregar sugestoes');
-      }
-
-      const payload = await response.json();
-      setReconciliationSuggestions(Array.isArray(payload?.data) ? payload.data : []);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Erro ao carregar sugestoes';
-      toast.error(message);
-    } finally {
-      setSuggestionsLoading(false);
+    if (cachedSuggestions) {
+      setReconciliationSuggestions(cachedSuggestions);
+      return;
     }
+
+    await handleGenerateSuggestions(extrato, true);
   };
 
   const handleGenerateSuggestions = async (extrato: ExtratoBancario, openDialog = false) => {
     setSuggestionActionId(extrato.id);
 
     try {
-      const response = await fetch(route('financeiro.bank-statements.generate-suggestions', extrato.id), {
+      const response = await fetch(buildRouteUrl('financeiro.bank-statements.generate-suggestions', extrato.id), {
         method: 'POST',
         headers: buildJsonHeaders(),
         credentials: 'same-origin',
@@ -427,6 +408,7 @@ export function BancoTab({
 
       const payload = await response.json();
       const suggestions = Array.isArray(payload?.suggestions) ? payload.suggestions : [];
+      setSuggestionCache((current) => ({ ...current, [extrato.id]: suggestions }));
       setSuggestionCounts((current) => ({ ...current, [extrato.id]: suggestions.length }));
 
       if (openDialog) {
@@ -436,7 +418,6 @@ export function BancoTab({
       }
 
       toast.success(suggestions.length > 0 ? `${suggestions.length} sugestao(oes) gerada(s)` : 'Nao foram encontradas sugestoes');
-      await loadSuggestionCounts();
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Erro ao gerar sugestoes';
       toast.error(message);
@@ -455,7 +436,7 @@ export function BancoTab({
     setSuggestionActionId(suggestion.id);
 
     try {
-      const response = await fetch(route('financeiro.bank-reconciliation-suggestions.confirm', suggestion.id), {
+      const response = await fetch(buildRouteUrl('financeiro.bank-reconciliation-suggestions.confirm', suggestion.id), {
         method: 'POST',
         headers: buildJsonHeaders(),
         credentials: 'same-origin',
@@ -471,10 +452,14 @@ export function BancoTab({
 
       const payload = await response.json();
       syncFinancialStateFromPayment(payload);
-      await loadSuggestionCounts();
-
       if (selectedSuggestionExtrato) {
-        await loadSuggestionsForExtrato(selectedSuggestionExtrato);
+        setSuggestionCache((current) => {
+          const existing = current[selectedSuggestionExtrato.id] ?? [];
+          const updated = existing.filter((item) => item.id !== suggestion.id);
+          setReconciliationSuggestions(updated);
+          setSuggestionCounts((counts) => ({ ...counts, [selectedSuggestionExtrato.id]: updated.length }));
+          return { ...current, [selectedSuggestionExtrato.id]: updated };
+        });
       }
 
       if ((payload?.summary?.new_fiscal_requests || 0) > 0) {
@@ -494,7 +479,7 @@ export function BancoTab({
     setSuggestionActionId(suggestion.id);
 
     try {
-      const response = await fetch(route('financeiro.bank-reconciliation-suggestions.reject', suggestion.id), {
+      const response = await fetch(buildRouteUrl('financeiro.bank-reconciliation-suggestions.reject', suggestion.id), {
         method: 'POST',
         headers: buildJsonHeaders(),
         credentials: 'same-origin',
@@ -506,9 +491,14 @@ export function BancoTab({
       }
 
       if (selectedSuggestionExtrato) {
-        await loadSuggestionsForExtrato(selectedSuggestionExtrato);
+        setSuggestionCache((current) => {
+          const existing = current[selectedSuggestionExtrato.id] ?? [];
+          const updated = existing.filter((item) => item.id !== suggestion.id);
+          setReconciliationSuggestions(updated);
+          setSuggestionCounts((counts) => ({ ...counts, [selectedSuggestionExtrato.id]: updated.length }));
+          return { ...current, [selectedSuggestionExtrato.id]: updated };
+        });
       }
-      await loadSuggestionCounts();
       toast.success('Sugestao rejeitada.');
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Erro ao rejeitar sugestao';
@@ -522,16 +512,11 @@ export function BancoTab({
     setManualInvoicesLoading(true);
 
     try {
-      const url = new URL(route('financeiro.invoices.open'), window.location.origin);
-      url.searchParams.set('per_page', '50');
-      if (search.trim() !== '') {
-        url.searchParams.set('search', search.trim());
-      }
-      if (userId) {
-        url.searchParams.set('user_id', userId);
-      }
-
-      const response = await fetch(url.toString(), {
+      const response = await fetch(buildRouteUrl('financeiro.invoices.open', undefined, {
+        per_page: '50',
+        search: search.trim(),
+        user_id: userId ?? '',
+      }), {
         method: 'GET',
         headers: {
           Accept: 'application/json',
@@ -598,7 +583,7 @@ export function BancoTab({
     }
 
     try {
-      const response = await fetch(route('financeiro.bank-statements.allocate', selectedManualAllocationExtrato.id), {
+      const response = await fetch(buildRouteUrl('financeiro.bank-statements.allocate', selectedManualAllocationExtrato.id), {
         method: 'POST',
         headers: buildJsonHeaders(),
         credentials: 'same-origin',
@@ -876,7 +861,7 @@ export function BancoTab({
   const openEditDialog = (extrato: ExtratoBancario) => {
     setEditingExtrato(extrato);
     setFormData({
-      data_movimento: extrato.data_movimento,
+      data_movimento: normalizeDateInputValue(extrato.data_movimento),
       descricao: extrato.descricao,
       valor: toNumber(extrato.valor),
       saldo: toNumber(extrato.saldo),
@@ -1146,13 +1131,7 @@ export function BancoTab({
             // String de data
             if (typeof value === 'string') {
               const trimmed = value.trim();
-              
-              // Formato ISO ou similar
-              const dateObj = new Date(trimmed);
-              if (!isNaN(dateObj.getTime())) {
-                return format(dateObj, 'yyyy-MM-dd');
-              }
-              
+
               // Formatos comuns PT: dd/mm/yyyy, dd-mm-yyyy
               const ptFormats = [
                 /^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/,  // dd/mm/yyyy
@@ -1166,10 +1145,18 @@ export function BancoTab({
                   const month = parseInt(match[2], 10) - 1; // JS months são 0-indexed
                   let year = parseInt(match[3], 10);
                   if (year < 100) year += 2000; // Converte 25 → 2025
-                  
+
                   const parsed = new Date(year, month, day);
-                  return format(parsed, 'yyyy-MM-dd');
+                  if (!isNaN(parsed.getTime()) && parsed.getDate() === day && parsed.getMonth() === month) {
+                    return format(parsed, 'yyyy-MM-dd');
+                  }
                 }
+              }
+
+              // Formato ISO ou similar
+              const normalized = getMovementDateKey(trimmed);
+              if (normalized) {
+                return normalized;
               }
             }
           } catch (e) {

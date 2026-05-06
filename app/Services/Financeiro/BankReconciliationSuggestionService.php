@@ -675,7 +675,14 @@ class BankReconciliationSuggestionService
                     'conflict_count' => max($users->count() - 1, 0),
                 ],
             ];
-        })->all();
+        })->filter(function (array $match): bool {
+            $flags = $match['flags'] ?? [];
+
+            return ($flags['matched_name'] ?? false)
+                || ($flags['matched_nif'] ?? false)
+                || ($flags['matched_member_number'] ?? false)
+                || ($flags['matched_email_or_phone'] ?? false);
+        })->values()->all();
     }
 
     private function buildFallbackContexts(float $statementAmount): array
