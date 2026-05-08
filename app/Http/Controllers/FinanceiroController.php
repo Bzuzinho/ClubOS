@@ -465,6 +465,7 @@ class FinanceiroController extends Controller
             'current_season' => ['nullable', 'boolean'],
             'generate_for_all' => ['nullable', 'boolean'],
             'user_id' => ['nullable', 'exists:users,id'],
+            'monthly_fee_id' => ['nullable', 'exists:monthly_fees,id'],
             'only_active' => ['nullable', 'boolean'],
         ]);
 
@@ -474,41 +475,40 @@ class FinanceiroController extends Controller
             ]);
         }
 
-        if (($data['current_season'] ?? false) === true) {
-            $summary = $this->monthlyFeeGenerationService->generateCurrentSeason([
-                'only_active' => (bool) ($data['only_active'] ?? true),
-                'user_ids' => !empty($data['user_id']) ? [$data['user_id']] : null,
-            ]);
-        } else {
+        if (isset($data['start_date']) || isset($data['end_date'])) {
             $start = isset($data['start_date'])
                 ? Carbon::parse($data['start_date'])->startOfMonth()
                 : Carbon::today()->startOfMonth();
             $end = isset($data['end_date'])
                 ? Carbon::parse($data['end_date'])->startOfMonth()
-                : $start->copy()->addMonths(11);
+                : $start->copy();
 
             if (!empty($data['user_id'])) {
                 $user = User::query()->findOrFail($data['user_id']);
-                $created = $this->monthlyFeeGenerationService->generateForUser($user, $start, $end, [
+                $summary = $this->monthlyFeeGenerationService->generateForUserWithSummary($user, $start, $end, [
                     'only_active' => (bool) ($data['only_active'] ?? true),
                     'start_date' => $data['start_date'] ?? null,
+                    'monthly_fee_id' => $data['monthly_fee_id'] ?? null,
+                    'manual_trigger' => true,
                 ]);
-
-                $summary = [
-                    'created_count' => $created->count(),
-                    'skipped_without_start' => $created->isEmpty() && !$user->data_inscricao && empty($data['start_date']) ? 1 : 0,
-                    'skipped_without_plan' => $created->isEmpty() && !$user->dadosFinanceiros?->mensalidade_id && !$user->tipo_mensalidade ? 1 : 0,
-                    'users_processed' => 1,
-                    'users_with_new_fees' => $created->isNotEmpty() ? 1 : 0,
-                    'created_invoice_ids' => $created->pluck('id')->all(),
-                ];
             } else {
                 $summary = $this->monthlyFeeGenerationService->generateForAllEligibleUsers($start, $end, [
                     'only_active' => (bool) ($data['only_active'] ?? true),
                     'start_date' => $data['start_date'] ?? null,
+                    'monthly_fee_id' => $data['monthly_fee_id'] ?? null,
+                    'manual_trigger' => true,
                 ]);
             }
+        } else {
+            $summary = $this->monthlyFeeGenerationService->generateConfiguredCycle([
+                    'only_active' => (bool) ($data['only_active'] ?? true),
+                    'user_ids' => !empty($data['user_id']) ? [$data['user_id']] : null,
+                    'monthly_fee_id' => $data['monthly_fee_id'] ?? null,
+                    'manual_trigger' => true,
+                ]);
         }
+
+        $summary['activated_count'] = $this->monthlyFeeGenerationService->activateDueInvoices(null, ['force' => true]);
 
         $createdInvoices = Invoice::query()
             ->with('items')

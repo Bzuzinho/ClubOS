@@ -233,6 +233,7 @@ export function FaturasTab({
   const [paymentCreateCredit, setPaymentCreateCredit] = useState(false);
   const [paymentSubmitting, setPaymentSubmitting] = useState(false);
   const [gerarParaTodos, setGerarParaTodos] = useState(false);
+  const [selectedMonthlyFeeId, setSelectedMonthlyFeeId] = useState<string>('all');
   const [dataInicioMensalidades, setDataInicioMensalidades] = useState('');
   const [dataFimMensalidades, setDataFimMensalidades] = useState('');
   const [editingFaturaId, setEditingFaturaId] = useState<string | null>(null);
@@ -795,7 +796,6 @@ export function FaturasTab({
     }
 
     try {
-      const currentSeason = !dataInicioMensalidades && !dataFimMensalidades;
       const computedEndDate = dataFimMensalidades || (
         dataInicioMensalidades
           ? format(getFinalMes(new Date(dataInicioMensalidades)), 'yyyy-MM-dd')
@@ -814,10 +814,10 @@ export function FaturasTab({
         body: JSON.stringify({
           generate_for_all: gerarParaTodos,
           user_id: gerarParaTodos ? undefined : selectedUserId,
-          current_season: currentSeason,
           start_date: dataInicioMensalidades || undefined,
           end_date: computedEndDate,
           only_active: true,
+          monthly_fee_id: selectedMonthlyFeeId !== 'all' ? selectedMonthlyFeeId : undefined,
         }),
       });
 
@@ -834,8 +834,12 @@ export function FaturasTab({
       const createdItems = createdInvoices.flatMap((invoice) => invoice.items || []);
       const summary = payload?.summary as {
         created_count?: number;
+        skipped_existing_count?: number;
         skipped_without_start?: number;
         skipped_without_plan?: number;
+        future_hidden_count?: number;
+        activated_count?: number;
+        errors?: Array<{ message?: string }>;
       } | undefined;
 
       if ((summary?.created_count || 0) === 0) {
@@ -852,14 +856,19 @@ export function FaturasTab({
 
         toast.success(
           `${summary?.created_count || createdInvoices.length} mensalidade(s) gerada(s)`
+          + ((summary?.skipped_existing_count || 0) > 0 ? `, ${summary?.skipped_existing_count} ja existiam` : '')
           + ((summary?.skipped_without_start || 0) > 0 ? `, ${summary?.skipped_without_start} sem data de inicio` : '')
           + ((summary?.skipped_without_plan || 0) > 0 ? `, ${summary?.skipped_without_plan} sem plano` : '')
+          + ((summary?.future_hidden_count || 0) > 0 ? `, ${summary?.future_hidden_count} futuras ocultas` : '')
+          + ((summary?.activated_count || 0) > 0 ? `, ${summary?.activated_count} ativadas` : '')
+          + ((summary?.errors?.length || 0) > 0 ? `, ${summary?.errors?.length} erro(s)` : '')
         );
       }
 
       refreshInvoices();
       setDialogAutoOpen(false);
       setSelectedUserId('');
+      setSelectedMonthlyFeeId('all');
       setGerarParaTodos(false);
       setDataInicioMensalidades('');
       setDataFimMensalidades('');
@@ -1319,15 +1328,15 @@ export function FaturasTab({
             <DialogTrigger asChild>
               <Button variant="outline" className="w-full sm:w-auto text-xs sm:text-sm" size="sm">
                 <MagicWand className="mr-1 sm:mr-2" size={16} />
-                <span className="hidden sm:inline">Gerar Mensalidades</span>
+                <span className="hidden sm:inline">Gerar mensalidades pelo ciclo financeiro configurado</span>
                 <span className="sm:hidden">Mensalidades</span>
               </Button>
             </DialogTrigger>
             <DialogContent className="w-[95vw] sm:w-full max-w-md">
               <DialogHeader>
-                <DialogTitle className="text-base sm:text-lg">Gerar Faturas Automaticas (Mensalidades)</DialogTitle>
+                <DialogTitle className="text-base sm:text-lg">Gerar mensalidades pelo ciclo financeiro configurado</DialogTitle>
                 <DialogDescription>
-                  Crie faturas de mensalidade automaticamente para os atletas do clube
+                  As mensalidades sao geradas com base na configuracao financeira do clube e no plano de cada utilizador. A epoca desportiva pode servir de referencia, mas nao condiciona a geracao.
                 </DialogDescription>
               </DialogHeader>
               <div className="space-y-4">
@@ -1391,6 +1400,26 @@ export function FaturasTab({
                 )}
 
                 <div className="space-y-2">
+                  <Label className="text-sm">Plano de mensalidade</Label>
+                  <Select value={selectedMonthlyFeeId} onValueChange={setSelectedMonthlyFeeId}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Todos os planos" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Todos os planos</SelectItem>
+                      {(mensalidades || []).map((mensalidade) => (
+                        <SelectItem key={mensalidade.id} value={mensalidade.id}>
+                          {mensalidade.designacao} (€{mensalidade.valor})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    Opcional. Limita a geracao aos utilizadores com o plano selecionado.
+                  </p>
+                </div>
+
+                <div className="space-y-2">
                   <Label className="text-sm">Data de Inicio</Label>
                   <Input
                     type="date"
@@ -1398,7 +1427,7 @@ export function FaturasTab({
                     onChange={(e) => setDataInicioMensalidades(e.target.value)}
                   />
                   <p className="text-xs text-muted-foreground">
-                    Se ficar vazio, sera usada a data de inscricao do utilizador.
+                    Se ficar vazio, o sistema usa o ciclo financeiro configurado e respeita a data de inscricao/inicio financeiro quando aplicavel.
                   </p>
                 </div>
 
@@ -1410,14 +1439,14 @@ export function FaturasTab({
                     onChange={(e) => setDataFimMensalidades(e.target.value)}
                   />
                   <p className="text-xs text-muted-foreground">
-                    Se ficar vazio, o sistema usa a epoca atual ou fecha no julho seguinte a partir da data inicial.
+                    Se ficar vazio, o sistema usa o fim do ciclo financeiro configurado para o clube.
                   </p>
                 </div>
 
                 <p className="text-xs text-muted-foreground">
                   {gerarParaTodos
-                    ? 'Serao geradas mensalidades para todos os utilizadores elegiveis, sem duplicar periodos ja existentes.'
-                    : 'Serao geradas mensalidades para o utilizador escolhido, sem duplicar periodos ja existentes.'}
+                    ? 'Serao geradas mensalidades para todos os utilizadores elegiveis, sem duplicar periodos ja existentes, mantendo futuras ocultas ate ao vencimento.'
+                    : 'Serao geradas mensalidades para o utilizador escolhido, sem duplicar periodos ja existentes, mantendo futuras ocultas ate ao vencimento.'}
                 </p>
               </div>
               <DialogFooter className="flex-col sm:flex-row gap-2">
@@ -1427,6 +1456,7 @@ export function FaturasTab({
                     setDialogAutoOpen(false);
                     setGerarParaTodos(false);
                     setSelectedUserId('');
+                    setSelectedMonthlyFeeId('all');
                     setDataInicioMensalidades('');
                     setDataFimMensalidades('');
                   }}

@@ -472,6 +472,7 @@ class BankReconciliationSuggestionService
                     $paymentAllocationQuery->where('status', PaymentAllocation::STATUS_CONFIRMED);
                 },
             ], 'amount')
+            ->where('oculta', false)
             ->whereIn('estado_pagamento', ['pendente', 'vencido', 'parcial']);
 
         if ($familyId) {
@@ -692,6 +693,7 @@ class BankReconciliationSuggestionService
                     $paymentAllocationQuery->where('status', PaymentAllocation::STATUS_CONFIRMED);
                 },
             ], 'amount')
+            ->where('oculta', false)
             ->whereIn('estado_pagamento', ['pendente', 'vencido', 'parcial'])
             ->orderBy('data_vencimento')
             ->limit(40)

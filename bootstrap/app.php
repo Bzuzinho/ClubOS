@@ -25,6 +25,8 @@ return Application::configure(basePath: dirname(__DIR__))
         \App\Console\Commands\CatalogResetBackfillFixtures::class,
         \App\Console\Commands\ReleaseVisibleInvoiceCommunications::class,
         \App\Console\Commands\SyncPermissionNodes::class,
+        \App\Console\Commands\GenerateMonthlyFeesCommand::class,
+        \App\Console\Commands\ActivateDueMonthlyFeesCommand::class,
     ])
     ->withMiddleware(function (Middleware $middleware) {
         // Trust all proxies for Codespaces

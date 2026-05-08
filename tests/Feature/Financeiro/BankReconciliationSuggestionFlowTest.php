@@ -317,6 +317,30 @@ class BankReconciliationSuggestionFlowTest extends TestCase
         $this->assertNotNull($matchingSuggestion);
     }
 
+    public function test_hidden_future_monthly_invoice_is_excluded_from_reconciliation_suggestions(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $user = $this->createFinanceUser(['nome_completo' => 'Futuro Oculto']);
+        $visibleInvoice = $this->createInvoice($user, 27.00, 'mensalidade', '2026-05-10');
+        $hiddenFutureInvoice = $this->createInvoice($user, 27.00, 'mensalidade', '2026-06-10', [
+            'oculta' => true,
+            'data_fatura' => '2026-06-01',
+            'data_emissao' => '2026-06-01',
+        ]);
+        $statement = $this->createBankStatement(27.00, 'Pagamento Futuro Oculto');
+
+        $response = $this->actingAs($admin)->postJson(route('financeiro.bank-statements.generate-suggestions', $statement));
+
+        $response->assertOk();
+
+        $allocationIds = collect($response->json('suggestions'))
+            ->flatMap(fn (array $suggestion) => collect($suggestion['suggested_allocations'] ?? [])->pluck('invoice_id'))
+            ->all();
+
+        $this->assertContains($visibleInvoice->id, $allocationIds);
+        $this->assertNotContains($hiddenFutureInvoice->id, $allocationIds);
+    }
+
     public function test_confirmation_with_overpayment_can_create_account_credit(): void
     {
         $admin = User::factory()->admin()->create();
@@ -547,7 +571,7 @@ class BankReconciliationSuggestionFlowTest extends TestCase
         return $user->fresh('families');
     }
 
-    private function createInvoice(User $user, float $amount, string $type = 'mensalidade', string $dueDate = '2026-05-10'): Invoice
+    private function createInvoice(User $user, float $amount, string $type = 'mensalidade', string $dueDate = '2026-05-10', array $overrides = []): Invoice
     {
         $costCenter = CostCenter::query()->firstOrCreate(
             ['codigo' => 'CC-RECON'],
@@ -558,7 +582,7 @@ class BankReconciliationSuggestionFlowTest extends TestCase
             ],
         );
 
-        $invoice = Invoice::create([
+        $invoice = Invoice::create(array_merge([
             'user_id' => $user->id,
             'data_fatura' => '2026-05-01',
             'data_emissao' => '2026-05-01',
@@ -569,7 +593,8 @@ class BankReconciliationSuggestionFlowTest extends TestCase
             'referencia_pagamento' => 'REF-' . uniqid(),
             'centro_custo_id' => $costCenter->id,
             'tipo' => $type,
-        ]);
+            'oculta' => false,
+        ], $overrides));
 
         InvoiceItem::create([
             'fatura_id' => $invoice->id,

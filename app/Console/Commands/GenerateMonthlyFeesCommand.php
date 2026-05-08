@@ -11,10 +11,10 @@ class GenerateMonthlyFeesCommand extends Command
     protected $signature = 'finance:generate-monthly-fees
         {--start= : Data inicial (YYYY-MM-DD)}
         {--end= : Data final (YYYY-MM-DD)}
-        {--current-season : Gerar para a epoca atual}
+        {--current-season : Opcao legada; usa o ciclo financeiro configurado}
         {--include-inactive : Incluir utilizadores nao ativos}';
 
-    protected $description = 'Gera mensalidades para utilizadores elegiveis sem duplicar periodos';
+    protected $description = 'Gera mensalidades pelo ciclo financeiro configurado sem duplicar periodos';
 
     public function __construct(private readonly MonthlyFeeGenerationService $monthlyFeeGenerationService)
     {
@@ -23,26 +23,37 @@ class GenerateMonthlyFeesCommand extends Command
 
     public function handle(): int
     {
-        if ($this->option('current-season')) {
-            $summary = $this->monthlyFeeGenerationService->generateCurrentSeason([
-                'only_active' => !$this->option('include-inactive'),
-            ]);
-        } else {
-            $start = Carbon::parse((string) ($this->option('start') ?: Carbon::today()->startOfMonth()->toDateString()))->startOfMonth();
-            $end = Carbon::parse((string) ($this->option('end') ?: $start->copy()->addMonths(11)->toDateString()))->startOfMonth();
+        $filters = [
+            'only_active' => !$this->option('include-inactive'),
+        ];
 
-            $summary = $this->monthlyFeeGenerationService->generateForAllEligibleUsers($start, $end, [
+        if ($this->option('start') || $this->option('end')) {
+            $start = Carbon::parse((string) ($this->option('start') ?: Carbon::today()->startOfMonth()->toDateString()))->startOfMonth();
+            $end = Carbon::parse((string) ($this->option('end') ?: $start->copy()->toDateString()))->startOfMonth();
+
+            $summary = $this->monthlyFeeGenerationService->generateForAllEligibleUsers($start, $end, $filters);
+            $summary['activated_count'] = $this->monthlyFeeGenerationService->activateDueInvoices();
+        } else {
+            if ($this->option('current-season')) {
+                $this->warn('A opcao --current-season esta obsoleta. Foi usado o ciclo financeiro configurado.');
+            }
+
+            $summary = $this->monthlyFeeGenerationService->runScheduledGeneration([
                 'only_active' => !$this->option('include-inactive'),
             ]);
         }
 
         $this->info(sprintf(
-            'Mensalidades geradas: %d | utilizadores processados: %d | com novas mensalidades: %d | sem plano: %d | sem data de inicio: %d',
+            'Mensalidades geradas: %d | ativadas: %d | futuras ocultas: %d | ja existentes ignoradas: %d | utilizadores processados: %d | com novas mensalidades: %d | sem plano: %d | sem data de inicio: %d | erros: %d',
             $summary['created_count'] ?? 0,
+            $summary['activated_count'] ?? 0,
+            $summary['future_hidden_count'] ?? 0,
+            $summary['skipped_existing_count'] ?? 0,
             $summary['users_processed'] ?? 0,
             $summary['users_with_new_fees'] ?? 0,
             $summary['skipped_without_plan'] ?? 0,
             $summary['skipped_without_start'] ?? 0,
+            count($summary['errors'] ?? []),
         ));
 
         return self::SUCCESS;

@@ -10,26 +10,57 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Throwable;
 
 class MonthlyFeeGenerationService
 {
+    public function __construct(
+        private readonly MonthlyFeeSettingsService $settingsService,
+    ) {
+    }
+
     public function generateForUser(User $user, Carbon $start, Carbon $end, array $options = []): Collection
     {
+        return $this->generateForUserWithSummary($user, $start, $end, $options)['created'];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function generateForUserWithSummary(User $user, Carbon $start, Carbon $end, array $options = []): array
+    {
         $user->loadMissing(['dadosFinanceiros.mensalidade', 'centrosCusto']);
+        $settings = $this->resolveSettings($options);
+        $summary = $this->emptySummary();
+        $summary['users_processed'] = 1;
+
+        if (($settings['generation_enabled'] ?? true) !== true && ($options['manual_trigger'] ?? false) !== true) {
+            $summary['generation_disabled'] = true;
+
+            return $summary;
+        }
 
         $plan = $this->resolveMonthlyFeePlan($user);
         if (!$plan || !$this->isEligibleUser($user, $options)) {
-            return collect();
+            $summary['skipped_without_plan'] = $plan ? 0 : 1;
+
+            return $summary;
+        }
+
+        if (!empty($options['monthly_fee_id']) && $plan->id !== (string) $options['monthly_fee_id']) {
+            return $summary;
         }
 
         $effectiveStart = $this->resolveEffectiveStart($user, $start, $options, false);
         if (!$effectiveStart) {
-            return collect();
+            $summary['skipped_without_start'] = 1;
+
+            return $summary;
         }
 
         $effectiveEnd = $end->copy()->startOfMonth();
         if ($effectiveStart->greaterThan($effectiveEnd)) {
-            return collect();
+            return $summary;
         }
 
         $existingPeriods = Invoice::query()
@@ -61,11 +92,27 @@ class MonthlyFeeGenerationService
             }
         });
 
-        return $generated;
+        $summary['created'] = $generated;
+        $summary['created_count'] = $generated->count();
+        $summary['users_with_new_fees'] = $generated->isNotEmpty() ? 1 : 0;
+        $summary['created_invoice_ids'] = $generated->pluck('id')->all();
+        $summary['skipped_existing_count'] = count($existingPeriods);
+        $summary['future_hidden_count'] = $generated->where('oculta', true)->count();
+
+        return $summary;
     }
 
     public function generateForAllEligibleUsers(Carbon $start, Carbon $end, array $filters = []): array
     {
+        $settings = $this->resolveSettings($filters);
+        $summary = $this->emptySummary();
+
+        if (($settings['generation_enabled'] ?? true) !== true && ($filters['manual_trigger'] ?? false) !== true) {
+            $summary['generation_disabled'] = true;
+
+            return $summary;
+        }
+
         $query = User::query()
             ->with(['dadosFinanceiros.mensalidade', 'centrosCusto'])
             ->where(function ($nested): void {
@@ -86,34 +133,34 @@ class MonthlyFeeGenerationService
             $query->whereIn('id', $filters['user_ids']);
         }
 
-        $summary = [
-            'created_count' => 0,
-            'skipped_without_start' => 0,
-            'skipped_without_plan' => 0,
-            'users_processed' => 0,
-            'users_with_new_fees' => 0,
-            'created_invoice_ids' => [],
-        ];
+        if (!empty($filters['monthly_fee_id'])) {
+            $monthlyFeeId = (string) $filters['monthly_fee_id'];
+
+            $query->where(function ($nested) use ($monthlyFeeId): void {
+                $nested
+                    ->where('tipo_mensalidade', $monthlyFeeId)
+                    ->orWhereHas('dadosFinanceiros', fn ($financeQuery) => $financeQuery->where('mensalidade_id', $monthlyFeeId));
+            });
+        }
 
         $query->orderBy('nome_completo')->chunkById(100, function (Collection $users) use ($start, $end, $filters, &$summary): void {
             foreach ($users as $user) {
-                $summary['users_processed']++;
+                try {
+                    $userSummary = $this->generateForUserWithSummary($user, $start, $end, $filters);
+                    $summary = $this->mergeSummary($summary, $userSummary);
+                } catch (Throwable $exception) {
+                    $summary['users_processed']++;
+                    $summary['errors'][] = [
+                        'user_id' => $user->id,
+                        'message' => $exception->getMessage(),
+                    ];
 
-                if (!$this->resolveMonthlyFeePlan($user)) {
-                    $summary['skipped_without_plan']++;
-                    continue;
-                }
-
-                if (!$this->resolveEffectiveStart($user, $start, $filters, false)) {
-                    $summary['skipped_without_start']++;
-                    continue;
-                }
-
-                $created = $this->generateForUser($user, $start, $end, $filters);
-                if ($created->isNotEmpty()) {
-                    $summary['users_with_new_fees']++;
-                    $summary['created_count'] += $created->count();
-                    array_push($summary['created_invoice_ids'], ...$created->pluck('id')->all());
+                    Log::error('Monthly fee generation failed for user.', [
+                        'user_id' => $user->id,
+                        'start' => $start->toDateString(),
+                        'end' => $end->toDateString(),
+                        'exception' => $exception,
+                    ]);
                 }
             }
         });
@@ -121,37 +168,70 @@ class MonthlyFeeGenerationService
         return $summary;
     }
 
-    public function generateCurrentSeason(array $options = []): array
+    public function generateConfiguredCycle(array $options = []): array
     {
         $today = isset($options['today']) && $options['today'] instanceof Carbon
-            ? $options['today']->copy()
-            : Carbon::today();
-        $seasonStartYear = $today->month >= 7 ? $today->year : $today->year - 1;
+            ? $options['today']->copy()->startOfDay()
+            : Carbon::today()->startOfDay();
+        $window = $this->settingsService->resolveGenerationWindow($today);
 
-        return $this->generateForAllEligibleUsers(
-            Carbon::create($seasonStartYear, 7, 1)->startOfMonth(),
-            Carbon::create($seasonStartYear + 1, 6, 1)->startOfMonth(),
-            $options,
-        );
+        return $this->generateForAllEligibleUsers($window['start'], $window['end'], $options);
     }
 
-    public function activateDueInvoices(?Carbon $today = null): int
+    public function generateCurrentSeason(array $options = []): array
     {
+        return $this->generateConfiguredCycle($options);
+    }
+
+    public function activateDueInvoices(?Carbon $today = null, array $options = []): int
+    {
+        $settings = $this->resolveSettings($options);
+        if (($settings['auto_activate_due'] ?? true) !== true && ($options['force'] ?? false) !== true) {
+            return 0;
+        }
+
         $referenceDate = ($today ?? Carbon::today())->copy()->startOfDay();
 
-        return Invoice::query()
+        $updated = Invoice::query()
             ->where('tipo', 'mensalidade')
             ->where('oculta', true)
             ->whereDate('data_vencimento', '<=', $referenceDate)
             ->update([
                 'oculta' => false,
             ]);
+
+        Invoice::query()
+            ->where('tipo', 'mensalidade')
+            ->where('oculta', false)
+            ->where('estado_pagamento', 'pendente')
+            ->whereDate('data_vencimento', '<', $referenceDate)
+            ->update([
+                'estado_pagamento' => 'vencido',
+            ]);
+
+        return $updated;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function runScheduledGeneration(array $options = []): array
+    {
+        $summary = $this->generateConfiguredCycle($options);
+        $summary['activated_count'] = $this->activateDueInvoices(
+            isset($options['today']) && $options['today'] instanceof Carbon ? $options['today'] : null,
+            $options,
+        );
+
+        return $summary;
     }
 
     private function createMonthlyInvoice(User $user, MonthlyFee $plan, Carbon $period, Carbon $today, array $options = []): Invoice
     {
         $periodStart = $period->copy()->startOfMonth();
-        $isFuture = $periodStart->greaterThan($today->copy()->startOfMonth());
+        $settings = $this->resolveSettings($options);
+        $dueDate = $this->settingsService->resolveDueDate($periodStart);
+        $shouldHide = ($settings['hide_future'] ?? true) === true && $dueDate->greaterThan($today);
         $baseAmount = round((float) $plan->valor, 2);
         $shares = $this->resolveCostCenterShares($user, $baseAmount);
         $adjustment = $this->resolveFinancialAdjustment($user, $baseAmount);
@@ -182,12 +262,12 @@ class MonthlyFeeGenerationService
             'data_fatura' => $periodStart->toDateString(),
             'mes' => $periodStart->format('Y-m'),
             'data_emissao' => $periodStart->toDateString(),
-            'data_vencimento' => $periodStart->toDateString(),
+            'data_vencimento' => $dueDate->toDateString(),
             'valor_total' => $finalAmount,
             'valor_pago' => 0,
             'valor_em_aberto' => $finalAmount,
-            'oculta' => $isFuture,
-            'estado_pagamento' => $this->resolveInitialStatus($periodStart, $today),
+            'oculta' => $shouldHide,
+            'estado_pagamento' => $this->resolveInitialStatus($dueDate, $today),
             'centro_custo_id' => $shares[0]['id'] ?? null,
             'tipo' => 'mensalidade',
             'origem_tipo' => 'manual',
@@ -274,6 +354,11 @@ class MonthlyFeeGenerationService
             return Carbon::parse((string) $options['start_date'])->startOfMonth();
         }
 
+        $settings = $this->resolveSettings($options);
+        if (($settings['respect_registration_date'] ?? true) !== true) {
+            return $requestedStart->copy()->startOfMonth();
+        }
+
         $signupDate = $user->data_inscricao?->copy()?->startOfMonth();
         if (!$signupDate) {
             return $fallbackToRequest ? $requestedStart->copy()->startOfMonth() : null;
@@ -295,7 +380,7 @@ class MonthlyFeeGenerationService
 
     private function resolveInitialStatus(Carbon $periodStart, Carbon $today): string
     {
-        if ($periodStart->greaterThan($today->copy()->startOfMonth())) {
+        if ($periodStart->greaterThan($today)) {
             return 'pendente';
         }
 
@@ -350,5 +435,65 @@ class MonthlyFeeGenerationService
         unset($share);
 
         return $shares;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function emptySummary(): array
+    {
+        return [
+            'created' => collect(),
+            'created_count' => 0,
+            'skipped_existing_count' => 0,
+            'skipped_without_start' => 0,
+            'skipped_without_plan' => 0,
+            'users_processed' => 0,
+            'users_with_new_fees' => 0,
+            'future_hidden_count' => 0,
+            'activated_count' => 0,
+            'generation_disabled' => false,
+            'created_invoice_ids' => [],
+            'errors' => [],
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $base
+     * @param  array<string, mixed>  $extra
+     * @return array<string, mixed>
+     */
+    private function mergeSummary(array $base, array $extra): array
+    {
+        $base['users_processed'] += (int) ($extra['users_processed'] ?? 0);
+        $base['users_with_new_fees'] += (int) ($extra['users_with_new_fees'] ?? 0);
+        $base['created_count'] += (int) ($extra['created_count'] ?? 0);
+        $base['skipped_existing_count'] += (int) ($extra['skipped_existing_count'] ?? 0);
+        $base['skipped_without_start'] += (int) ($extra['skipped_without_start'] ?? 0);
+        $base['skipped_without_plan'] += (int) ($extra['skipped_without_plan'] ?? 0);
+        $base['future_hidden_count'] += (int) ($extra['future_hidden_count'] ?? 0);
+        $base['activated_count'] += (int) ($extra['activated_count'] ?? 0);
+        $base['generation_disabled'] = $base['generation_disabled'] || (bool) ($extra['generation_disabled'] ?? false);
+        $base['created_invoice_ids'] = array_values(array_unique(array_merge(
+            $base['created_invoice_ids'],
+            $extra['created_invoice_ids'] ?? [],
+        )));
+        $base['errors'] = array_values(array_merge($base['errors'], $extra['errors'] ?? []));
+
+        return $base;
+    }
+
+    /**
+     * @param  array<string, mixed>  $options
+     * @return array<string, mixed>
+     */
+    private function resolveSettings(array $options): array
+    {
+        return array_merge($this->settingsService->get(), [
+            'generation_enabled' => $options['generation_enabled'] ?? $this->settingsService->get()['generation_enabled'],
+            'hide_future' => $options['hide_future'] ?? $this->settingsService->get()['hide_future'],
+            'auto_activate_due' => $options['auto_activate_due'] ?? $this->settingsService->get()['auto_activate_due'],
+            'respect_registration_date' => $options['respect_registration_date'] ?? $this->settingsService->get()['respect_registration_date'],
+        ]);
     }
 }

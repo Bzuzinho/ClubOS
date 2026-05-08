@@ -9,3 +9,5 @@ Artisan::command('inspire', function () {
 })->purpose('Display an inspiring quote')->hourly();
 
 Schedule::command('comunicacao:libertar-alertas-faturas')->dailyAt('00:05');
+Schedule::command('finance:activate-due-monthly-fees')->dailyAt('00:10')->withoutOverlapping();
+Schedule::command('finance:generate-monthly-fees')->dailyAt('00:20')->withoutOverlapping();

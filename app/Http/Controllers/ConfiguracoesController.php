@@ -326,6 +326,15 @@ class ConfiguracoesController extends Controller
             'iban' => 'nullable|string|max:34',
             'logo_url' => 'nullable|string',
             'logo' => 'nullable|image|max:2048',
+            'monthly_fee_generation_enabled' => 'nullable|boolean',
+            'monthly_fee_start_month' => 'nullable|integer|min:1|max:12',
+            'monthly_fee_end_month' => 'nullable|integer|min:1|max:12',
+            'monthly_fee_due_day' => 'nullable|integer|min:1|max:28',
+            'monthly_fee_hide_future' => 'nullable|boolean',
+            'monthly_fee_auto_activate_due' => 'nullable|boolean',
+            'monthly_fee_respect_registration_date' => 'nullable|boolean',
+            'monthly_fee_generate_months_ahead' => 'nullable|integer|min:0|max:36',
+            'monthly_fee_default_period_mode' => 'nullable|string|in:financial_cycle',
         ]);
 
         $data['nome_clube'] = trim((string) ($data['nome_clube'] ?? '')) ?: $clubSettingsService->name();
