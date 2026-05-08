@@ -61,6 +61,12 @@ export function FinancialTab({
     return 0;
   };
 
+  const normalizeCurrencyAmount = (value: unknown) => {
+    const amount = toNumber(value);
+
+    return Math.abs(amount) < 0.005 ? 0 : amount;
+  };
+
   const getStartOfToday = () => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -96,8 +102,9 @@ export function FinancialTab({
   }, [user.conta_corrente]);
 
   const formatSignedEuro = (value: number) => {
-    const absoluteValue = Math.abs(value).toFixed(2);
-    return value < 0 ? `-€${absoluteValue}` : `€${absoluteValue}`;
+    const normalizedValue = normalizeCurrencyAmount(value);
+    const absoluteValue = Math.abs(normalizedValue).toFixed(2);
+    return normalizedValue < 0 ? `-€${absoluteValue}` : `€${absoluteValue}`;
   };
 
   const getEstadoBadge = (estado: string) => {
@@ -115,6 +122,14 @@ export function FinancialTab({
   const userMovimentos = useMemo(() => {
     return (movimentos || [])
       .filter(m => m.user_id === user.id)
+      .map((movimento) => {
+        const movementAmount = normalizeCurrencyAmount(movimento.valor_total ?? movimento.valor ?? 0);
+
+        return {
+          ...movimento,
+          displayAmount: movementAmount,
+        };
+      })
       .sort((a, b) => new Date(b.data_emissao).getTime() - new Date(a.data_emissao).getTime());
   }, [movimentos, user.id]);
 
@@ -376,16 +391,6 @@ export function FinancialTab({
           </div>
         </Card>
 
-        <Card className="p-2">
-          <h3 className="text-xs font-semibold mb-1.5">Ajuste Manual</h3>
-          <Input
-            type="number"
-            value={user.conta_corrente_manual ?? 0}
-            disabled={!isAdmin}
-            onChange={(e) => onChange('conta_corrente_manual', Number(e.target.value))}
-            className="h-7 text-xs bg-white"
-          />
-        </Card>
       </div>
 
       {/* Histórico Financeiro */}
@@ -439,7 +444,9 @@ export function FinancialTab({
                   <TableRow key={movimento.id} className="text-xs">
                     <TableCell className="py-1">{format(new Date(movimento.data_emissao), 'dd/MM/yy')}</TableCell>
                     <TableCell className="py-1">{movimento.evento_nome}</TableCell>
-                    <TableCell className="font-semibold py-1 text-red-600">-€{toNumber(movimento.valor).toFixed(2)}</TableCell>
+                    <TableCell className={`font-semibold py-1 ${movimento.displayAmount < 0 ? 'text-red-600' : movimento.displayAmount > 0 ? 'text-green-600' : 'text-foreground'}`}>
+                      {formatSignedEuro(movimento.displayAmount)}
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>

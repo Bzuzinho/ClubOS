@@ -12,6 +12,7 @@ import { Checkbox } from '@/Components/ui/checkbox';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/Components/ui/table';
 import { Textarea } from '@/Components/ui/textarea';
 import { Plus, ArrowsLeftRight, Check, Bank, PencilSimple, X, FileArrowUp, Gear, Trash } from '@phosphor-icons/react';
+import { Eye, HandCoins, Sparkles } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 
@@ -1899,29 +1900,32 @@ export function BancoTab({
                                   size="sm"
                                   variant="outline"
                                   onClick={() => void handleGenerateSuggestions(extrato)}
-                                  className="text-[10px] md:text-xs h-7 md:h-8 px-2 md:px-3"
+                                  className="h-8 w-8 p-0"
                                   disabled={suggestionActionId === extrato.id}
+                                  title="Gerar sugestoes de conciliacao"
+                                  aria-label="Gerar sugestoes de conciliacao"
                                 >
-                                  <span className="hidden md:inline">Gerar sugestoes</span>
-                                  <span className="md:hidden">Gerar</span>
+                                  <Sparkles size={14} />
                                 </Button>
                                 <Button
                                   size="sm"
                                   variant="outline"
                                   onClick={() => void handleOpenSuggestions(extrato)}
-                                  className="text-[10px] md:text-xs h-7 md:h-8 px-2 md:px-3"
+                                  className="h-8 w-8 p-0"
+                                  title="Ver sugestoes de conciliacao"
+                                  aria-label="Ver sugestoes de conciliacao"
                                 >
-                                  <span className="hidden md:inline">Ver sugestoes</span>
-                                  <span className="md:hidden">Ver</span>
+                                  <Eye size={14} />
                                 </Button>
                                 <Button
                                   size="sm"
                                   variant="outline"
                                   onClick={() => void openManualAllocationDialog(extrato)}
-                                  className="text-[10px] md:text-xs h-7 md:h-8 px-2 md:px-3"
+                                  className="h-8 w-8 p-0"
+                                  title="Alocar manualmente"
+                                  aria-label="Alocar manualmente"
                                 >
-                                  <span className="hidden md:inline">Alocar manualmente</span>
-                                  <span className="md:hidden">Alocar</span>
+                                  <HandCoins size={14} />
                                 </Button>
                                 <Button
                                   size="sm"

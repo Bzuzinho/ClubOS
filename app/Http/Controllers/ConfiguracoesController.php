@@ -333,8 +333,8 @@ class ConfiguracoesController extends Controller
             'monthly_fee_hide_future' => 'nullable|boolean',
             'monthly_fee_auto_activate_due' => 'nullable|boolean',
             'monthly_fee_respect_registration_date' => 'nullable|boolean',
-            'monthly_fee_generate_months_ahead' => 'nullable|integer|min:0|max:36',
-            'monthly_fee_default_period_mode' => 'nullable|string|in:financial_cycle',
+            'monthly_fee_generate_months_ahead' => 'nullable|integer|min:1|max:24',
+            'monthly_fee_default_period_mode' => 'nullable|string|in:financial_cycle,custom',
         ]);
 
         $data['nome_clube'] = trim((string) ($data['nome_clube'] ?? '')) ?: $clubSettingsService->name();

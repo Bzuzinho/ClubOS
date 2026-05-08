@@ -1,7 +1,7 @@
 import { lazy, Suspense, useState, useEffect, FormEventHandler } from 'react';
 import { Head, router, useForm, usePage } from '@inertiajs/react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/Components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/Components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/Components/ui/tabs';
 import { Button } from '@/Components/ui/button';
 import { Input } from '@/Components/ui/input';
@@ -15,7 +15,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Badge } from '@/Components/ui/badge';
 import { Checkbox } from '@/Components/ui/checkbox';
 import { Plus, PencilSimple, Trash, FloppyDisk } from '@phosphor-icons/react';
-import { FileUpload } from '@/Components/FileUpload';
 import { toast } from 'sonner';
 import { AccessControlBootstrap } from '@/types/access-control';
 
@@ -238,6 +237,15 @@ interface ClubSettings {
     nif?: string;
     logo_url?: string;
     iban?: string;
+    monthly_fee_generation_enabled?: boolean;
+    monthly_fee_start_month?: number;
+    monthly_fee_end_month?: number;
+    monthly_fee_due_day?: number;
+    monthly_fee_hide_future?: boolean;
+    monthly_fee_auto_activate_due?: boolean;
+    monthly_fee_respect_registration_date?: boolean;
+    monthly_fee_generate_months_ahead?: number | null;
+    monthly_fee_default_period_mode?: string;
 }
 
 function TabFallback() {
@@ -659,10 +667,33 @@ export default function SettingsIndex({
         nif: clubSettings?.nif || '',
         logo_url: clubSettings?.logo_url || '',
         iban: clubSettings?.iban || '',
+        monthly_fee_generation_enabled: clubSettings?.monthly_fee_generation_enabled ?? true,
+        monthly_fee_start_month: clubSettings?.monthly_fee_start_month ?? 9,
+        monthly_fee_end_month: clubSettings?.monthly_fee_end_month ?? 7,
+        monthly_fee_due_day: clubSettings?.monthly_fee_due_day ?? 1,
+        monthly_fee_hide_future: clubSettings?.monthly_fee_hide_future ?? true,
+        monthly_fee_auto_activate_due: clubSettings?.monthly_fee_auto_activate_due ?? true,
+        monthly_fee_respect_registration_date: clubSettings?.monthly_fee_respect_registration_date ?? true,
+        monthly_fee_generate_months_ahead: clubSettings?.monthly_fee_generate_months_ahead ?? '',
+        monthly_fee_default_period_mode: clubSettings?.monthly_fee_default_period_mode || 'financial_cycle',
         logo: null as File | null,
     });
 
     const [logoPreview, setLogoPreview] = useState<string | null>(clubSettings?.logo_url || null);
+    const monthOptions = [
+        { value: 1, label: 'Janeiro' },
+        { value: 2, label: 'Fevereiro' },
+        { value: 3, label: 'Marco' },
+        { value: 4, label: 'Abril' },
+        { value: 5, label: 'Maio' },
+        { value: 6, label: 'Junho' },
+        { value: 7, label: 'Julho' },
+        { value: 8, label: 'Agosto' },
+        { value: 9, label: 'Setembro' },
+        { value: 10, label: 'Outubro' },
+        { value: 11, label: 'Novembro' },
+        { value: 12, label: 'Dezembro' },
+    ];
     const settingsViewportClass = 'flex h-[calc(100dvh-10rem)] min-h-0 w-full flex-col sm:h-[calc(100dvh-11rem)]';
     const rootTabsClass = 'flex h-full min-h-0 flex-col space-y-3';
     const sectionTabsClass = 'flex h-full min-h-0 flex-col space-y-4';
@@ -707,6 +738,15 @@ export default function SettingsIndex({
             nif: clubSettings?.nif || '',
             logo_url: clubSettings?.logo_url || '',
             iban: clubSettings?.iban || '',
+            monthly_fee_generation_enabled: clubSettings?.monthly_fee_generation_enabled ?? true,
+            monthly_fee_start_month: clubSettings?.monthly_fee_start_month ?? 9,
+            monthly_fee_end_month: clubSettings?.monthly_fee_end_month ?? 7,
+            monthly_fee_due_day: clubSettings?.monthly_fee_due_day ?? 1,
+            monthly_fee_hide_future: clubSettings?.monthly_fee_hide_future ?? true,
+            monthly_fee_auto_activate_due: clubSettings?.monthly_fee_auto_activate_due ?? true,
+            monthly_fee_respect_registration_date: clubSettings?.monthly_fee_respect_registration_date ?? true,
+            monthly_fee_generate_months_ahead: clubSettings?.monthly_fee_generate_months_ahead ?? '',
+            monthly_fee_default_period_mode: clubSettings?.monthly_fee_default_period_mode || 'financial_cycle',
             logo: null,
         });
     }, [
@@ -716,6 +756,15 @@ export default function SettingsIndex({
         clubSettings?.localidade,
         clubSettings?.logo_url,
         clubSettings?.morada,
+        clubSettings?.monthly_fee_auto_activate_due,
+        clubSettings?.monthly_fee_default_period_mode,
+        clubSettings?.monthly_fee_due_day,
+        clubSettings?.monthly_fee_end_month,
+        clubSettings?.monthly_fee_generate_months_ahead,
+        clubSettings?.monthly_fee_generation_enabled,
+        clubSettings?.monthly_fee_hide_future,
+        clubSettings?.monthly_fee_respect_registration_date,
+        clubSettings?.monthly_fee_start_month,
         clubSettings?.nif,
         clubSettings?.nome_clube,
         clubSettings?.sigla,
@@ -957,6 +1006,18 @@ export default function SettingsIndex({
                 toast.error(firstError || 'Erro ao atualizar configurações.');
             },
         });
+    };
+
+    const resetFinancialCycleDefaults = () => {
+        clubForm.setData('monthly_fee_generation_enabled', true);
+        clubForm.setData('monthly_fee_start_month', 9);
+        clubForm.setData('monthly_fee_end_month', 7);
+        clubForm.setData('monthly_fee_due_day', 1);
+        clubForm.setData('monthly_fee_hide_future', true);
+        clubForm.setData('monthly_fee_auto_activate_due', true);
+        clubForm.setData('monthly_fee_respect_registration_date', true);
+        clubForm.setData('monthly_fee_generate_months_ahead', '');
+        clubForm.setData('monthly_fee_default_period_mode', 'financial_cycle');
     };
 
     const openCreateDynamicSource = () => {
@@ -1634,8 +1695,9 @@ export default function SettingsIndex({
                         <Tabs value={currentFinanceiroTab} onValueChange={setCurrentFinanceiroTab} className={sectionTabsClass}>
                             <TabsList className="w-full shrink-0 flex flex-wrap h-auto gap-1 justify-start">
                                 <TabsTrigger value="financeiro-mensalidades">Mensalidades</TabsTrigger>
-                                <TabsTrigger value="financeiro-tipos-fatura">Tipos de Fatura</TabsTrigger>
+                                <TabsTrigger value="financeiro-tipos-fatura">Itens de Fatura</TabsTrigger>
                                 <TabsTrigger value="financeiro-centros-custos">Centros de Custos</TabsTrigger>
+                                <TabsTrigger value="financeiro-ciclo">Ciclo Financeiro</TabsTrigger>
                             </TabsList>
 
                         <TabsContent value="financeiro-mensalidades" className={nestedScrollableTabContentClass}>
@@ -1711,7 +1773,7 @@ export default function SettingsIndex({
                         {currentFinanceiroTab === 'financeiro-tipos-fatura' ? (
                         <Card>
                             <CardHeader className="pb-3">
-                                <CardTitle className="text-lg">Tipos de Fatura</CardTitle>
+                                <CardTitle className="text-lg">Itens de Fatura</CardTitle>
                                 <CardDescription className="text-sm">
                                     Definir os tipos disponiveis na criacao de faturas
                                 </CardDescription>
@@ -1768,6 +1830,145 @@ export default function SettingsIndex({
                                         )}
                                     </TableBody>
                                 </Table>
+                            </CardContent>
+                        </Card>
+                        ) : null}
+                        </TabsContent>
+
+                        <TabsContent value="financeiro-ciclo" className={nestedScrollableTabContentClass}>
+                        {currentFinanceiroTab === 'financeiro-ciclo' ? (
+                        <Card>
+                            <CardHeader className="pb-3">
+                                <CardTitle className="text-lg">Ciclo financeiro das mensalidades</CardTitle>
+                                <CardDescription className="text-sm">
+                                    Esta configuracao define o ciclo administrativo das mensalidades. Nao depende da epoca desportiva. A epoca desportiva continua reservada ao planeamento, treinos e competicoes.
+                                </CardDescription>
+                            </CardHeader>
+                            <CardContent>
+                                <form onSubmit={handleSaveClubSettings} className="space-y-6">
+                                    <div className="grid gap-4 md:grid-cols-2">
+                                        <div className="space-y-3 rounded-lg border p-4 md:col-span-2">
+                                            <div className="flex items-center justify-between gap-4">
+                                                <div>
+                                                    <Label htmlFor="monthly_fee_generation_enabled" className="text-sm font-medium">Gerar mensalidades automaticamente</Label>
+                                                    <p className="text-xs text-muted-foreground">Ativa a geracao automatica e manual com base no ciclo financeiro configurado.</p>
+                                                </div>
+                                                <Switch
+                                                    id="monthly_fee_generation_enabled"
+                                                    checked={clubForm.data.monthly_fee_generation_enabled}
+                                                    onCheckedChange={(checked) => clubForm.setData('monthly_fee_generation_enabled', checked)}
+                                                />
+                                            </div>
+                                        </div>
+
+                                        <div className="space-y-2">
+                                            <Label htmlFor="monthly_fee_start_month">Mes de inicio do ciclo</Label>
+                                            <Select value={String(clubForm.data.monthly_fee_start_month)} onValueChange={(value) => clubForm.setData('monthly_fee_start_month', Number(value))}>
+                                                <SelectTrigger id="monthly_fee_start_month">
+                                                    <SelectValue placeholder="Selecionar mes" />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    {monthOptions.map((month) => (
+                                                        <SelectItem key={month.value} value={String(month.value)}>{month.label}</SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+
+                                        <div className="space-y-2">
+                                            <Label htmlFor="monthly_fee_end_month">Mes de fim do ciclo</Label>
+                                            <Select value={String(clubForm.data.monthly_fee_end_month)} onValueChange={(value) => clubForm.setData('monthly_fee_end_month', Number(value))}>
+                                                <SelectTrigger id="monthly_fee_end_month">
+                                                    <SelectValue placeholder="Selecionar mes" />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    {monthOptions.map((month) => (
+                                                        <SelectItem key={month.value} value={String(month.value)}>{month.label}</SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+
+                                        <div className="space-y-2">
+                                            <Label htmlFor="monthly_fee_due_day">Dia de vencimento</Label>
+                                            <Select value={String(clubForm.data.monthly_fee_due_day)} onValueChange={(value) => clubForm.setData('monthly_fee_due_day', Number(value))}>
+                                                <SelectTrigger id="monthly_fee_due_day">
+                                                    <SelectValue placeholder="Selecionar dia" />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    {Array.from({ length: 28 }, (_, index) => index + 1).map((day) => (
+                                                        <SelectItem key={day} value={String(day)}>{day}</SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+
+                                        <div className="space-y-2">
+                                            <Label htmlFor="monthly_fee_default_period_mode">Modo do periodo</Label>
+                                            <Select value={clubForm.data.monthly_fee_default_period_mode} onValueChange={(value) => clubForm.setData('monthly_fee_default_period_mode', value)}>
+                                                <SelectTrigger id="monthly_fee_default_period_mode">
+                                                    <SelectValue placeholder="Selecionar modo" />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="financial_cycle">Ciclo financeiro</SelectItem>
+                                                    <SelectItem value="custom">Manual/personalizado</SelectItem>
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+
+                                        <div className="space-y-2 md:col-span-2">
+                                            <Label htmlFor="monthly_fee_generate_months_ahead">Meses a gerar antecipadamente</Label>
+                                            <Input
+                                                id="monthly_fee_generate_months_ahead"
+                                                type="number"
+                                                min={1}
+                                                max={24}
+                                                value={clubForm.data.monthly_fee_generate_months_ahead}
+                                                onChange={(e) => clubForm.setData('monthly_fee_generate_months_ahead', e.target.value === '' ? '' : Number(e.target.value))}
+                                            />
+                                            <p className="text-xs text-muted-foreground">Deixe vazio para gerar todo o ciclo financeiro.</p>
+                                        </div>
+
+                                        <div className="space-y-3 rounded-lg border p-4 md:col-span-2">
+                                            <div className="flex items-center justify-between gap-4">
+                                                <div>
+                                                    <Label htmlFor="monthly_fee_hide_future" className="text-sm font-medium">Ocultar mensalidades futuras</Label>
+                                                    <p className="text-xs text-muted-foreground">As mensalidades futuras ficam ocultas ate chegarem ao vencimento.</p>
+                                                </div>
+                                                <Switch id="monthly_fee_hide_future" checked={clubForm.data.monthly_fee_hide_future} onCheckedChange={(checked) => clubForm.setData('monthly_fee_hide_future', checked)} />
+                                            </div>
+
+                                            <Separator />
+
+                                            <div className="flex items-center justify-between gap-4">
+                                                <div>
+                                                    <Label htmlFor="monthly_fee_auto_activate_due" className="text-sm font-medium">Ativar mensalidades vencidas automaticamente</Label>
+                                                    <p className="text-xs text-muted-foreground">Quando o vencimento chega, as mensalidades ocultas passam a visiveis automaticamente.</p>
+                                                </div>
+                                                <Switch id="monthly_fee_auto_activate_due" checked={clubForm.data.monthly_fee_auto_activate_due} onCheckedChange={(checked) => clubForm.setData('monthly_fee_auto_activate_due', checked)} />
+                                            </div>
+
+                                            <Separator />
+
+                                            <div className="flex items-center justify-between gap-4">
+                                                <div>
+                                                    <Label htmlFor="monthly_fee_respect_registration_date" className="text-sm font-medium">Respeitar data de inscricao</Label>
+                                                    <p className="text-xs text-muted-foreground">Evita gerar mensalidades anteriores ao inicio financeiro do utilizador.</p>
+                                                </div>
+                                                <Switch id="monthly_fee_respect_registration_date" checked={clubForm.data.monthly_fee_respect_registration_date} onCheckedChange={(checked) => clubForm.setData('monthly_fee_respect_registration_date', checked)} />
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+                                        <Button type="button" variant="outline" onClick={resetFinancialCycleDefaults}>
+                                            Repor defaults
+                                        </Button>
+                                        <Button type="submit" disabled={clubForm.processing}>
+                                            Guardar configuracoes
+                                        </Button>
+                                    </div>
+                                </form>
                             </CardContent>
                         </Card>
                         ) : null}

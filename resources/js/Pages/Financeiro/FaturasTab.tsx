@@ -1326,10 +1326,9 @@ export function FaturasTab({
           )}
           <Dialog open={dialogAutoOpen} onOpenChange={setDialogAutoOpen}>
             <DialogTrigger asChild>
-              <Button variant="outline" className="w-full sm:w-auto text-xs sm:text-sm" size="sm">
+              <Button variant="outline" className="w-full sm:w-auto text-xs sm:text-sm" size="sm" title="Gerar mensalidades pelo ciclo financeiro configurado">
                 <MagicWand className="mr-1 sm:mr-2" size={16} />
-                <span className="hidden sm:inline">Gerar mensalidades pelo ciclo financeiro configurado</span>
-                <span className="sm:hidden">Mensalidades</span>
+                <span>Gerar</span>
               </Button>
             </DialogTrigger>
             <DialogContent className="w-[95vw] sm:w-full max-w-md">
