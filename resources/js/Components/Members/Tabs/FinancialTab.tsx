@@ -252,7 +252,7 @@ export function FinancialTab({
       </div>
 
       {/* Configurações e Ajustes */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-1">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-6 gap-1">
         <Card className="p-2">
           <h3 className="text-xs font-semibold mb-1.5">Mensalidade</h3>
           <div className="space-y-1">
@@ -313,6 +313,58 @@ export function FinancialTab({
               </Select>
             )}
           </div>
+        </Card>
+
+        <Card className="p-2">
+          <h3 className="text-xs font-semibold mb-1.5">Desconto</h3>
+          <div className="space-y-1">
+            <Label htmlFor="discount_type" className="text-xs">Tipo</Label>
+            <Select
+              value={user.discount_type || 'none'}
+              onValueChange={(value) => onChange('discount_type', value === 'none' ? '' : value)}
+              disabled={!isAdmin}
+            >
+              <SelectTrigger id="discount_type" className="h-7 text-xs bg-white">
+                <SelectValue placeholder="Sem desconto" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">Sem desconto</SelectItem>
+                <SelectItem value="percent">Percentual</SelectItem>
+                <SelectItem value="fixed">Valor fixo</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </Card>
+
+        <Card className="p-2">
+          <h3 className="text-xs font-semibold mb-1.5">Valor do Desconto</h3>
+          <div className="space-y-1">
+            <Label htmlFor="discount_value" className="text-xs">
+              {user.discount_type === 'percent' ? 'Percentagem' : 'Valor'}
+            </Label>
+            <Input
+              id="discount_value"
+              type="number"
+              min={0}
+              step="0.01"
+              value={user.discount_value ?? ''}
+              disabled={!isAdmin || !user.discount_type}
+              onChange={(e) => onChange('discount_value', e.target.value === '' ? '' : Number(e.target.value))}
+              className="h-7 text-xs bg-white"
+            />
+          </div>
+        </Card>
+
+        <Card className="p-2">
+          <h3 className="text-xs font-semibold mb-1.5">Motivo</h3>
+          <Input
+            id="discount_reason"
+            value={user.discount_reason || ''}
+            disabled={!isAdmin}
+            onChange={(e) => onChange('discount_reason', e.target.value)}
+            className="h-7 text-xs bg-white"
+            placeholder="Opcional"
+          />
         </Card>
 
         <Card className="p-2">

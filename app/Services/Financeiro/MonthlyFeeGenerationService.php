@@ -9,6 +9,7 @@ use App\Models\User;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class MonthlyFeeGenerationService
 {
@@ -151,7 +152,30 @@ class MonthlyFeeGenerationService
     {
         $periodStart = $period->copy()->startOfMonth();
         $isFuture = $periodStart->greaterThan($today->copy()->startOfMonth());
-        $shares = $this->resolveCostCenterShares($user, (float) $plan->valor);
+        $baseAmount = round((float) $plan->valor, 2);
+        $shares = $this->resolveCostCenterShares($user, $baseAmount);
+        $adjustment = $this->resolveFinancialAdjustment($user, $baseAmount);
+        $finalAmount = round(max(0, $baseAmount - $adjustment['applied_amount']), 2);
+        $notes = $options['notes'] ?? sprintf('Mensalidade %s', $periodStart->translatedFormat('F Y'));
+
+        if ($adjustment['capped']) {
+            $capNote = sprintf(
+                'Desconto/correcao limitada ao valor base da mensalidade (base: %.2f; configurado: %.2f; aplicado: %.2f).',
+                $baseAmount,
+                $adjustment['requested_amount'],
+                $adjustment['applied_amount'],
+            );
+
+            $notes = trim($notes . ' | ' . $capNote);
+
+            Log::warning('Monthly fee discount capped to avoid negative invoice total.', [
+                'user_id' => $user->id,
+                'period' => $periodStart->format('Y-m'),
+                'base_amount' => $baseAmount,
+                'requested_discount' => $adjustment['requested_amount'],
+                'applied_discount' => $adjustment['applied_amount'],
+            ]);
+        }
 
         $invoice = Invoice::create([
             'user_id' => $user->id,
@@ -159,15 +183,15 @@ class MonthlyFeeGenerationService
             'mes' => $periodStart->format('Y-m'),
             'data_emissao' => $periodStart->toDateString(),
             'data_vencimento' => $periodStart->toDateString(),
-            'valor_total' => round((float) $plan->valor, 2),
+            'valor_total' => $finalAmount,
             'valor_pago' => 0,
-            'valor_em_aberto' => round((float) $plan->valor, 2),
+            'valor_em_aberto' => $finalAmount,
             'oculta' => $isFuture,
             'estado_pagamento' => $this->resolveInitialStatus($periodStart, $today),
             'centro_custo_id' => $shares[0]['id'] ?? null,
             'tipo' => 'mensalidade',
             'origem_tipo' => 'manual',
-            'observacoes' => $options['notes'] ?? sprintf('Mensalidade %s', $periodStart->translatedFormat('F Y')),
+            'observacoes' => $notes,
         ]);
 
         foreach ($shares as $share) {
@@ -182,7 +206,57 @@ class MonthlyFeeGenerationService
             ]);
         }
 
+        if ($adjustment['applied_amount'] > 0) {
+            InvoiceItem::create([
+                'fatura_id' => $invoice->id,
+                'descricao' => $adjustment['description'],
+                'quantidade' => 1,
+                'valor_unitario' => -$adjustment['applied_amount'],
+                'imposto_percentual' => 0,
+                'total_linha' => -$adjustment['applied_amount'],
+                'centro_custo_id' => $shares[0]['id'] ?? null,
+            ]);
+        }
+
         return $invoice->fresh('items');
+    }
+
+    private function resolveFinancialAdjustment(User $user, float $baseAmount): array
+    {
+        $type = $user->dadosFinanceiros?->discount_type;
+        $value = round((float) ($user->dadosFinanceiros?->discount_value ?? 0), 2);
+
+        if (!in_array($type, ['percent', 'fixed'], true) || $value <= 0) {
+            return [
+                'requested_amount' => 0.0,
+                'applied_amount' => 0.0,
+                'description' => null,
+                'capped' => false,
+            ];
+        }
+
+        $requestedAmount = $type === 'percent'
+            ? round($baseAmount * ($value / 100), 2)
+            : $value;
+
+        $appliedAmount = round(min($baseAmount, $requestedAmount), 2);
+
+        return [
+            'requested_amount' => $requestedAmount,
+            'applied_amount' => $appliedAmount,
+            'description' => $type === 'percent'
+                ? sprintf('Desconto/Correcao %s%%', $this->formatPercentage($value))
+                : 'Desconto/Correcao financeira',
+            'capped' => $requestedAmount > $baseAmount,
+        ];
+    }
+
+    private function formatPercentage(float $value): string
+    {
+        $normalized = number_format($value, 2, '.', '');
+        $normalized = rtrim(rtrim($normalized, '0'), '.');
+
+        return $normalized === '' ? '0' : $normalized;
     }
 
     private function resolveMonthlyFeePlan(User $user): ?MonthlyFee

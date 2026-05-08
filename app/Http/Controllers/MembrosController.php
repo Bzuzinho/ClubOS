@@ -229,14 +229,9 @@ class MembrosController extends Controller
             
             $member = User::create($data);
 
-            if (array_key_exists('tipo_mensalidade', $data) || array_key_exists('conta_corrente_manual', $data)) {
+            if ($this->hasFinancialDataPayload($data)) {
                 $financeData = DadosFinanceiros::firstOrNew(['user_id' => $member->id]);
-                if (array_key_exists('tipo_mensalidade', $data)) {
-                    $financeData->mensalidade_id = $data['tipo_mensalidade'];
-                }
-                if (array_key_exists('conta_corrente_manual', $data)) {
-                    $financeData->conta_corrente_manual = $data['conta_corrente_manual'] ?? 0;
-                }
+                $this->fillFinancialData($financeData, $data);
                 $financeData->save();
             }
             
@@ -357,6 +352,11 @@ class MembrosController extends Controller
         $memberData['conta_corrente'] = $contaCorrente + (float) $contaCorrenteManual;
         $memberData['conta_corrente_manual'] = (float) $contaCorrenteManual;
         $memberData['tipo_mensalidade'] = $member->dadosFinanceiros?->mensalidade_id ?? $member->tipo_mensalidade;
+        $memberData['discount_type'] = $member->dadosFinanceiros?->discount_type;
+        $memberData['discount_value'] = $member->dadosFinanceiros?->discount_value !== null
+            ? (float) $member->dadosFinanceiros->discount_value
+            : null;
+        $memberData['discount_reason'] = $member->dadosFinanceiros?->discount_reason;
         $legacyCentros = collect($member->centro_custo ?? [])
             ->map(function ($center) {
                 if (is_array($center) && isset($center['id'])) {
@@ -416,6 +416,11 @@ class MembrosController extends Controller
         }
         $member->load(['dadosFinanceiros', 'centrosCusto']);
         $member->tipo_mensalidade = $member->dadosFinanceiros?->mensalidade_id ?? $member->tipo_mensalidade;
+        $member->discount_type = $member->dadosFinanceiros?->discount_type;
+        $member->discount_value = $member->dadosFinanceiros?->discount_value !== null
+            ? (float) $member->dadosFinanceiros->discount_value
+            : null;
+        $member->discount_reason = $member->dadosFinanceiros?->discount_reason;
         $legacyCentros = collect($member->centro_custo ?? [])
             ->map(function ($center) {
                 if (is_array($center) && isset($center['id'])) {
@@ -528,14 +533,9 @@ class MembrosController extends Controller
 
             $member->update($data);
 
-            if (array_key_exists('tipo_mensalidade', $data) || array_key_exists('conta_corrente_manual', $data)) {
+            if ($this->hasFinancialDataPayload($data)) {
                 $financeData = DadosFinanceiros::firstOrNew(['user_id' => $member->id]);
-                if (array_key_exists('tipo_mensalidade', $data)) {
-                    $financeData->mensalidade_id = $data['tipo_mensalidade'];
-                }
-                if (array_key_exists('conta_corrente_manual', $data)) {
-                    $financeData->conta_corrente_manual = $data['conta_corrente_manual'] ?? 0;
-                }
+                $this->fillFinancialData($financeData, $data);
                 $financeData->save();
             }
 
@@ -692,6 +692,52 @@ class MembrosController extends Controller
         }
 
         return $data;
+    }
+
+    private function hasFinancialDataPayload(array $data): bool
+    {
+        foreach (['tipo_mensalidade', 'conta_corrente_manual', 'discount_type', 'discount_value', 'discount_reason'] as $field) {
+            if (array_key_exists($field, $data)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function fillFinancialData(DadosFinanceiros $financeData, array $data): void
+    {
+        if (array_key_exists('tipo_mensalidade', $data)) {
+            $financeData->mensalidade_id = $data['tipo_mensalidade'] ?: null;
+        }
+
+        if (array_key_exists('conta_corrente_manual', $data)) {
+            $financeData->conta_corrente_manual = $data['conta_corrente_manual'] ?? 0;
+        }
+
+        if (array_key_exists('discount_type', $data)) {
+            $financeData->discount_type = $data['discount_type'] ?: null;
+        }
+
+        if (array_key_exists('discount_value', $data)) {
+            $financeData->discount_value = $data['discount_value'] !== null && $data['discount_value'] !== ''
+                ? $data['discount_value']
+                : null;
+        }
+
+        if (array_key_exists('discount_reason', $data)) {
+            $reason = trim((string) ($data['discount_reason'] ?? ''));
+            $financeData->discount_reason = $reason !== '' ? $reason : null;
+        }
+
+        if (!$financeData->discount_type || $financeData->discount_value === null || (float) $financeData->discount_value <= 0) {
+            $financeData->discount_type = null;
+            $financeData->discount_value = null;
+
+            if (array_key_exists('discount_reason', $data) && blank($financeData->discount_reason)) {
+                $financeData->discount_reason = null;
+            }
+        }
     }
 
     /**

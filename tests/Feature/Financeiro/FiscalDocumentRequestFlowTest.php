@@ -44,6 +44,24 @@ class FiscalDocumentRequestFlowTest extends TestCase
         $this->assertDatabaseCount('fiscal_document_requests', 1);
     }
 
+    public function test_it_serializes_real_invoice_lines_in_fiscal_payload_metadata(): void
+    {
+        $invoice = $this->createInvoiceWithItems([
+            ['descricao' => 'Mensalidade maio', 'valor' => 30.00],
+            ['descricao' => 'Desconto/Correcao 10%', 'valor' => -3.00],
+        ]);
+
+        $request = app(FiscalDocumentRequestService::class)->createFromInvoice($invoice);
+
+        $this->assertSame('27.00', $request->amount);
+        $this->assertSame('Mensalidade maio; Desconto/Correcao 10%', $request->description);
+        $this->assertCount(2, $request->metadata['line_items'] ?? []);
+        $this->assertSame('Mensalidade maio', $request->metadata['line_items'][0]['description'] ?? null);
+        $this->assertEquals(30.0, $request->metadata['line_items'][0]['line_total'] ?? null);
+        $this->assertSame('Desconto/Correcao 10%', $request->metadata['line_items'][1]['description'] ?? null);
+        $this->assertEquals(-3.0, $request->metadata['line_items'][1]['line_total'] ?? null);
+    }
+
     public function test_it_marks_a_request_as_issued(): void
     {
         $request = FiscalDocumentRequest::create([
@@ -539,6 +557,57 @@ class FiscalDocumentRequestFlowTest extends TestCase
         ]);
 
         return $invoice;
+    }
+
+    private function createInvoiceWithItems(array $items, string $estadoPagamento = 'pendente'): Invoice
+    {
+        $this->createInvoiceType();
+
+        $user = User::factory()->create([
+            'nome_completo' => 'Socio Fiscal',
+            'nif' => '123456789',
+            'morada' => 'Rua do Clube 10',
+            'codigo_postal' => '1000-100',
+            'localidade' => 'Lisboa',
+            'email' => 'socio@example.com',
+        ]);
+
+        $costCenter = CostCenter::create([
+            'codigo' => 'CC-FISCAL-' . uniqid(),
+            'nome' => 'Centro Fiscal',
+            'tipo' => 'departamento',
+            'ativo' => true,
+        ]);
+
+        $total = round(collect($items)->sum('valor'), 2);
+
+        $invoice = Invoice::create([
+            'user_id' => $user->id,
+            'data_fatura' => '2026-05-01',
+            'data_emissao' => '2026-05-01',
+            'data_vencimento' => '2026-05-05',
+            'valor_total' => $total,
+            'estado_pagamento' => $estadoPagamento,
+            'numero_recibo' => null,
+            'referencia_pagamento' => 'REF-2026-05-' . uniqid(),
+            'centro_custo_id' => $costCenter->id,
+            'tipo' => 'mensalidade',
+            'observacoes' => null,
+        ]);
+
+        foreach ($items as $item) {
+            InvoiceItem::create([
+                'fatura_id' => $invoice->id,
+                'descricao' => $item['descricao'],
+                'quantidade' => 1,
+                'valor_unitario' => $item['valor'],
+                'imposto_percentual' => 0,
+                'total_linha' => $item['valor'],
+                'centro_custo_id' => $costCenter->id,
+            ]);
+        }
+
+        return $invoice->fresh('items');
     }
 
     private function createInvoiceType(): void

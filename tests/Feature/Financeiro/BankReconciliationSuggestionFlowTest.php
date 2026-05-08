@@ -291,6 +291,32 @@ class BankReconciliationSuggestionFlowTest extends TestCase
         ]);
     }
 
+    public function test_suggestion_uses_discounted_invoice_total_instead_of_base_amount(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $user = $this->createFinanceUser(['nome_completo' => 'Socio Desconto']);
+        $invoice = $this->createInvoiceWithItems($user, [
+            ['descricao' => 'Mensalidade', 'valor' => 30.00],
+            ['descricao' => 'Desconto/Correcao 10%', 'valor' => -3.00],
+        ]);
+        $statement = $this->createBankStatement(27.00, 'Pagamento Socio Desconto');
+
+        $response = $this->actingAs($admin)->postJson(route('financeiro.bank-statements.generate-suggestions', $statement));
+
+        $response->assertOk();
+
+        $matchingSuggestion = collect($response->json('suggestions'))
+            ->first(function (array $suggestion) use ($user, $invoice) {
+                return ($suggestion['user_id'] ?? null) === $user->id
+                    && collect($suggestion['suggested_allocations'] ?? [])->contains(function (array $allocation) use ($invoice) {
+                        return ($allocation['invoice_id'] ?? null) === $invoice->id
+                            && (float) ($allocation['amount'] ?? 0) === 27.0;
+                    });
+            });
+
+        $this->assertNotNull($matchingSuggestion);
+    }
+
     public function test_confirmation_with_overpayment_can_create_account_credit(): void
     {
         $admin = User::factory()->admin()->create();
@@ -554,6 +580,47 @@ class BankReconciliationSuggestionFlowTest extends TestCase
             'total_linha' => $amount,
             'centro_custo_id' => $costCenter->id,
         ]);
+
+        return $invoice;
+    }
+
+    private function createInvoiceWithItems(User $user, array $items, string $dueDate = '2026-05-10', string $type = 'mensalidade'): Invoice
+    {
+        $costCenter = CostCenter::query()->firstOrCreate(
+            ['codigo' => 'CC-RECON'],
+            [
+                'nome' => 'Centro Reconciliacao',
+                'tipo' => 'departamento',
+                'ativo' => true,
+            ],
+        );
+
+        $total = round(collect($items)->sum('valor'), 2);
+
+        $invoice = Invoice::create([
+            'user_id' => $user->id,
+            'data_fatura' => '2026-05-01',
+            'data_emissao' => '2026-05-01',
+            'data_vencimento' => $dueDate,
+            'valor_total' => $total,
+            'estado_pagamento' => 'pendente',
+            'numero_recibo' => null,
+            'referencia_pagamento' => 'REF-' . uniqid(),
+            'centro_custo_id' => $costCenter->id,
+            'tipo' => $type,
+        ]);
+
+        foreach ($items as $item) {
+            InvoiceItem::create([
+                'fatura_id' => $invoice->id,
+                'descricao' => $item['descricao'],
+                'quantidade' => 1,
+                'valor_unitario' => $item['valor'],
+                'imposto_percentual' => 0,
+                'total_linha' => $item['valor'],
+                'centro_custo_id' => $costCenter->id,
+            ]);
+        }
 
         return $invoice;
     }

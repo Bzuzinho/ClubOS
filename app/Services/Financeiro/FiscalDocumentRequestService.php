@@ -253,6 +253,16 @@ class FiscalDocumentRequestService
     private function buildInvoicePayload(Invoice $invoice): array
     {
         $user = $invoice->user;
+        $lineItems = $invoice->items
+            ->map(fn ($item) => [
+                'description' => $item->descricao,
+                'quantity' => (int) $item->quantidade,
+                'unit_price' => round((float) $item->valor_unitario, 2),
+                'line_total' => round((float) $item->total_linha, 2),
+                'tax_rate' => round((float) $item->imposto_percentual, 2),
+            ])
+            ->values()
+            ->all();
         $description = trim((string) ($invoice->observacoes ?: $invoice->items
             ->pluck('descricao')
             ->filter()
@@ -279,6 +289,7 @@ class FiscalDocumentRequestService
                 'invoice_type' => $invoice->tipo,
                 'invoice_payment_status' => $invoice->estado_pagamento,
                 'invoice_issue_date' => optional($invoice->data_emissao)?->toDateString(),
+                'line_items' => $lineItems,
             ],
         ];
     }

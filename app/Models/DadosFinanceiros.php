@@ -15,10 +15,14 @@ class DadosFinanceiros extends Model
     protected $fillable = [
         'user_id',
         'mensalidade_id',
+        'discount_type',
+        'discount_value',
+        'discount_reason',
         'conta_corrente_manual',
     ];
 
     protected $casts = [
+        'discount_value' => 'decimal:2',
         'conta_corrente_manual' => 'decimal:2',
     ];
 
