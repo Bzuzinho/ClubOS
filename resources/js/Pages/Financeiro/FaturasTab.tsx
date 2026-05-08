@@ -234,6 +234,7 @@ export function FaturasTab({
   const [paymentSubmitting, setPaymentSubmitting] = useState(false);
   const [gerarParaTodos, setGerarParaTodos] = useState(false);
   const [dataInicioMensalidades, setDataInicioMensalidades] = useState('');
+  const [dataFimMensalidades, setDataFimMensalidades] = useState('');
   const [editingFaturaId, setEditingFaturaId] = useState<string | null>(null);
   const [showFutureInvoices, setShowFutureInvoices] = useState(false);
   const [creatingFiscalRequestId, setCreatingFiscalRequestId] = useState<string | null>(null);
@@ -320,35 +321,47 @@ export function FaturasTab({
   >([{ descricao: '', valor_unitario: 0, quantidade: 1, imposto_percentual: 0 }]);
 
   const filteredFaturas = useMemo(() => {
-    const now = new Date();
     return (faturas || [])
-      .filter((fatura) => {
-        const futureInvoice = isFutureInvoice(fatura);
-        if (!showFutureInvoices && futureInvoice) return false;
-
-        if (estadoFilter === 'all') return true;
-
-        if (estadoFilter === 'vencido') {
-          return (
-            (fatura.estado_pagamento === 'pendente' || fatura.estado_pagamento === 'vencido') &&
-            isBefore(new Date(fatura.data_vencimento), now)
-          );
-        }
-
-        return fatura.estado_pagamento === estadoFilter;
-      })
       .map((fatura) => {
         const now = new Date();
-        if (fatura.oculta && !isFutureInvoice(fatura)) {
-          return { ...fatura, oculta: false };
-        }
+        const futureInvoice = isFutureInvoice(fatura);
+        const normalized = fatura.oculta && !futureInvoice
+          ? { ...fatura, oculta: false }
+          : fatura;
+
         if (
-          (fatura.estado_pagamento === 'pendente' || fatura.estado_pagamento === 'vencido') &&
-          isBefore(new Date(fatura.data_vencimento), now)
+          (normalized.estado_pagamento === 'pendente' || normalized.estado_pagamento === 'vencido') &&
+          isBefore(new Date(normalized.data_vencimento), now)
         ) {
-          return { ...fatura, estado_pagamento: 'vencido' as const };
+          return { ...normalized, estado_pagamento: 'vencido' as const };
         }
-        return fatura;
+
+        return normalized;
+      })
+      .filter((fatura) => {
+        const futureInvoice = isFutureInvoice(fatura) || !!fatura.oculta;
+
+        if (estadoFilter === 'future') {
+          return futureInvoice;
+        }
+
+        if (!showFutureInvoices && futureInvoice) {
+          return false;
+        }
+
+        switch (estadoFilter) {
+          case 'due':
+            return ['pendente', 'vencido', 'parcial'].includes(fatura.estado_pagamento);
+          case 'overdue':
+            return fatura.estado_pagamento === 'vencido';
+          case 'paid':
+            return fatura.estado_pagamento === 'pago';
+          case 'partial':
+            return fatura.estado_pagamento === 'parcial';
+          case 'all':
+          default:
+            return true;
+        }
       });
   }, [faturas, estadoFilter, showFutureInvoices]);
 
@@ -781,114 +794,78 @@ export function FaturasTab({
       return;
     }
 
-    let totalNovasFaturas = 0;
-    const todasNovasFaturas: Fatura[] = [];
-    const todosNovosItens: FaturaItem[] = [];
-    const usersSemInscricao: string[] = [];
+    try {
+      const currentSeason = !dataInicioMensalidades && !dataFimMensalidades;
+      const computedEndDate = dataFimMensalidades || (
+        dataInicioMensalidades
+          ? format(getFinalMes(new Date(dataInicioMensalidades)), 'yyyy-MM-dd')
+          : undefined
+      );
 
-    if (gerarParaTodos) {
-      const usuariosComMensalidade = (users || []).filter((u) => u.tipo_mensalidade);
+      const response = await fetch(route('financeiro.monthly-fees.generate'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+          'X-Requested-With': 'XMLHttpRequest',
+          'X-CSRF-TOKEN': getCsrfToken(),
+        },
+        credentials: 'same-origin',
+        body: JSON.stringify({
+          generate_for_all: gerarParaTodos,
+          user_id: gerarParaTodos ? undefined : selectedUserId,
+          current_season: currentSeason,
+          start_date: dataInicioMensalidades || undefined,
+          end_date: computedEndDate,
+          only_active: true,
+        }),
+      });
 
-      if (usuariosComMensalidade.length === 0) {
-        toast.error('Nenhum utilizador tem mensalidade configurada');
-        return;
+      const payload = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        const message = payload?.message || Object.values(payload?.errors || {}).flat().join(' ') || 'Erro ao gerar mensalidades';
+        throw new Error(message);
       }
 
-      for (const user of usuariosComMensalidade) {
-        const { faturas: novasFaturas, itens: novosItens, skipped } = gerarFaturasParaUtilizador(user.id);
-        if (skipped) {
-          usersSemInscricao.push(user.nome_completo);
-          continue;
-        }
-        todasNovasFaturas.push(...novasFaturas);
-        todosNovosItens.push(...novosItens);
-      }
+      const createdInvoices = Array.isArray(payload?.invoices)
+        ? payload.invoices as Array<Fatura & { items?: FaturaItem[] }>
+        : [];
+      const createdItems = createdInvoices.flatMap((invoice) => invoice.items || []);
+      const summary = payload?.summary as {
+        created_count?: number;
+        skipped_without_start?: number;
+        skipped_without_plan?: number;
+      } | undefined;
 
-      totalNovasFaturas = todasNovasFaturas.length;
-    } else {
-      const { faturas: novasFaturas, itens: novosItens, skipped } = gerarFaturasParaUtilizador(selectedUserId);
+      if ((summary?.created_count || 0) === 0) {
+        toast.info('Nenhuma mensalidade nova foi criada para o periodo indicado.');
+      } else {
+        setFaturas((current) => {
+          const existingIds = new Set((current || []).map((invoice) => invoice.id));
+          return [...(current || []), ...createdInvoices.filter((invoice) => !existingIds.has(invoice.id))];
+        });
 
-      if (skipped) {
-        toast.error('Utilizador sem data de inscricao');
-        return;
-      }
-
-      if (novasFaturas.length === 0) {
-        const user = (users || []).find((u) => u.id === selectedUserId);
-        if (!user || !user.tipo_mensalidade) {
-          toast.error('Utilizador nao tem mensalidade configurada');
-        } else {
-          toast.info('Nenhuma fatura nova foi criada (todas ja existem)');
-        }
-        return;
-      }
-
-      todasNovasFaturas.push(...novasFaturas);
-      todosNovosItens.push(...novosItens);
-      totalNovasFaturas = novasFaturas.length;
-    }
-
-    if (totalNovasFaturas > 0) {
-      try {
-        const createdInvoices: Fatura[] = [];
-        const createdItems: FaturaItem[] = [];
-
-        for (const fatura of todasNovasFaturas) {
-          const itens = todosNovosItens
-            .filter((item) => item.fatura_id === fatura.id)
-            .map((item) => ({
-              descricao: item.descricao,
-              quantidade: item.quantidade,
-              valor_unitario: item.valor_unitario,
-              imposto_percentual: item.imposto_percentual,
-              total_linha: item.total_linha,
-              produto_id: item.produto_id || undefined,
-              centro_custo_id: item.centro_custo_id || undefined,
-            }));
-
-          const created = await persistInvoice({
-            user_id: fatura.user_id,
-            data_emissao: fatura.data_emissao,
-            data_vencimento: fatura.data_vencimento,
-            data_fatura: fatura.data_fatura,
-            mes: fatura.mes || null,
-            tipo: fatura.tipo,
-            valor_total: fatura.valor_total,
-            estado_pagamento: fatura.estado_pagamento,
-            centro_custo_id: fatura.centro_custo_id || undefined,
-            observacoes: fatura.observacoes || undefined,
-            origem_tipo: fatura.origem_tipo || null,
-            origem_id: fatura.origem_id || null,
-            oculta: fatura.oculta || false,
-            items: itens,
-          });
-
-          createdInvoices.push(created);
-          if (created.items) {
-            createdItems.push(...created.items);
-          }
-        }
-
-        setFaturas((current) => [...(current || []), ...createdInvoices]);
         if (createdItems.length > 0) {
           setFaturaItens((current) => [...(current || []), ...createdItems]);
         }
 
-        toast.success(`${createdInvoices.length} fatura(s) gerada(s) com sucesso`);
-        refreshInvoices();
-        if (usersSemInscricao.length > 0) {
-          toast.warning(`${usersSemInscricao.length} utilizador(es) sem data de inscricao foram ignorados`);
-        }
-        setDialogAutoOpen(false);
-        setSelectedUserId('');
-        setGerarParaTodos(false);
-        setDataInicioMensalidades('');
-      } catch (error) {
-        const message = error instanceof Error ? error.message : 'Erro ao gravar faturas na base de dados';
-        toast.error(message);
+        toast.success(
+          `${summary?.created_count || createdInvoices.length} mensalidade(s) gerada(s)`
+          + ((summary?.skipped_without_start || 0) > 0 ? `, ${summary?.skipped_without_start} sem data de inicio` : '')
+          + ((summary?.skipped_without_plan || 0) > 0 ? `, ${summary?.skipped_without_plan} sem plano` : '')
+        );
       }
-    } else {
-      toast.info('Nenhuma fatura nova foi criada (todas ja existem)');
+
+      refreshInvoices();
+      setDialogAutoOpen(false);
+      setSelectedUserId('');
+      setGerarParaTodos(false);
+      setDataInicioMensalidades('');
+      setDataFimMensalidades('');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Erro ao gerar mensalidades';
+      toast.error(message);
     }
   };
 
@@ -1251,7 +1228,11 @@ export function FaturasTab({
     return cc ? cc.nome : '-';
   };
 
-  const getEstadoBadge = (estado: Fatura['estado_pagamento']) => {
+  const getEstadoBadge = (estado: Fatura['estado_pagamento'], isFuture = false) => {
+    if (isFuture) {
+      return <Badge className="bg-slate-100 text-slate-700">FUTURA</Badge>;
+    }
+
     const variants = {
       pendente: 'bg-yellow-100 text-yellow-800',
       pago: 'bg-green-100 text-green-800',
@@ -1271,12 +1252,12 @@ export function FaturasTab({
               <SelectValue placeholder="Estado" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">Todos os Estados</SelectItem>
-              <SelectItem value="pendente">Pendente</SelectItem>
-              <SelectItem value="pago">Pago</SelectItem>
-              <SelectItem value="vencido">Vencido</SelectItem>
-              <SelectItem value="parcial">Parcial</SelectItem>
-              <SelectItem value="cancelado">Cancelado</SelectItem>
+              <SelectItem value="all">Todas</SelectItem>
+              <SelectItem value="due">Mensalidades devidas</SelectItem>
+              <SelectItem value="overdue">Mensalidades em atraso</SelectItem>
+              <SelectItem value="paid">Mensalidades pagas</SelectItem>
+              <SelectItem value="partial">Mensalidades parciais</SelectItem>
+              <SelectItem value="future">Mensalidades futuras</SelectItem>
             </SelectContent>
           </Select>
           <div className="flex items-center gap-2">
@@ -1421,10 +1402,22 @@ export function FaturasTab({
                   </p>
                 </div>
 
+                <div className="space-y-2">
+                  <Label className="text-sm">Data de Fim</Label>
+                  <Input
+                    type="date"
+                    value={dataFimMensalidades}
+                    onChange={(e) => setDataFimMensalidades(e.target.value)}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Se ficar vazio, o sistema usa a epoca atual ou fecha no julho seguinte a partir da data inicial.
+                  </p>
+                </div>
+
                 <p className="text-xs text-muted-foreground">
                   {gerarParaTodos
-                    ? 'Serao geradas faturas para todos os utilizadores desde a data inicial indicada, ou desde o mes da inscricao quando nao for preenchida, ate julho seguinte.'
-                    : 'Serao geradas faturas desde a data inicial indicada, ou desde o mes da inscricao quando nao for preenchida, ate julho seguinte.'}
+                    ? 'Serao geradas mensalidades para todos os utilizadores elegiveis, sem duplicar periodos ja existentes.'
+                    : 'Serao geradas mensalidades para o utilizador escolhido, sem duplicar periodos ja existentes.'}
                 </p>
               </div>
               <DialogFooter className="flex-col sm:flex-row gap-2">
@@ -1435,6 +1428,7 @@ export function FaturasTab({
                     setGerarParaTodos(false);
                     setSelectedUserId('');
                     setDataInicioMensalidades('');
+                    setDataFimMensalidades('');
                   }}
                   className="w-full sm:w-auto"
                 >

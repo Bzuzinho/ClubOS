@@ -474,14 +474,12 @@ class BankReconciliationSuggestionService
             ], 'amount')
             ->whereIn('estado_pagamento', ['pendente', 'vencido', 'parcial']);
 
-        if ($userId) {
-            $query->where('user_id', $userId);
-        }
-
         if ($familyId) {
             $query->whereHas('user.families', function ($familyQuery) use ($familyId): void {
                 $familyQuery->where('familias.id', $familyId);
             });
+        } elseif ($userId) {
+            $query->where('user_id', $userId);
         }
 
         return $query

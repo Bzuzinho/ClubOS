@@ -22,8 +22,10 @@ use App\Models\Product;
 use App\Models\User;
 use App\Services\Club\ClubSettingsService;
 use App\Services\Financeiro\FiscalDocumentRequestService;
+use App\Services\Financeiro\MonthlyFeeGenerationService;
 use App\Services\Financeiro\PaymentAllocationService;
 use App\Services\Financeiro\ReconciliationAliasService;
+use Illuminate\Support\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Cache;
@@ -38,6 +40,7 @@ class FinanceiroController extends Controller
 {
     public function __construct(
         private readonly PaymentAllocationService $paymentAllocationService,
+        private readonly MonthlyFeeGenerationService $monthlyFeeGenerationService,
     ) {
     }
 
@@ -59,6 +62,8 @@ class FinanceiroController extends Controller
      */
     private function buildIndexPayload(): array
     {
+        $this->monthlyFeeGenerationService->activateDueInvoices();
+
         try {
             $faturas = Cache::remember('financeiro:faturas', 60, fn () =>
                 $this->invoiceFinancialSnapshotQuery()
@@ -450,6 +455,73 @@ class FinanceiroController extends Controller
 
         return redirect()->route('financeiro.index')
             ->with('success', 'Fatura atualizada com sucesso!');
+    }
+
+    public function generateMonthlyFees(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'start_date' => ['nullable', 'date'],
+            'end_date' => ['nullable', 'date', 'after_or_equal:start_date'],
+            'current_season' => ['nullable', 'boolean'],
+            'generate_for_all' => ['nullable', 'boolean'],
+            'user_id' => ['nullable', 'exists:users,id'],
+            'only_active' => ['nullable', 'boolean'],
+        ]);
+
+        if (($data['generate_for_all'] ?? false) !== true && empty($data['user_id'])) {
+            throw ValidationException::withMessages([
+                'user_id' => 'Selecione um utilizador ou gere para todos.',
+            ]);
+        }
+
+        if (($data['current_season'] ?? false) === true) {
+            $summary = $this->monthlyFeeGenerationService->generateCurrentSeason([
+                'only_active' => (bool) ($data['only_active'] ?? true),
+                'user_ids' => !empty($data['user_id']) ? [$data['user_id']] : null,
+            ]);
+        } else {
+            $start = isset($data['start_date'])
+                ? Carbon::parse($data['start_date'])->startOfMonth()
+                : Carbon::today()->startOfMonth();
+            $end = isset($data['end_date'])
+                ? Carbon::parse($data['end_date'])->startOfMonth()
+                : $start->copy()->addMonths(11);
+
+            if (!empty($data['user_id'])) {
+                $user = User::query()->findOrFail($data['user_id']);
+                $created = $this->monthlyFeeGenerationService->generateForUser($user, $start, $end, [
+                    'only_active' => (bool) ($data['only_active'] ?? true),
+                    'start_date' => $data['start_date'] ?? null,
+                ]);
+
+                $summary = [
+                    'created_count' => $created->count(),
+                    'skipped_without_start' => $created->isEmpty() && !$user->data_inscricao && empty($data['start_date']) ? 1 : 0,
+                    'skipped_without_plan' => $created->isEmpty() && !$user->dadosFinanceiros?->mensalidade_id && !$user->tipo_mensalidade ? 1 : 0,
+                    'users_processed' => 1,
+                    'users_with_new_fees' => $created->isNotEmpty() ? 1 : 0,
+                    'created_invoice_ids' => $created->pluck('id')->all(),
+                ];
+            } else {
+                $summary = $this->monthlyFeeGenerationService->generateForAllEligibleUsers($start, $end, [
+                    'only_active' => (bool) ($data['only_active'] ?? true),
+                    'start_date' => $data['start_date'] ?? null,
+                ]);
+            }
+        }
+
+        $createdInvoices = Invoice::query()
+            ->with('items')
+            ->whereIn('id', $summary['created_invoice_ids'] ?? [])
+            ->orderBy('data_emissao')
+            ->get();
+
+        $this->invalidateFinanceiroCaches();
+
+        return response()->json([
+            'summary' => $summary,
+            'invoices' => $createdInvoices,
+        ]);
     }
 
     public function destroy(Invoice $financeiro): RedirectResponse|JsonResponse

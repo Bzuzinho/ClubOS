@@ -234,6 +234,9 @@ Route::middleware(['auth', 'verified'])->group(function () {
         ->middlewareFor(['destroy'], 'permission.access:financeiro.dashboard,delete')
         ->except(['create']);
     Route::prefix('financeiro')->name('financeiro.')->middleware('module.access:financeiro')->group(function () {
+        Route::post('monthly-fees/generate', [FinanceiroController::class, 'generateMonthlyFees'])
+            ->middleware('permission.access:financeiro.dashboard,edit')
+            ->name('monthly-fees.generate');
         Route::post('payments/allocate', [FinanceiroController::class, 'storePayment'])
             ->middleware('permission.access:financeiro.dashboard,edit')
             ->name('payments.allocate');

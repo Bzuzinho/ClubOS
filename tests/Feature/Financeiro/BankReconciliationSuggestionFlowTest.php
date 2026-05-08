@@ -64,6 +64,43 @@ class BankReconciliationSuggestionFlowTest extends TestCase
         $this->assertEqualsCanonicalizing([$invoiceA->id, $invoiceB->id], $allocations);
     }
 
+    public function test_it_generates_family_suggestion_for_children_when_statement_matches_guardian(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $guardian = $this->createFinanceUser([
+            'nome_completo' => 'Ricardo Ferreira',
+            'email' => 'ricardo.ferreira@example.com',
+        ]);
+        $family = $guardian->families->firstOrFail();
+        $childA = $this->createFamilyMember($family, [
+            'nome_completo' => 'Filho Ferreira A',
+            'email' => 'filho-a@example.com',
+            'numero_socio' => '5101',
+        ]);
+        $childB = $this->createFamilyMember($family, [
+            'nome_completo' => 'Filho Ferreira B',
+            'email' => 'filho-b@example.com',
+            'numero_socio' => '5102',
+        ]);
+
+        $invoiceA = $this->createInvoice($childA, 40.00, 'mensalidade', '2026-05-05');
+        $invoiceB = $this->createInvoice($childB, 40.00, 'mensalidade', '2026-05-05');
+        $statement = $this->createBankStatement(80.00, 'Transferencia Ricardo Ferreira');
+
+        $response = $this->actingAs($admin)->postJson(route('financeiro.bank-statements.generate-suggestions', $statement));
+        $response->assertOk();
+
+        $matchingSuggestion = collect($response->json('suggestions'))
+            ->first(function (array $suggestion) use ($family, $invoiceA, $invoiceB) {
+                $allocations = collect($suggestion['suggested_allocations'] ?? [])->pluck('invoice_id')->all();
+
+                return ($suggestion['family_id'] ?? null) === $family->id
+                    && collect($allocations)->sort()->values()->all() === collect([$invoiceA->id, $invoiceB->id])->sort()->values()->all();
+            });
+
+        $this->assertNotNull($matchingSuggestion);
+    }
+
     public function test_confirmed_alias_increases_suggestion_score(): void
     {
         $admin = User::factory()->admin()->create();
@@ -324,6 +361,30 @@ class BankReconciliationSuggestionFlowTest extends TestCase
         ]);
     }
 
+    public function test_it_does_not_create_duplicate_suggestions_for_same_statement_and_allocations(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $user = $this->createFinanceUser(['nome_completo' => 'Duplicados']);
+        $invoice = $this->createInvoice($user, 25.00, 'mensalidade', '2026-05-10');
+        $statement = $this->createBankStatement(25.00, 'Pagamento Duplicados');
+
+        $this->actingAs($admin)
+            ->postJson(route('financeiro.bank-statements.generate-suggestions', $statement))
+            ->assertOk();
+
+        $this->actingAs($admin)
+            ->postJson(route('financeiro.bank-statements.generate-suggestions', $statement))
+            ->assertOk();
+
+        $this->assertSame(
+            1,
+            BankReconciliationSuggestion::query()
+                ->where('bank_statement_id', $statement->id)
+                ->where('status', BankReconciliationSuggestion::STATUS_SUGGESTED)
+                ->count()
+        );
+    }
+
     public function test_manual_allocation_blocks_amount_above_statement_remaining(): void
     {
         $admin = User::factory()->admin()->create();
@@ -427,6 +488,30 @@ class BankReconciliationSuggestionFlowTest extends TestCase
         $family->members()->attach($user->id, [
             'papel_na_familia' => 'responsavel',
             'pode_editar' => true,
+            'pode_ver_financeiro' => true,
+            'pode_ver_desportivo' => true,
+            'pode_ver_documentos' => true,
+            'pode_ver_comunicacoes' => true,
+        ]);
+
+        return $user->fresh('families');
+    }
+
+    private function createFamilyMember(Familia $family, array $overrides = []): User
+    {
+        $user = User::factory()->create(array_merge([
+            'nome_completo' => 'Membro Familia',
+            'numero_socio' => '5900',
+            'nif' => '123123123',
+            'morada' => 'Rua da Familia 1',
+            'codigo_postal' => '1000-200',
+            'localidade' => 'Lisboa',
+            'email' => 'family-' . uniqid() . '@example.com',
+        ], $overrides));
+
+        $family->members()->attach($user->id, [
+            'papel_na_familia' => 'educando',
+            'pode_editar' => false,
             'pode_ver_financeiro' => true,
             'pode_ver_desportivo' => true,
             'pode_ver_documentos' => true,

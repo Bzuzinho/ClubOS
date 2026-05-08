@@ -92,10 +92,69 @@ class BankReconciliationSuggestionController extends Controller
             'max_amount' => ['nullable', 'numeric'],
         ]);
 
-        $generatedCount = $this->suggestionService->generateForUnreconciled($data);
+        $query = BankStatement::query()
+            ->where(function ($nestedQuery) {
+                $nestedQuery
+                    ->where('conciliado', false)
+                    ->orWhere('conciliacao_status', 'partial')
+                    ->orWhereNull('conciliacao_status');
+            });
+
+        if (!empty($data['date_from'])) {
+            $query->whereDate('data_movimento', '>=', $data['date_from']);
+        }
+
+        if (!empty($data['date_to'])) {
+            $query->whereDate('data_movimento', '<=', $data['date_to']);
+        }
+
+        if (!empty($data['account'])) {
+            $query->where('conta', $data['account']);
+        }
+
+        if (isset($data['min_amount'])) {
+            $query->whereRaw('ABS(valor) >= ?', [abs((float) $data['min_amount'])]);
+        }
+
+        if (isset($data['max_amount'])) {
+            $query->whereRaw('ABS(valor) <= ?', [abs((float) $data['max_amount'])]);
+        }
+
+        $summary = [
+            'analyzed_count' => 0,
+            'suggestions_created' => 0,
+            'high_confidence_count' => 0,
+            'unmatched_count' => 0,
+            'errors' => 0,
+        ];
+
+        $query->orderByDesc('data_movimento')
+            ->chunkById(100, function ($statements) use (&$summary): void {
+                foreach ($statements as $statement) {
+                    $summary['analyzed_count']++;
+
+                    try {
+                        $suggestions = $this->suggestionService->generateForBankStatement($statement);
+                        $summary['suggestions_created'] += $suggestions->count();
+                        $summary['high_confidence_count'] += $suggestions
+                            ->filter(fn (BankReconciliationSuggestion $suggestion) => in_array($suggestion->confidence_label, [
+                                BankReconciliationSuggestion::CONFIDENCE_VERY_HIGH,
+                                BankReconciliationSuggestion::CONFIDENCE_HIGH,
+                            ], true))
+                            ->count();
+
+                        if ($suggestions->isEmpty()) {
+                            $summary['unmatched_count']++;
+                        }
+                    } catch (\Throwable $exception) {
+                        $summary['errors']++;
+                    }
+                }
+            });
 
         return response()->json([
-            'generated_count' => $generatedCount,
+            'generated_count' => $summary['suggestions_created'],
+            'summary' => $summary,
         ]);
     }
 

@@ -172,8 +172,17 @@ export function BancoTab({
   const [reconciliationSuggestions, setReconciliationSuggestions] = useState<BankReconciliationSuggestion[]>([]);
   const [suggestionCache, setSuggestionCache] = useState<Record<string, BankReconciliationSuggestion[]>>({});
   const [suggestionCounts, setSuggestionCounts] = useState<Record<string, number>>({});
+  const [suggestionBestScores, setSuggestionBestScores] = useState<Record<string, number>>({});
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
   const [suggestionActionId, setSuggestionActionId] = useState<string | null>(null);
+  const [bulkSuggestionSummary, setBulkSuggestionSummary] = useState<{
+    analyzed_count: number;
+    suggestions_created: number;
+    high_confidence_count: number;
+    unmatched_count: number;
+    errors: number;
+  } | null>(null);
+  const [bulkGeneratingSuggestions, setBulkGeneratingSuggestions] = useState(false);
   const [openInvoices, setOpenInvoices] = useState<OpenInvoiceListItem[]>([]);
   const [invoiceSearchTerm, setInvoiceSearchTerm] = useState('');
   const [manualAllocations, setManualAllocations] = useState<Record<string, string>>({});
@@ -392,6 +401,57 @@ export function BancoTab({
     await handleGenerateSuggestions(extrato, true);
   };
 
+  const loadSuggestionCounts = async () => {
+    setSuggestionCounts((current) => {
+      const next = { ...current };
+      (extratos || []).forEach((extrato) => {
+        if (extrato.conciliado || extrato.conciliacao_status === 'reconciled') {
+          next[extrato.id] = 0;
+        }
+      });
+      return next;
+    });
+
+    setSuggestionBestScores((current) => {
+      const next = { ...current };
+      (extratos || []).forEach((extrato) => {
+        if (extrato.conciliado || extrato.conciliacao_status === 'reconciled') {
+          next[extrato.id] = 0;
+        }
+      });
+      return next;
+    });
+  };
+
+  const handleGenerateSuggestionsBatch = async () => {
+    setBulkGeneratingSuggestions(true);
+
+    try {
+      const response = await fetch(buildRouteUrl('financeiro.bank-reconciliation-suggestions.generate'), {
+        method: 'POST',
+        headers: buildJsonHeaders(),
+        credentials: 'same-origin',
+      });
+
+      const payload = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        throw new Error(payload?.message || 'Erro ao gerar sugestoes de conciliacao');
+      }
+
+      if (payload?.summary) {
+        setBulkSuggestionSummary(payload.summary);
+      }
+
+      toast.success(`Sugestoes geradas para ${payload?.summary?.analyzed_count || 0} linha(s) bancarias.`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Erro ao gerar sugestoes de conciliacao';
+      toast.error(message);
+    } finally {
+      setBulkGeneratingSuggestions(false);
+    }
+  };
+
   const handleGenerateSuggestions = async (extrato: ExtratoBancario, openDialog = false) => {
     setSuggestionActionId(extrato.id);
 
@@ -408,8 +468,13 @@ export function BancoTab({
 
       const payload = await response.json();
       const suggestions = Array.isArray(payload?.suggestions) ? payload.suggestions : [];
+      const bestScore = suggestions.reduce((highest: number, suggestion: BankReconciliationSuggestion) => {
+        const score = Number(suggestion.score || 0);
+        return score > highest ? score : highest;
+      }, 0);
       setSuggestionCache((current) => ({ ...current, [extrato.id]: suggestions }));
       setSuggestionCounts((current) => ({ ...current, [extrato.id]: suggestions.length }));
+      setSuggestionBestScores((current) => ({ ...current, [extrato.id]: bestScore }));
 
       if (openDialog) {
         setSelectedSuggestionExtrato(extrato);
@@ -458,6 +523,10 @@ export function BancoTab({
           const updated = existing.filter((item) => item.id !== suggestion.id);
           setReconciliationSuggestions(updated);
           setSuggestionCounts((counts) => ({ ...counts, [selectedSuggestionExtrato.id]: updated.length }));
+          setSuggestionBestScores((scores) => ({
+            ...scores,
+            [selectedSuggestionExtrato.id]: updated.reduce((highest, item) => Math.max(highest, Number(item.score || 0)), 0),
+          }));
           return { ...current, [selectedSuggestionExtrato.id]: updated };
         });
       }
@@ -496,6 +565,10 @@ export function BancoTab({
           const updated = existing.filter((item) => item.id !== suggestion.id);
           setReconciliationSuggestions(updated);
           setSuggestionCounts((counts) => ({ ...counts, [selectedSuggestionExtrato.id]: updated.length }));
+          setSuggestionBestScores((scores) => ({
+            ...scores,
+            [selectedSuggestionExtrato.id]: updated.reduce((highest, item) => Math.max(highest, Number(item.score || 0)), 0),
+          }));
           return { ...current, [selectedSuggestionExtrato.id]: updated };
         });
       }
@@ -601,6 +674,11 @@ export function BancoTab({
 
       const payload = await response.json();
       syncFinancialStateFromPayment(payload);
+      if (selectedManualAllocationExtrato) {
+        setSuggestionCache((current) => ({ ...current, [selectedManualAllocationExtrato.id]: [] }));
+        setSuggestionCounts((current) => ({ ...current, [selectedManualAllocationExtrato.id]: 0 }));
+        setSuggestionBestScores((current) => ({ ...current, [selectedManualAllocationExtrato.id]: 0 }));
+      }
       await loadSuggestionCounts();
       setManualAllocationDialogOpen(false);
 
@@ -631,6 +709,17 @@ export function BancoTab({
     }
 
     return <Badge className="text-[10px] md:text-xs whitespace-nowrap bg-slate-100 text-slate-800">Sem sugestoes</Badge>;
+  };
+
+  const getBestScoreLabel = (extratoId: string) => {
+    const score = suggestionBestScores[extratoId] || 0;
+
+    if (score <= 0) return 'Sem score';
+    if (score >= 90) return `Muito alta (${score})`;
+    if (score >= 75) return `Alta (${score})`;
+    if (score >= 55) return `Media (${score})`;
+
+    return `Baixa (${score})`;
   };
 
   const handleAddExtrato = async () => {
@@ -1599,6 +1688,24 @@ export function BancoTab({
         </Card>
       </div>
 
+      <div className="flex flex-col gap-2 rounded-lg border bg-card p-3 md:flex-row md:items-center md:justify-between">
+        <div>
+          <p className="text-sm font-medium">Sugestoes de conciliacao</p>
+          <p className="text-xs text-muted-foreground">
+            Analisa linhas nao conciliadas e cria propostas assistidas com score de confianca.
+          </p>
+          {bulkSuggestionSummary && (
+            <p className="mt-1 text-xs text-muted-foreground">
+              {bulkSuggestionSummary.analyzed_count} analisadas, {bulkSuggestionSummary.suggestions_created} sugestoes, {bulkSuggestionSummary.high_confidence_count} de alta confianca, {bulkSuggestionSummary.unmatched_count} sem correspondencia, {bulkSuggestionSummary.errors} erros.
+            </p>
+          )}
+        </div>
+        <Button onClick={() => void handleGenerateSuggestionsBatch()} disabled={bulkGeneratingSuggestions}>
+          <Gear size={16} className="mr-2" />
+          Gerar sugestoes de conciliacao
+        </Button>
+      </div>
+
       <Card className="overflow-hidden">
         <div className="space-y-3 p-3 md:hidden">
           {extratosTabela.length === 0 ? (
@@ -1626,6 +1733,8 @@ export function BancoTab({
                     <span className="text-right">€{toNumber(extrato.saldo_calculado).toFixed(2)}</span>
                     <span className="text-muted-foreground">Centro Custo</span>
                     <span className="text-right break-words">{getCentroCustoName(extrato.centro_custo_id)}</span>
+                    <span className="text-muted-foreground">Melhor score</span>
+                    <span className="text-right">{getBestScoreLabel(extrato.id)}</span>
                   </div>
 
                   <div className="flex flex-wrap gap-2 pt-1">
@@ -1723,13 +1832,14 @@ export function BancoTab({
                   <TableHead className="sticky top-0 bg-card z-20 text-xs md:text-sm whitespace-nowrap">Saldo</TableHead>
                   <TableHead className="sticky top-0 bg-card z-20 text-xs md:text-sm whitespace-nowrap">Centro Custo</TableHead>
                   <TableHead className="sticky top-0 bg-card z-20 text-xs md:text-sm whitespace-nowrap">Estado</TableHead>
+                  <TableHead className="sticky top-0 bg-card z-20 text-xs md:text-sm whitespace-nowrap">Melhor score</TableHead>
                   <TableHead className="sticky top-0 bg-card z-20 text-xs md:text-sm text-right whitespace-nowrap">Acoes</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {extratosTabela.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
+                    <TableCell colSpan={8} className="text-center text-muted-foreground py-8">
                       Nenhum movimento encontrado
                     </TableCell>
                   </TableRow>
@@ -1751,6 +1861,9 @@ export function BancoTab({
                         </TableCell>
                         <TableCell>
                           {getReconciliationBadge(extrato)}
+                        </TableCell>
+                        <TableCell className="text-xs md:text-sm whitespace-nowrap">
+                          {getBestScoreLabel(extrato.id)}
                         </TableCell>
                         <TableCell className="text-right">
                           <div className="flex flex-wrap gap-1 md:gap-2 justify-end whitespace-nowrap">
