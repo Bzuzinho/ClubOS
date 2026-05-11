@@ -8,8 +8,10 @@ use App\Models\MonthlyFee;
 use App\Models\User;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 use Throwable;
 
 class MonthlyFeeGenerationService
@@ -21,7 +23,9 @@ class MonthlyFeeGenerationService
 
     public function generateForUser(User $user, Carbon $start, Carbon $end, array $options = []): Collection
     {
-        return $this->generateForUserWithSummary($user, $start, $end, $options)['created'];
+        return $this->generateForUserWithSummary($user, $start, $end, array_merge($options, [
+            'load_created_items' => true,
+        ]))['created'];
     }
 
     /**
@@ -76,8 +80,34 @@ class MonthlyFeeGenerationService
         $today = isset($options['today']) && $options['today'] instanceof Carbon
             ? $options['today']->copy()->startOfDay()
             : Carbon::today();
+        $loadCreatedItems = (bool) ($options['load_created_items'] ?? false);
 
-        DB::transaction(function () use ($user, $plan, $effectiveStart, $effectiveEnd, $today, $existingPeriods, $options, &$generated): void {
+        if (! $loadCreatedItems && DB::connection()->getDriverName() !== 'sqlite') {
+            $generated = $this->createMonthlyInvoicesBatch(
+                $user,
+                $plan,
+                $effectiveStart,
+                $effectiveEnd,
+                $today,
+                $existingPeriods,
+                $options,
+            );
+
+            if ($generated->isNotEmpty()) {
+                $this->forgetUserFinanceCaches($user->id);
+            }
+
+            $summary['created'] = $generated;
+            $summary['created_count'] = $generated->count();
+            $summary['users_with_new_fees'] = $generated->isNotEmpty() ? 1 : 0;
+            $summary['created_invoice_ids'] = $generated->pluck('id')->all();
+            $summary['skipped_existing_count'] = count($existingPeriods);
+            $summary['future_hidden_count'] = $generated->where('oculta', true)->count();
+
+            return $summary;
+        }
+
+        DB::transaction(function () use ($user, $plan, $effectiveStart, $effectiveEnd, $today, $existingPeriods, $options, $loadCreatedItems, &$generated): void {
             $cursor = $effectiveStart->copy();
 
             while ($cursor->lessThanOrEqualTo($effectiveEnd)) {
@@ -87,10 +117,14 @@ class MonthlyFeeGenerationService
                     continue;
                 }
 
-                $generated->push($this->createMonthlyInvoice($user, $plan, $cursor, $today, $options));
+                $generated->push($this->createMonthlyInvoice($user, $plan, $cursor, $today, $options, $loadCreatedItems));
                 $cursor->addMonthNoOverflow();
             }
         });
+
+        if ($generated->isNotEmpty()) {
+            $this->forgetUserFinanceCaches($user->id);
+        }
 
         $summary['created'] = $generated;
         $summary['created_count'] = $generated->count();
@@ -100,6 +134,63 @@ class MonthlyFeeGenerationService
         $summary['future_hidden_count'] = $generated->where('oculta', true)->count();
 
         return $summary;
+    }
+
+    private function createMonthlyInvoicesBatch(
+        User $user,
+        MonthlyFee $plan,
+        Carbon $effectiveStart,
+        Carbon $effectiveEnd,
+        Carbon $today,
+        array $existingPeriods,
+        array $options = [],
+    ): Collection {
+        $createdInvoices = [];
+        $invoiceRows = [];
+        $itemRows = [];
+        $timestamp = now();
+        $cursor = $effectiveStart->copy();
+
+        DB::transaction(function () use (
+            $user,
+            $plan,
+            $today,
+            $existingPeriods,
+            $options,
+            &$createdInvoices,
+            &$invoiceRows,
+            &$itemRows,
+            $timestamp,
+            &$cursor,
+            $effectiveEnd,
+        ): void {
+            while ($cursor->lessThanOrEqualTo($effectiveEnd)) {
+                $periodKey = $cursor->format('Y-m');
+                if (isset($existingPeriods[$periodKey])) {
+                    $cursor->addMonthNoOverflow();
+                    continue;
+                }
+
+                $invoiceId = (string) Str::uuid();
+                $payload = $this->buildMonthlyInvoicePayload($invoiceId, $user, $plan, $cursor, $today, $options, $timestamp);
+
+                $invoiceRows[] = $payload['invoice'];
+                array_push($itemRows, ...$payload['items']);
+                $createdInvoices[] = $payload['summary'];
+
+                $cursor->addMonthNoOverflow();
+            }
+
+            if ($invoiceRows !== []) {
+                Invoice::query()->insert($invoiceRows);
+            }
+
+            if ($itemRows !== []) {
+                InvoiceItem::query()->insert($itemRows);
+            }
+        });
+
+        return collect($createdInvoices);
     }
 
     public function generateForAllEligibleUsers(Carbon $start, Carbon $end, array $filters = []): array
@@ -226,7 +317,36 @@ class MonthlyFeeGenerationService
         return $summary;
     }
 
-    private function createMonthlyInvoice(User $user, MonthlyFee $plan, Carbon $period, Carbon $today, array $options = []): Invoice
+    private function createMonthlyInvoice(User $user, MonthlyFee $plan, Carbon $period, Carbon $today, array $options = [], bool $loadItems = false): Invoice
+    {
+        $invoiceId = (string) Str::uuid();
+        $payload = $this->buildMonthlyInvoicePayload($invoiceId, $user, $plan, $period, $today, $options, now());
+
+        $invoice = Invoice::withoutEvents(function () use ($payload): Invoice {
+            $invoice = new Invoice($payload['invoice']);
+            $invoice->id = $payload['invoice']['id'];
+            $invoice->save();
+
+            return $invoice;
+        });
+        $items = collect();
+
+        foreach ($payload['items'] as $itemPayload) {
+            unset($itemPayload['id'], $itemPayload['created_at'], $itemPayload['updated_at']);
+            $items->push(InvoiceItem::create($itemPayload));
+        }
+
+        if (! $loadItems) {
+            return $invoice;
+        }
+
+        return $invoice->setRelation('items', $items);
+    }
+
+    /**
+     * @return array{invoice: array<string, mixed>, items: array<int, array<string, mixed>>, summary: array<string, mixed>}
+     */
+    private function buildMonthlyInvoicePayload(string $invoiceId, User $user, MonthlyFee $plan, Carbon $period, Carbon $today, array $options, Carbon $timestamp): array
     {
         $periodStart = $period->copy()->startOfMonth();
         $settings = $this->resolveSettings($options);
@@ -236,7 +356,7 @@ class MonthlyFeeGenerationService
         $shares = $this->resolveCostCenterShares($user, $baseAmount);
         $adjustment = $this->resolveFinancialAdjustment($user, $baseAmount);
         $finalAmount = round(max(0, $baseAmount - $adjustment['applied_amount']), 2);
-        $notes = $options['notes'] ?? sprintf('Mensalidade %s', $periodStart->translatedFormat('F Y'));
+        $notes = $options['notes'] ?? sprintf('Mensalidade %s', $periodStart->copy()->locale('pt_PT')->translatedFormat('F Y'));
 
         if ($adjustment['capped']) {
             $capNote = sprintf(
@@ -257,7 +377,8 @@ class MonthlyFeeGenerationService
             ]);
         }
 
-        $invoice = Invoice::create([
+        $invoiceRow = [
+            'id' => $invoiceId,
             'user_id' => $user->id,
             'data_fatura' => $periodStart->toDateString(),
             'mes' => $periodStart->format('Y-m'),
@@ -272,33 +393,52 @@ class MonthlyFeeGenerationService
             'tipo' => 'mensalidade',
             'origem_tipo' => 'manual',
             'observacoes' => $notes,
-        ]);
+            'created_at' => $timestamp,
+            'updated_at' => $timestamp,
+        ];
 
+        $itemRows = [];
         foreach ($shares as $share) {
-            InvoiceItem::create([
-                'fatura_id' => $invoice->id,
+            $itemRows[] = [
+                'id' => (string) Str::uuid(),
+                'fatura_id' => $invoiceId,
                 'descricao' => $plan->designacao,
                 'quantidade' => 1,
                 'valor_unitario' => $share['amount'],
                 'imposto_percentual' => 0,
                 'total_linha' => $share['amount'],
                 'centro_custo_id' => $share['id'],
-            ]);
+                'created_at' => $timestamp,
+                'updated_at' => $timestamp,
+            ];
         }
 
         if ($adjustment['applied_amount'] > 0) {
-            InvoiceItem::create([
-                'fatura_id' => $invoice->id,
+            $itemRows[] = [
+                'id' => (string) Str::uuid(),
+                'fatura_id' => $invoiceId,
                 'descricao' => $adjustment['description'],
                 'quantidade' => 1,
                 'valor_unitario' => -$adjustment['applied_amount'],
                 'imposto_percentual' => 0,
                 'total_linha' => -$adjustment['applied_amount'],
                 'centro_custo_id' => $shares[0]['id'] ?? null,
-            ]);
+                'created_at' => $timestamp,
+                'updated_at' => $timestamp,
+            ];
         }
 
-        return $invoice->fresh('items');
+        return [
+            'invoice' => $invoiceRow,
+            'items' => $itemRows,
+            'summary' => [
+                'id' => $invoiceId,
+                'mes' => $invoiceRow['mes'],
+                'oculta' => $invoiceRow['oculta'],
+                'estado_pagamento' => $invoiceRow['estado_pagamento'],
+                'valor_total' => $invoiceRow['valor_total'],
+            ],
+        ];
     }
 
     private function resolveFinancialAdjustment(User $user, float $baseAmount): array
@@ -435,6 +575,17 @@ class MonthlyFeeGenerationService
         unset($share);
 
         return $shares;
+    }
+
+    private function forgetUserFinanceCaches(?string $userId): void
+    {
+        if (!$userId) {
+            return;
+        }
+
+        Cache::forget("athlete_dashboard:{$userId}:current_account");
+        Cache::forget("athlete_dashboard:{$userId}:pending_invoice");
+        Cache::forget("athlete_dashboard:{$userId}:invoices");
     }
 
     /**

@@ -183,6 +183,7 @@ class MonthlyFeeGenerationFlowTest extends TestCase
         $this->assertCount(1, $invoice->items);
         $this->assertSame('Mensalidade Base', $invoice->items[0]->descricao);
         $this->assertSame('30.00', $invoice->items[0]->total_linha);
+        $this->assertSame('Mensalidade maio 2026', $invoice->observacoes);
     }
 
     public function test_percentage_discount_generates_base_and_discount_lines(): void

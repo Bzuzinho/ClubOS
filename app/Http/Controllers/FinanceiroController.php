@@ -34,6 +34,7 @@ use Inertia\Inertia;
 use Inertia\Response;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Support\Collection;
 use Illuminate\Validation\ValidationException;
 
 class FinanceiroController extends Controller
@@ -1144,21 +1145,30 @@ class FinanceiroController extends Controller
             'centro_custo_id' => ['required', 'exists:cost_centers,id'],
         ]);
 
-        $extrato = BankStatement::create([
-            'conta' => $data['conta'] ?? null,
-            'data_movimento' => $data['data_movimento'],
-            'descricao' => $data['descricao'],
-            'valor' => $data['valor'],
-            'saldo' => $data['saldo'] ?? null,
-            'referencia' => $data['referencia'] ?? null,
-            'ficheiro_id' => $data['ficheiro_id'] ?? null,
-            'centro_custo_id' => $data['centro_custo_id'],
-            'conciliado' => false,
-        ]);
+        $extrato = DB::transaction(function () use ($data): BankStatement {
+            $extrato = BankStatement::create([
+                'conta' => $data['conta'] ?? null,
+                'data_movimento' => $data['data_movimento'],
+                'descricao' => $data['descricao'],
+                'valor' => $data['valor'],
+                'saldo' => null,
+                'referencia' => $data['referencia'] ?? null,
+                'ficheiro_id' => $data['ficheiro_id'] ?? null,
+                'centro_custo_id' => $data['centro_custo_id'],
+                'conciliado' => false,
+            ]);
+
+            $this->recalculateBankStatementBalances();
+
+            return $extrato->fresh();
+        });
 
         $this->invalidateFinanceiroCaches();
 
-        return response()->json(['extrato' => $extrato]);
+        return response()->json([
+            'extrato' => $extrato,
+            'extratos' => $this->financeBankStatements(),
+        ]);
     }
 
     public function storeExtratosBulk(Request $request)
@@ -1175,24 +1185,34 @@ class FinanceiroController extends Controller
             'extratos.*.centro_custo_id' => ['required', 'exists:cost_centers,id'],
         ]);
 
-        $created = [];
-        foreach ($data['extratos'] as $row) {
-            $created[] = BankStatement::create([
-                'conta' => $row['conta'] ?? null,
-                'data_movimento' => $row['data_movimento'],
-                'descricao' => $row['descricao'],
-                'valor' => $row['valor'],
-                'saldo' => $row['saldo'] ?? null,
-                'referencia' => $row['referencia'] ?? null,
-                'ficheiro_id' => $row['ficheiro_id'] ?? null,
-                'centro_custo_id' => $row['centro_custo_id'],
-                'conciliado' => false,
-            ]);
-        }
+        $created = DB::transaction(function () use ($data): Collection {
+            $created = [];
+
+            foreach ($data['extratos'] as $row) {
+                $created[] = BankStatement::create([
+                    'conta' => $row['conta'] ?? null,
+                    'data_movimento' => $row['data_movimento'],
+                    'descricao' => $row['descricao'],
+                    'valor' => $row['valor'],
+                    'saldo' => null,
+                    'referencia' => $row['referencia'] ?? null,
+                    'ficheiro_id' => $row['ficheiro_id'] ?? null,
+                    'centro_custo_id' => $row['centro_custo_id'],
+                    'conciliado' => false,
+                ]);
+            }
+
+            $this->recalculateBankStatementBalances();
+
+            return collect($created)->map(fn (BankStatement $statement) => $statement->fresh());
+        });
 
         $this->invalidateFinanceiroCaches();
 
-        return response()->json(['extratos' => $created]);
+        return response()->json([
+            'created_extratos' => $created,
+            'extratos' => $this->financeBankStatements(),
+        ]);
     }
 
     public function updateExtrato(Request $request, BankStatement $extrato)
@@ -1206,18 +1226,27 @@ class FinanceiroController extends Controller
             'centro_custo_id' => ['required', 'exists:cost_centers,id'],
         ]);
 
-        $extrato->update([
-            'data_movimento' => $data['data_movimento'],
-            'descricao' => $data['descricao'],
-            'valor' => $data['valor'],
-            'saldo' => $data['saldo'] ?? null,
-            'referencia' => $data['referencia'] ?? null,
-            'centro_custo_id' => $data['centro_custo_id'],
-        ]);
+        $extrato = DB::transaction(function () use ($extrato, $data): BankStatement {
+            $extrato->update([
+                'data_movimento' => $data['data_movimento'],
+                'descricao' => $data['descricao'],
+                'valor' => $data['valor'],
+                'saldo' => null,
+                'referencia' => $data['referencia'] ?? null,
+                'centro_custo_id' => $data['centro_custo_id'],
+            ]);
+
+            $this->recalculateBankStatementBalances();
+
+            return $extrato->fresh();
+        });
 
         $this->invalidateFinanceiroCaches();
 
-        return response()->json(['extrato' => $extrato]);
+        return response()->json([
+            'extrato' => $extrato,
+            'extratos' => $this->financeBankStatements(),
+        ]);
     }
 
     public function destroyExtrato(BankStatement $extrato)
@@ -1226,11 +1255,54 @@ class FinanceiroController extends Controller
             FinancialEntry::where('id', $extrato->lancamento_id)->delete();
         }
 
-        $extrato->delete();
+        DB::transaction(function () use ($extrato): void {
+            $extrato->delete();
+            $this->recalculateBankStatementBalances();
+        });
 
         $this->invalidateFinanceiroCaches();
 
-        return response()->json(['success' => true]);
+        return response()->json([
+            'success' => true,
+            'extratos' => $this->financeBankStatements(),
+        ]);
+    }
+
+    private function recalculateBankStatementBalances(): void
+    {
+        $runningBalance = 0.0;
+
+        BankStatement::query()
+            ->orderBy('data_movimento')
+            ->orderBy('created_at')
+            ->orderBy('id')
+            ->get()
+            ->each(function (BankStatement $statement) use (&$runningBalance): void {
+                $runningBalance = round($runningBalance + (float) $statement->valor, 2);
+
+                if ((float) ($statement->saldo ?? 0) === $runningBalance) {
+                    return;
+                }
+
+                $statement->forceFill([
+                    'saldo' => $runningBalance,
+                ])->saveQuietly();
+            });
+    }
+
+    private function financeBankStatements(): Collection
+    {
+        return BankStatement::query()
+            ->orderBy('data_movimento', 'desc')
+            ->orderBy('created_at', 'desc')
+            ->limit(1000)
+            ->get()
+            ->map(function (BankStatement $extrato) {
+                $extrato->valor = (float) $extrato->valor;
+                $extrato->saldo = $extrato->saldo !== null ? (float) $extrato->saldo : null;
+
+                return $extrato;
+            });
     }
 
     public function conciliarExtrato(Request $request, BankStatement $extrato)

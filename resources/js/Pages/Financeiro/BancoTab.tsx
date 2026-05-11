@@ -85,6 +85,25 @@ export function BancoTab({
     }
     return fallback;
   };
+  const formatSuggestionInvoicePeriod = (invoice?: Fatura | null) => {
+    if (!invoice) return null;
+
+    if (invoice.mes) {
+      const monthDate = new Date(`${invoice.mes}-01T00:00:00`);
+      if (!Number.isNaN(monthDate.getTime())) {
+        return `mes ${new Intl.DateTimeFormat('pt-PT', { month: 'long', year: 'numeric' }).format(monthDate)}`;
+      }
+    }
+
+    if (invoice.data_emissao) {
+      const emissionDate = new Date(invoice.data_emissao);
+      if (!Number.isNaN(emissionDate.getTime())) {
+        return `emitida em ${format(emissionDate, 'dd/MM/yyyy')}`;
+      }
+    }
+
+    return null;
+  };
   const parsePtNumber = (value: unknown, fallback = 0): number => {
     if (typeof value === 'number' && !Number.isNaN(value)) return value;
     if (typeof value !== 'string') return fallback;
@@ -298,24 +317,15 @@ export function BancoTab({
       const keyA = getMovementDateKey(a.data_movimento);
       const keyB = getMovementDateKey(b.data_movimento);
       const dateDiff = keyA.localeCompare(keyB);
-      if (dateDiff !== 0) return dateDiff;
+      if (dateDiff !== 0) return -dateDiff;
 
-      const valorDiff = toNumber(a.valor) - toNumber(b.valor);
-      if (valorDiff !== 0) return valorDiff;
+      const createdDiff = (b.created_at || '').localeCompare(a.created_at || '');
+      if (createdDiff !== 0) return createdDiff;
 
-      return a.id.localeCompare(b.id);
+      return b.id.localeCompare(a.id);
     });
 
-    let runningSaldo = 0;
-    const withRunningSaldo = sortedAsc.map((extrato) => {
-      runningSaldo += toNumber(extrato.valor);
-      return {
-        ...extrato,
-        saldo_calculado: runningSaldo,
-      };
-    });
-
-    return withRunningSaldo.reverse();
+    return sortedAsc;
   }, [filteredExtratos]);
 
   const sugestoesAutomaticas = useMemo(() => {
@@ -424,27 +434,88 @@ export function BancoTab({
     });
   };
 
+  const applySuggestionsToState = (extratoId: string, suggestions: BankReconciliationSuggestion[]) => {
+    const bestScore = suggestions.reduce((highest: number, suggestion: BankReconciliationSuggestion) => {
+      const score = Number(suggestion.score || 0);
+      return score > highest ? score : highest;
+    }, 0);
+
+    setSuggestionCache((current) => ({ ...current, [extratoId]: suggestions }));
+    setSuggestionCounts((current) => ({ ...current, [extratoId]: suggestions.length }));
+    setSuggestionBestScores((current) => ({ ...current, [extratoId]: bestScore }));
+
+    return bestScore;
+  };
+
+  const requestSuggestionsForExtrato = async (extrato: ExtratoBancario) => {
+    const response = await fetch(buildRouteUrl('financeiro.bank-statements.generate-suggestions', extrato.id), {
+      method: 'POST',
+      headers: buildJsonHeaders(),
+      credentials: 'same-origin',
+    });
+
+    if (!response.ok) {
+      throw new Error('Erro ao gerar sugestoes');
+    }
+
+    const payload = await response.json();
+    const suggestions = Array.isArray(payload?.suggestions) ? payload.suggestions : [];
+    const bestScore = applySuggestionsToState(extrato.id, suggestions);
+
+    return { suggestions, bestScore };
+  };
+
   const handleGenerateSuggestionsBatch = async () => {
+    const statementsToAnalyze = extratosTabela.filter(
+      (extrato) => !(extrato.conciliado || extrato.conciliacao_status === 'reconciled')
+    );
+
+    if (statementsToAnalyze.length === 0) {
+      const emptySummary = {
+        analyzed_count: 0,
+        suggestions_created: 0,
+        high_confidence_count: 0,
+        unmatched_count: 0,
+        errors: 0,
+      };
+
+      setBulkSuggestionSummary(emptySummary);
+      toast.info('Nao existem linhas bancarias por conciliar para analisar.');
+      return;
+    }
+
     setBulkGeneratingSuggestions(true);
+    const summary = {
+      analyzed_count: 0,
+      suggestions_created: 0,
+      high_confidence_count: 0,
+      unmatched_count: 0,
+      errors: 0,
+    };
+    setBulkSuggestionSummary(summary);
 
     try {
-      const response = await fetch(buildRouteUrl('financeiro.bank-reconciliation-suggestions.generate'), {
-        method: 'POST',
-        headers: buildJsonHeaders(),
-        credentials: 'same-origin',
-      });
+      for (const extrato of statementsToAnalyze) {
+        try {
+          const { suggestions } = await requestSuggestionsForExtrato(extrato);
+          summary.analyzed_count += 1;
+          summary.suggestions_created += suggestions.length;
+          summary.high_confidence_count += suggestions.filter((suggestion: BankReconciliationSuggestion) =>
+            ['very_high', 'high'].includes(String(suggestion.confidence_label || ''))
+          ).length;
 
-      const payload = await response.json().catch(() => null);
+          if (suggestions.length === 0) {
+            summary.unmatched_count += 1;
+          }
+        } catch {
+          summary.analyzed_count += 1;
+          summary.errors += 1;
+        }
 
-      if (!response.ok) {
-        throw new Error(payload?.message || 'Erro ao gerar sugestoes de conciliacao');
+        setBulkSuggestionSummary({ ...summary });
       }
 
-      if (payload?.summary) {
-        setBulkSuggestionSummary(payload.summary);
-      }
-
-      toast.success(`Sugestoes geradas para ${payload?.summary?.analyzed_count || 0} linha(s) bancarias.`);
+      toast.success(`Sugestoes geradas para ${summary.analyzed_count} linha(s) bancarias.`);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Erro ao gerar sugestoes de conciliacao';
       toast.error(message);
@@ -457,25 +528,7 @@ export function BancoTab({
     setSuggestionActionId(extrato.id);
 
     try {
-      const response = await fetch(buildRouteUrl('financeiro.bank-statements.generate-suggestions', extrato.id), {
-        method: 'POST',
-        headers: buildJsonHeaders(),
-        credentials: 'same-origin',
-      });
-
-      if (!response.ok) {
-        throw new Error('Erro ao gerar sugestoes');
-      }
-
-      const payload = await response.json();
-      const suggestions = Array.isArray(payload?.suggestions) ? payload.suggestions : [];
-      const bestScore = suggestions.reduce((highest: number, suggestion: BankReconciliationSuggestion) => {
-        const score = Number(suggestion.score || 0);
-        return score > highest ? score : highest;
-      }, 0);
-      setSuggestionCache((current) => ({ ...current, [extrato.id]: suggestions }));
-      setSuggestionCounts((current) => ({ ...current, [extrato.id]: suggestions.length }));
-      setSuggestionBestScores((current) => ({ ...current, [extrato.id]: bestScore }));
+      const { suggestions } = await requestSuggestionsForExtrato(extrato);
 
       if (openDialog) {
         setSelectedSuggestionExtrato(extrato);
@@ -749,7 +802,6 @@ export function BancoTab({
           data_movimento: formData.data_movimento,
           descricao: formData.descricao,
           valor: formData.valor,
-          saldo: formData.saldo,
           referencia: formData.referencia || undefined,
           centro_custo_id: formData.centro_custo_id,
         }),
@@ -760,7 +812,7 @@ export function BancoTab({
       }
 
       const data = await response.json();
-      setExtratos((current) => [...(current || []), data.extrato]);
+  setExtratos(data.extratos || []);
       toast.success('Movimento bancario adicionado');
       setDialogOpen(false);
       resetForm();
@@ -923,7 +975,6 @@ export function BancoTab({
           data_movimento: formData.data_movimento,
           descricao: formData.descricao,
           valor: formData.valor,
-          saldo: formData.saldo,
           referencia: formData.referencia || undefined,
           centro_custo_id: formData.centro_custo_id,
         }),
@@ -934,9 +985,7 @@ export function BancoTab({
       }
 
       const data = await response.json();
-      setExtratos((current) =>
-        (current || []).map((e) => (e.id === editingExtrato.id ? data.extrato : e))
-      );
+      setExtratos(data.extratos || []);
 
       toast.success('Movimento atualizado com sucesso');
       setDialogEditOpen(false);
@@ -1038,7 +1087,8 @@ export function BancoTab({
         throw new Error('Erro ao apagar movimento');
       }
 
-      setExtratos((current) => (current || []).filter((e) => e.id !== extrato.id));
+      const data = await response.json();
+      setExtratos(data.extratos || []);
       toast.success('Movimento apagado com sucesso');
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Erro ao apagar movimento';
@@ -1373,7 +1423,7 @@ export function BancoTab({
           }
 
           const data = await response.json();
-          setExtratos((current) => [...(current || []), ...(data.extratos || [])]);
+          setExtratos(data.extratos || []);
           toast.success(
             `${importedCount} movimentos importados com sucesso${
               errorCount > 0 ? ` (${errorCount} erros)` : ''
@@ -1612,7 +1662,7 @@ export function BancoTab({
                       type="number"
                       step="0.01"
                       value={formData.saldo}
-                      onChange={(e) => setFormData({ ...formData, saldo: parseFloat(e.target.value) || 0 })}
+                      readOnly
                     />
                   </div>
 
@@ -1701,9 +1751,9 @@ export function BancoTab({
             </p>
           )}
         </div>
-        <Button onClick={() => void handleGenerateSuggestionsBatch()} disabled={bulkGeneratingSuggestions}>
+        <Button type="button" onClick={() => void handleGenerateSuggestionsBatch()} disabled={bulkGeneratingSuggestions}>
           <Gear size={16} className="mr-2" />
-          Gerar sugestoes de conciliacao
+          {bulkGeneratingSuggestions ? 'A gerar sugestoes...' : 'Gerar sugestoes de conciliacao'}
         </Button>
       </div>
 
@@ -1731,7 +1781,7 @@ export function BancoTab({
                       {toNumber(extrato.valor) >= 0 ? '+' : ''}€{toNumber(extrato.valor).toFixed(2)}
                     </span>
                     <span className="text-muted-foreground">Saldo</span>
-                    <span className="text-right">€{toNumber(extrato.saldo_calculado).toFixed(2)}</span>
+                    <span className="text-right">€{toNumber(extrato.saldo).toFixed(2)}</span>
                     <span className="text-muted-foreground">Centro Custo</span>
                     <span className="text-right break-words">{getCentroCustoName(extrato.centro_custo_id)}</span>
                     <span className="text-muted-foreground">Melhor score</span>
@@ -1855,7 +1905,7 @@ export function BancoTab({
                           {toNumber(extrato.valor) >= 0 ? '+' : ''}€{toNumber(extrato.valor).toFixed(2)}
                         </TableCell>
                         <TableCell className="text-xs md:text-sm whitespace-nowrap">
-                          €{toNumber(extrato.saldo_calculado).toFixed(2)}
+                          €{toNumber(extrato.saldo).toFixed(2)}
                         </TableCell>
                         <TableCell className="text-xs md:text-sm max-w-[100px] md:max-w-none truncate">
                           {getCentroCustoName(extrato.centro_custo_id)}
@@ -2359,12 +2409,16 @@ export function BancoTab({
                           {(suggestion.suggested_allocations || []).map((allocation) => {
                             const invoice = (faturas || []).find((item) => item.id === allocation.invoice_id);
                             const invoiceUser = invoice ? (users || []).find((item) => item.id === invoice.user_id) : null;
+                            const invoicePeriod = formatSuggestionInvoicePeriod(invoice);
 
                             return (
                               <div key={`${suggestion.id}-${allocation.invoice_id}`} className="rounded-md border p-3">
                                 <div className="font-medium">{invoiceUser?.nome_completo || suggestion.user?.nome_completo || 'Fatura'}</div>
                                 <div className="text-xs text-muted-foreground">
-                                  {invoice?.tipo || 'fatura'} · alocar €{toNumber(allocation.amount).toFixed(2)} · {allocation.reason || 'sem justificacao adicional'}
+                                  {invoice?.tipo || 'fatura'}
+                                  {invoicePeriod ? ` · ${invoicePeriod}` : ''}
+                                  {' · '}alocar €{toNumber(allocation.amount).toFixed(2)}
+                                  {' · '}{allocation.reason || 'sem justificacao adicional'}
                                 </div>
                               </div>
                             );
@@ -2562,7 +2616,7 @@ export function BancoTab({
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Saldo Resultante</Label>
-                <Input type="number" step="0.01" value={formData.saldo} onChange={(e) => setFormData({ ...formData, saldo: parseFloat(e.target.value) || 0 })} />
+                <Input type="number" step="0.01" value={formData.saldo} readOnly />
               </div>
 
               <div className="space-y-2">

@@ -255,6 +255,21 @@ export function FaturasTab({
 
   const formatAmount = (value: number) => value.toFixed(2);
 
+  const getInvoiceCompetenceLabel = (invoice: Fatura) => {
+    if (invoice.tipo !== 'mensalidade') {
+      return null;
+    }
+
+    const monthSource = invoice.mes ? `${invoice.mes}-01T00:00:00` : invoice.data_emissao;
+    const monthDate = new Date(monthSource);
+
+    if (Number.isNaN(monthDate.getTime())) {
+      return null;
+    }
+
+    return new Intl.DateTimeFormat('pt-PT', { month: 'long', year: 'numeric' }).format(monthDate);
+  };
+
   const getInvoiceOutstandingAmount = (invoice: Fatura) => {
     const totalAmount = Math.max(toNumber(invoice.valor_total, 0), 0);
     const paidAmount = Math.max(toNumber(invoice.valor_pago, 0), 0);
@@ -1326,7 +1341,7 @@ export function FaturasTab({
           )}
           <Dialog open={dialogAutoOpen} onOpenChange={setDialogAutoOpen}>
             <DialogTrigger asChild>
-              <Button variant="outline" className="w-full sm:w-auto text-xs sm:text-sm" size="sm" title="Gerar mensalidades pelo ciclo financeiro configurado">
+              <Button type="button" variant="outline" className="w-full sm:w-auto text-xs sm:text-sm" size="sm" title="Gerar mensalidades pelo ciclo financeiro configurado">
                 <MagicWand className="mr-1 sm:mr-2" size={16} />
                 <span>Gerar</span>
               </Button>
@@ -1450,6 +1465,7 @@ export function FaturasTab({
               </div>
               <DialogFooter className="flex-col sm:flex-row gap-2">
                 <Button
+                  type="button"
                   variant="outline"
                   onClick={() => {
                     setDialogAutoOpen(false);
@@ -1463,7 +1479,7 @@ export function FaturasTab({
                 >
                   Cancelar
                 </Button>
-                <Button onClick={handleGerarFaturasMensais} className="w-full sm:w-auto">
+                <Button type="button" onClick={handleGerarFaturasMensais} className="w-full sm:w-auto">
                   Gerar Faturas
                 </Button>
               </DialogFooter>
@@ -1765,6 +1781,7 @@ export function FaturasTab({
                   const userName = getUserName(fatura.user_id);
                   const paidAmount = Math.max(toNumber(fatura.valor_pago, 0), 0);
                   const outstandingAmount = getInvoiceOutstandingAmount(fatura);
+                  const competenceLabel = getInvoiceCompetenceLabel(fatura);
                   return (
                     <Card key={fatura.id} className="p-3 cursor-pointer transition-all hover:shadow-lg hover:border-primary/50">
                       <div className="flex items-start gap-2">
@@ -1772,6 +1789,9 @@ export function FaturasTab({
                         <div className="flex-1 min-w-0">
                           <h3 className="font-semibold text-[12px] truncate">{userName}</h3>
                           <p className="text-[10px] text-muted-foreground">{getInvoiceTypeLabel(fatura.tipo)}</p>
+                          {competenceLabel && (
+                            <p className="text-[10px] text-muted-foreground">Competencia: {competenceLabel}</p>
+                          )}
                           <div className="text-sm font-semibold text-primary mt-1">€{toNumber(fatura.valor_total).toFixed(2)}</div>
                           <div className="mt-2 grid grid-cols-2 gap-2 text-[10px] text-muted-foreground">
                             <div>
@@ -1882,6 +1902,7 @@ export function FaturasTab({
                       .map((fatura) => {
                         const paidAmount = Math.max(toNumber(fatura.valor_pago, 0), 0);
                         const outstandingAmount = getInvoiceOutstandingAmount(fatura);
+                        const competenceLabel = getInvoiceCompetenceLabel(fatura);
 
                         return (
                         <TableRow key={fatura.id}>
@@ -1893,9 +1914,19 @@ export function FaturasTab({
                           </TableCell>
                           <TableCell className="hidden sm:table-cell font-medium text-xs max-w-[150px] truncate">{getUserName(fatura.user_id)}</TableCell>
                           <TableCell className="hidden md:table-cell text-xs">
-                            <Badge variant="outline">{getInvoiceTypeLabel(fatura.tipo)}</Badge>
+                            <div className="space-y-1">
+                              <Badge variant="outline">{getInvoiceTypeLabel(fatura.tipo)}</Badge>
+                              {competenceLabel && (
+                                <div className="text-[10px] text-muted-foreground">Comp. {competenceLabel}</div>
+                              )}
+                            </div>
                           </TableCell>
-                          <TableCell className="hidden lg:table-cell text-xs">{format(new Date(fatura.data_emissao), 'dd/MM/yyyy')}</TableCell>
+                          <TableCell className="hidden lg:table-cell text-xs">
+                            <div>{format(new Date(fatura.data_emissao), 'dd/MM/yyyy')}</div>
+                            {competenceLabel && (
+                              <div className="text-[10px] text-muted-foreground">{competenceLabel}</div>
+                            )}
+                          </TableCell>
                           <TableCell className="text-xs">{format(new Date(fatura.data_vencimento), 'dd/MM/yyyy')}</TableCell>
                           <TableCell className="hidden sm:table-cell font-semibold text-xs text-right">€{toNumber(fatura.valor_total).toFixed(2)}</TableCell>
                           <TableCell className="hidden lg:table-cell text-xs text-right">€{paidAmount.toFixed(2)}</TableCell>

@@ -16,6 +16,7 @@ use App\Models\Payment;
 use App\Models\PaymentAllocation;
 use App\Models\User;
 use App\Models\UserType;
+use App\Services\Financeiro\BankReconciliationSuggestionService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -187,6 +188,97 @@ class BankReconciliationSuggestionFlowTest extends TestCase
             });
 
         $this->assertNotNull($matchingSuggestion);
+    }
+
+    public function test_monthly_invoice_from_same_movement_month_gets_higher_score(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $user = $this->createFinanceUser([
+            'nome_completo' => 'Ricardo Mes Score',
+            'email' => 'ricardo-mes-score@example.com',
+        ]);
+
+        $marchInvoice = $this->createInvoice($user, 30.00, 'mensalidade', '2026-03-10', [
+            'data_fatura' => '2026-03-01',
+            'data_emissao' => '2026-03-01',
+            'mes' => '2026-03',
+        ]);
+        $januaryInvoice = $this->createInvoice($user, 30.00, 'mensalidade', '2026-03-10', [
+            'data_fatura' => '2026-01-01',
+            'data_emissao' => '2026-01-01',
+            'mes' => '2026-01',
+        ]);
+        $statement = BankStatement::create([
+            'conta' => 'PT50-0001',
+            'data_movimento' => '2026-03-12',
+            'descricao' => 'TRF Ricardo Mes Score',
+            'valor' => 30.00,
+            'saldo' => 1000.00,
+            'referencia' => 'TRX-3000',
+            'conciliado' => false,
+            'valor_conciliado' => 0,
+            'valor_por_conciliar' => 30.00,
+            'conciliacao_status' => 'unreconciled',
+        ]);
+
+        $service = app(BankReconciliationSuggestionService::class);
+
+        $marchScore = $service->calculateScore($statement, [[
+            'invoice' => $marchInvoice->fresh(),
+            'open_amount' => 30.00,
+            'amount' => 30.00,
+        ]], []);
+        $januaryScore = $service->calculateScore($statement, [[
+            'invoice' => $januaryInvoice->fresh(),
+            'open_amount' => 30.00,
+            'amount' => 30.00,
+        ]], []);
+
+        $this->assertGreaterThan($januaryScore['score'], $marchScore['score']);
+        $this->assertContains('matching_invoice_period', $marchScore['matched_rules']);
+        $this->assertContains('stale_invoice_period', $januaryScore['matched_rules']);
+    }
+
+    public function test_same_month_monthly_fee_ranks_ahead_of_older_monthly_combination(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $user = $this->createFinanceUser([
+            'nome_completo' => 'Carla Prioridade Mes',
+            'email' => 'carla-prioridade@example.com',
+        ]);
+
+        $januaryInvoice = $this->createInvoice($user, 30.00, 'mensalidade', '2026-01-10', [
+            'data_fatura' => '2026-01-01',
+            'data_emissao' => '2026-01-01',
+            'mes' => '2026-01',
+        ]);
+        $marchInvoice = $this->createInvoice($user, 30.00, 'mensalidade', '2026-03-10', [
+            'data_fatura' => '2026-03-01',
+            'data_emissao' => '2026-03-01',
+            'mes' => '2026-03',
+        ]);
+        $statement = BankStatement::create([
+            'conta' => 'PT50-0001',
+            'data_movimento' => '2026-03-12',
+            'descricao' => 'TRF Carla Prioridade Mes',
+            'valor' => 60.00,
+            'saldo' => 1000.00,
+            'referencia' => 'TRX-6000',
+            'conciliado' => false,
+            'valor_conciliado' => 0,
+            'valor_por_conciliar' => 60.00,
+            'conciliacao_status' => 'unreconciled',
+        ]);
+
+        $response = $this->actingAs($admin)
+            ->postJson(route('financeiro.bank-statements.generate-suggestions', $statement))
+            ->assertOk();
+
+        $suggestions = collect($response->json('suggestions'));
+        $topSuggestionInvoiceIds = collect($suggestions->first()['suggested_allocations'] ?? [])->pluck('invoice_id')->all();
+
+        $this->assertContains($marchInvoice->id, $topSuggestionInvoiceIds);
+        $this->assertNotContains($januaryInvoice->id, $topSuggestionInvoiceIds);
     }
 
     public function test_confirming_suggestion_creates_payment_and_allocations(): void

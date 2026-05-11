@@ -3,6 +3,7 @@
 namespace Tests\Feature\Communication;
 
 use App\Models\CommunicationCampaign;
+use App\Models\CommunicationDelivery;
 use App\Models\CommunicationSegment;
 use App\Models\CommunicationTemplate;
 use App\Models\Event;
@@ -27,6 +28,13 @@ use Tests\TestCase;
 class CommunicationFlowsTest extends TestCase
 {
     use RefreshDatabase;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        NotificationPreference::create($this->notificationPreferencePayload());
+    }
 
     public function test_campaign_store_rejects_template_from_different_channel(): void
     {
@@ -465,18 +473,8 @@ class CommunicationFlowsTest extends TestCase
     {
         Mail::fake();
 
-        NotificationPreference::create([
-            'email_notificacoes' => true,
-            'alertas_pagamento' => true,
-            'alertas_atividade' => true,
+        NotificationPreference::query()->first()->update([
             'automacoes_financeiro' => false,
-            'automacoes_eventos' => true,
-            'automacoes_logistica' => true,
-            'automacoes_faturas_financeiras' => true,
-            'automacoes_movimentos_financeiros' => true,
-            'automacoes_convocatorias_eventos' => true,
-            'automacoes_requisicoes_logistica' => true,
-            'automacoes_alertas_operacionais' => true,
         ]);
 
         $recipient = User::factory()->create([
@@ -496,6 +494,188 @@ class CommunicationFlowsTest extends TestCase
         ]);
 
         $this->assertSame(0, CommunicationCampaign::query()->count());
+        $this->assertSame(0, CommunicationDelivery::query()->count());
+        $this->assertSame(0, InAppAlert::query()->count());
+        Mail::assertNothingSent();
+    }
+
+    public function test_invoice_automation_does_not_create_campaign_when_specific_switch_is_disabled(): void
+    {
+        Mail::fake();
+
+        NotificationPreference::query()->first()->update([
+            'automacoes_faturas_financeiras' => false,
+        ]);
+
+        $recipient = User::factory()->create([
+            'tipo_membro' => ['atleta'],
+        ]);
+
+        Invoice::create([
+            'user_id' => $recipient->id,
+            'data_fatura' => now()->toDateString(),
+            'mes' => 'Abril',
+            'data_emissao' => now()->toDateString(),
+            'data_vencimento' => now()->addWeek()->toDateString(),
+            'valor_total' => 45.50,
+            'oculta' => false,
+            'estado_pagamento' => 'pendente',
+            'tipo' => 'mensalidade',
+        ]);
+
+        $this->assertSame(0, CommunicationCampaign::query()->count());
+        $this->assertSame(0, CommunicationDelivery::query()->count());
+        $this->assertSame(0, InAppAlert::query()->count());
+        Mail::assertNothingSent();
+    }
+
+    public function test_release_visible_invoice_communications_returns_zero_when_invoice_automation_is_disabled(): void
+    {
+        Mail::fake();
+
+        NotificationPreference::query()->first()->update([
+            'automacoes_faturas_financeiras' => false,
+        ]);
+
+        $recipient = User::factory()->create([
+            'tipo_membro' => ['atleta'],
+        ]);
+
+        Invoice::create([
+            'user_id' => $recipient->id,
+            'data_fatura' => now()->addDay()->toDateString(),
+            'mes' => 'Maio',
+            'data_emissao' => now()->toDateString(),
+            'data_vencimento' => now()->addMonth()->toDateString(),
+            'valor_total' => 45.50,
+            'oculta' => true,
+            'estado_pagamento' => 'pendente',
+            'tipo' => 'mensalidade',
+        ]);
+
+        $exitCode = Artisan::call('comunicacao:libertar-alertas-faturas');
+
+        $this->assertSame(0, $exitCode);
+        $this->assertStringContainsString('Comunicacoes de faturas libertadas: 0', Artisan::output());
+        $this->assertSame(0, CommunicationCampaign::query()->count());
+        $this->assertSame(0, CommunicationDelivery::query()->count());
+        $this->assertSame(0, InAppAlert::query()->count());
+        Mail::assertNothingSent();
+    }
+
+    public function test_disabling_payment_alerts_blocks_invoice_and_movement_campaigns(): void
+    {
+        Mail::fake();
+
+        NotificationPreference::query()->first()->update([
+            'alertas_pagamento' => false,
+        ]);
+
+        $recipient = User::factory()->create([
+            'tipo_membro' => ['atleta'],
+        ]);
+
+        Invoice::create([
+            'user_id' => $recipient->id,
+            'data_fatura' => now()->toDateString(),
+            'mes' => 'Abril',
+            'data_emissao' => now()->toDateString(),
+            'data_vencimento' => now()->addWeek()->toDateString(),
+            'valor_total' => 45.50,
+            'oculta' => false,
+            'estado_pagamento' => 'pendente',
+            'tipo' => 'mensalidade',
+        ]);
+
+        Movement::create([
+            'user_id' => $recipient->id,
+            'classificacao' => 'receita',
+            'data_emissao' => now()->toDateString(),
+            'data_vencimento' => now()->addDays(5)->toDateString(),
+            'valor_total' => 99.99,
+            'estado_pagamento' => 'pendente',
+            'tipo' => 'manual',
+            'nome_manual' => 'Receita avulsa',
+        ]);
+
+        $this->assertSame(0, CommunicationCampaign::query()->count());
+        $this->assertSame(0, CommunicationDelivery::query()->count());
+        $this->assertSame(0, InAppAlert::query()->count());
+        Mail::assertNothingSent();
+    }
+
+    public function test_disabling_finance_automation_blocks_all_financial_automation_channels(): void
+    {
+        Mail::fake();
+
+        NotificationPreference::query()->first()->update([
+            'automacoes_financeiro' => false,
+        ]);
+
+        $recipient = User::factory()->create([
+            'tipo_membro' => ['atleta'],
+        ]);
+
+        Invoice::create([
+            'user_id' => $recipient->id,
+            'data_fatura' => now()->toDateString(),
+            'mes' => 'Abril',
+            'data_emissao' => now()->toDateString(),
+            'data_vencimento' => now()->addWeek()->toDateString(),
+            'valor_total' => 45.50,
+            'oculta' => false,
+            'estado_pagamento' => 'pendente',
+            'tipo' => 'mensalidade',
+        ]);
+
+        Movement::create([
+            'user_id' => $recipient->id,
+            'classificacao' => 'receita',
+            'data_emissao' => now()->toDateString(),
+            'data_vencimento' => now()->addDays(5)->toDateString(),
+            'valor_total' => 99.99,
+            'estado_pagamento' => 'pendente',
+            'tipo' => 'manual',
+            'nome_manual' => 'Receita avulsa',
+        ]);
+
+        $this->assertSame(0, CommunicationCampaign::query()->count());
+        $this->assertSame(0, CommunicationDelivery::query()->count());
+        $this->assertSame(0, InAppAlert::query()->count());
+        Mail::assertNothingSent();
+    }
+
+    public function test_disabling_email_notifications_keeps_financial_app_alert_automation_active(): void
+    {
+        Mail::fake();
+
+        NotificationPreference::query()->first()->update([
+            'email_notificacoes' => false,
+        ]);
+
+        $recipient = User::factory()->create([
+            'tipo_membro' => ['atleta'],
+        ]);
+
+        Invoice::create([
+            'user_id' => $recipient->id,
+            'data_fatura' => now()->toDateString(),
+            'mes' => 'Abril',
+            'data_emissao' => now()->toDateString(),
+            'data_vencimento' => now()->addWeek()->toDateString(),
+            'valor_total' => 45.50,
+            'oculta' => false,
+            'estado_pagamento' => 'pendente',
+            'tipo' => 'mensalidade',
+        ]);
+
+        $campaign = CommunicationCampaign::query()->latest('created_at')->first();
+
+        $this->assertNotNull($campaign);
+        $this->assertSame(['alert_app'], $campaign->channels()->pluck('channel')->all());
+        $this->assertSame(1, CommunicationDelivery::query()->count());
+        $this->assertSame(1, InAppAlert::query()->count());
+        Mail::assertNothingSent();
     }
 
     public function test_event_convocation_creation_triggers_automatic_communication_with_event_context(): void
@@ -623,5 +803,25 @@ class CommunicationFlowsTest extends TestCase
         $this->assertSame('enviada', $campaign->status);
         $this->assertSame(1, InAppAlert::query()->where('campaign_id', $campaign->id)->count());
         $this->assertSame($purchase->id, str_replace('origem: supplier_purchase:', '', collect(explode(' | ', $campaign->notes ?? ''))->last()));
+    }
+
+    /**
+     * @return array<string, bool>
+     */
+    private function notificationPreferencePayload(array $overrides = []): array
+    {
+        return array_merge([
+            'email_notificacoes' => true,
+            'alertas_pagamento' => true,
+            'alertas_atividade' => true,
+            'automacoes_financeiro' => true,
+            'automacoes_eventos' => true,
+            'automacoes_logistica' => true,
+            'automacoes_faturas_financeiras' => true,
+            'automacoes_movimentos_financeiros' => true,
+            'automacoes_convocatorias_eventos' => true,
+            'automacoes_requisicoes_logistica' => true,
+            'automacoes_alertas_operacionais' => true,
+        ], $overrides);
     }
 }

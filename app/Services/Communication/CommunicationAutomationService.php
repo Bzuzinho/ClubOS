@@ -24,7 +24,7 @@ class CommunicationAutomationService
 
     public function triggerInvoiceIssued(Invoice $invoice): void
     {
-        if (!$this->canRun() || !$invoice->user_id || !$this->automationEnabled('automacoes_financeiro') || !$this->automationEnabled('automacoes_faturas_financeiras') || !$this->automationEnabled('alertas_pagamento')) {
+        if (!$this->canRun() || !$invoice->user_id || !$this->canSendFinancialInvoiceAutomation()) {
             return;
         }
 
@@ -57,7 +57,7 @@ class CommunicationAutomationService
 
     public function releaseVisibleInvoiceCommunications(): int
     {
-        if (!$this->canRun() || !$this->automationEnabled('automacoes_financeiro') || !$this->automationEnabled('automacoes_faturas_financeiras') || !$this->automationEnabled('alertas_pagamento')) {
+        if (!$this->canRun() || !$this->canSendFinancialInvoiceAutomation()) {
             return 0;
         }
 
@@ -82,7 +82,7 @@ class CommunicationAutomationService
 
     public function triggerMovementIssued(Movement $movement): void
     {
-        if (!$this->canRun() || !$movement->user_id || !$this->automationEnabled('automacoes_financeiro') || !$this->automationEnabled('automacoes_movimentos_financeiros')) {
+        if (!$this->canRun() || !$movement->user_id || !$this->canSendFinancialMovementAutomation()) {
             return;
         }
 
@@ -113,7 +113,7 @@ class CommunicationAutomationService
 
     public function triggerEventConvocationCreated(EventConvocation $convocation): void
     {
-        if (!$this->canRun() || !$convocation->user_id || !$this->automationEnabled('automacoes_eventos') || !$this->automationEnabled('automacoes_convocatorias_eventos') || !$this->automationEnabled('alertas_atividade')) {
+        if (!$this->canRun() || !$convocation->user_id || !$this->canSendEventConvocationAutomation()) {
             return;
         }
 
@@ -148,7 +148,7 @@ class CommunicationAutomationService
 
     public function triggerLogisticsRequestCreated(LogisticsRequest $request): void
     {
-        if (!$this->canRun() || !$request->requester_user_id || !$this->automationEnabled('automacoes_logistica') || !$this->automationEnabled('automacoes_requisicoes_logistica')) {
+        if (!$this->canRun() || !$request->requester_user_id || !$this->canSendLogisticsRequestAutomation()) {
             return;
         }
 
@@ -177,7 +177,7 @@ class CommunicationAutomationService
 
     public function triggerLogisticsRequestStatusChanged(LogisticsRequest $request, string $fromStatus, string $toStatus): void
     {
-        if (!$this->canRun() || !$request->requester_user_id || !$this->automationEnabled('automacoes_logistica') || !$this->automationEnabled('automacoes_requisicoes_logistica')) {
+        if (!$this->canRun() || !$request->requester_user_id || !$this->canSendLogisticsRequestAutomation()) {
             return;
         }
 
@@ -219,7 +219,7 @@ class CommunicationAutomationService
 
     public function triggerSupplierPurchaseCreated(SupplierPurchase $purchase): void
     {
-        if (!$this->canRun() || !$this->automationEnabled('automacoes_logistica') || !$this->automationEnabled('automacoes_alertas_operacionais')) {
+        if (!$this->canRun() || !$this->canSendOperationalLogisticsAutomation()) {
             return;
         }
 
@@ -351,19 +351,58 @@ class CommunicationAutomationService
             && Schema::hasTable('communication_templates');
     }
 
+    public function canSendFinancialInvoiceAutomation(): bool
+    {
+        return $this->automationEnabled('alertas_pagamento')
+            && $this->automationEnabled('automacoes_financeiro')
+            && $this->automationEnabled('automacoes_faturas_financeiras');
+    }
+
+    public function canSendFinancialMovementAutomation(): bool
+    {
+        return $this->automationEnabled('alertas_pagamento')
+            && $this->automationEnabled('automacoes_financeiro')
+            && $this->automationEnabled('automacoes_movimentos_financeiros');
+    }
+
+    public function canSendEventConvocationAutomation(): bool
+    {
+        return $this->automationEnabled('alertas_atividade')
+            && $this->automationEnabled('automacoes_eventos')
+            && $this->automationEnabled('automacoes_convocatorias_eventos');
+    }
+
+    public function canSendLogisticsRequestAutomation(): bool
+    {
+        return $this->automationEnabled('automacoes_logistica')
+            && $this->automationEnabled('automacoes_requisicoes_logistica');
+    }
+
+    public function canSendOperationalLogisticsAutomation(): bool
+    {
+        return $this->automationEnabled('automacoes_logistica')
+            && $this->automationEnabled('automacoes_alertas_operacionais');
+    }
+
     private function automationEnabled(string $field): bool
     {
         if (!Schema::hasTable('notification_preferences')) {
-            return true;
+            return false;
         }
 
         $prefs = NotificationPreference::query()->first();
 
-        if (!$prefs || !isset($prefs->{$field})) {
-            return true;
+        if (!$prefs) {
+            return false;
         }
 
-        return (bool) $prefs->{$field};
+        $attributes = $prefs->getAttributes();
+
+        if (!array_key_exists($field, $attributes) || $attributes[$field] === null) {
+            return false;
+        }
+
+        return filter_var($attributes[$field], FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) === true;
     }
 
     private function resolveOperationalRecipientIds(SupplierPurchase $purchase): array

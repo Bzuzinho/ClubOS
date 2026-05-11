@@ -10,6 +10,7 @@ use App\Models\Payment;
 use App\Models\PaymentAllocation;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Collection as EloquentCollection;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -201,6 +202,10 @@ class BankReconciliationSuggestionService
             $score += 25;
             $rules[] = 'possible_credit_overpayment';
             $explanations[] = 'Existe um excedente pequeno que pode ser convertido em credito.';
+        } elseif ($difference > 0 && $allocatedAmount > 0) {
+            $score += 18;
+            $rules[] = 'credit_overpayment';
+            $explanations[] = 'O valor excede as faturas sugeridas e pode gerar credito apos a conciliacao.';
         } elseif ($statementAmount < $highestOpenInvoice && $allocatedAmount > 0) {
             $score += 15;
             $rules[] = 'possible_partial_payment';
@@ -249,6 +254,28 @@ class BankReconciliationSuggestionService
             $score += 10;
             $rules[] = 'near_due_date';
             $explanations[] = 'Existe vencimento proximo da data do movimento.';
+        }
+
+        $periodAlignment = $this->resolveMonthlyPeriodAlignment($bankStatement, $candidateInvoices);
+        if ($periodAlignment['score'] !== 0) {
+            $score += $periodAlignment['score'];
+            if ($periodAlignment['rule'] !== null) {
+                $rules[] = $periodAlignment['rule'];
+            }
+            if ($periodAlignment['explanation'] !== null) {
+                $explanations[] = $periodAlignment['explanation'];
+            }
+        }
+
+        $monthlyMixPenalty = $this->resolveMonthlyMixPenalty($bankStatement, $candidateInvoices);
+        if ($monthlyMixPenalty['score'] !== 0) {
+            $score += $monthlyMixPenalty['score'];
+            if ($monthlyMixPenalty['rule'] !== null) {
+                $rules[] = $monthlyMixPenalty['rule'];
+            }
+            if ($monthlyMixPenalty['explanation'] !== null) {
+                $explanations[] = $monthlyMixPenalty['explanation'];
+            }
         }
 
         if ($this->hasSimilarPaymentHistory($context['user_id'] ?? null, $context['family_id'] ?? null, $statementAmount)) {
@@ -791,6 +818,144 @@ class BankReconciliationSuggestionService
         }
 
         return false;
+    }
+
+    /**
+     * @return array{score:int, rule:?string, explanation:?string}
+     */
+    private function resolveMonthlyPeriodAlignment(BankStatement $bankStatement, array $candidateInvoices): array
+    {
+        $statementMonthKey = $bankStatement->data_movimento?->format('Y-m');
+        if (!$statementMonthKey) {
+            return ['score' => 0, 'rule' => null, 'explanation' => null];
+        }
+
+        $closestDistance = null;
+
+        foreach ($candidateInvoices as $candidate) {
+            /** @var Invoice $invoice */
+            $invoice = $candidate['invoice'];
+
+            if (stripos((string) $invoice->tipo, 'mens') === false) {
+                continue;
+            }
+
+            $invoiceMonthKey = $invoice->data_emissao?->format('Y-m');
+
+            if (!$invoiceMonthKey && is_string($invoice->mes) && preg_match('/^\d{4}-\d{2}$/', $invoice->mes) === 1) {
+                $invoiceMonthKey = $invoice->mes;
+            }
+
+            if (!$invoiceMonthKey) {
+                continue;
+            }
+
+            $distance = $this->calculateMonthDistance($statementMonthKey, $invoiceMonthKey);
+            $closestDistance = $closestDistance === null ? $distance : min($closestDistance, $distance);
+        }
+
+        if ($closestDistance === null) {
+            return ['score' => 0, 'rule' => null, 'explanation' => null];
+        }
+
+        if ($closestDistance === 0) {
+            return [
+                'score' => 18,
+                'rule' => 'matching_invoice_period',
+                'explanation' => 'Existe mensalidade emitida no mesmo mes do movimento.',
+            ];
+        }
+
+        if ($closestDistance === 1) {
+            return [
+                'score' => 10,
+                'rule' => 'adjacent_invoice_period',
+                'explanation' => 'Existe mensalidade emitida num mes adjacente ao movimento.',
+            ];
+        }
+
+        if ($closestDistance === 2) {
+            return [
+                'score' => -4,
+                'rule' => 'stale_invoice_period',
+                'explanation' => 'A mensalidade sugerida ja esta afastada do mes do movimento.',
+            ];
+        }
+
+        return [
+            'score' => -10,
+            'rule' => 'stale_invoice_period',
+            'explanation' => 'A mensalidade sugerida esta demasiado afastada da data do movimento.',
+        ];
+    }
+
+    private function calculateMonthDistance(string $statementMonthKey, string $invoiceMonthKey): int
+    {
+        [$statementYear, $statementMonth] = array_map('intval', explode('-', $statementMonthKey));
+        [$invoiceYear, $invoiceMonth] = array_map('intval', explode('-', $invoiceMonthKey));
+
+        return abs((($statementYear * 12) + $statementMonth) - (($invoiceYear * 12) + $invoiceMonth));
+    }
+
+    /**
+     * @return array{score:int, rule:?string, explanation:?string}
+     */
+    private function resolveMonthlyMixPenalty(BankStatement $bankStatement, array $candidateInvoices): array
+    {
+        if (count($candidateInvoices) <= 1) {
+            return ['score' => 0, 'rule' => null, 'explanation' => null];
+        }
+
+        $statementMonthKey = $bankStatement->data_movimento?->format('Y-m');
+        if (!$statementMonthKey) {
+            return ['score' => 0, 'rule' => null, 'explanation' => null];
+        }
+
+        $distances = collect($candidateInvoices)
+            ->map(function (array $candidate) use ($statementMonthKey): ?int {
+                /** @var Invoice $invoice */
+                $invoice = $candidate['invoice'];
+
+                if (stripos((string) $invoice->tipo, 'mens') === false) {
+                    return null;
+                }
+
+                $invoiceMonthKey = $invoice->data_emissao?->format('Y-m');
+
+                if (!$invoiceMonthKey && is_string($invoice->mes) && preg_match('/^\d{4}-\d{2}$/', $invoice->mes) === 1) {
+                    $invoiceMonthKey = $invoice->mes;
+                }
+
+                return $invoiceMonthKey ? $this->calculateMonthDistance($statementMonthKey, $invoiceMonthKey) : null;
+            })
+            ->filter(static fn (?int $distance) => $distance !== null)
+            ->values();
+
+        if ($distances->count() <= 1) {
+            return ['score' => 0, 'rule' => null, 'explanation' => null];
+        }
+
+        $penaltyUnits = $distances->sum() - $distances->min();
+        if ($penaltyUnits <= 0) {
+            return ['score' => 0, 'rule' => null, 'explanation' => null];
+        }
+
+        $sameMonthCount = $distances->filter(static fn (int $distance) => $distance === 0)->count();
+        $staleCount = $distances->filter(static fn (int $distance) => $distance > 0)->count();
+
+        if ($sameMonthCount > 0 && $staleCount > 0) {
+            return [
+                'score' => -min(40, 20 + ($penaltyUnits * 8)),
+                'rule' => 'stale_monthly_mix',
+                'explanation' => 'A combinacao mistura a mensalidade do periodo com dividas antigas e perde prioridade para a mensalidade mais proxima do movimento.',
+            ];
+        }
+
+        return [
+            'score' => -min(18, $penaltyUnits * 4),
+            'rule' => 'stale_monthly_mix',
+            'explanation' => 'A combinacao inclui mensalidades mais antigas e perde prioridade face a periodos mais proximos do movimento.',
+        ];
     }
 
     private function hasSimilarPaymentHistory(?string $userId, ?string $familyId, float $statementAmount): bool

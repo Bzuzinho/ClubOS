@@ -180,6 +180,95 @@ class PaymentAllocationFlowTest extends TestCase
         $this->assertSame('0.00', $statement->valor_por_conciliar);
     }
 
+    public function test_bulk_bank_statement_import_recalculates_running_balances_by_movement_date(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $costCenter = $this->createCostCenter();
+
+        $response = $this->actingAs($admin)->postJson(route('financeiro.extratos.bulk'), [
+            'extratos' => [
+                [
+                    'conta' => 'PT50-0001',
+                    'data_movimento' => '2026-02-11',
+                    'descricao' => 'Movimento 2',
+                    'valor' => -1537.50,
+                    'saldo' => 0,
+                    'centro_custo_id' => $costCenter->id,
+                ],
+                [
+                    'conta' => 'PT50-0001',
+                    'data_movimento' => '2026-02-10',
+                    'descricao' => 'Movimento 1',
+                    'valor' => 40.00,
+                    'saldo' => 0,
+                    'centro_custo_id' => $costCenter->id,
+                ],
+                [
+                    'conta' => 'PT50-0001',
+                    'data_movimento' => '2026-02-12',
+                    'descricao' => 'Movimento 3',
+                    'valor' => 30.00,
+                    'saldo' => 0,
+                    'centro_custo_id' => $costCenter->id,
+                ],
+            ],
+        ]);
+
+        $response->assertOk();
+
+        $statements = BankStatement::query()
+            ->orderBy('data_movimento')
+            ->get();
+
+        $this->assertSame('40.00', $statements[0]->saldo);
+        $this->assertSame('-1497.50', $statements[1]->saldo);
+        $this->assertSame('-1467.50', $statements[2]->saldo);
+    }
+
+    public function test_updating_bank_statement_recalculates_balances_and_returns_updated_collection(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $costCenter = $this->createCostCenter();
+
+        $first = BankStatement::create([
+            'conta' => 'PT50-0001',
+            'data_movimento' => '2026-02-10',
+            'descricao' => 'Primeiro',
+            'valor' => 40.00,
+            'saldo' => 40.00,
+            'centro_custo_id' => $costCenter->id,
+            'conciliado' => false,
+        ]);
+        $second = BankStatement::create([
+            'conta' => 'PT50-0001',
+            'data_movimento' => '2026-02-11',
+            'descricao' => 'Segundo',
+            'valor' => 30.00,
+            'saldo' => 70.00,
+            'centro_custo_id' => $costCenter->id,
+            'conciliado' => false,
+        ]);
+
+        $response = $this->actingAs($admin)->putJson(route('financeiro.extratos.update', $second), [
+            'data_movimento' => '2026-02-09',
+            'descricao' => 'Segundo editado',
+            'valor' => 30.00,
+            'saldo' => 999.00,
+            'referencia' => 'REF-2',
+            'centro_custo_id' => $costCenter->id,
+        ]);
+
+        $response->assertOk();
+
+        $first->refresh();
+        $second->refresh();
+
+        $this->assertSame('30.00', $second->saldo);
+        $this->assertSame('70.00', $first->saldo);
+        $this->assertSame('30.00', (string) collect($response->json('extratos'))->firstWhere('id', $second->id)['saldo']);
+        $this->assertSame('70.00', (string) collect($response->json('extratos'))->firstWhere('id', $first->id)['saldo']);
+    }
+
     public function test_partially_allocated_bank_statement_stays_partial_when_credit_is_not_created(): void
     {
         $admin = User::factory()->admin()->create();
@@ -514,6 +603,18 @@ class PaymentAllocationFlowTest extends TestCase
             [
                 'nome' => 'Mensalidade',
                 'descricao' => 'Mensalidade',
+                'ativo' => true,
+            ],
+        );
+    }
+
+    private function createCostCenter(): CostCenter
+    {
+        return CostCenter::query()->firstOrCreate(
+            ['codigo' => 'CC-BANK'],
+            [
+                'nome' => 'Centro Banco',
+                'tipo' => 'departamento',
                 'ativo' => true,
             ],
         );

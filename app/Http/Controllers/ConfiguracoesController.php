@@ -767,7 +767,21 @@ class ConfiguracoesController extends Controller
 
     public function updateNotificationPreferences(Request $request): RedirectResponse
     {
-        $data = $request->validate([
+        $fields = [
+            'email_notificacoes',
+            'alertas_pagamento',
+            'alertas_atividade',
+            'automacoes_financeiro',
+            'automacoes_eventos',
+            'automacoes_logistica',
+            'automacoes_faturas_financeiras',
+            'automacoes_movimentos_financeiros',
+            'automacoes_convocatorias_eventos',
+            'automacoes_requisicoes_logistica',
+            'automacoes_alertas_operacionais',
+        ];
+
+        $request->validate([
             'email_notificacoes' => 'boolean',
             'alertas_pagamento' => 'boolean',
             'alertas_atividade' => 'boolean',
@@ -781,6 +795,10 @@ class ConfiguracoesController extends Controller
             'automacoes_alertas_operacionais' => 'boolean',
         ]);
 
+        $data = collect($fields)
+            ->mapWithKeys(fn (string $field) => [$field => $request->boolean($field)])
+            ->all();
+
         $prefs = NotificationPreference::first();
 
         if ($prefs) {
@@ -788,6 +806,9 @@ class ConfiguracoesController extends Controller
         } else {
             NotificationPreference::create($data);
         }
+
+        Cache::forget('configuracoes:notificacoes');
+        Cache::forget('configuracoes:index:eager');
 
         return redirect()->route('configuracoes')
             ->with('success', 'Preferências atualizadas com sucesso!');

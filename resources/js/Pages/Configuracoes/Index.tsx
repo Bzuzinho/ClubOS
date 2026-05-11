@@ -196,6 +196,20 @@ interface NotificationPrefs {
     automacoes_alertas_operacionais: boolean;
 }
 
+const defaultNotificationPrefs: NotificationPrefs = {
+    email_notificacoes: false,
+    alertas_pagamento: false,
+    alertas_atividade: false,
+    automacoes_financeiro: false,
+    automacoes_eventos: false,
+    automacoes_logistica: false,
+    automacoes_faturas_financeiras: false,
+    automacoes_movimentos_financeiros: false,
+    automacoes_convocatorias_eventos: false,
+    automacoes_requisicoes_logistica: false,
+    automacoes_alertas_operacionais: false,
+};
+
 interface CommunicationDynamicSource {
     id: string;
     name: string;
@@ -614,17 +628,8 @@ export default function SettingsIndex({
         is_active: true,
     });
     const notificationPrefsForm = useForm<NotificationPrefs>({
-        email_notificacoes: initialNotificationPrefs?.email_notificacoes ?? true,
-        alertas_pagamento: initialNotificationPrefs?.alertas_pagamento ?? true,
-        alertas_atividade: initialNotificationPrefs?.alertas_atividade ?? true,
-        automacoes_financeiro: initialNotificationPrefs?.automacoes_financeiro ?? true,
-        automacoes_eventos: initialNotificationPrefs?.automacoes_eventos ?? true,
-        automacoes_logistica: initialNotificationPrefs?.automacoes_logistica ?? true,
-        automacoes_faturas_financeiras: initialNotificationPrefs?.automacoes_faturas_financeiras ?? true,
-        automacoes_movimentos_financeiros: initialNotificationPrefs?.automacoes_movimentos_financeiros ?? true,
-        automacoes_convocatorias_eventos: initialNotificationPrefs?.automacoes_convocatorias_eventos ?? true,
-        automacoes_requisicoes_logistica: initialNotificationPrefs?.automacoes_requisicoes_logistica ?? true,
-        automacoes_alertas_operacionais: initialNotificationPrefs?.automacoes_alertas_operacionais ?? true,
+        ...defaultNotificationPrefs,
+        ...initialNotificationPrefs,
     });
 
     // Generic form for CRUD operations
@@ -774,17 +779,8 @@ export default function SettingsIndex({
 
     useEffect(() => {
         notificationPrefsForm.setData({
-            email_notificacoes: initialNotificationPrefs?.email_notificacoes ?? true,
-            alertas_pagamento: initialNotificationPrefs?.alertas_pagamento ?? true,
-            alertas_atividade: initialNotificationPrefs?.alertas_atividade ?? true,
-            automacoes_financeiro: initialNotificationPrefs?.automacoes_financeiro ?? true,
-            automacoes_eventos: initialNotificationPrefs?.automacoes_eventos ?? true,
-            automacoes_logistica: initialNotificationPrefs?.automacoes_logistica ?? true,
-            automacoes_faturas_financeiras: initialNotificationPrefs?.automacoes_faturas_financeiras ?? true,
-            automacoes_movimentos_financeiros: initialNotificationPrefs?.automacoes_movimentos_financeiros ?? true,
-            automacoes_convocatorias_eventos: initialNotificationPrefs?.automacoes_convocatorias_eventos ?? true,
-            automacoes_requisicoes_logistica: initialNotificationPrefs?.automacoes_requisicoes_logistica ?? true,
-            automacoes_alertas_operacionais: initialNotificationPrefs?.automacoes_alertas_operacionais ?? true,
+            ...defaultNotificationPrefs,
+            ...initialNotificationPrefs,
         });
     }, [initialNotificationPrefs]);
 
@@ -1161,9 +1157,27 @@ export default function SettingsIndex({
     };
 
     const saveNotificationPreferences = () => {
+        notificationPrefsForm.transform((data) => ({
+            email_notificacoes: Boolean(data.email_notificacoes),
+            alertas_pagamento: Boolean(data.alertas_pagamento),
+            alertas_atividade: Boolean(data.alertas_atividade),
+            automacoes_financeiro: Boolean(data.automacoes_financeiro),
+            automacoes_eventos: Boolean(data.automacoes_eventos),
+            automacoes_logistica: Boolean(data.automacoes_logistica),
+            automacoes_faturas_financeiras: Boolean(data.automacoes_faturas_financeiras),
+            automacoes_movimentos_financeiros: Boolean(data.automacoes_movimentos_financeiros),
+            automacoes_convocatorias_eventos: Boolean(data.automacoes_convocatorias_eventos),
+            automacoes_requisicoes_logistica: Boolean(data.automacoes_requisicoes_logistica),
+            automacoes_alertas_operacionais: Boolean(data.automacoes_alertas_operacionais),
+        }));
+
         notificationPrefsForm.put(route('configuracoes.notificacoes.update'), {
             preserveScroll: true,
-            onSuccess: () => toast.success('Preferências de automação atualizadas'),
+            preserveState: true,
+            onSuccess: () => {
+                notificationPrefsForm.defaults(notificationPrefsForm.data);
+                toast.success('Preferências de automação atualizadas');
+            },
             onError: () => toast.error('Erro ao guardar preferências de automação.'),
         });
     };
