@@ -12,6 +12,7 @@ class GenerateMonthlyFeesCommand extends Command
         {--start= : Data inicial (YYYY-MM-DD)}
         {--end= : Data final (YYYY-MM-DD)}
         {--current-season : Opcao legada; usa o ciclo financeiro configurado}
+        {--force : Ignorar a configuracao de geracao automatica}
         {--include-inactive : Incluir utilizadores nao ativos}';
 
     protected $description = 'Gera mensalidades pelo ciclo financeiro configurado sem duplicar periodos';
@@ -23,8 +24,14 @@ class GenerateMonthlyFeesCommand extends Command
 
     public function handle(): int
     {
+        $manualTrigger = $this->option('force')
+            || $this->option('start')
+            || $this->option('end')
+            || $this->option('current-season');
+
         $filters = [
             'only_active' => !$this->option('include-inactive'),
+            'manual_trigger' => $manualTrigger,
         ];
 
         if ($this->option('start') || $this->option('end')) {
@@ -38,9 +45,7 @@ class GenerateMonthlyFeesCommand extends Command
                 $this->warn('A opcao --current-season esta obsoleta. Foi usado o ciclo financeiro configurado.');
             }
 
-            $summary = $this->monthlyFeeGenerationService->runScheduledGeneration([
-                'only_active' => !$this->option('include-inactive'),
-            ]);
+            $summary = $this->monthlyFeeGenerationService->runScheduledGeneration($filters);
         }
 
         $this->info(sprintf(

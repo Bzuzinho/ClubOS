@@ -3,8 +3,11 @@
 namespace Tests\Feature\Financeiro;
 
 use App\Models\ClubSetting;
+use App\Models\CommunicationCampaign;
+use App\Models\CommunicationDelivery;
 use App\Models\DadosFinanceiros;
 use App\Models\FiscalDocumentRequest;
+use App\Models\InAppAlert;
 use App\Models\Invoice;
 use App\Models\MonthlyFee;
 use App\Models\User;
@@ -324,13 +327,155 @@ class MonthlyFeeGenerationFlowTest extends TestCase
         ]);
 
         $output = Artisan::output();
+
         $commands = collect(app(Schedule::class)->events())
             ->map(fn ($event) => (string) $event->command)
             ->filter();
 
         $this->assertStringContainsString('Mensalidades geradas: 1', $output);
+        $this->assertFalse($commands->contains(fn (string $command) => str_contains($command, 'finance:generate-monthly-fees')));
+        $this->assertFalse($commands->contains(fn (string $command) => str_contains($command, 'finance:activate-due-monthly-fees')));
+
+        config()->set('clubos.automations.monthly_fee_scheduler', true);
+        require base_path('routes/console.php');
+
+        $commands = collect(app(Schedule::class)->events())
+            ->map(fn ($event) => (string) $event->command)
+            ->filter();
+
         $this->assertTrue($commands->contains(fn (string $command) => str_contains($command, 'finance:generate-monthly-fees')));
         $this->assertTrue($commands->contains(fn (string $command) => str_contains($command, 'finance:activate-due-monthly-fees')));
+    }
+
+    public function test_generate_command_does_not_create_invoices_without_club_settings(): void
+    {
+        $plan = $this->createMonthlyPlan();
+        $user = $this->createEligibleUser($plan, [
+            'data_inscricao' => '2026-05-01',
+        ]);
+
+        $exitCode = Artisan::call('finance:generate-monthly-fees');
+
+        $this->assertSame(0, $exitCode);
+        $this->assertStringContainsString('Mensalidades geradas: 0', Artisan::output());
+        $this->assertSame(0, Invoice::query()->where('user_id', $user->id)->where('tipo', 'mensalidade')->count());
+    }
+
+    public function test_generate_command_does_not_create_invoices_when_generation_is_disabled(): void
+    {
+        $plan = $this->createMonthlyPlan();
+        $user = $this->createEligibleUser($plan, [
+            'data_inscricao' => '2026-05-01',
+        ]);
+        $this->createClubSettings([
+            'monthly_fee_generation_enabled' => false,
+        ]);
+
+        $exitCode = Artisan::call('finance:generate-monthly-fees');
+
+        $this->assertSame(0, $exitCode);
+        $this->assertStringContainsString('Mensalidades geradas: 0', Artisan::output());
+        $this->assertSame(0, Invoice::query()->where('user_id', $user->id)->where('tipo', 'mensalidade')->count());
+    }
+
+    public function test_generate_command_creates_expected_monthly_fees_when_generation_is_enabled(): void
+    {
+        $plan = $this->createMonthlyPlan();
+        $user = $this->createEligibleUser($plan, [
+            'data_inscricao' => '2026-09-05',
+        ]);
+        $this->createClubSettings([
+            'monthly_fee_generation_enabled' => true,
+        ]);
+
+        Carbon::setTestNow('2026-09-10');
+
+        $exitCode = Artisan::call('finance:generate-monthly-fees');
+
+        Carbon::setTestNow();
+
+        $this->assertSame(0, $exitCode);
+        $this->assertStringContainsString('Mensalidades geradas: 11', Artisan::output());
+        $this->assertSame(11, Invoice::query()->where('user_id', $user->id)->where('tipo', 'mensalidade')->count());
+    }
+
+    public function test_generate_command_with_explicit_period_can_override_disabled_automation(): void
+    {
+        $plan = $this->createMonthlyPlan();
+        $user = $this->createEligibleUser($plan, [
+            'data_inscricao' => '2026-05-01',
+        ]);
+        $this->createClubSettings([
+            'monthly_fee_generation_enabled' => false,
+        ]);
+
+        $exitCode = Artisan::call('finance:generate-monthly-fees', [
+            '--start' => '2026-05-01',
+            '--end' => '2026-06-01',
+        ]);
+
+        $this->assertSame(0, $exitCode);
+        $this->assertStringContainsString('Mensalidades geradas: 2', Artisan::output());
+        $this->assertSame(2, Invoice::query()->where('user_id', $user->id)->where('tipo', 'mensalidade')->count());
+    }
+
+    public function test_activate_command_returns_zero_without_club_settings(): void
+    {
+        $user = User::factory()->create();
+        $invoice = $this->createHiddenMonthlyInvoice($user, '2026-05', '2026-05-01');
+
+        $exitCode = Artisan::call('finance:activate-due-monthly-fees');
+
+        $this->assertSame(0, $exitCode);
+        $this->assertStringContainsString('Mensalidades ativadas: 0', Artisan::output());
+        $this->assertTrue((bool) $invoice->fresh()->oculta);
+    }
+
+    public function test_activate_command_does_not_activate_hidden_invoices_when_auto_activation_is_disabled(): void
+    {
+        $user = User::factory()->create();
+        $invoice = $this->createHiddenMonthlyInvoice($user, '2026-05', '2026-05-01');
+        $this->createClubSettings([
+            'monthly_fee_auto_activate_due' => false,
+        ]);
+
+        $exitCode = Artisan::call('finance:activate-due-monthly-fees');
+
+        $this->assertSame(0, $exitCode);
+        $this->assertStringContainsString('Mensalidades ativadas: 0', Artisan::output());
+        $this->assertTrue((bool) $invoice->fresh()->oculta);
+    }
+
+    public function test_activate_command_activates_due_hidden_invoices_when_auto_activation_is_enabled(): void
+    {
+        $user = User::factory()->create();
+        $invoice = $this->createHiddenMonthlyInvoice($user, '2026-05', '2026-05-01');
+        $this->createClubSettings([
+            'monthly_fee_auto_activate_due' => true,
+        ]);
+
+        $exitCode = Artisan::call('finance:activate-due-monthly-fees');
+
+        $this->assertSame(0, $exitCode);
+        $this->assertStringContainsString('Mensalidades ativadas: 1', Artisan::output());
+        $this->assertFalse((bool) $invoice->fresh()->oculta);
+    }
+
+    public function test_monthly_fee_generation_command_does_not_create_communication_artifacts(): void
+    {
+        $plan = $this->createMonthlyPlan();
+        $this->createEligibleUser($plan, [
+            'data_inscricao' => '2026-05-01',
+        ]);
+        $this->createClubSettings([
+            'monthly_fee_generation_enabled' => true,
+        ]);
+
+        Artisan::call('finance:generate-monthly-fees');
+
+        $this->assertSame(0, CommunicationCampaign::query()->count());
+        $this->assertSame(0, CommunicationDelivery::query()->count());
+        $this->assertSame(0, InAppAlert::query()->count());
     }
 
     private function createMonthlyPlan(float $amount = 40.00): MonthlyFee
@@ -374,5 +519,23 @@ class MonthlyFeeGenerationFlowTest extends TestCase
             'monthly_fee_generate_months_ahead' => null,
             'monthly_fee_default_period_mode' => 'financial_cycle',
         ], $overrides));
+    }
+
+    private function createHiddenMonthlyInvoice(User $user, string $month, string $dueDate): Invoice
+    {
+        return Invoice::create([
+            'user_id' => $user->id,
+            'data_fatura' => $month . '-01',
+            'mes' => $month,
+            'data_emissao' => $month . '-01',
+            'data_vencimento' => $dueDate,
+            'valor_total' => 40,
+            'valor_pago' => 0,
+            'valor_em_aberto' => 40,
+            'oculta' => true,
+            'estado_pagamento' => 'pendente',
+            'tipo' => 'mensalidade',
+            'origem_tipo' => 'manual',
+        ]);
     }
 }

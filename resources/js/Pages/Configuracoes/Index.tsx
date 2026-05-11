@@ -672,12 +672,12 @@ export default function SettingsIndex({
         nif: clubSettings?.nif || '',
         logo_url: clubSettings?.logo_url || '',
         iban: clubSettings?.iban || '',
-        monthly_fee_generation_enabled: clubSettings?.monthly_fee_generation_enabled ?? true,
+        monthly_fee_generation_enabled: clubSettings?.monthly_fee_generation_enabled ?? false,
         monthly_fee_start_month: clubSettings?.monthly_fee_start_month ?? 9,
         monthly_fee_end_month: clubSettings?.monthly_fee_end_month ?? 7,
         monthly_fee_due_day: clubSettings?.monthly_fee_due_day ?? 1,
         monthly_fee_hide_future: clubSettings?.monthly_fee_hide_future ?? true,
-        monthly_fee_auto_activate_due: clubSettings?.monthly_fee_auto_activate_due ?? true,
+        monthly_fee_auto_activate_due: clubSettings?.monthly_fee_auto_activate_due ?? false,
         monthly_fee_respect_registration_date: clubSettings?.monthly_fee_respect_registration_date ?? true,
         monthly_fee_generate_months_ahead: clubSettings?.monthly_fee_generate_months_ahead ?? '',
         monthly_fee_default_period_mode: clubSettings?.monthly_fee_default_period_mode || 'financial_cycle',
@@ -743,12 +743,12 @@ export default function SettingsIndex({
             nif: clubSettings?.nif || '',
             logo_url: clubSettings?.logo_url || '',
             iban: clubSettings?.iban || '',
-            monthly_fee_generation_enabled: clubSettings?.monthly_fee_generation_enabled ?? true,
+            monthly_fee_generation_enabled: clubSettings?.monthly_fee_generation_enabled ?? false,
             monthly_fee_start_month: clubSettings?.monthly_fee_start_month ?? 9,
             monthly_fee_end_month: clubSettings?.monthly_fee_end_month ?? 7,
             monthly_fee_due_day: clubSettings?.monthly_fee_due_day ?? 1,
             monthly_fee_hide_future: clubSettings?.monthly_fee_hide_future ?? true,
-            monthly_fee_auto_activate_due: clubSettings?.monthly_fee_auto_activate_due ?? true,
+            monthly_fee_auto_activate_due: clubSettings?.monthly_fee_auto_activate_due ?? false,
             monthly_fee_respect_registration_date: clubSettings?.monthly_fee_respect_registration_date ?? true,
             monthly_fee_generate_months_ahead: clubSettings?.monthly_fee_generate_months_ahead ?? '',
             monthly_fee_default_period_mode: clubSettings?.monthly_fee_default_period_mode || 'financial_cycle',
@@ -1005,12 +1005,12 @@ export default function SettingsIndex({
     };
 
     const resetFinancialCycleDefaults = () => {
-        clubForm.setData('monthly_fee_generation_enabled', true);
+        clubForm.setData('monthly_fee_generation_enabled', false);
         clubForm.setData('monthly_fee_start_month', 9);
         clubForm.setData('monthly_fee_end_month', 7);
         clubForm.setData('monthly_fee_due_day', 1);
         clubForm.setData('monthly_fee_hide_future', true);
-        clubForm.setData('monthly_fee_auto_activate_due', true);
+        clubForm.setData('monthly_fee_auto_activate_due', false);
         clubForm.setData('monthly_fee_respect_registration_date', true);
         clubForm.setData('monthly_fee_generate_months_ahead', '');
         clubForm.setData('monthly_fee_default_period_mode', 'financial_cycle');
@@ -1865,7 +1865,7 @@ export default function SettingsIndex({
                                             <div className="flex items-center justify-between gap-4">
                                                 <div>
                                                     <Label htmlFor="monthly_fee_generation_enabled" className="text-sm font-medium">Gerar mensalidades automaticamente</Label>
-                                                    <p className="text-xs text-muted-foreground">Ativa a geracao automatica e manual com base no ciclo financeiro configurado.</p>
+                                                    <p className="text-xs text-muted-foreground">Ativa apenas a geracao automatica agendada; a execucao manual com opcoes explicitas continua disponivel.</p>
                                                 </div>
                                                 <Switch
                                                     id="monthly_fee_generation_enabled"
@@ -1957,7 +1957,7 @@ export default function SettingsIndex({
                                             <div className="flex items-center justify-between gap-4">
                                                 <div>
                                                     <Label htmlFor="monthly_fee_auto_activate_due" className="text-sm font-medium">Ativar mensalidades vencidas automaticamente</Label>
-                                                    <p className="text-xs text-muted-foreground">Quando o vencimento chega, as mensalidades ocultas passam a visiveis automaticamente.</p>
+                                                    <p className="text-xs text-muted-foreground">Quando ligado, o processo agendado torna visiveis as mensalidades ocultas cujo vencimento chegou.</p>
                                                 </div>
                                                 <Switch id="monthly_fee_auto_activate_due" checked={clubForm.data.monthly_fee_auto_activate_due} onCheckedChange={(checked) => clubForm.setData('monthly_fee_auto_activate_due', checked)} />
                                             </div>

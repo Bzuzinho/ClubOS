@@ -7,7 +7,7 @@ use Illuminate\Console\Command;
 
 class ActivateDueMonthlyFeesCommand extends Command
 {
-    protected $signature = 'finance:activate-due-monthly-fees';
+    protected $signature = 'finance:activate-due-monthly-fees {--force : Ignorar a configuracao de ativacao automatica}';
 
     protected $description = 'Ativa mensalidades ocultas cujo vencimento ja foi atingido';
 
@@ -18,7 +18,10 @@ class ActivateDueMonthlyFeesCommand extends Command
 
     public function handle(): int
     {
-        $activated = $this->monthlyFeeGenerationService->activateDueInvoices();
+        $activated = $this->monthlyFeeGenerationService->activateDueInvoices(null, [
+            'force' => (bool) $this->option('force'),
+            'respect_auto_activation_setting' => true,
+        ]);
 
         $this->info(sprintf('Mensalidades ativadas: %d', $activated));
 

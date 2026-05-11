@@ -38,7 +38,7 @@ class MonthlyFeeGenerationService
         $summary = $this->emptySummary();
         $summary['users_processed'] = 1;
 
-        if (($settings['generation_enabled'] ?? true) !== true && ($options['manual_trigger'] ?? false) !== true) {
+        if ($this->shouldBlockAutomaticGeneration($settings, $options)) {
             $summary['generation_disabled'] = true;
 
             return $summary;
@@ -198,7 +198,7 @@ class MonthlyFeeGenerationService
         $settings = $this->resolveSettings($filters);
         $summary = $this->emptySummary();
 
-        if (($settings['generation_enabled'] ?? true) !== true && ($filters['manual_trigger'] ?? false) !== true) {
+        if ($this->shouldBlockAutomaticGeneration($settings, $filters)) {
             $summary['generation_disabled'] = true;
 
             return $summary;
@@ -277,7 +277,7 @@ class MonthlyFeeGenerationService
     public function activateDueInvoices(?Carbon $today = null, array $options = []): int
     {
         $settings = $this->resolveSettings($options);
-        if (($settings['auto_activate_due'] ?? true) !== true && ($options['force'] ?? false) !== true) {
+        if ($this->shouldBlockAutomaticActivation($settings, $options)) {
             return 0;
         }
 
@@ -308,13 +308,52 @@ class MonthlyFeeGenerationService
      */
     public function runScheduledGeneration(array $options = []): array
     {
-        $summary = $this->generateConfiguredCycle($options);
+        $scheduledOptions = array_merge($options, [
+            'respect_generation_setting' => true,
+            'respect_auto_activation_setting' => true,
+        ]);
+
+        $summary = $this->generateConfiguredCycle($scheduledOptions);
         $summary['activated_count'] = $this->activateDueInvoices(
-            isset($options['today']) && $options['today'] instanceof Carbon ? $options['today'] : null,
-            $options,
+            isset($scheduledOptions['today']) && $scheduledOptions['today'] instanceof Carbon ? $scheduledOptions['today'] : null,
+            $scheduledOptions,
         );
 
         return $summary;
+    }
+
+    /**
+     * @param array<string, mixed> $settings
+     * @param array<string, mixed> $options
+     */
+    private function shouldBlockAutomaticGeneration(array $settings, array $options): bool
+    {
+        if (($options['manual_trigger'] ?? false) === true) {
+            return false;
+        }
+
+        if (($options['respect_generation_setting'] ?? false) !== true) {
+            return false;
+        }
+
+        return ($settings['generation_enabled'] ?? false) !== true;
+    }
+
+    /**
+     * @param array<string, mixed> $settings
+     * @param array<string, mixed> $options
+     */
+    private function shouldBlockAutomaticActivation(array $settings, array $options): bool
+    {
+        if (($options['force'] ?? false) === true) {
+            return false;
+        }
+
+        if (($options['respect_auto_activation_setting'] ?? false) !== true) {
+            return false;
+        }
+
+        return ($settings['auto_activate_due'] ?? false) !== true;
     }
 
     private function createMonthlyInvoice(User $user, MonthlyFee $plan, Carbon $period, Carbon $today, array $options = [], bool $loadItems = false): Invoice

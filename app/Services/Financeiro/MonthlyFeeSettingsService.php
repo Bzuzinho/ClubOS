@@ -15,13 +15,13 @@ class MonthlyFeeSettingsService
         $settings = ClubSetting::query()->first();
 
         return [
-            'generation_enabled' => $settings?->monthly_fee_generation_enabled ?? true,
+            'generation_enabled' => $this->toBoolean($settings?->monthly_fee_generation_enabled, false),
             'start_month' => $this->normalizeMonth($settings?->monthly_fee_start_month ?? 9),
             'end_month' => $this->normalizeMonth($settings?->monthly_fee_end_month ?? 7),
             'due_day' => $this->normalizeDueDay($settings?->monthly_fee_due_day ?? 1),
-            'hide_future' => $settings?->monthly_fee_hide_future ?? true,
-            'auto_activate_due' => $settings?->monthly_fee_auto_activate_due ?? true,
-            'respect_registration_date' => $settings?->monthly_fee_respect_registration_date ?? true,
+            'hide_future' => $this->toBoolean($settings?->monthly_fee_hide_future, true),
+            'auto_activate_due' => $this->toBoolean($settings?->monthly_fee_auto_activate_due, false),
+            'respect_registration_date' => $this->toBoolean($settings?->monthly_fee_respect_registration_date, true),
             'generate_months_ahead' => $this->normalizeMonthsAhead($settings?->monthly_fee_generate_months_ahead),
             'default_period_mode' => (string) ($settings?->monthly_fee_default_period_mode ?: 'financial_cycle'),
         ];
@@ -118,5 +118,20 @@ class MonthlyFeeSettingsService
         }
 
         return max(0, (int) $value);
+    }
+
+    private function toBoolean(mixed $value, bool $default): bool
+    {
+        if ($value === null) {
+            return $default;
+        }
+
+        if (is_bool($value)) {
+            return $value;
+        }
+
+        $normalized = filter_var($value, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+
+        return $normalized ?? $default;
     }
 }

@@ -63,7 +63,9 @@ class FinanceiroController extends Controller
      */
     private function buildIndexPayload(): array
     {
-        $this->monthlyFeeGenerationService->activateDueInvoices();
+        $this->monthlyFeeGenerationService->activateDueInvoices(null, [
+            'respect_auto_activation_setting' => true,
+        ]);
 
         try {
             $faturas = Cache::remember('financeiro:faturas', 60, fn () =>
