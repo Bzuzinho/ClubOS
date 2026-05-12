@@ -4,6 +4,7 @@ namespace Tests\Feature\Financeiro;
 
 use App\Models\AccountCredit;
 use App\Models\BankReconciliationAlias;
+use App\Models\BankReconciliationRepository;
 use App\Models\BankReconciliationSuggestion;
 use App\Models\BankStatement;
 use App\Models\CostCenter;
@@ -18,6 +19,7 @@ use App\Models\User;
 use App\Models\UserType;
 use App\Services\Financeiro\BankReconciliationSuggestionService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
 
 class BankReconciliationSuggestionFlowTest extends TestCase
@@ -30,6 +32,31 @@ class BankReconciliationSuggestionFlowTest extends TestCase
         $user = $this->createFinanceUser();
         $invoice = $this->createInvoice($user, 25.00, 'mensalidade', '2026-05-10');
         $statement = $this->createBankStatement(25.00, 'Pagamento John Exact');
+
+        $response = $this->actingAs($admin)->postJson(route('financeiro.bank-statements.generate-suggestions', $statement));
+
+        $response->assertOk();
+
+        $matchingSuggestion = collect($response->json('suggestions'))
+            ->first(function (array $suggestion) use ($user, $invoice) {
+                return ($suggestion['user_id'] ?? null) === $user->id
+                    && collect($suggestion['suggested_allocations'] ?? [])->contains(function (array $allocation) use ($invoice) {
+                        return ($allocation['invoice_id'] ?? null) === $invoice->id
+                            && (float) ($allocation['amount'] ?? 0) === 25.0;
+                    });
+            });
+
+        $this->assertNotNull($matchingSuggestion);
+    }
+
+    public function test_it_gracefully_skips_repository_lookup_when_repository_table_is_missing(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $user = $this->createFinanceUser(['nome_completo' => 'Repo Missing Table']);
+        $invoice = $this->createInvoice($user, 25.00, 'mensalidade', '2026-05-10');
+        $statement = $this->createBankStatement(25.00, 'Pagamento Repo Missing Table');
+
+        Schema::drop('bank_reconciliation_repositories');
 
         $response = $this->actingAs($admin)->postJson(route('financeiro.bank-statements.generate-suggestions', $statement));
 
@@ -102,6 +129,79 @@ class BankReconciliationSuggestionFlowTest extends TestCase
         $this->assertNotNull($matchingSuggestion);
     }
 
+    public function test_it_generates_suggestion_when_guardian_has_legacy_educandos_attribute_values(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $guardian = $this->createFinanceUser([
+            'nome_completo' => 'Ricardo Jorge Vitorino Ferreira',
+        ]);
+        $family = $guardian->families->firstOrFail();
+        $child = $this->createFamilyMember($family, [
+            'nome_completo' => 'Vania Raquel Leao',
+            'numero_socio' => '5302',
+            'email' => 'vania-raquel@example.com',
+        ]);
+        $guardian->educandos()->attach($child->id);
+        $guardian->forceFill(['educandos' => [$child->id]])->save();
+
+        $invoice = $this->createInvoice($child, 22.50, 'mensalidade', '2026-01-10', [
+            'data_fatura' => '2026-01-01',
+            'data_emissao' => '2026-01-01',
+            'mes' => '2026-01',
+            'estado_pagamento' => 'vencido',
+        ]);
+        $statement = $this->createBankStatement(22.50, 'TRF CR INTRAB 189 DE RICARDO JORGE VITORINO FERREIRA');
+
+        $response = $this->actingAs($admin)->postJson(route('financeiro.bank-statements.generate-suggestions', $statement));
+
+        $response->assertOk();
+
+        $matchingSuggestion = collect($response->json('suggestions'))
+            ->first(function (array $suggestion) use ($family, $invoice) {
+                return ($suggestion['family_id'] ?? null) === $family->id
+                    && collect($suggestion['suggested_allocations'] ?? [])->contains(function (array $allocation) use ($invoice) {
+                        return ($allocation['invoice_id'] ?? null) === $invoice->id;
+                    });
+            });
+
+        $this->assertNotNull($matchingSuggestion);
+    }
+
+    public function test_it_generates_family_suggestion_when_reference_matches_family_name(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $guardian = $this->createFinanceUser([
+            'nome_completo' => 'Helena Costa',
+            'email' => 'helena.costa@example.com',
+            'numero_socio' => '5201',
+        ]);
+        $family = $guardian->families->firstOrFail();
+        $family->update(['nome' => 'Familia Costa']);
+
+        $child = $this->createFamilyMember($family, [
+            'nome_completo' => 'Filho Costa',
+            'email' => 'filho-costa@example.com',
+            'numero_socio' => '5202',
+        ]);
+
+        $invoice = $this->createInvoice($child, 35.00, 'mensalidade', '2026-05-05');
+        $statement = $this->createBankStatement(35.00, 'TRF MB', 'Pagamento Familia Costa');
+
+        $response = $this->actingAs($admin)
+            ->postJson(route('financeiro.bank-statements.generate-suggestions', $statement))
+            ->assertOk();
+
+        $matchingSuggestion = collect($response->json('suggestions'))
+            ->first(function (array $suggestion) use ($family, $invoice) {
+                return ($suggestion['family_id'] ?? null) === $family->id
+                    && collect($suggestion['suggested_allocations'] ?? [])->contains(function (array $allocation) use ($invoice) {
+                        return ($allocation['invoice_id'] ?? null) === $invoice->id;
+                    });
+            });
+
+        $this->assertNotNull($matchingSuggestion);
+    }
+
     public function test_confirmed_alias_increases_suggestion_score(): void
     {
         $admin = User::factory()->admin()->create();
@@ -127,7 +227,9 @@ class BankReconciliationSuggestionFlowTest extends TestCase
         ]);
 
         $withAliasResponse = $this->actingAs($admin)
-            ->postJson(route('financeiro.bank-statements.generate-suggestions', $statement))
+            ->postJson(route('financeiro.bank-statements.generate-suggestions', $statement), [
+                'force_regeneration' => true,
+            ])
             ->assertOk();
 
         $withAlias = $withAliasResponse->json('suggestions.0.score');
@@ -239,18 +341,25 @@ class BankReconciliationSuggestionFlowTest extends TestCase
         $this->assertContains('stale_invoice_period', $januaryScore['matched_rules']);
     }
 
-    public function test_same_month_monthly_fee_ranks_ahead_of_older_monthly_combination(): void
+    public function test_history_prioritizes_oldest_current_and_overdue_monthly_fees(): void
     {
         $admin = User::factory()->admin()->create();
         $user = $this->createFinanceUser([
-            'nome_completo' => 'Carla Prioridade Mes',
-            'email' => 'carla-prioridade@example.com',
+            'nome_completo' => 'Carla Historico Mensal',
+            'email' => 'carla-historico@example.com',
         ]);
+
+        $this->createConfirmedPaymentHistory($user, 30.00, '2025-12-10');
 
         $januaryInvoice = $this->createInvoice($user, 30.00, 'mensalidade', '2026-01-10', [
             'data_fatura' => '2026-01-01',
             'data_emissao' => '2026-01-01',
             'mes' => '2026-01',
+        ]);
+        $februaryInvoice = $this->createInvoice($user, 30.00, 'mensalidade', '2026-02-10', [
+            'data_fatura' => '2026-02-01',
+            'data_emissao' => '2026-02-01',
+            'mes' => '2026-02',
         ]);
         $marchInvoice = $this->createInvoice($user, 30.00, 'mensalidade', '2026-03-10', [
             'data_fatura' => '2026-03-01',
@@ -259,8 +368,8 @@ class BankReconciliationSuggestionFlowTest extends TestCase
         ]);
         $statement = BankStatement::create([
             'conta' => 'PT50-0001',
-            'data_movimento' => '2026-03-12',
-            'descricao' => 'TRF Carla Prioridade Mes',
+            'data_movimento' => '2026-03-15',
+            'descricao' => 'TRF Carla Historico Mensal',
             'valor' => 60.00,
             'saldo' => 1000.00,
             'referencia' => 'TRX-6000',
@@ -277,8 +386,11 @@ class BankReconciliationSuggestionFlowTest extends TestCase
         $suggestions = collect($response->json('suggestions'));
         $topSuggestionInvoiceIds = collect($suggestions->first()['suggested_allocations'] ?? [])->pluck('invoice_id')->all();
 
-        $this->assertContains($marchInvoice->id, $topSuggestionInvoiceIds);
-        $this->assertNotContains($januaryInvoice->id, $topSuggestionInvoiceIds);
+        $this->assertEqualsCanonicalizing([
+            $januaryInvoice->id,
+            $februaryInvoice->id,
+        ], $topSuggestionInvoiceIds);
+        $this->assertNotContains($marchInvoice->id, $topSuggestionInvoiceIds);
     }
 
     public function test_confirming_suggestion_creates_payment_and_allocations(): void
@@ -304,6 +416,175 @@ class BankReconciliationSuggestionFlowTest extends TestCase
             'amount' => 45.00,
             'status' => PaymentAllocation::STATUS_CONFIRMED,
         ]);
+        $this->assertDatabaseHas('bank_reconciliation_repositories', [
+            'primary_user_id' => $user->id,
+            'family_id' => $user->families->first()?->id,
+        ]);
+    }
+
+    public function test_repository_match_prefers_sum_of_due_monthly_fees_over_future_monthly_value_match(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $user = $this->createFinanceUser([
+            'nome_completo' => 'Repo Mensalidades',
+            'numero_socio' => '7101',
+            'email' => 'repo-mensalidades@example.com',
+        ]);
+        $familyId = $user->families->first()?->id;
+
+        BankReconciliationRepository::create([
+            'signature' => $this->makeRepositorySignature('PT50-0001', 'Transferencia Repo Mensalidades', 'REPO-REF-01'),
+            'conta' => 'PT50-0001',
+            'descricao' => 'Transferencia Repo Mensalidades',
+            'referencia' => 'REPO-REF-01',
+            'normalized_description' => 'TRANSFERENCIA REPO MENSALIDADES',
+            'normalized_reference' => 'REPO REF 01',
+            'primary_user_id' => $user->id,
+            'family_id' => $familyId,
+            'matched_user_ids' => [$user->id],
+            'match_count' => 3,
+            'last_reconciled_at' => now(),
+        ]);
+
+        $januaryInvoice = $this->createInvoice($user, 30.00, 'mensalidade', '2026-01-10', [
+            'data_fatura' => '2026-01-01',
+            'data_emissao' => '2026-01-01',
+            'mes' => '2026-01',
+            'estado_pagamento' => 'vencido',
+        ]);
+        $februaryInvoice = $this->createInvoice($user, 30.00, 'mensalidade', '2026-02-10', [
+            'data_fatura' => '2026-02-01',
+            'data_emissao' => '2026-02-01',
+            'mes' => '2026-02',
+            'estado_pagamento' => 'vencido',
+        ]);
+        $aprilInvoice = $this->createInvoice($user, 30.00, 'mensalidade', '2026-04-10', [
+            'data_fatura' => '2026-04-01',
+            'data_emissao' => '2026-04-01',
+            'mes' => '2026-04',
+        ]);
+
+        $statement = BankStatement::create([
+            'conta' => 'PT50-0001',
+            'data_movimento' => '2026-03-15',
+            'descricao' => 'Transferencia Repo Mensalidades',
+            'valor' => 60.00,
+            'saldo' => 1000.00,
+            'referencia' => 'REPO-REF-01',
+            'conciliado' => false,
+            'valor_conciliado' => 0,
+            'valor_por_conciliar' => 60.00,
+            'conciliacao_status' => 'unreconciled',
+        ]);
+
+        $response = $this->actingAs($admin)
+            ->postJson(route('financeiro.bank-statements.generate-suggestions', $statement))
+            ->assertOk();
+
+        $topSuggestionInvoiceIds = collect($response->json('suggestions.0.suggested_allocations') ?? [])
+            ->pluck('invoice_id')
+            ->all();
+
+        $this->assertEqualsCanonicalizing([$januaryInvoice->id, $februaryInvoice->id], $topSuggestionInvoiceIds);
+        $this->assertNotContains($aprilInvoice->id, $topSuggestionInvoiceIds);
+        $this->assertContains('repository_match', $response->json('suggestions.0.matched_rules'));
+    }
+
+    public function test_repository_match_falls_back_to_oldest_due_monthly_fee_when_total_due_does_not_match(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $user = $this->createFinanceUser([
+            'nome_completo' => 'Repo Mais Antiga',
+            'numero_socio' => '7102',
+            'email' => 'repo-mais-antiga@example.com',
+        ]);
+        $familyId = $user->families->first()?->id;
+
+        BankReconciliationRepository::create([
+            'signature' => $this->makeRepositorySignature('PT50-0001', 'Transferencia Repo Mais Antiga', 'REPO-REF-02'),
+            'conta' => 'PT50-0001',
+            'descricao' => 'Transferencia Repo Mais Antiga',
+            'referencia' => 'REPO-REF-02',
+            'normalized_description' => 'TRANSFERENCIA REPO MAIS ANTIGA',
+            'normalized_reference' => 'REPO REF 02',
+            'primary_user_id' => $user->id,
+            'family_id' => $familyId,
+            'matched_user_ids' => [$user->id],
+            'match_count' => 2,
+            'last_reconciled_at' => now(),
+        ]);
+
+        $januaryInvoice = $this->createInvoice($user, 30.00, 'mensalidade', '2026-01-10', [
+            'data_fatura' => '2026-01-01',
+            'data_emissao' => '2026-01-01',
+            'mes' => '2026-01',
+            'estado_pagamento' => 'vencido',
+        ]);
+        $this->createInvoice($user, 30.00, 'mensalidade', '2026-02-10', [
+            'data_fatura' => '2026-02-01',
+            'data_emissao' => '2026-02-01',
+            'mes' => '2026-02',
+            'estado_pagamento' => 'vencido',
+        ]);
+
+        $statement = BankStatement::create([
+            'conta' => 'PT50-0001',
+            'data_movimento' => '2026-03-15',
+            'descricao' => 'Transferencia Repo Mais Antiga',
+            'valor' => 30.00,
+            'saldo' => 1000.00,
+            'referencia' => 'REPO-REF-02',
+            'conciliado' => false,
+            'valor_conciliado' => 0,
+            'valor_por_conciliar' => 30.00,
+            'conciliacao_status' => 'unreconciled',
+        ]);
+
+        $response = $this->actingAs($admin)
+            ->postJson(route('financeiro.bank-statements.generate-suggestions', $statement))
+            ->assertOk();
+
+        $topSuggestionInvoiceIds = collect($response->json('suggestions.0.suggested_allocations') ?? [])
+            ->pluck('invoice_id')
+            ->all();
+
+        $this->assertSame([$januaryInvoice->id], $topSuggestionInvoiceIds);
+    }
+
+    public function test_future_monthly_invoice_without_repository_match_does_not_reach_high_confidence(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $user = $this->createFinanceUser([
+            'nome_completo' => 'Futuro Sem Repositorio',
+            'numero_socio' => '7103',
+            'email' => 'futuro-sem-repositorio@example.com',
+        ]);
+        $this->createInvoice($user, 30.00, 'mensalidade', '2026-04-10', [
+            'data_fatura' => '2026-04-01',
+            'data_emissao' => '2026-04-01',
+            'mes' => '2026-04',
+        ]);
+
+        $statement = BankStatement::create([
+            'conta' => 'PT50-0001',
+            'data_movimento' => '2026-03-15',
+            'descricao' => 'Transferencia Futuro Sem Repositorio',
+            'valor' => 30.00,
+            'saldo' => 1000.00,
+            'referencia' => 'FUT-REF-01',
+            'conciliado' => false,
+            'valor_conciliado' => 0,
+            'valor_por_conciliar' => 30.00,
+            'conciliacao_status' => 'unreconciled',
+        ]);
+
+        $response = $this->actingAs($admin)
+            ->postJson(route('financeiro.bank-statements.generate-suggestions', $statement))
+            ->assertOk();
+
+        $topScore = (int) ($response->json('suggestions.0.score') ?? 0);
+
+        $this->assertLessThan(80, $topScore);
     }
 
     public function test_confirming_suggestion_marks_statement_reconciled_when_fully_treated(): void
@@ -347,9 +628,31 @@ class BankReconciliationSuggestionFlowTest extends TestCase
     {
         $admin = User::factory()->admin()->create();
         $user = $this->createFinanceUser();
+        $this->createConfirmedPaymentHistory($user, 30.00);
         $invoice = $this->createInvoice($user, 100.00);
         $statement = $this->createBankStatement(40.00, 'Pagamento parcial ' . $user->nome_completo);
-        $suggestion = $this->generateSuggestion($admin, $statement, [$invoice]);
+        $suggestion = BankReconciliationSuggestion::create([
+            'bank_statement_id' => $statement->id,
+            'user_id' => $user->id,
+            'family_id' => $user->families->first()?->id,
+            'status' => BankReconciliationSuggestion::STATUS_SUGGESTED,
+            'score' => 85,
+            'confidence_label' => BankReconciliationSuggestion::CONFIDENCE_HIGH,
+            'total_bank_amount' => 40.00,
+            'total_allocated_amount' => 40.00,
+            'unallocated_amount' => 0,
+            'suggested_allocations' => [[
+                'invoice_id' => $invoice->id,
+                'amount' => 40.00,
+                'reason' => 'pagamento parcial manualmente semeado para teste',
+            ]],
+            'matched_rules' => ['manual_partial_seed'],
+            'explanation' => 'Sugestao parcial semeada para validar a confirmacao.',
+            'metadata' => [
+                'allocation_signature' => $this->makeTestAllocationSignature($invoice->id, 40.00),
+                'candidate_invoice_ids' => [$invoice->id],
+            ],
+        ]);
 
         $this->actingAs($admin)
             ->postJson(route('financeiro.bank-reconciliation-suggestions.confirm', $suggestion))
@@ -437,6 +740,7 @@ class BankReconciliationSuggestionFlowTest extends TestCase
     {
         $admin = User::factory()->admin()->create();
         $user = $this->createFinanceUser();
+        $this->createConfirmedPaymentHistory($user, 30.00);
         $invoice = $this->createInvoice($user, 30.00);
         $statement = $this->createBankStatement(50.00, 'Pagamento com excedente ' . $user->nome_completo);
         $suggestion = $this->generateSuggestion($admin, $statement, [$invoice]);
@@ -475,6 +779,64 @@ class BankReconciliationSuggestionFlowTest extends TestCase
 
         $this->assertSame(BankReconciliationSuggestion::STATUS_REJECTED, $suggestion->status);
         $this->assertSame('Falso positivo', $suggestion->rejection_reason);
+    }
+
+    public function test_low_score_fallback_suggestions_without_history_are_ignored(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $user = $this->createFinanceUser(['nome_completo' => 'Sem Historico Sugestao Fraca']);
+        $statement = $this->createBankStatement(40.00, 'Pagamento parcial sem historico');
+        $invoice = $this->createInvoice($user, 100.00, 'mensalidade', '2026-05-10');
+
+        $response = $this->actingAs($admin)
+            ->postJson(route('financeiro.bank-statements.generate-suggestions', $statement));
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('generated_count', 0)
+            ->assertJsonPath('suggestions', []);
+
+        $this->assertDatabaseMissing('bank_reconciliation_suggestions', [
+            'bank_statement_id' => $statement->id,
+            'user_id' => $user->id,
+            'status' => BankReconciliationSuggestion::STATUS_SUGGESTED,
+        ]);
+    }
+
+    public function test_named_match_below_80_score_is_ignored_and_returns_no_suggestions(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $user = $this->createFinanceUser([
+            'nome_completo' => 'Nome Fraco',
+            'numero_socio' => '5401',
+            'email' => 'nome.fraco@example.com',
+        ]);
+        $this->createInvoice($user, 30.00, 'mensalidade', '2026-07-10', [
+            'data_fatura' => '2026-07-01',
+            'data_emissao' => '2026-07-01',
+            'mes' => '2026-07',
+        ]);
+
+        $statement = BankStatement::create([
+            'conta' => 'PT50-0001',
+            'data_movimento' => '2026-05-05',
+            'descricao' => 'Transferencia Nome Fraco',
+            'valor' => 30.00,
+            'saldo' => 1000.00,
+            'referencia' => 'REF-NOME-FRACO',
+            'conciliado' => false,
+            'valor_conciliado' => 0,
+            'valor_por_conciliar' => 30.00,
+            'conciliacao_status' => 'unreconciled',
+        ]);
+
+        $response = $this->actingAs($admin)
+            ->postJson(route('financeiro.bank-statements.generate-suggestions', $statement))
+            ->assertOk();
+
+        $response
+            ->assertJsonPath('generated_count', 0)
+            ->assertJsonPath('suggestions', []);
     }
 
     public function test_it_does_not_confirm_suggestion_when_statement_is_already_reconciled(): void
@@ -525,6 +887,128 @@ class BankReconciliationSuggestionFlowTest extends TestCase
                 ->where('status', BankReconciliationSuggestion::STATUS_SUGGESTED)
                 ->count()
         );
+    }
+
+    public function test_repeated_generation_reuses_existing_scored_suggestions_without_revalidating(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $user = $this->createFinanceUser(['nome_completo' => 'Reutiliza Score']);
+        $invoice = $this->createInvoice($user, 25.00, 'mensalidade', '2026-05-10');
+        $statement = $this->createBankStatement(25.00, 'Pagamento Reutiliza Score');
+
+        $firstResponse = $this->actingAs($admin)
+            ->postJson(route('financeiro.bank-statements.generate-suggestions', $statement))
+            ->assertOk();
+
+        $firstSuggestionId = $firstResponse->json('suggestions.0.id');
+        $firstSuggestion = BankReconciliationSuggestion::query()->findOrFail($firstSuggestionId);
+        $firstUpdatedAt = $firstSuggestion->updated_at?->copy();
+
+        $this->travel(2)->seconds();
+
+        $secondResponse = $this->actingAs($admin)
+            ->postJson(route('financeiro.bank-statements.generate-suggestions', $statement))
+            ->assertOk();
+
+        $this->assertSame($firstSuggestionId, $secondResponse->json('suggestions.0.id'));
+        $this->assertSame(1, BankReconciliationSuggestion::query()
+            ->where('bank_statement_id', $statement->id)
+            ->where('status', BankReconciliationSuggestion::STATUS_SUGGESTED)
+            ->count());
+
+        $this->assertTrue($firstSuggestion->fresh()->updated_at?->equalTo($firstUpdatedAt));
+    }
+
+    public function test_it_revalidates_existing_suggestion_without_score(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $user = $this->createFinanceUser(['nome_completo' => 'Sem Score']);
+        $invoice = $this->createInvoice($user, 25.00, 'mensalidade', '2026-05-10');
+        $statement = $this->createBankStatement(25.00, 'Pagamento Sem Score');
+        $familyId = $user->families->first()?->id;
+
+        $legacySuggestion = BankReconciliationSuggestion::create([
+            'bank_statement_id' => $statement->id,
+            'user_id' => $user->id,
+            'family_id' => $familyId,
+            'status' => BankReconciliationSuggestion::STATUS_SUGGESTED,
+            'score' => 0,
+            'confidence_label' => BankReconciliationSuggestion::CONFIDENCE_LOW,
+            'total_bank_amount' => 25.00,
+            'total_allocated_amount' => 25.00,
+            'unallocated_amount' => 0,
+            'suggested_allocations' => [[
+                'invoice_id' => $invoice->id,
+                'amount' => 25.00,
+                'reason' => 'sugestao antiga sem score',
+            ]],
+            'matched_rules' => [],
+            'explanation' => 'Sugestao antiga sem score.',
+            'metadata' => [
+                'allocation_signature' => $this->makeTestAllocationSignature($invoice->id, 25.00),
+                'candidate_invoice_ids' => [$invoice->id],
+            ],
+        ]);
+
+        $response = $this->actingAs($admin)
+            ->postJson(route('financeiro.bank-statements.generate-suggestions', $statement))
+            ->assertOk();
+
+        $response->assertJsonPath('suggestions.0.id', $legacySuggestion->id);
+
+        $legacySuggestion->refresh();
+
+        $this->assertGreaterThanOrEqual(80, $legacySuggestion->score);
+        $this->assertContains($legacySuggestion->confidence_label, [
+            BankReconciliationSuggestion::CONFIDENCE_HIGH,
+            BankReconciliationSuggestion::CONFIDENCE_VERY_HIGH,
+        ]);
+    }
+
+    public function test_batch_generation_ignores_statement_with_existing_scored_suggestion(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $userA = $this->createFinanceUser([
+            'nome_completo' => 'Batch Ignora',
+            'numero_socio' => '8001',
+            'email' => 'batch-ignora@example.com',
+        ]);
+        $invoiceA = $this->createInvoice($userA, 25.00, 'mensalidade', '2026-05-10');
+        $statementA = $this->createBankStatement(25.00, 'Pagamento Batch Ignora');
+
+        $this->actingAs($admin)
+            ->postJson(route('financeiro.bank-statements.generate-suggestions', $statementA))
+            ->assertOk();
+
+        $existingSuggestion = BankReconciliationSuggestion::query()
+            ->where('bank_statement_id', $statementA->id)
+            ->where('status', BankReconciliationSuggestion::STATUS_SUGGESTED)
+            ->firstOrFail();
+        $existingUpdatedAt = $existingSuggestion->updated_at?->copy();
+
+        $userB = $this->createFinanceUser([
+            'nome_completo' => 'Batch Novo',
+            'numero_socio' => '8002',
+            'email' => 'batch-novo@example.com',
+        ]);
+        $this->createInvoice($userB, 30.00, 'mensalidade', '2026-05-05');
+        $statementB = $this->createBankStatement(30.00, 'Pagamento Batch Novo');
+
+        $this->travel(2)->seconds();
+
+        $response = $this->actingAs($admin)
+            ->postJson(route('financeiro.bank-reconciliation-suggestions.generate'));
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('generated_count', 1)
+            ->assertJsonPath('summary.analyzed_count', 1);
+
+        $this->assertTrue($existingSuggestion->fresh()->updated_at?->equalTo($existingUpdatedAt));
+        $this->assertDatabaseHas('bank_reconciliation_suggestions', [
+            'bank_statement_id' => $statementB->id,
+            'status' => BankReconciliationSuggestion::STATUS_SUGGESTED,
+        ]);
     }
 
     public function test_manual_allocation_blocks_amount_above_statement_remaining(): void
@@ -756,5 +1240,56 @@ class BankReconciliationSuggestionFlowTest extends TestCase
             'valor_por_conciliar' => $amount,
             'conciliacao_status' => 'unreconciled',
         ]);
+    }
+
+    private function createConfirmedPaymentHistory(User $user, float $amount, string $paymentDate = '2026-04-05'): Payment
+    {
+        $invoice = $this->createInvoice($user, $amount, 'mensalidade', $paymentDate, [
+            'data_fatura' => substr($paymentDate, 0, 8) . '01',
+            'data_emissao' => substr($paymentDate, 0, 8) . '01',
+            'mes' => substr($paymentDate, 0, 7),
+            'estado_pagamento' => 'pendente',
+        ]);
+
+        $payment = Payment::create([
+            'user_id' => $user->id,
+            'family_id' => $user->families->first()?->id,
+            'amount' => $amount,
+            'allocated_amount' => $amount,
+            'unallocated_amount' => 0,
+            'payment_date' => $paymentDate,
+            'method' => 'transferencia',
+            'reference' => 'HIST-' . uniqid(),
+            'description' => 'Historico mensalidade',
+            'source' => Payment::SOURCE_MANUAL,
+            'status' => Payment::STATUS_CONFIRMED,
+        ]);
+
+        PaymentAllocation::create([
+            'payment_id' => $payment->id,
+            'invoice_id' => $invoice->id,
+            'amount' => $amount,
+            'status' => PaymentAllocation::STATUS_CONFIRMED,
+            'allocated_at' => $paymentDate,
+            'notes' => 'Historico para sugestao',
+        ]);
+
+        return $payment;
+    }
+
+    private function makeTestAllocationSignature(string $invoiceId, float $amount): string
+    {
+        return $invoiceId . ':' . number_format($amount, 2, '.', '');
+    }
+
+    private function makeRepositorySignature(string $account, string $description, ?string $reference = null): string
+    {
+        $normalizer = app(\App\Services\Financeiro\BankAliasNormalizer::class);
+
+        return hash('sha256', implode('|', array_values(array_filter([
+            trim($account),
+            $normalizer->normalize($description),
+            $normalizer->normalize($reference),
+        ], static fn (?string $value): bool => (string) $value !== ''))));
     }
 }

@@ -269,6 +269,51 @@ class PaymentAllocationFlowTest extends TestCase
         $this->assertSame('70.00', (string) collect($response->json('extratos'))->firstWhere('id', $first->id)['saldo']);
     }
 
+    public function test_it_can_manually_catalog_a_bank_statement_without_selecting_invoice_or_movement(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $costCenter = $this->createCostCenter();
+        $statement = $this->createBankStatement(15062.16);
+
+        $response = $this->actingAs($admin)->postJson(route('financeiro.extratos.conciliar', $statement), [
+            'tipo' => 'receita',
+            'centro_custo_id' => $costCenter->id,
+            'user_id' => $admin->id,
+        ]);
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('extrato.conciliado', true)
+            ->assertJsonPath('extrato.conciliacao_status', 'reconciled');
+
+        $statement->refresh();
+
+        $this->assertTrue($statement->conciliado);
+        $this->assertSame('reconciled', $statement->conciliacao_status);
+        $this->assertSame('15062.16', $statement->valor_conciliado);
+        $this->assertSame('0.00', $statement->valor_por_conciliar);
+        $this->assertNotNull($statement->lancamento_id);
+
+        $this->assertDatabaseHas('financial_entries', [
+            'id' => $statement->lancamento_id,
+            'centro_custo_id' => $costCenter->id,
+            'user_id' => $admin->id,
+            'fatura_id' => null,
+            'origem_tipo' => 'manual',
+            'origem_id' => null,
+            'valor' => 15062.16,
+        ]);
+        $this->assertDatabaseHas('mapa_conciliacao', [
+            'extrato_id' => $statement->id,
+            'lancamento_id' => $statement->lancamento_id,
+            'fatura_id' => null,
+            'movimento_id' => null,
+            'status' => 'confirmado',
+            'regra_usada' => 'manual',
+            'valor_conciliado' => 15062.16,
+        ]);
+    }
+
     public function test_partially_allocated_bank_statement_stays_partial_when_credit_is_not_created(): void
     {
         $admin = User::factory()->admin()->create();
@@ -531,6 +576,127 @@ class PaymentAllocationFlowTest extends TestCase
         $invoice->refresh();
 
         $this->assertNull($invoice->numero_recibo);
+    }
+
+    public function test_open_invoices_endpoint_excludes_pending_invoices_with_zero_outstanding_amount(): void
+    {
+        $admin = User::factory()->admin()->create();
+        [$invoice] = $this->createInvoicesForUser([25.00]);
+        $payment = Payment::create([
+            'user_id' => $invoice->user_id,
+            'amount' => 25.00,
+            'allocated_amount' => 25.00,
+            'unallocated_amount' => 0,
+            'payment_date' => '2026-05-05',
+            'method' => 'transferencia',
+            'reference' => 'OPEN-0001',
+            'source' => Payment::SOURCE_MANUAL,
+            'status' => Payment::STATUS_CONFIRMED,
+        ]);
+
+        PaymentAllocation::create([
+            'payment_id' => $payment->id,
+            'invoice_id' => $invoice->id,
+            'amount' => 25.00,
+            'status' => PaymentAllocation::STATUS_CONFIRMED,
+            'allocated_at' => now(),
+        ]);
+
+        $invoice->forceFill([
+            'estado_pagamento' => 'pendente',
+            'valor_pago' => 0,
+            'valor_em_aberto' => 0,
+        ])->save();
+
+        $response = $this->actingAs($admin)
+            ->getJson(route('financeiro.invoices.open', [
+                'per_page' => 50,
+            ]));
+
+        $response->assertOk();
+
+        $invoiceIds = collect($response->json('data') ?? [])->pluck('id')->all();
+
+        $this->assertNotContains($invoice->id, $invoiceIds);
+    }
+
+    public function test_open_invoices_endpoint_ignores_non_payment_legacy_financial_entries(): void
+    {
+        $admin = User::factory()->admin()->create();
+        [$invoice] = $this->createInvoicesForUser([22.50]);
+
+        FinancialEntry::create([
+            'data' => '2026-01-01',
+            'tipo' => 'receita',
+            'categoria' => 'Inscricao',
+            'descricao' => 'Lancamento legacy que nao representa pagamento',
+            'documento_ref' => 'LEGACY-ENTRY',
+            'valor' => 22.50,
+            'centro_custo_id' => $invoice->centro_custo_id,
+            'user_id' => $invoice->user_id,
+            'fatura_id' => $invoice->id,
+            'origem_tipo' => 'evento',
+            'origem_id' => 'legacy-event-1',
+            'metodo_pagamento' => null,
+        ]);
+
+        $response = $this->actingAs($admin)
+            ->getJson(route('financeiro.invoices.open', [
+                'per_page' => 50,
+            ]));
+
+        $response->assertOk();
+
+        $invoiceRow = collect($response->json('data') ?? [])->firstWhere('id', $invoice->id);
+
+        $this->assertNotNull($invoiceRow);
+        $this->assertSame(22.5, (float) ($invoiceRow['valor_em_aberto'] ?? 0));
+    }
+
+    public function test_open_invoices_endpoint_hides_invoices_with_confirmed_allocations_even_when_persisted_outstanding_is_stale(): void
+    {
+        $admin = User::factory()->admin()->create();
+        [$invoice] = $this->createInvoicesForUser([22.50]);
+
+        $payment = Payment::create([
+            'user_id' => $invoice->user_id,
+            'family_id' => null,
+            'bank_statement_id' => null,
+            'amount' => 22.50,
+            'allocated_amount' => 22.50,
+            'unallocated_amount' => 0,
+            'payment_date' => '2026-05-08',
+            'method' => 'transferencia',
+            'reference' => 'TRX-STALE-OPEN',
+            'description' => 'Pagamento confirmado antigo',
+            'source' => Payment::SOURCE_RECONCILIATION,
+            'status' => Payment::STATUS_CONFIRMED,
+        ]);
+
+        PaymentAllocation::create([
+            'payment_id' => $payment->id,
+            'invoice_id' => $invoice->id,
+            'amount' => 22.50,
+            'status' => PaymentAllocation::STATUS_CONFIRMED,
+            'allocated_at' => now(),
+        ]);
+
+        $invoice->forceFill([
+            'estado_pagamento' => 'vencido',
+            'valor_pago' => 0,
+            'valor_em_aberto' => 22.50,
+        ])->save();
+
+        $response = $this->actingAs($admin)
+            ->getJson(route('financeiro.invoices.open', [
+                'per_page' => 50,
+            ]));
+
+        $response->assertOk();
+
+        $invoiceIds = collect($response->json('data') ?? [])->pluck('id')->all();
+
+        $this->assertNotContains($invoice->id, $invoiceIds);
     }
 
     /**

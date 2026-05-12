@@ -18,11 +18,13 @@ use Illuminate\Validation\ValidationException;
 class BankReconciliationSuggestionService
 {
     private const MAX_INVOICES_PER_CONTEXT = 6;
+    private const MIN_SCORE_TO_PERSIST_WITHOUT_HISTORY = 80;
 
     public function __construct(
         private readonly BankAliasNormalizer $normalizer,
         private readonly PaymentAllocationService $paymentAllocationService,
         private readonly ReconciliationAliasService $reconciliationAliasService,
+        private readonly ReconciliationRepositoryService $reconciliationRepositoryService,
     ) {
     }
 
@@ -32,6 +34,12 @@ class BankReconciliationSuggestionService
 
         if (!$bankStatement || $this->isBankStatementFullyReconciled($bankStatement)) {
             return collect();
+        }
+
+        $existingSuggestions = $this->fetchActiveSuggestions($bankStatement);
+        if (($options['force_regeneration'] ?? false) !== true
+            && $this->shouldReuseExistingSuggestions($existingSuggestions)) {
+            return $existingSuggestions;
         }
 
         $statementAmount = $this->resolveRemainingAmount($bankStatement);
@@ -45,13 +53,20 @@ class BankReconciliationSuggestionService
         $seenSignatures = [];
 
         foreach ($contexts as $context) {
-            $candidateInvoices = $this->fetchOpenInvoicesForContext($context['user_id'] ?? null, $context['family_id'] ?? null);
+            $candidateInvoices = $this->fetchOpenInvoicesForContext(
+                $context['user_id'] ?? null,
+                $context['family_id'] ?? null,
+                $context['matched_user_ids'] ?? [],
+                (bool) ($context['repository_match'] ?? false),
+            );
 
             if ($candidateInvoices->isEmpty()) {
                 continue;
             }
 
-            foreach ($this->generateCandidateInvoiceSets($candidateInvoices, $statementAmount) as $candidateSet) {
+            $historyProfile = $this->resolvePaymentHistoryProfile($context['user_id'] ?? null, $context['family_id'] ?? null);
+
+            foreach ($this->generateCandidateInvoiceSets($candidateInvoices, $statementAmount, $bankStatement, $context, $historyProfile) as $candidateSet) {
                 $signature = $this->makeAllocationSignature($candidateSet);
                 if (isset($seenSignatures[$signature])) {
                     continue;
@@ -59,10 +74,23 @@ class BankReconciliationSuggestionService
 
                 $seenSignatures[$signature] = true;
 
+                $scoringContext = array_merge($context, [
+                    'statement_amount' => $statementAmount,
+                    'normalized_text' => $normalizedText,
+                    'history_profile' => $historyProfile,
+                ]);
+                $scoreData = $this->calculateScore($bankStatement, $candidateSet, $scoringContext);
+
+                if (($context['repository_match'] ?? false) !== true
+                    && $scoreData['score'] < self::MIN_SCORE_TO_PERSIST_WITHOUT_HISTORY) {
+                    continue;
+                }
+
                 $suggestion = $this->buildSuggestion($bankStatement, $candidateSet, array_merge($context, [
                     'statement_amount' => $statementAmount,
                     'normalized_text' => $normalizedText,
-                ]));
+                    'history_profile' => $historyProfile,
+                ]), $scoreData);
 
                 if ($suggestion->score > 0 || ($options['include_zero_score'] ?? false)) {
                     $suggestions->push($suggestion);
@@ -121,7 +149,18 @@ class BankReconciliationSuggestionService
         return $generatedCount;
     }
 
-    public function buildSuggestion(BankStatement $bankStatement, array $candidateInvoices, array $matchedRules): BankReconciliationSuggestion
+    public function shouldAutoGenerateForBankStatement(BankStatement $bankStatement): bool
+    {
+        $bankStatement = $bankStatement->fresh();
+
+        if (!$bankStatement || $this->isBankStatementFullyReconciled($bankStatement)) {
+            return false;
+        }
+
+        return !$this->shouldReuseExistingSuggestions($this->fetchActiveSuggestions($bankStatement));
+    }
+
+    public function buildSuggestion(BankStatement $bankStatement, array $candidateInvoices, array $matchedRules, ?array $scoreData = null): BankReconciliationSuggestion
     {
         $allocations = array_map(function (array $candidate): array {
             /** @var Invoice $invoice */
@@ -135,7 +174,7 @@ class BankReconciliationSuggestionService
         }, $candidateInvoices);
 
         $allocationSignature = $this->makeAllocationSignature($candidateInvoices);
-        $scoreData = $this->calculateScore($bankStatement, $candidateInvoices, $matchedRules);
+        $scoreData ??= $this->calculateScore($bankStatement, $candidateInvoices, $matchedRules);
         $resolvedUserId = $matchedRules['user_id'] ?? $this->resolveSingleUserIdFromCandidates($candidateInvoices);
         $resolvedFamilyId = $matchedRules['family_id'] ?? $this->resolveFamilyId($resolvedUserId);
         $existing = BankReconciliationSuggestion::query()
@@ -191,11 +230,11 @@ class BankReconciliationSuggestionService
         $highestOpenInvoice = round((float) collect($candidateInvoices)->max('open_amount'), 2);
 
         if (count($candidateInvoices) === 1 && abs($statementAmount - $openAmount) <= 0.009) {
-            $score += 45;
+            $score += 70;
             $rules[] = 'exact_single_invoice_amount';
             $explanations[] = 'Valor da linha bate exatamente com uma fatura em aberto.';
         } elseif (abs($statementAmount - $openAmount) <= 0.009) {
-            $score += 40;
+            $score += 68;
             $rules[] = 'exact_invoice_combination';
             $explanations[] = 'Valor da linha bate exatamente com a soma das faturas sugeridas.';
         } elseif ($difference > 0 && $difference <= max(5, round($statementAmount * 0.2, 2))) {
@@ -224,6 +263,12 @@ class BankReconciliationSuggestionService
             $score += 15;
             $rules[] = 'alias_match';
             $explanations[] = 'Alias bancario sugerido encontrado.';
+        }
+
+        if (($context['repository_match'] ?? false) === true) {
+            $score += 30;
+            $rules[] = 'repository_match';
+            $explanations[] = 'Existe um registo confirmado anterior desta linha bancaria para este utilizador ou familia.';
         }
 
         if (($context['matched_name'] ?? false) === true) {
@@ -275,6 +320,28 @@ class BankReconciliationSuggestionService
             }
             if ($monthlyMixPenalty['explanation'] !== null) {
                 $explanations[] = $monthlyMixPenalty['explanation'];
+            }
+        }
+
+        $futureMonthlyPenalty = $this->resolveFutureMonthlyPenalty($bankStatement, $candidateInvoices);
+        if ($futureMonthlyPenalty['score'] !== 0) {
+            $score += $futureMonthlyPenalty['score'];
+            if ($futureMonthlyPenalty['rule'] !== null) {
+                $rules[] = $futureMonthlyPenalty['rule'];
+            }
+            if ($futureMonthlyPenalty['explanation'] !== null) {
+                $explanations[] = $futureMonthlyPenalty['explanation'];
+            }
+        }
+
+        $historicalPriority = $this->resolveHistoricalPriorityAlignment($bankStatement, $candidateInvoices, $context);
+        if ($historicalPriority['score'] !== 0) {
+            $score += $historicalPriority['score'];
+            if ($historicalPriority['rule'] !== null) {
+                $rules[] = $historicalPriority['rule'];
+            }
+            if ($historicalPriority['explanation'] !== null) {
+                $explanations[] = $historicalPriority['explanation'];
             }
         }
 
@@ -433,14 +500,25 @@ class BankReconciliationSuggestionService
         $contexts = [];
 
         $registerContext = function (?string $userId, ?string $familyId, array $flags) use (&$contexts): void {
-            if (!$userId && !$familyId) {
+            $matchedUserIds = collect((array) ($flags['matched_user_ids'] ?? []))
+                ->filter()
+                ->map(fn ($matchedUserId) => (string) $matchedUserId)
+                ->when($userId, fn (Collection $collection) => $collection->push((string) $userId))
+                ->unique()
+                ->sort()
+                ->values()
+                ->all();
+
+            if (!$userId && !$familyId && $matchedUserIds === []) {
                 return;
             }
 
-            $key = ($userId ?: 'none') . '|' . ($familyId ?: 'none');
+            $key = ($userId ?: 'none') . '|' . ($familyId ?: 'none') . '|' . implode(',', $matchedUserIds ?: ['none']);
             $existing = $contexts[$key] ?? [
                 'user_id' => $userId,
                 'family_id' => $familyId,
+                'matched_user_ids' => [],
+                'repository_match' => false,
                 'alias_match' => false,
                 'alias_confirmed' => false,
                 'matched_name' => false,
@@ -456,6 +534,20 @@ class BankReconciliationSuggestionService
                     continue;
                 }
 
+                if ($flag === 'matched_user_ids') {
+                    $existing['matched_user_ids'] = collect(array_merge(
+                        (array) ($existing['matched_user_ids'] ?? []),
+                        (array) $value,
+                    ))
+                        ->filter()
+                        ->map(fn ($matchedUserId) => (string) $matchedUserId)
+                        ->unique()
+                        ->sort()
+                        ->values()
+                        ->all();
+                    continue;
+                }
+
                 if ($value === true) {
                     $existing[$flag] = true;
                 }
@@ -463,6 +555,19 @@ class BankReconciliationSuggestionService
 
             $contexts[$key] = $existing;
         };
+
+        $repositoryMatches = $this->reconciliationRepositoryService->findMatches($bankStatement);
+        foreach ($repositoryMatches as $repositoryMatch) {
+            $registerContext($repositoryMatch->primary_user_id, $repositoryMatch->family_id, [
+                'repository_match' => true,
+                'matched_user_ids' => (array) ($repositoryMatch->matched_user_ids ?? []),
+                'conflict_count' => max($repositoryMatches->count() - 1, 0),
+            ]);
+        }
+
+        if ($contexts !== []) {
+            return array_values($contexts);
+        }
 
         $aliasMatches = $this->reconciliationAliasService
             ->findPossibleMatches(trim($bankStatement->descricao . ' ' . $bankStatement->referencia));
@@ -481,6 +586,14 @@ class BankReconciliationSuggestionService
             $registerContext($user->id, $userMatch['family_id'], $userMatch['flags']);
         }
 
+        foreach ($this->findFamiliesFromStatement($normalizedText) as $familyMatch) {
+            $registerContext($familyMatch['user_id'] ?? null, $familyMatch['family_id'] ?? null, $familyMatch['flags'] ?? []);
+        }
+
+        foreach ($this->findGuardianFamiliesFromStatement($normalizedText) as $guardianMatch) {
+            $registerContext($guardianMatch['user_id'] ?? null, $guardianMatch['family_id'] ?? null, $guardianMatch['flags'] ?? []);
+        }
+
         if ($contexts === []) {
             foreach ($this->buildFallbackContexts($statementAmount) as $context) {
                 $registerContext($context['user_id'], $context['family_id'], $context);
@@ -490,7 +603,12 @@ class BankReconciliationSuggestionService
         return array_values($contexts);
     }
 
-    private function fetchOpenInvoicesForContext(?string $userId, ?string $familyId): Collection
+    private function fetchOpenInvoicesForContext(
+        ?string $userId,
+        ?string $familyId,
+        array $matchedUserIds = [],
+        bool $repositoryMatch = false
+    ): Collection
     {
         $query = Invoice::query()
             ->with(['user:id,nome_completo,name,numero_socio,nif,email,email_secundario,telemovel,contacto', 'user.families:id'])
@@ -506,6 +624,8 @@ class BankReconciliationSuggestionService
             $query->whereHas('user.families', function ($familyQuery) use ($familyId): void {
                 $familyQuery->where('familias.id', $familyId);
             });
+        } elseif ($matchedUserIds !== []) {
+            $query->whereIn('user_id', $matchedUserIds);
         } elseif ($userId) {
             $query->where('user_id', $userId);
         }
@@ -513,7 +633,7 @@ class BankReconciliationSuggestionService
         return $query
             ->orderByRaw("CASE WHEN estado_pagamento = 'vencido' THEN 0 WHEN estado_pagamento = 'parcial' THEN 1 ELSE 2 END")
             ->orderBy('data_vencimento')
-            ->limit(self::MAX_INVOICES_PER_CONTEXT)
+            ->limit($repositoryMatch ? 24 : self::MAX_INVOICES_PER_CONTEXT)
             ->get()
             ->map(function (Invoice $invoice): array {
                 $openAmount = $this->getInvoiceOutstandingAmount($invoice);
@@ -527,10 +647,33 @@ class BankReconciliationSuggestionService
             ->values();
     }
 
-    private function generateCandidateInvoiceSets(Collection $candidateInvoices, float $statementAmount): array
+    private function generateCandidateInvoiceSets(
+        Collection $candidateInvoices,
+        float $statementAmount,
+        ?BankStatement $bankStatement = null,
+        array $context = [],
+        array $historyProfile = []
+    ): array
     {
+        if (($context['repository_match'] ?? false) === true) {
+            return $this->dedupeCandidateSets(
+                $this->generateRepositoryCandidateInvoiceSets($candidateInvoices->all(), $statementAmount, $bankStatement)
+            );
+        }
+
         $sets = [];
-        $invoiceArray = $candidateInvoices->all();
+        $invoiceArray = $this->prioritizeCandidateInvoices(
+            $candidateInvoices,
+            $statementAmount,
+            $bankStatement,
+            $context,
+            $historyProfile,
+        )->all();
+
+        $sets = array_merge(
+            $sets,
+            $this->generateHistoryFirstCandidateSets($invoiceArray, $statementAmount, $bankStatement, $historyProfile)
+        );
 
         foreach ($invoiceArray as $candidate) {
             if (abs($candidate['open_amount'] - $statementAmount) <= 0.009) {
@@ -566,6 +709,62 @@ class BankReconciliationSuggestionService
             }
         }
 
+        return $this->dedupeCandidateSets($sets);
+    }
+
+    private function generateRepositoryCandidateInvoiceSets(array $invoiceArray, float $statementAmount, ?BankStatement $bankStatement): array
+    {
+        if (!$bankStatement?->data_movimento) {
+            return [];
+        }
+
+        $statementDate = $bankStatement->data_movimento;
+        $dueMonthlyInvoices = collect($invoiceArray)
+            ->filter(function (array $candidate) use ($statementDate): bool {
+                /** @var Invoice $invoice */
+                $invoice = $candidate['invoice'];
+
+                return $this->isMonthlyInvoice($invoice)
+                    && $invoice->data_vencimento
+                    && $invoice->data_vencimento->lte($statementDate);
+            })
+            ->sortBy(fn (array $candidate) => $candidate['invoice']->data_vencimento?->format('Y-m-d') ?? '9999-12-31')
+            ->values();
+
+        if ($dueMonthlyInvoices->isEmpty()) {
+            return [];
+        }
+
+        $sets = [];
+        $totalDueAmount = round($dueMonthlyInvoices->sum('open_amount'), 2);
+
+        if (abs($totalDueAmount - $statementAmount) <= 0.009) {
+            $sets[] = $dueMonthlyInvoices
+                ->map(fn (array $candidate): array => [
+                    'invoice' => $candidate['invoice'],
+                    'open_amount' => $candidate['open_amount'],
+                    'amount' => $candidate['open_amount'],
+                    'reason' => 'repositorio confirmado: soma das mensalidades vencidas e pendentes',
+                ])
+                ->all();
+        } else {
+            $oldestInvoice = $dueMonthlyInvoices->first();
+
+            if ($oldestInvoice && abs($oldestInvoice['open_amount'] - $statementAmount) <= 0.009) {
+                $sets[] = [[
+                    'invoice' => $oldestInvoice['invoice'],
+                    'open_amount' => $oldestInvoice['open_amount'],
+                    'amount' => $oldestInvoice['open_amount'],
+                    'reason' => 'repositorio confirmado: mensalidade mais antiga em aberto',
+                ]];
+            }
+        }
+
+        return $sets;
+    }
+
+    private function dedupeCandidateSets(array $sets): array
+    {
         $deduped = [];
         $seen = [];
         foreach ($sets as $set) {
@@ -579,6 +778,110 @@ class BankReconciliationSuggestionService
         }
 
         return array_slice($deduped, 0, 8);
+    }
+
+    private function prioritizeCandidateInvoices(
+        Collection $candidateInvoices,
+        float $statementAmount,
+        ?BankStatement $bankStatement,
+        array $context,
+        array $historyProfile
+    ): Collection {
+        $statementDate = $bankStatement?->data_movimento;
+
+        return $candidateInvoices
+            ->sortBy(function (array $candidate) use ($statementAmount, $statementDate, $context, $historyProfile): array {
+                /** @var Invoice $invoice */
+                $invoice = $candidate['invoice'];
+
+                $sameHistoricalOrigin = $this->candidateMatchesHistoricalOrigin($candidate, $context, $historyProfile) ? 0 : 1;
+                $sameMovementDate = $statementDate && $invoice->data_vencimento
+                    && $invoice->data_vencimento->isSameDay($statementDate) ? 0 : 1;
+                $currentOrOverdueMonthly = $this->isCurrentOrOverdueMonthlyInvoice($invoice, $statementDate) ? 0 : 1;
+                $directAmountMatch = abs($candidate['open_amount'] - $statementAmount) <= 0.009 ? 0 : 1;
+                $dueDate = $invoice->data_vencimento?->format('Y-m-d') ?? '9999-12-31';
+
+                return [
+                    $sameHistoricalOrigin,
+                    $sameMovementDate,
+                    $currentOrOverdueMonthly,
+                    $directAmountMatch,
+                    $dueDate,
+                    (string) $invoice->id,
+                ];
+            })
+            ->values();
+    }
+
+    private function generateHistoryFirstCandidateSets(
+        array $invoiceArray,
+        float $statementAmount,
+        ?BankStatement $bankStatement,
+        array $historyProfile
+    ): array {
+        if (!($historyProfile['has_records'] ?? false) || !$bankStatement?->data_movimento) {
+            return [];
+        }
+
+        $statementDate = $bankStatement->data_movimento;
+        $monthlyCandidates = collect($invoiceArray)
+            ->filter(function (array $candidate) use ($statementDate, $historyProfile): bool {
+                /** @var Invoice $invoice */
+                $invoice = $candidate['invoice'];
+
+                return $this->isCurrentOrOverdueMonthlyInvoice($invoice, $statementDate)
+                    && $this->candidateMatchesHistoricalOrigin($candidate, [], $historyProfile);
+            })
+            ->sortBy(fn (array $candidate) => $candidate['invoice']->data_vencimento?->format('Y-m-d') ?? '9999-12-31')
+            ->values();
+
+        if ($monthlyCandidates->isEmpty()) {
+            return [];
+        }
+
+        $sets = [];
+
+        $sameDateCandidate = $monthlyCandidates->first(function (array $candidate) use ($statementAmount, $statementDate): bool {
+            /** @var Invoice $invoice */
+            $invoice = $candidate['invoice'];
+
+            return $invoice->data_vencimento
+                && $invoice->data_vencimento->isSameDay($statementDate)
+                && abs($candidate['open_amount'] - $statementAmount) <= 0.009;
+        });
+
+        if ($sameDateCandidate) {
+            $sets[] = [[
+                'invoice' => $sameDateCandidate['invoice'],
+                'open_amount' => $sameDateCandidate['open_amount'],
+                'amount' => $sameDateCandidate['open_amount'],
+                'reason' => 'mensalidade com vencimento no dia do movimento',
+            ]];
+        }
+
+        $runningAmount = 0.0;
+        $oldestPrefix = [];
+
+        foreach ($monthlyCandidates as $candidate) {
+            $oldestPrefix[] = [
+                'invoice' => $candidate['invoice'],
+                'open_amount' => $candidate['open_amount'],
+                'amount' => $candidate['open_amount'],
+                'reason' => 'mensalidades atuais e vencidas por ordem antiga',
+            ];
+            $runningAmount = round($runningAmount + $candidate['open_amount'], 2);
+
+            if (abs($runningAmount - $statementAmount) <= 0.009) {
+                $sets[] = $oldestPrefix;
+                break;
+            }
+
+            if ($runningAmount > $statementAmount) {
+                break;
+            }
+        }
+
+        return $sets;
     }
 
     private function findBestCombinationSets(array $invoiceArray, float $statementAmount, bool $exactOnly): array
@@ -646,7 +949,12 @@ class BankReconciliationSuggestionService
             ->values();
 
         $users = User::query()
-            ->with('families:id')
+            ->with([
+                'families:id,nome,responsavel_user_id',
+                'responsibleFamilies:id,nome,responsavel_user_id',
+                'educandos:id,nome_completo,name',
+                'educandos.families:id,nome,responsavel_user_id',
+            ])
             ->where(function ($query) use ($tokens, $compactDigits, $operator): void {
                 foreach ($tokens as $token) {
                     $like = '%' . $token . '%';
@@ -670,7 +978,14 @@ class BankReconciliationSuggestionService
             ->get();
 
         return $users->map(function (User $user) use ($normalizedText, $compactDigits, $users): array {
-            $familyId = $user->families->first()?->id;
+            $educandos = $this->getGuardianStudents($user);
+            $directFamilyId = $user->families->first()?->id;
+            $responsibleFamilyId = $user->responsibleFamilies->first()?->id;
+            $guardianFamilyId = $educandos
+                ->flatMap(fn (User $educando) => $educando->families)
+                ->unique('id')
+                ->first()?->id;
+            $familyId = $directFamilyId ?: $responsibleFamilyId ?: $guardianFamilyId;
             $name = $this->normalizer->normalize($user->nome_completo ?: $user->name);
             $nameTokens = collect(explode(' ', $name))
                 ->filter(fn (string $token) => strlen($token) >= 3)
@@ -709,6 +1024,133 @@ class BankReconciliationSuggestionService
                 || ($flags['matched_member_number'] ?? false)
                 || ($flags['matched_email_or_phone'] ?? false);
         })->values()->all();
+    }
+
+    private function findFamiliesFromStatement(string $normalizedText): array
+    {
+        if ($normalizedText === '') {
+            return [];
+        }
+
+        $operator = DB::connection()->getDriverName() === 'pgsql' ? 'ilike' : 'like';
+        $tokens = collect(explode(' ', $normalizedText))
+            ->map(fn (string $token) => trim($token))
+            ->filter(fn (string $token) => strlen($token) >= 3 && !$this->isIgnoredIdentityToken($token))
+            ->take(6)
+            ->values();
+
+        if ($tokens->isEmpty()) {
+            return [];
+        }
+
+        $families = Familia::query()
+            ->with(['responsavel:id,nome_completo,name,email,email_secundario,telemovel,contacto', 'members:id'])
+            ->where(function ($query) use ($tokens, $operator): void {
+                foreach ($tokens as $token) {
+                    $like = '%' . $token . '%';
+
+                    $query
+                        ->orWhere('nome', $operator, $like)
+                        ->orWhereHas('responsavel', function ($responsavelQuery) use ($operator, $like): void {
+                            $responsavelQuery
+                                ->where('nome_completo', $operator, $like)
+                                ->orWhere('name', $operator, $like)
+                                ->orWhere('email', $operator, $like)
+                                ->orWhere('email_secundario', $operator, $like);
+                        });
+                }
+            })
+            ->limit(10)
+            ->get();
+
+        return $families->map(function (Familia $family) use ($normalizedText, $families): array {
+            $familyName = $this->normalizer->normalize($family->nome);
+            $responsavelName = $this->normalizer->normalize($family->responsavel?->nome_completo ?: $family->responsavel?->name);
+            $matchedFamilyName = $familyName !== '' && str_contains($normalizedText, $familyName);
+            $matchedResponsavel = $responsavelName !== '' && str_contains($normalizedText, $responsavelName);
+
+            return [
+                'user_id' => $family->responsavel_user_id,
+                'family_id' => $family->id,
+                'flags' => [
+                    'matched_name' => $matchedFamilyName || $matchedResponsavel,
+                    'matched_user_ids' => $family->members->pluck('id')->filter()->all(),
+                    'conflict_count' => max($families->count() - 1, 0),
+                ],
+            ];
+        })->filter(function (array $match): bool {
+            return (bool) ($match['flags']['matched_name'] ?? false);
+        })->values()->all();
+    }
+
+    private function findGuardianFamiliesFromStatement(string $normalizedText): array
+    {
+        if ($normalizedText === '') {
+            return [];
+        }
+
+        $operator = DB::connection()->getDriverName() === 'pgsql' ? 'ilike' : 'like';
+        $tokens = collect(explode(' ', $normalizedText))
+            ->map(fn (string $token) => trim($token))
+            ->filter(fn (string $token) => strlen($token) >= 3 && !$this->isIgnoredIdentityToken($token))
+            ->take(6)
+            ->values();
+
+        if ($tokens->isEmpty()) {
+            return [];
+        }
+
+        $guardians = User::query()
+            ->with(['educandos:id,nome_completo,name', 'educandos.families:id,nome,responsavel_user_id'])
+            ->whereHas('educandos')
+            ->where(function ($query) use ($tokens, $operator): void {
+                foreach ($tokens as $token) {
+                    $like = '%' . $token . '%';
+
+                    $query
+                        ->orWhere('nome_completo', $operator, $like)
+                        ->orWhere('name', $operator, $like)
+                        ->orWhere('email', $operator, $like)
+                        ->orWhere('email_secundario', $operator, $like);
+                }
+            })
+            ->limit(10)
+            ->get();
+
+        return $guardians->flatMap(function (User $guardian) use ($normalizedText, $guardians): Collection {
+            $guardianName = $this->normalizer->normalize($guardian->nome_completo ?: $guardian->name);
+            $matchedGuardian = $guardianName !== '' && str_contains($normalizedText, $guardianName);
+
+            if (!$matchedGuardian) {
+                return collect();
+            }
+
+            return $this->getGuardianStudents($guardian)
+                ->flatMap(fn (User $educando) => collect($educando->families ?? []))
+                ->unique('id')
+                ->map(function (Familia $family) use ($guardian, $guardians): array {
+                    return [
+                        'user_id' => $guardian->id,
+                        'family_id' => $family->id,
+                        'flags' => [
+                            'matched_name' => true,
+                            'matched_user_ids' => [$guardian->id],
+                            'conflict_count' => max($guardians->count() - 1, 0),
+                        ],
+                    ];
+                });
+        })->values()->all();
+    }
+
+    private function getGuardianStudents(User $user): Collection
+    {
+        if ($user->relationLoaded('educandos')) {
+            return collect($user->getRelation('educandos'));
+        }
+
+        return $user->educandos()
+            ->with('families:id,nome,responsavel_user_id')
+            ->get();
     }
 
     private function buildFallbackContexts(float $statementAmount): array
@@ -768,6 +1210,34 @@ class BankReconciliationSuggestionService
             ->update([
                 'status' => BankReconciliationSuggestion::STATUS_EXPIRED,
             ]);
+    }
+
+    private function fetchActiveSuggestions(BankStatement $bankStatement): Collection
+    {
+        return BankReconciliationSuggestion::query()
+            ->where('bank_statement_id', $bankStatement->id)
+            ->where('status', BankReconciliationSuggestion::STATUS_SUGGESTED)
+            ->orderByDesc('score')
+            ->orderByDesc('created_at')
+            ->get()
+            ->values();
+    }
+
+    private function shouldReuseExistingSuggestions(Collection $existingSuggestions): bool
+    {
+        if ($existingSuggestions->isEmpty()) {
+            return false;
+        }
+
+        $hasHighScoreSuggestion = $existingSuggestions
+            ->contains(fn (BankReconciliationSuggestion $suggestion): bool => (int) ($suggestion->score ?? 0) >= self::MIN_SCORE_TO_PERSIST_WITHOUT_HISTORY);
+
+        if ($hasHighScoreSuggestion) {
+            return true;
+        }
+
+        return $existingSuggestions
+            ->every(fn (BankReconciliationSuggestion $suggestion): bool => (int) ($suggestion->score ?? 0) > 0);
     }
 
     private function resolveRemainingAmount(BankStatement $bankStatement): float
@@ -876,14 +1346,14 @@ class BankReconciliationSuggestionService
 
         if ($closestDistance === 2) {
             return [
-                'score' => -4,
+                'score' => -18,
                 'rule' => 'stale_invoice_period',
                 'explanation' => 'A mensalidade sugerida ja esta afastada do mes do movimento.',
             ];
         }
 
         return [
-            'score' => -10,
+            'score' => -25,
             'rule' => 'stale_invoice_period',
             'explanation' => 'A mensalidade sugerida esta demasiado afastada da data do movimento.',
         ];
@@ -958,6 +1428,43 @@ class BankReconciliationSuggestionService
         ];
     }
 
+    /**
+     * @return array{score:int, rule:?string, explanation:?string}
+     */
+    private function resolveFutureMonthlyPenalty(BankStatement $bankStatement, array $candidateInvoices): array
+    {
+        $statementDate = $bankStatement->data_movimento;
+        if (!$statementDate) {
+            return ['score' => 0, 'rule' => null, 'explanation' => null];
+        }
+
+        $statementMonthKey = $statementDate->format('Y-m');
+
+        foreach ($candidateInvoices as $candidate) {
+            /** @var Invoice $invoice */
+            $invoice = $candidate['invoice'];
+
+            if (!$this->isMonthlyInvoice($invoice)) {
+                continue;
+            }
+
+            $invoiceMonthKey = $invoice->data_emissao?->format('Y-m');
+            if (!$invoiceMonthKey && is_string($invoice->mes) && preg_match('/^\d{4}-\d{2}$/', $invoice->mes) === 1) {
+                $invoiceMonthKey = $invoice->mes;
+            }
+
+            if ($invoiceMonthKey !== null && $invoiceMonthKey > $statementMonthKey) {
+                return [
+                    'score' => -65,
+                    'rule' => 'future_monthly_invoice',
+                    'explanation' => 'A sugestao inclui uma mensalidade de um periodo futuro face a data do movimento.',
+                ];
+            }
+        }
+
+        return ['score' => 0, 'rule' => null, 'explanation' => null];
+    }
+
     private function hasSimilarPaymentHistory(?string $userId, ?string $familyId, float $statementAmount): bool
     {
         if (!$userId && !$familyId) {
@@ -970,6 +1477,236 @@ class BankReconciliationSuggestionService
             ->when($familyId, fn ($query) => $query->where('family_id', $familyId))
             ->whereBetween('amount', [max($statementAmount - 0.5, 0), $statementAmount + 0.5])
             ->exists();
+    }
+
+    private function resolvePaymentHistoryProfile(?string $userId, ?string $familyId): array
+    {
+        if (!$userId && !$familyId) {
+            return [
+                'has_records' => false,
+                'preferred_origins' => [],
+            ];
+        }
+
+        $payments = Payment::query()
+            ->confirmed()
+            ->with(['allocations.invoice:id,tipo,origem_tipo'])
+            ->where(function ($query) use ($userId, $familyId): void {
+                if ($familyId) {
+                    $query->where('family_id', $familyId);
+                }
+
+                if ($userId) {
+                    $method = $familyId ? 'orWhere' : 'where';
+                    $query->{$method}('user_id', $userId);
+                }
+            })
+            ->latest('payment_date')
+            ->limit(25)
+            ->get();
+
+        $preferredOrigins = $payments
+            ->flatMap(fn (Payment $payment) => $payment->allocations)
+            ->map(fn (PaymentAllocation $allocation) => $this->resolveInvoiceOriginKey($allocation->invoice))
+            ->filter()
+            ->countBy()
+            ->sortDesc()
+            ->keys()
+            ->take(3)
+            ->values()
+            ->all();
+
+        return [
+            'has_records' => $payments->isNotEmpty(),
+            'preferred_origins' => $preferredOrigins,
+        ];
+    }
+
+    /**
+     * @return array{score:int, rule:?string, explanation:?string}
+     */
+    private function resolveHistoricalPriorityAlignment(BankStatement $bankStatement, array $candidateInvoices, array $context): array
+    {
+        $historyProfile = $context['history_profile'] ?? [];
+        if (!($historyProfile['has_records'] ?? false)) {
+            return ['score' => 0, 'rule' => null, 'explanation' => null];
+        }
+
+        $score = 0;
+        $rules = [];
+        $explanations = [];
+
+        if ($this->candidateSetMatchesHistoricalOrigin($candidateInvoices, $context, $historyProfile)) {
+            $score += 18;
+            $rules[] = 'historical_origin_match';
+            $explanations[] = 'As faturas sugeridas seguem a origem mais habitual dos pagamentos anteriores.';
+        }
+
+        if ($this->candidateSetContainsMovementDateMatch($bankStatement, $candidateInvoices)) {
+            $score += 20;
+            $rules[] = 'movement_date_matches_due_monthly_fee';
+            $explanations[] = 'A data do movimento coincide com a mensalidade em falta sugerida.';
+        }
+
+        if ($this->candidateSetMatchesOldestMonthlyPrefix($bankStatement, $candidateInvoices, $context, $historyProfile)) {
+            $score += 24;
+            $rules[] = 'oldest_due_monthly_prefix_match';
+            $explanations[] = 'O valor coincide com as mensalidades atuais e vencidas por ordem da mais antiga.';
+        }
+
+        return [
+            'score' => $score,
+            'rule' => $rules[0] ?? null,
+            'explanation' => $explanations !== [] ? implode(' ', $explanations) : null,
+        ];
+    }
+
+    private function candidateSetMatchesHistoricalOrigin(array $candidateInvoices, array $context, array $historyProfile): bool
+    {
+        if ($candidateInvoices === []) {
+            return false;
+        }
+
+        foreach ($candidateInvoices as $candidate) {
+            if (!$this->candidateMatchesHistoricalOrigin($candidate, $context, $historyProfile)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private function candidateMatchesHistoricalOrigin(array $candidate, array $context, array $historyProfile): bool
+    {
+        $preferredOrigins = (array) ($historyProfile['preferred_origins'] ?? []);
+        if ($preferredOrigins === []) {
+            return false;
+        }
+
+        /** @var Invoice $invoice */
+        $invoice = $candidate['invoice'];
+        $origin = $this->resolveInvoiceOriginKey($invoice);
+
+        if ($origin === null) {
+            return false;
+        }
+
+        if (in_array($origin, $preferredOrigins, true)) {
+            return true;
+        }
+
+        if (in_array('mensalidade', $preferredOrigins, true) && $this->isMonthlyInvoice($invoice)) {
+            return true;
+        }
+
+        return false;
+    }
+
+    private function candidateSetContainsMovementDateMatch(BankStatement $bankStatement, array $candidateInvoices): bool
+    {
+        if (!$bankStatement->data_movimento) {
+            return false;
+        }
+
+        foreach ($candidateInvoices as $candidate) {
+            /** @var Invoice $invoice */
+            $invoice = $candidate['invoice'];
+
+            if ($invoice->data_vencimento && $invoice->data_vencimento->isSameDay($bankStatement->data_movimento)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function candidateSetMatchesOldestMonthlyPrefix(
+        BankStatement $bankStatement,
+        array $candidateInvoices,
+        array $context,
+        array $historyProfile
+    ): bool {
+        $userId = $context['user_id'] ?? null;
+        $familyId = $context['family_id'] ?? null;
+
+        if (!$bankStatement->data_movimento || (!$userId && !$familyId) || $candidateInvoices === []) {
+            return false;
+        }
+
+        $openInvoices = $this->fetchOpenInvoicesForContext($userId, $familyId)
+            ->filter(function (array $candidate) use ($bankStatement, $context, $historyProfile): bool {
+                /** @var Invoice $invoice */
+                $invoice = $candidate['invoice'];
+
+                return $this->isCurrentOrOverdueMonthlyInvoice($invoice, $bankStatement->data_movimento)
+                    && $this->candidateMatchesHistoricalOrigin($candidate, $context, $historyProfile);
+            })
+            ->sortBy(fn (array $candidate) => $candidate['invoice']->data_vencimento?->format('Y-m-d') ?? '9999-12-31')
+            ->values();
+
+        if ($openInvoices->isEmpty()) {
+            return false;
+        }
+
+        $candidateIds = collect($candidateInvoices)
+            ->map(fn (array $candidate) => (string) $candidate['invoice']->id)
+            ->values()
+            ->all();
+
+        $prefixIds = [];
+        $runningAmount = 0.0;
+        $targetAmount = round(collect($candidateInvoices)->sum('amount'), 2);
+
+        foreach ($openInvoices as $candidate) {
+            $prefixIds[] = (string) $candidate['invoice']->id;
+            $runningAmount = round($runningAmount + $candidate['open_amount'], 2);
+
+            if (abs($runningAmount - $targetAmount) <= 0.009) {
+                return $prefixIds === $candidateIds;
+            }
+
+            if ($runningAmount > $targetAmount) {
+                break;
+            }
+        }
+
+        return false;
+    }
+
+    private function isMonthlyInvoice(Invoice $invoice): bool
+    {
+        return stripos((string) $invoice->tipo, 'mens') !== false;
+    }
+
+    private function isCurrentOrOverdueMonthlyInvoice(Invoice $invoice, ?Carbon $statementDate): bool
+    {
+        if (!$this->isMonthlyInvoice($invoice) || !$statementDate) {
+            return false;
+        }
+
+        if ($invoice->data_vencimento && $invoice->data_vencimento->lte($statementDate)) {
+            return true;
+        }
+
+        $invoiceMonthKey = $invoice->data_emissao?->format('Y-m');
+        if (!$invoiceMonthKey && is_string($invoice->mes) && preg_match('/^\d{4}-\d{2}$/', $invoice->mes) === 1) {
+            $invoiceMonthKey = $invoice->mes;
+        }
+
+        return $invoiceMonthKey !== null && $invoiceMonthKey <= $statementDate->format('Y-m');
+    }
+
+    private function resolveInvoiceOriginKey(?Invoice $invoice): ?string
+    {
+        if (!$invoice) {
+            return null;
+        }
+
+        if ($this->isMonthlyInvoice($invoice)) {
+            return 'mensalidade';
+        }
+
+        return $invoice->origem_tipo ?: ($invoice->tipo ?: null);
     }
 
     private function matchesRecurringMonthlyPattern(array $candidateInvoices, float $statementAmount): bool

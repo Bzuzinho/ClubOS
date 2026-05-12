@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo, type ChangeEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
 import { ExtratoBancario, LancamentoFinanceiro, Fatura, CentroCusto, User, Movimento, ConciliacaoMapa, BankReconciliationSuggestion, OpenInvoiceListItem } from './types';
 import { Button } from '@/Components/ui/button';
 import { Card } from '@/Components/ui/card';
@@ -447,11 +447,20 @@ export function BancoTab({
     return bestScore;
   };
 
-  const requestSuggestionsForExtrato = async (extrato: ExtratoBancario) => {
+  const bulkSuggestionsAbortControllerRef = useRef<AbortController | null>(null);
+
+  const requestSuggestionsForExtrato = async (
+    extrato: ExtratoBancario,
+    options?: { signal?: AbortSignal; forceRegeneration?: boolean },
+  ) => {
     const response = await fetch(buildRouteUrl('financeiro.bank-statements.generate-suggestions', extrato.id), {
       method: 'POST',
       headers: buildJsonHeaders(),
       credentials: 'same-origin',
+      signal: options?.signal,
+      body: JSON.stringify({
+        force_regeneration: options?.forceRegeneration === true,
+      }),
     });
 
     if (!response.ok) {
@@ -463,6 +472,10 @@ export function BancoTab({
     const bestScore = applySuggestionsToState(extrato.id, suggestions);
 
     return { suggestions, bestScore };
+  };
+
+  const handleCancelBulkSuggestionGeneration = () => {
+    bulkSuggestionsAbortControllerRef.current?.abort();
   };
 
   const handleGenerateSuggestionsBatch = async () => {
@@ -485,6 +498,8 @@ export function BancoTab({
     }
 
     setBulkGeneratingSuggestions(true);
+    const abortController = new AbortController();
+    bulkSuggestionsAbortControllerRef.current = abortController;
     const summary = {
       analyzed_count: 0,
       suggestions_created: 0,
@@ -495,9 +510,16 @@ export function BancoTab({
     setBulkSuggestionSummary(summary);
 
     try {
+      let cancelled = false;
+
       for (const extrato of statementsToAnalyze) {
+        if (abortController.signal.aborted) {
+          cancelled = true;
+          break;
+        }
+
         try {
-          const { suggestions } = await requestSuggestionsForExtrato(extrato);
+          const { suggestions } = await requestSuggestionsForExtrato(extrato, { signal: abortController.signal });
           summary.analyzed_count += 1;
           summary.suggestions_created += suggestions.length;
           summary.high_confidence_count += suggestions.filter((suggestion: BankReconciliationSuggestion) =>
@@ -507,7 +529,12 @@ export function BancoTab({
           if (suggestions.length === 0) {
             summary.unmatched_count += 1;
           }
-        } catch {
+        } catch (error) {
+          if (error instanceof DOMException && error.name === 'AbortError') {
+            cancelled = true;
+            break;
+          }
+
           summary.analyzed_count += 1;
           summary.errors += 1;
         }
@@ -515,11 +542,16 @@ export function BancoTab({
         setBulkSuggestionSummary({ ...summary });
       }
 
-      toast.success(`Sugestoes geradas para ${summary.analyzed_count} linha(s) bancarias.`);
+      if (cancelled) {
+        toast.info(`Geracao de sugestoes cancelada apos ${summary.analyzed_count} linha(s) analisadas.`);
+      } else {
+        toast.success(`Sugestoes geradas para ${summary.analyzed_count} linha(s) bancarias.`);
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Erro ao gerar sugestoes de conciliacao';
       toast.error(message);
     } finally {
+      bulkSuggestionsAbortControllerRef.current = null;
       setBulkGeneratingSuggestions(false);
     }
   };
@@ -667,13 +699,18 @@ export function BancoTab({
   };
 
   const openManualAllocationDialog = async (extrato: ExtratoBancario) => {
+    const initialSearch = [extrato.descricao, extrato.referencia]
+      .filter((value): value is string => typeof value === 'string' && value.trim() !== '')
+      .join(' ')
+      .trim();
+
     setSelectedManualAllocationExtrato(extrato);
     setManualAllocationDialogOpen(true);
     setManualAllocations({});
     setManualCreateCredit(false);
     setManualNotes('');
-    setInvoiceSearchTerm('');
-    await loadOpenInvoices();
+    setInvoiceSearchTerm(initialSearch);
+    await loadOpenInvoices(initialSearch);
   };
 
   const manualStatementAmount = selectedManualAllocationExtrato
@@ -723,7 +760,10 @@ export function BancoTab({
 
       if (!response.ok) {
         const payload = await response.json().catch(() => null);
-        throw new Error(payload?.message || 'Erro ao alocar manualmente a linha bancaria');
+        const validationMessage = payload?.errors?.allocations?.[0]
+          || payload?.errors?.bank_statement_id?.[0]
+          || payload?.message;
+        throw new Error(validationMessage || 'Erro ao alocar manualmente a linha bancaria');
       }
 
       const payload = await response.json();
@@ -1751,10 +1791,18 @@ export function BancoTab({
             </p>
           )}
         </div>
-        <Button type="button" onClick={() => void handleGenerateSuggestionsBatch()} disabled={bulkGeneratingSuggestions}>
-          <Gear size={16} className="mr-2" />
-          {bulkGeneratingSuggestions ? 'A gerar sugestoes...' : 'Gerar sugestoes de conciliacao'}
-        </Button>
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <Button type="button" onClick={() => void handleGenerateSuggestionsBatch()} disabled={bulkGeneratingSuggestions}>
+            <Gear size={16} className="mr-2" />
+            {bulkGeneratingSuggestions ? 'A gerar sugestoes...' : 'Gerar sugestoes de conciliacao'}
+          </Button>
+          {bulkGeneratingSuggestions && (
+            <Button type="button" variant="outline" onClick={handleCancelBulkSuggestionGeneration}>
+              <X size={16} className="mr-2" />
+              Cancelar
+            </Button>
+          )}
+        </div>
       </div>
 
       <Card className="overflow-hidden">

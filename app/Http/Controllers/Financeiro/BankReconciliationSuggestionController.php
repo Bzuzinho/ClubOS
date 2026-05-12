@@ -72,9 +72,15 @@ class BankReconciliationSuggestionController extends Controller
         return response()->json($paginator);
     }
 
-    public function generateForBankStatement(BankStatement $bankStatement): JsonResponse
+    public function generateForBankStatement(Request $request, BankStatement $bankStatement): JsonResponse
     {
-        $suggestions = $this->suggestionService->generateForBankStatement($bankStatement);
+        $data = $request->validate([
+            'force_regeneration' => ['nullable', 'boolean'],
+        ]);
+
+        $suggestions = $this->suggestionService->generateForBankStatement($bankStatement, [
+            'force_regeneration' => (bool) ($data['force_regeneration'] ?? false),
+        ]);
 
         return response()->json([
             'suggestions' => $suggestions->values(),
@@ -98,6 +104,11 @@ class BankReconciliationSuggestionController extends Controller
                     ->where('conciliado', false)
                     ->orWhere('conciliacao_status', 'partial')
                     ->orWhereNull('conciliacao_status');
+            })
+            ->whereDoesntHave('suggestions', function ($suggestionQuery) {
+                $suggestionQuery
+                    ->where('status', BankReconciliationSuggestion::STATUS_SUGGESTED)
+                    ->where('score', '>', 0);
             });
 
         if (!empty($data['date_from'])) {

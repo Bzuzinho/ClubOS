@@ -276,16 +276,19 @@ export function FaturasTab({
     const persistedOutstanding = invoice.valor_em_aberto !== null && invoice.valor_em_aberto !== undefined
       ? Math.max(toNumber(invoice.valor_em_aberto, 0), 0)
       : null;
+    const calculatedOutstanding = Math.max(totalAmount - paidAmount, 0);
 
     if (invoice.estado_pagamento === 'pago') {
       return 0;
     }
 
+    if (paidAmount > 0 && (persistedOutstanding === null || Math.abs(persistedOutstanding - calculatedOutstanding) > 0.009)) {
+      return calculatedOutstanding;
+    }
+
     if (persistedOutstanding !== null && persistedOutstanding > 0) {
       return persistedOutstanding;
     }
-
-    const calculatedOutstanding = Math.max(totalAmount - paidAmount, 0);
 
     if (calculatedOutstanding > 0) {
       return calculatedOutstanding;

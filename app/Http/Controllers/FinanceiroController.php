@@ -671,17 +671,41 @@ class FinanceiroController extends Controller
         }
 
         if ($search !== '') {
-            $query->where(function ($nestedQuery) use ($search) {
+            $tokens = collect(preg_split('/\s+/', $search) ?: [])
+                ->map(fn (string $token) => trim($token))
+                ->filter(fn (string $token) => strlen($token) >= 3)
+                ->values();
+
+            $query->where(function ($nestedQuery) use ($search, $tokens) {
                 $nestedQuery
                     ->where('tipo', 'ilike', "%{$search}%")
                     ->orWhere('mes', 'ilike', "%{$search}%")
-                    ->orWhere('referencia_pagamento', 'ilike', "%{$search}%")
-                    ->orWhereHas('user', function ($userQuery) use ($search) {
-                        $userQuery
-                            ->where('nome_completo', 'ilike', "%{$search}%")
-                            ->orWhere('name', 'ilike', "%{$search}%")
-                            ->orWhere('numero_socio', 'ilike', "%{$search}%");
-                    });
+                    ->orWhere('referencia_pagamento', 'ilike', "%{$search}%");
+
+                foreach ($tokens as $token) {
+                    $like = "%{$token}%";
+
+                    $nestedQuery
+                        ->orWhereHas('user', function ($userQuery) use ($like) {
+                            $userQuery
+                                ->where('nome_completo', 'ilike', $like)
+                                ->orWhere('name', 'ilike', $like)
+                                ->orWhere('numero_socio', 'ilike', $like)
+                                ->orWhereHas('families', function ($familyQuery) use ($like) {
+                                    $familyQuery->where('familias.nome', 'ilike', $like);
+                                })
+                                ->orWhereHas('families.responsavel', function ($responsavelQuery) use ($like) {
+                                    $responsavelQuery
+                                        ->where('nome_completo', 'ilike', $like)
+                                        ->orWhere('name', 'ilike', $like);
+                                })
+                                ->orWhereHas('encarregados', function ($guardianQuery) use ($like) {
+                                    $guardianQuery
+                                        ->where('nome_completo', 'ilike', $like)
+                                        ->orWhere('name', 'ilike', $like);
+                                });
+                        });
+                }
             });
         }
 
@@ -712,6 +736,12 @@ class FinanceiroController extends Controller
                 ];
             });
 
+        $filteredCollection = $paginator->getCollection()
+            ->filter(fn (array $invoice): bool => (float) ($invoice['valor_em_aberto'] ?? 0) > 0.009)
+            ->values();
+
+        $paginator->setCollection($filteredCollection);
+
         return response()->json($paginator);
     }
 
@@ -728,8 +758,10 @@ class FinanceiroController extends Controller
             ? max((float) $invoice->valor_em_aberto, 0)
             : null;
 
+        if ($paidAmount > 0 && ($persistedOutstanding === null || abs($persistedOutstanding - $fallbackOutstanding) > 0.009)) {
+            $invoice->valor_em_aberto = $fallbackOutstanding;
         // Legacy invoices can carry valor_em_aberto = 0 while still pending.
-        if ($invoice->estado_pagamento !== 'pago' && $fallbackOutstanding > 0 && ($persistedOutstanding === null || $persistedOutstanding <= 0)) {
+        } elseif ($invoice->estado_pagamento !== 'pago' && $fallbackOutstanding > 0 && ($persistedOutstanding === null || $persistedOutstanding <= 0)) {
             $invoice->valor_em_aberto = $fallbackOutstanding;
         } elseif ($persistedOutstanding !== null) {
             $invoice->valor_em_aberto = $persistedOutstanding;
@@ -738,6 +770,14 @@ class FinanceiroController extends Controller
         }
 
         $invoice->valor_pago = $paidAmount;
+
+        if ($invoice->estado_pagamento !== 'cancelado') {
+            if ($paidAmount > 0 && (float) $invoice->valor_em_aberto <= 0.009) {
+                $invoice->estado_pagamento = 'pago';
+            } elseif ($paidAmount > 0) {
+                $invoice->estado_pagamento = 'parcial';
+            }
+        }
 
         return $invoice;
     }
@@ -756,11 +796,27 @@ class FinanceiroController extends Controller
                 },
             ], 'amount')
             ->selectSub(
-                FinancialEntry::query()
+                $this->invoicePaymentEntriesQuery()
                     ->selectRaw('COALESCE(SUM(valor), 0)')
                     ->whereColumn('fatura_id', 'invoices.id'),
                 'legacy_financial_entries_sum'
             );
+    }
+
+    private function invoicePaymentEntriesQuery()
+    {
+        return FinancialEntry::query()
+            ->where(function ($query): void {
+                $query
+                    ->where('origem_tipo', 'payment_allocation')
+                    ->orWhere('origem_tipo', 'manual')
+                    ->orWhere(function ($legacyQuery): void {
+                        $legacyQuery
+                            ->whereNull('origem_tipo')
+                            ->where('tipo', 'receita')
+                            ->where('categoria', 'Pagamento de Fatura');
+                    });
+            });
     }
 
     public function unreconciledBankStatements(Request $request): JsonResponse
@@ -1340,10 +1396,6 @@ class FinanceiroController extends Controller
             }
         }
 
-        if (!$items || count($items) === 0) {
-            return response()->json(['message' => 'Nenhum item para conciliar.'], 422);
-        }
-
         $lancamentos = [];
         $mapas = [];
         $mapasPorFatura = [];
@@ -1352,6 +1404,40 @@ class FinanceiroController extends Controller
         $faturasAfetadas = [];
         $movimentosAfetados = [];
         $totalConciliado = 0;
+
+        if (!$items || count($items) === 0) {
+            $valorExtrato = abs((float) $extrato->valor);
+
+            $entry = FinancialEntry::create([
+                'data' => $extrato->data_movimento,
+                'tipo' => $data['tipo'],
+                'descricao' => $extrato->descricao,
+                'documento_ref' => $extrato->referencia,
+                'valor' => $valorExtrato,
+                'centro_custo_id' => $data['centro_custo_id'],
+                'user_id' => $data['user_id'] ?? null,
+                'fatura_id' => null,
+                'origem_tipo' => 'manual',
+                'origem_id' => null,
+                'metodo_pagamento' => 'transferencia',
+            ]);
+
+            $mapa = MapaConciliacao::create([
+                'extrato_id' => $extrato->id,
+                'lancamento_id' => $entry->id,
+                'fatura_id' => null,
+                'movimento_id' => null,
+                'estado_fatura_anterior' => null,
+                'estado_movimento_anterior' => null,
+                'valor_conciliado' => $valorExtrato,
+                'status' => 'confirmado',
+                'regra_usada' => 'manual',
+            ]);
+
+            $lancamentos[] = $entry;
+            $mapas[] = $mapa;
+            $totalConciliado = $valorExtrato;
+        }
 
         foreach ($items as $item) {
             $valorItem = abs((float) $item['valor']);
@@ -1425,8 +1511,17 @@ class FinanceiroController extends Controller
         }
 
         $valorExtrato = abs((float) $extrato->valor);
+        $valorConciliado = min($valorExtrato, $totalConciliado);
+        $valorPorConciliar = max(0, $valorExtrato - $valorConciliado);
+        $conciliacaoStatus = $valorConciliado >= $valorExtrato && $valorExtrato > 0
+            ? 'reconciled'
+            : ($valorConciliado > 0 ? 'partial' : 'unreconciled');
+
         $extrato->update([
             'conciliado' => $totalConciliado >= $valorExtrato && $valorExtrato > 0,
+            'valor_conciliado' => $valorConciliado,
+            'valor_por_conciliar' => $valorPorConciliar,
+            'conciliacao_status' => $conciliacaoStatus,
             'lancamento_id' => count($lancamentos) === 1 ? $lancamentos[0]->id : null,
         ]);
 
@@ -1435,7 +1530,7 @@ class FinanceiroController extends Controller
             if (!$fatura) {
                 continue;
             }
-            $totalPago = (float) FinancialEntry::where('fatura_id', $faturaId)->sum('valor');
+            $totalPago = (float) $this->invoicePaymentEntriesQuery()->where('fatura_id', $faturaId)->sum('valor');
             if ($totalPago >= (float) $fatura->valor_total) {
                 $fatura->estado_pagamento = 'pago';
             } elseif ($totalPago > 0) {
@@ -1503,7 +1598,7 @@ class FinanceiroController extends Controller
         $this->invalidateFinanceiroCaches();
 
         return response()->json([
-            'extrato' => $extrato,
+            'extrato' => $extrato->fresh(),
             'lancamentos' => $lancamentos,
             'faturas' => $faturasAtualizadas,
             'movimentos' => $movimentosAtualizados,
@@ -1539,7 +1634,7 @@ class FinanceiroController extends Controller
             if (!$fatura) {
                 continue;
             }
-            $totalPago = (float) FinancialEntry::where('fatura_id', $faturaId)->sum('valor');
+            $totalPago = (float) $this->invoicePaymentEntriesQuery()->where('fatura_id', $faturaId)->sum('valor');
             if ($totalPago >= (float) $fatura->valor_total) {
                 $fatura->estado_pagamento = 'pago';
             } elseif ($totalPago > 0) {

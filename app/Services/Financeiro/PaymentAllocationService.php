@@ -20,6 +20,7 @@ class PaymentAllocationService
 {
     public function __construct(
         private readonly FiscalDocumentRequestService $fiscalDocumentRequestService,
+        private readonly ReconciliationRepositoryService $reconciliationRepositoryService,
     ) {
     }
 
@@ -248,9 +249,17 @@ class PaymentAllocationService
             ]);
         }
 
-        return $this->allocatePayment($payment, $allocations, array_merge($options, [
+        $payment = $this->allocatePayment($payment, $allocations, array_merge($options, [
             'bank_statement' => $bankStatement,
         ]));
+
+        $this->reconciliationRepositoryService->storeFromConfirmedReconciliation(
+            $bankStatement,
+            $payment,
+            $options['created_by'] ?? null,
+        );
+
+        return $payment;
     }
 
     public function recalculateInvoicePaymentStatus(Invoice $invoice): Invoice
@@ -426,7 +435,7 @@ class PaymentAllocationService
             ->confirmed()
             ->where('invoice_id', $invoice->id)
             ->sum('amount'), 2);
-        $legacyEntryPaid = round((float) FinancialEntry::query()
+        $legacyEntryPaid = round((float) $this->invoicePaymentEntriesQuery()
             ->where('fatura_id', $invoice->id)
             ->sum('valor'), 2);
         $trackedPaid = in_array($invoice->estado_pagamento, ['pago', 'parcial'], true)
@@ -439,6 +448,22 @@ class PaymentAllocationService
     private function getInvoiceOutstandingAmount(Invoice $invoice): float
     {
         return round(max((float) $invoice->valor_total - $this->getInvoicePaidAmount($invoice), 0), 2);
+    }
+
+    private function invoicePaymentEntriesQuery()
+    {
+        return FinancialEntry::query()
+            ->where(function ($query): void {
+                $query
+                    ->where('origem_tipo', 'payment_allocation')
+                    ->orWhere('origem_tipo', 'manual')
+                    ->orWhere(function ($legacyQuery): void {
+                        $legacyQuery
+                            ->whereNull('origem_tipo')
+                            ->where('tipo', 'receita')
+                            ->where('categoria', 'Pagamento de Fatura');
+                    });
+            });
     }
 
     private function syncPaymentBalances(Payment $payment): Payment
