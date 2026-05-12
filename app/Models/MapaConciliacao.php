@@ -60,6 +60,11 @@ class MapaConciliacao extends Model
         return $this->belongsTo(PaymentAllocation::class, 'payment_allocation_id');
     }
 
+    public function movement(): BelongsTo
+    {
+        return $this->belongsTo(Movement::class, 'movimento_id');
+    }
+
     public function suggestion(): BelongsTo
     {
         return $this->belongsTo(BankReconciliationSuggestion::class, 'bank_reconciliation_suggestion_id');

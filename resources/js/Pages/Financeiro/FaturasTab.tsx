@@ -341,6 +341,7 @@ export function FaturasTab({
 
   const filteredFaturas = useMemo(() => {
     return (faturas || [])
+      .filter((fatura) => fatura.tipo === 'mensalidade')
       .map((fatura) => {
         const now = new Date();
         const futureInvoice = isFutureInvoice(fatura);

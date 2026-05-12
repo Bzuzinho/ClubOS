@@ -18,6 +18,7 @@ import {
   MonthlyFee,
   AgeGroup,
   InvoiceType,
+  FinanceDashboardData,
 } from './types';
 
 const DashboardTab = lazy(() => import('./DashboardTab').then((module) => ({ default: module.DashboardTab })));
@@ -45,6 +46,7 @@ interface Props {
   mensalidades: MonthlyFee[];
   ageGroups: AgeGroup[];
   invoiceTypes: InvoiceType[];
+  dashboardData: FinanceDashboardData;
 }
 
 export default function FinanceiroIndex({
@@ -61,6 +63,7 @@ export default function FinanceiroIndex({
   mensalidades,
   ageGroups,
   invoiceTypes,
+  dashboardData,
 }: Props) {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [faturasState, setFaturas] = useState<Fatura[]>(faturas || []);
@@ -124,7 +127,7 @@ export default function FinanceiroIndex({
                 <ChartLineUp size={14} />
                 <span>Dashboard</span>
               </TabsTrigger>
-              <TabsTrigger value="faturas" className="flex h-8 items-center justify-center gap-1 px-2 py-1 text-[11px] leading-none sm:h-7 sm:text-xs">
+              <TabsTrigger value="mensalidades" className="flex h-8 items-center justify-center gap-1 px-2 py-1 text-[11px] leading-none sm:h-7 sm:text-xs">
                 <Receipt size={14} />
                 <span>Mensalidades</span>
               </TabsTrigger>
@@ -151,18 +154,14 @@ export default function FinanceiroIndex({
             {activeTab === 'dashboard' ? (
               <Suspense fallback={<TabFallback />}>
                 <DashboardTab
-                  faturas={faturasState}
-                  lancamentos={lancamentosState}
-                  movimentos={movimentosState}
-                  extratos={extratosState}
-                  centrosCusto={centrosCusto || []}
+                  dashboardData={dashboardData}
                 />
               </Suspense>
             ) : null}
           </TabsContent>
 
-          <TabsContent value="faturas" className={moduleTabbedContentClass}>
-            {activeTab === 'faturas' ? (
+          <TabsContent value="mensalidades" className={moduleTabbedContentClass}>
+            {activeTab === 'mensalidades' ? (
               <Suspense fallback={<TabFallback />}>
                 <FaturasTab
                   faturas={faturasState}

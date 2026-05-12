@@ -220,6 +220,26 @@ export interface MonthlyFee {
   age_group_id?: string | null;
 }
 
+export interface FinanceDashboardPoint {
+  label?: string;
+  total?: number;
+  mes?: string;
+  receitas?: number;
+  despesas?: number;
+  centro_custo_id?: string;
+}
+
+export interface FinanceDashboardData {
+  total_geral: number;
+  receitas_mes: number;
+  despesas_mes: number;
+  mensalidades_vencidas: number;
+  movimentos_pendentes: number;
+  distribuicao_por_tipo: FinanceDashboardPoint[];
+  evolucao_mensal_ultimos_6_meses: FinanceDashboardPoint[];
+  receitas_despesas_por_centro_custo: FinanceDashboardPoint[];
+}
+
 export interface AgeGroup {
   id: string;
   nome: string;

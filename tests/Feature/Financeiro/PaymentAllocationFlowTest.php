@@ -10,6 +10,7 @@ use App\Models\FinancialEntry;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\MapaConciliacao;
+use App\Models\Movement;
 use App\Models\Payment;
 use App\Models\PaymentAllocation;
 use App\Models\User;
@@ -578,6 +579,69 @@ class PaymentAllocationFlowTest extends TestCase
         $this->assertNull($invoice->numero_recibo);
     }
 
+    public function test_liquidating_revenue_movement_uses_canonical_settlement_and_creates_fiscal_request(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $movement = $this->createMovement('receita', 75.00, true);
+
+        $response = $this->actingAs($admin)->postJson(route('financeiro.movimentos.liquidar', $movement), [
+            'numero_recibo' => 'REC-MOV-001',
+            'metodo_pagamento' => 'transferencia',
+        ]);
+
+        $response->assertOk();
+
+        $movement->refresh();
+        $entry = FinancialEntry::query()
+            ->where('origem_tipo', 'movement')
+            ->where('origem_id', $movement->id)
+            ->firstOrFail();
+
+        $this->assertSame('pago', $movement->estado_pagamento);
+        $this->assertSame('pago', $entry->estado);
+        $this->assertSame('75.00', $entry->valor_pago);
+        $this->assertSame('0.00', $entry->valor_em_aberto);
+        $this->assertDatabaseHas('payment_allocations', [
+            'financial_entry_id' => $entry->id,
+            'invoice_id' => null,
+            'amount' => 75.00,
+        ]);
+        $this->assertDatabaseHas('fiscal_document_requests', [
+            'financial_entry_id' => $entry->id,
+            'status' => FiscalDocumentRequest::STATUS_PENDING,
+        ]);
+    }
+
+    public function test_liquidating_expense_movement_uses_canonical_settlement_without_fiscal_request(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $movement = $this->createMovement('despesa', 42.50, false);
+
+        $response = $this->actingAs($admin)->postJson(route('financeiro.movimentos.liquidar', $movement), [
+            'numero_recibo' => 'REC-MOV-002',
+            'metodo_pagamento' => 'transferencia',
+        ]);
+
+        $response->assertOk();
+
+        $movement->refresh();
+        $entry = FinancialEntry::query()
+            ->where('origem_tipo', 'movement')
+            ->where('origem_id', $movement->id)
+            ->firstOrFail();
+
+        $this->assertSame('pago', $movement->estado_pagamento);
+        $this->assertSame('pago', $entry->estado);
+        $this->assertDatabaseHas('payment_allocations', [
+            'financial_entry_id' => $entry->id,
+            'invoice_id' => null,
+            'amount' => 42.50,
+        ]);
+        $this->assertDatabaseMissing('fiscal_document_requests', [
+            'financial_entry_id' => $entry->id,
+        ]);
+    }
+
     public function test_open_invoices_endpoint_excludes_pending_invoices_with_zero_outstanding_amount(): void
     {
         $admin = User::factory()->admin()->create();
@@ -784,5 +848,33 @@ class PaymentAllocationFlowTest extends TestCase
                 'ativo' => true,
             ],
         );
+    }
+
+    private function createMovement(string $classificacao, float $amount, bool $withUser): Movement
+    {
+        $user = $withUser ? User::factory()->create([
+            'nome_completo' => 'Movimento Canonico',
+            'nif' => '987654321',
+            'morada' => 'Rua do Movimento 10',
+            'codigo_postal' => '2000-200',
+            'localidade' => 'Santarém',
+            'email' => 'movimento@example.com',
+        ]) : null;
+        $costCenter = $this->createCostCenter();
+
+        return Movement::create([
+            'user_id' => $user?->id,
+            'nome_manual' => $withUser ? null : ($classificacao === 'receita' ? 'BSCN Receita' : 'BSCN Despesa'),
+            'classificacao' => $classificacao,
+            'data_emissao' => '2026-05-05',
+            'data_vencimento' => '2026-05-05',
+            'valor_total' => $amount,
+            'estado_pagamento' => 'pendente',
+            'centro_custo_id' => $costCenter->id,
+            'tipo' => 'servico',
+            'origem_tipo' => 'manual',
+            'origem_id' => null,
+            'observacoes' => 'Movimento para teste canonico',
+        ]);
     }
 }

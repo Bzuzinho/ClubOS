@@ -21,6 +21,9 @@ use App\Models\PaymentAllocation;
 use App\Models\Product;
 use App\Models\User;
 use App\Services\Club\ClubSettingsService;
+use App\Services\Financeiro\BankReconciliationService;
+use App\Services\Financeiro\FinanceDashboardService;
+use App\Services\Financeiro\FinancialSettlementService;
 use App\Services\Financeiro\FiscalDocumentRequestService;
 use App\Services\Financeiro\MonthlyFeeGenerationService;
 use App\Services\Financeiro\PaymentAllocationService;
@@ -42,6 +45,9 @@ class FinanceiroController extends Controller
     public function __construct(
         private readonly PaymentAllocationService $paymentAllocationService,
         private readonly MonthlyFeeGenerationService $monthlyFeeGenerationService,
+        private readonly FinancialSettlementService $financialSettlementService,
+        private readonly BankReconciliationService $bankReconciliationService,
+        private readonly FinanceDashboardService $financeDashboardService,
     ) {
     }
 
@@ -182,6 +188,7 @@ class FinanceiroController extends Controller
         }
 
         return [
+            'dashboardData' => $this->financeDashboardService->build(),
             'faturas' => $faturas,
             'faturaItens' => $faturaItens,
             'movimentos' => $movimentos,
@@ -1153,41 +1160,23 @@ class FinanceiroController extends Controller
             $movimento->comprovativo = $request->file('comprovativo')->store('financeiro/movimentos', 'public');
         }
 
-        $movimento->estado_pagamento = 'pago';
-        $movimento->numero_recibo = $data['numero_recibo'];
-        $movimento->metodo_pagamento = $data['metodo_pagamento'] ?? $movimento->metodo_pagamento;
-        $movimento->save();
-
-        $lancamento = FinancialEntry::where('origem_id', $movimento->id)
-            ->orderByDesc('created_at')
-            ->first();
-
-        if ($lancamento) {
-            $lancamento->update([
-                'documento_ref' => $movimento->numero_recibo,
-                'metodo_pagamento' => $movimento->metodo_pagamento,
-                'comprovativo' => $movimento->comprovativo,
-            ]);
-        } else {
-            $lancamento = FinancialEntry::create([
-                'data' => $movimento->data_emissao,
-                'tipo' => $movimento->classificacao,
-                'categoria' => 'Pagamento de Movimento',
-                'descricao' => "Pagamento de movimento {$movimento->tipo}",
-                'documento_ref' => $movimento->numero_recibo,
-                'valor' => abs($movimento->valor_total),
-                'centro_custo_id' => $movimento->centro_custo_id,
-                'user_id' => $movimento->user_id,
-                'origem_tipo' => $movimento->origem_tipo ?? 'manual',
-                'origem_id' => $movimento->id,
-                'metodo_pagamento' => $movimento->metodo_pagamento,
-                'comprovativo' => $movimento->comprovativo,
-            ]);
-        }
+        $result = $this->financialSettlementService->settleMovement($movimento, [
+            'numero_recibo' => $data['numero_recibo'],
+            'method' => $data['metodo_pagamento'] ?? $movimento->metodo_pagamento,
+            'reference' => $data['numero_recibo'],
+            'comprovativo' => $movimento->comprovativo,
+            'created_by' => $request->user()?->id,
+            'source' => Payment::SOURCE_MANUAL,
+            'notes' => 'Liquidacao manual de movimento.',
+        ]);
 
         $this->invalidateFinanceiroCaches();
 
-        return response()->json(['movimento' => $movimento, 'lancamento' => $lancamento]);
+        return response()->json([
+            'movimento' => $result['movement'],
+            'lancamento' => $result['financial_entry'],
+            'payment' => $result['payment'],
+        ]);
     }
 
     public function storeExtrato(Request $request)
@@ -1377,9 +1366,8 @@ class FinanceiroController extends Controller
             'itens.*.valor' => ['required_with:itens', 'numeric', 'min:0.01'],
         ]);
 
-        $items = $data['itens'] ?? null;
-        if (!$items) {
-            $items = [];
+        $items = $data['itens'] ?? [];
+        if ($items === []) {
             if (!empty($data['fatura_id'])) {
                 $items[] = [
                     'tipo' => 'fatura',
@@ -1396,213 +1384,23 @@ class FinanceiroController extends Controller
             }
         }
 
-        $lancamentos = [];
-        $mapas = [];
-        $mapasPorFatura = [];
-        $faturasAtualizadas = [];
-        $movimentosAtualizados = [];
-        $faturasAfetadas = [];
-        $movimentosAfetados = [];
-        $totalConciliado = 0;
-
-        if (!$items || count($items) === 0) {
-            $valorExtrato = abs((float) $extrato->valor);
-
-            $entry = FinancialEntry::create([
-                'data' => $extrato->data_movimento,
-                'tipo' => $data['tipo'],
-                'descricao' => $extrato->descricao,
-                'documento_ref' => $extrato->referencia,
-                'valor' => $valorExtrato,
-                'centro_custo_id' => $data['centro_custo_id'],
-                'user_id' => $data['user_id'] ?? null,
-                'fatura_id' => null,
-                'origem_tipo' => 'manual',
-                'origem_id' => null,
-                'metodo_pagamento' => 'transferencia',
-            ]);
-
-            $mapa = MapaConciliacao::create([
-                'extrato_id' => $extrato->id,
-                'lancamento_id' => $entry->id,
-                'fatura_id' => null,
-                'movimento_id' => null,
-                'estado_fatura_anterior' => null,
-                'estado_movimento_anterior' => null,
-                'valor_conciliado' => $valorExtrato,
-                'status' => 'confirmado',
-                'regra_usada' => 'manual',
-            ]);
-
-            $lancamentos[] = $entry;
-            $mapas[] = $mapa;
-            $totalConciliado = $valorExtrato;
-        }
-
-        foreach ($items as $item) {
-            $valorItem = abs((float) $item['valor']);
-            if ($valorItem <= 0) {
-                continue;
-            }
-
-            $fatura = null;
-            $movimento = null;
-            $estadoFaturaAnterior = null;
-            $estadoMovimentoAnterior = null;
-            $centroCustoId = $data['centro_custo_id'] ?? null;
-            $userId = $data['user_id'] ?? null;
-
-            if ($item['tipo'] === 'fatura') {
-                $fatura = Invoice::find($item['id']);
-                if ($fatura) {
-                    $estadoFaturaAnterior = $fatura->estado_pagamento;
-                    $centroCustoId = $fatura->centro_custo_id ?: $centroCustoId;
-                    $userId = $fatura->user_id ?: $userId;
-                    $faturasAfetadas[$fatura->id] = $estadoFaturaAnterior;
-                }
-            } elseif ($item['tipo'] === 'movimento') {
-                $movimento = Movement::find($item['id']);
-                if ($movimento) {
-                    $estadoMovimentoAnterior = $movimento->estado_pagamento;
-                    $centroCustoId = $movimento->centro_custo_id ?: $centroCustoId;
-                    $userId = $movimento->user_id ?: $userId;
-                    $movimentosAfetados[$movimento->id] = $estadoMovimentoAnterior;
-                }
-            }
-
-            if (!$centroCustoId) {
-                continue;
-            }
-
-            $entry = FinancialEntry::create([
-                'data' => $extrato->data_movimento,
-                'tipo' => $data['tipo'],
-                'descricao' => $extrato->descricao,
-                'documento_ref' => $extrato->referencia,
-                'valor' => $valorItem,
-                'centro_custo_id' => $centroCustoId,
-                'user_id' => $userId,
-                'fatura_id' => $fatura?->id,
-                'origem_tipo' => 'manual',
-                'origem_id' => $movimento?->id,
-                'metodo_pagamento' => 'transferencia',
-            ]);
-
-            $mapa = MapaConciliacao::create([
-                'extrato_id' => $extrato->id,
-                'lancamento_id' => $entry->id,
-                'fatura_id' => $fatura?->id,
-                'movimento_id' => $movimento?->id,
-                'estado_fatura_anterior' => $estadoFaturaAnterior,
-                'estado_movimento_anterior' => $estadoMovimentoAnterior,
-                'valor_conciliado' => $valorItem,
-                'status' => 'confirmado',
-                'regra_usada' => 'manual',
-            ]);
-
-            $mapas[] = $mapa;
-
-            if ($fatura?->id) {
-                $mapasPorFatura[$fatura->id] = $mapa;
-            }
-
-            $lancamentos[] = $entry;
-            $totalConciliado += $valorItem;
-        }
-
-        $valorExtrato = abs((float) $extrato->valor);
-        $valorConciliado = min($valorExtrato, $totalConciliado);
-        $valorPorConciliar = max(0, $valorExtrato - $valorConciliado);
-        $conciliacaoStatus = $valorConciliado >= $valorExtrato && $valorExtrato > 0
-            ? 'reconciled'
-            : ($valorConciliado > 0 ? 'partial' : 'unreconciled');
-
-        $extrato->update([
-            'conciliado' => $totalConciliado >= $valorExtrato && $valorExtrato > 0,
-            'valor_conciliado' => $valorConciliado,
-            'valor_por_conciliar' => $valorPorConciliar,
-            'conciliacao_status' => $conciliacaoStatus,
-            'lancamento_id' => count($lancamentos) === 1 ? $lancamentos[0]->id : null,
+        $result = $this->bankReconciliationService->reconcile($extrato, array_merge($data, [
+            'itens' => $items,
+            'metodo_pagamento' => 'transferencia',
+        ]), [
+            'created_by' => $request->user()?->id,
+            'source' => Payment::SOURCE_RECONCILIATION,
         ]);
-
-        foreach ($faturasAfetadas as $faturaId => $estadoAnterior) {
-            $fatura = Invoice::find($faturaId);
-            if (!$fatura) {
-                continue;
-            }
-            $totalPago = (float) $this->invoicePaymentEntriesQuery()->where('fatura_id', $faturaId)->sum('valor');
-            if ($totalPago >= (float) $fatura->valor_total) {
-                $fatura->estado_pagamento = 'pago';
-            } elseif ($totalPago > 0) {
-                $fatura->estado_pagamento = 'parcial';
-            } elseif ($estadoAnterior) {
-                $fatura->estado_pagamento = $estadoAnterior;
-            } else {
-                $fatura->estado_pagamento = 'pendente';
-            }
-            $fatura->save();
-            $faturasAtualizadas[] = $fatura;
-
-            if ($fatura->estado_pagamento === 'pago' && isset($mapasPorFatura[$fatura->id])) {
-                try {
-                    app(FiscalDocumentRequestService::class)->createFromReconciliation($mapasPorFatura[$fatura->id], [
-                        'paid_at' => $extrato->data_movimento,
-                        'bank_statement_id' => $extrato->id,
-                        'financial_entry_id' => $mapasPorFatura[$fatura->id]->lancamento_id,
-                        'created_by' => $request->user()?->id,
-                    ]);
-                } catch (\Throwable $exception) {
-                    \Log::warning('FinanceiroController::conciliarExtrato - fiscal request creation failed', [
-                        'invoice_id' => $fatura->id,
-                        'bank_statement_id' => $extrato->id,
-                        'error' => $exception->getMessage(),
-                    ]);
-                }
-            }
-        }
-
-        foreach ($movimentosAfetados as $movimentoId => $estadoAnterior) {
-            $movimento = Movement::find($movimentoId);
-            if (!$movimento) {
-                continue;
-            }
-            $totalPago = (float) FinancialEntry::where('origem_id', $movimentoId)->sum('valor');
-            $valorMovimento = abs((float) $movimento->valor_total);
-            if ($totalPago >= $valorMovimento) {
-                $movimento->estado_pagamento = 'pago';
-            } elseif ($totalPago > 0) {
-                $movimento->estado_pagamento = 'parcial';
-            } elseif ($estadoAnterior) {
-                $movimento->estado_pagamento = $estadoAnterior;
-            } else {
-                $movimento->estado_pagamento = 'pendente';
-            }
-            $movimento->save();
-            $movimentosAtualizados[] = $movimento;
-        }
-
-        $resolvedUserId = collect($lancamentos)
-            ->pluck('user_id')
-            ->filter()
-            ->first() ?? ($data['user_id'] ?? null);
-
-        if ($resolvedUserId) {
-            app(ReconciliationAliasService::class)->suggestFromConfirmedReconciliation(
-                $extrato,
-                $resolvedUserId,
-                null,
-                $request->user()?->id,
-            );
-        }
 
         $this->invalidateFinanceiroCaches();
 
         return response()->json([
-            'extrato' => $extrato->fresh(),
-            'lancamentos' => $lancamentos,
-            'faturas' => $faturasAtualizadas,
-            'movimentos' => $movimentosAtualizados,
-            'conciliacoes' => $mapas,
+            'extrato' => $result['bank_statement'],
+            'lancamentos' => $result['entries'],
+            'faturas' => $result['invoices'],
+            'movimentos' => $result['movements'],
+            'payments' => $result['payments'],
+            'conciliacoes' => MapaConciliacao::query()->where('extrato_id', $extrato->id)->get(),
         ]);
     }
 

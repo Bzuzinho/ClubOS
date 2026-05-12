@@ -17,7 +17,7 @@ return new class extends Migration
         Schema::create('payment_allocations', function (Blueprint $table) {
             $table->uuid('id')->primary();
             $table->foreignUuid('payment_id')->constrained('payments')->cascadeOnDelete();
-            $table->foreignUuid('invoice_id')->constrained('invoices')->cascadeOnDelete();
+            $table->foreignUuid('invoice_id')->nullable()->constrained('invoices')->nullOnDelete();
             $table->decimal('amount', 10, 2);
             $table->string('status', 20)->default('confirmed');
             $table->timestamp('allocated_at')->nullable();

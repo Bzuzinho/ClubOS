@@ -1,19 +1,15 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { Card } from '@/Components/ui/card';
-import { Fatura, LancamentoFinanceiro, CentroCusto, ExtratoBancario, Movimento } from './types';
+import { FinanceDashboardData } from './types';
 import { TrendUp, TrendDown, Wallet, Receipt, WarningCircle } from '@phosphor-icons/react';
 
 const DashboardCharts = lazy(() => import('./DashboardCharts'));
 
 interface DashboardTabProps {
-  faturas: Fatura[];
-  lancamentos: LancamentoFinanceiro[];
-  movimentos: Movimento[];
-  extratos: ExtratoBancario[];
-  centrosCusto: CentroCusto[];
+  dashboardData: FinanceDashboardData;
 }
 
-export function DashboardTab({ faturas, lancamentos, movimentos, extratos, centrosCusto }: DashboardTabProps) {
+export function DashboardTab({ dashboardData }: DashboardTabProps) {
   const [showCharts, setShowCharts] = useState(false);
 
   useEffect(() => {
@@ -30,171 +26,33 @@ export function DashboardTab({ faturas, lancamentos, movimentos, extratos, centr
     return () => window.clearTimeout(timeoutId);
   }, []);
 
-  const toNumber = (value: unknown, fallback = 0) => {
-    if (typeof value === 'number' && !Number.isNaN(value)) return value;
-    if (typeof value === 'string' && value.trim() !== '') {
-      const parsed = Number(value);
-      return Number.isNaN(parsed) ? fallback : parsed;
-    }
-    return fallback;
+  const stats = {
+    totalGeral: dashboardData?.total_geral ?? 0,
+    receitasMes: dashboardData?.receitas_mes ?? 0,
+    despesasMes: dashboardData?.despesas_mes ?? 0,
+    valorMensalidadesVencidas: dashboardData?.mensalidades_vencidas ?? 0,
+    valorPendentes: dashboardData?.movimentos_pendentes ?? 0,
+    saldoMes: (dashboardData?.receitas_mes ?? 0) - (dashboardData?.despesas_mes ?? 0),
+    saldoTotal: dashboardData?.total_geral ?? 0,
   };
-  const getStartOfToday = () => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    return today;
-  };
-  const isSameMonth = (dateValue?: string | null) => {
-    if (!dateValue) return false;
 
-    const date = new Date(dateValue);
+  const centrosCustoData = (dashboardData?.receitas_despesas_por_centro_custo ?? []).map((row) => ({
+    nome: row.centro_custo_id ?? 'Sem centro de custo',
+    despesas: row.despesas ?? 0,
+    receitas: row.receitas ?? 0,
+    saldo: (row.receitas ?? 0) - (row.despesas ?? 0),
+  }));
 
-    return !Number.isNaN(date.getTime()) &&
-      date.getMonth() === new Date().getMonth() &&
-      date.getFullYear() === new Date().getFullYear();
-  };
-  const isFutureInvoice = (fatura: Fatura) => new Date(fatura.data_fatura) > getStartOfToday();
-  const faturasAtivas = (faturas || []).filter((f) => !isFutureInvoice(f));
+  const monthlyData = (dashboardData?.evolucao_mensal_ultimos_6_meses ?? []).map((row) => ({
+    mes: row.mes ?? '-',
+    receitas: row.receitas ?? 0,
+    despesas: row.despesas ?? 0,
+  }));
 
-  const stats = useMemo(() => {
-    const today = getStartOfToday();
-
-    const mensalidades = faturasAtivas.filter((f) => f.tipo === 'mensalidade');
-
-    const mensalidadesVencidas = mensalidades.filter((f) => {
-      if (f.estado_pagamento === 'pago' || f.estado_pagamento === 'cancelado') return false;
-
-      const dataVencimento = new Date(f.data_vencimento);
-
-      return !Number.isNaN(dataVencimento.getTime()) && dataVencimento < today;
-    });
-
-    const valorMensalidadesVencidas = mensalidadesVencidas.reduce(
-      (sum, f) => sum + toNumber(f.valor_total),
-      0
-    );
-
-    const valorPendentes = (movimentos || [])
-      .filter((m) => m.estado_pagamento !== 'pago' && m.estado_pagamento !== 'cancelado')
-      .reduce((sum, m) => sum + Math.abs(toNumber(m.valor_total)), 0);
-
-    const faturasCobradasMes = faturasAtivas
-      .filter((f) => {
-        if (f.estado_pagamento !== 'pago') return false;
-        return isSameMonth(f.data_emissao);
-      })
-      .reduce((sum, f) => sum + toNumber(f.valor_total), 0);
-
-    const receitasMovimentosMes = (movimentos || [])
-      .filter((m) => {
-        if (m.classificacao !== 'receita' || m.estado_pagamento !== 'pago') return false;
-        return isSameMonth(m.data_emissao);
-      })
-      .reduce((sum, m) => sum + toNumber(m.valor_total), 0);
-
-    const receitasMes = receitasMovimentosMes + faturasCobradasMes;
-
-    const despesasMes = (movimentos || [])
-      .filter((m) => {
-        if (m.classificacao !== 'despesa' || m.estado_pagamento !== 'pago') return false;
-        return isSameMonth(m.data_emissao);
-      })
-      .reduce((sum, m) => sum + Math.abs(toNumber(m.valor_total)), 0);
-
-    const receitasTotal = (lancamentos || [])
-      .filter((l) => l.tipo === 'receita')
-      .reduce((sum, l) => sum + toNumber(l.valor), 0);
-
-    const despesasTotal = (lancamentos || [])
-      .filter((l) => l.tipo === 'despesa')
-      .reduce((sum, l) => sum + toNumber(l.valor), 0);
-
-    const totalGeral = receitasMes - despesasMes;
-
-    return {
-      valorMensalidadesVencidas,
-      valorPendentes,
-      mensalidadesCobradas: faturasCobradasMes,
-      receitasMes,
-      despesasMes,
-      receitasTotal,
-      despesasTotal,
-      totalGeral,
-      saldoMes: receitasMes - despesasMes,
-      saldoTotal: receitasTotal - despesasTotal,
-    };
-  }, [faturasAtivas, lancamentos, movimentos]);
-
-  const centrosCustoData = useMemo(() => {
-    const data = (centrosCusto || [])
-      .filter((cc) => cc.ativo)
-      .map((cc) => {
-        const despesas = (movimentos || [])
-          .filter((movimento) => movimento.classificacao === 'despesa' && movimento.centro_custo_id === cc.id)
-          .reduce((sum, movimento) => sum + Math.abs(toNumber(movimento.valor_total)), 0);
-
-        const receitasMensalidades = faturasAtivas
-          .filter((fatura) => fatura.tipo === 'mensalidade' && fatura.centro_custo_id === cc.id)
-          .reduce((sum, fatura) => sum + toNumber(fatura.valor_total), 0);
-
-        const receitasMovimentos = (movimentos || [])
-          .filter((movimento) => movimento.classificacao === 'receita' && movimento.centro_custo_id === cc.id)
-          .reduce((sum, movimento) => sum + toNumber(movimento.valor_total), 0);
-
-        const receitas = receitasMensalidades + receitasMovimentos;
-
-        return {
-          nome: cc.nome,
-          despesas,
-          receitas,
-          saldo: receitas - despesas,
-        };
-      });
-
-    return data.sort((a, b) => (b.receitas + b.despesas) - (a.receitas + a.despesas)).slice(0, 6);
-  }, [centrosCusto, faturasAtivas, movimentos]);
-
-  const monthlyData = useMemo(() => {
-    const months: { mes: string; receitas: number; despesas: number }[] = [];
-    const now = new Date();
-
-    for (let i = 5; i >= 0; i--) {
-      const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      const month = date.getMonth();
-      const year = date.getFullYear();
-
-      const receitas = (lancamentos || [])
-        .filter((l) => {
-          const d = new Date(l.data);
-          return l.tipo === 'receita' && d.getMonth() === month && d.getFullYear() === year;
-        })
-        .reduce((sum, l) => sum + toNumber(l.valor), 0);
-
-      const despesas = (lancamentos || [])
-        .filter((l) => {
-          const d = new Date(l.data);
-          return l.tipo === 'despesa' && d.getMonth() === month && d.getFullYear() === year;
-        })
-        .reduce((sum, l) => sum + toNumber(l.valor), 0);
-
-      months.push({
-        mes: date.toLocaleDateString('pt-PT', { month: 'short' }),
-        receitas,
-        despesas,
-      });
-    }
-
-    return months;
-  }, [lancamentos]);
-
-  const tiposFaturaData = useMemo(() => {
-    const tipos = ['mensalidade', 'inscricao', 'material', 'servico', 'outro'];
-    return tipos
-      .map((tipo) => ({
-        name: tipo.charAt(0).toUpperCase() + tipo.slice(1),
-        value: faturasAtivas.filter((f) => f.tipo === tipo).length,
-      }))
-      .filter((d) => d.value > 0);
-  }, [faturasAtivas]);
+  const tiposFaturaData = (dashboardData?.distribuicao_por_tipo ?? []).map((row) => ({
+    name: row.label ?? '-',
+    value: row.total ?? 0,
+  })).filter((row) => row.value > 0);
 
   const COLORS = [
     'oklch(0.45 0.15 250)',

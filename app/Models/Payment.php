@@ -82,6 +82,14 @@ class Payment extends Model
             ->withTimestamps();
     }
 
+    public function financialEntries(): BelongsToMany
+    {
+        return $this->belongsToMany(FinancialEntry::class, 'payment_allocations', 'payment_id', 'financial_entry_id')
+            ->using(PaymentAllocation::class)
+            ->withPivot(['id', 'amount', 'status', 'allocated_at', 'notes', 'metadata'])
+            ->withTimestamps();
+    }
+
     public function credits(): HasMany
     {
         return $this->hasMany(AccountCredit::class, 'payment_id');

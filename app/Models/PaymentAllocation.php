@@ -19,6 +19,7 @@ class PaymentAllocation extends Model
     protected $fillable = [
         'payment_id',
         'invoice_id',
+        'financial_entry_id',
         'amount',
         'status',
         'allocated_at',
@@ -41,6 +42,11 @@ class PaymentAllocation extends Model
     public function invoice(): BelongsTo
     {
         return $this->belongsTo(Invoice::class, 'invoice_id');
+    }
+
+    public function financialEntry(): BelongsTo
+    {
+        return $this->belongsTo(FinancialEntry::class, 'financial_entry_id');
     }
 
     public function createdBy(): BelongsTo
