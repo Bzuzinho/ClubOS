@@ -196,6 +196,15 @@ class FinanceiroController extends Controller
             $conciliacoes = [];
         }
 
+        try {
+            $fiscalRequests = Cache::remember('financeiro:fiscal_requests', 60, fn () =>
+                $this->buildFiscalRequestsPayload()
+            );
+        } catch (\Exception $e) {
+            \Log::error('FinanceiroController::index - Fiscal requests query failed: ' . $e->getMessage());
+            $fiscalRequests = [];
+        }
+
         return [
             'dashboardData' => $this->financeDashboardService->build(),
             'faturas' => $faturas,
@@ -207,6 +216,7 @@ class FinanceiroController extends Controller
             'lancamentos' => $lancamentos,
             'extratos' => $extratos,
             'conciliacoes' => $conciliacoes,
+            'fiscalRequests' => $fiscalRequests,
             'centrosCusto' => Cache::remember('financeiro:centros_custo', 300, function () {
                 try {
                     return CostCenter::orderBy('nome')->get();
@@ -312,6 +322,29 @@ class FinanceiroController extends Controller
                 }
             }),
         ];
+    }
+
+    private function buildFiscalRequestsPayload(): Collection
+    {
+        return FiscalDocumentRequest::query()
+            ->with([
+                'invoice:id,user_id,valor_total,estado_pagamento,numero_recibo,referencia_pagamento,tipo',
+                'user:id,name,nome_completo,email,nif,morada,codigo_postal,localidade',
+                'bankStatement:id,data_movimento,descricao,referencia',
+                'mapaConciliacao:id,extrato_id,lancamento_id,fatura_id,movimento_id,valor_conciliado',
+            ])
+            ->where(function ($query): void {
+                $query
+                    ->whereHas('invoice', function ($invoiceQuery): void {
+                        $invoiceQuery->where('tipo', 'mensalidade');
+                    })
+                    ->orWhereHas('financialEntry', function ($entryQuery): void {
+                        $entryQuery->where('tipo', 'receita');
+                    });
+            })
+            ->latest('created_at')
+            ->limit(1000)
+            ->get();
     }
 
     private function shouldUseIndexCache(Request $request): bool

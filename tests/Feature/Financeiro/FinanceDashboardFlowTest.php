@@ -4,6 +4,7 @@ namespace Tests\Feature\Financeiro;
 
 use App\Http\Middleware\HandleInertiaRequests;
 use App\Models\CostCenter;
+use App\Models\FiscalDocumentRequest;
 use App\Models\FinancialEntry;
 use App\Models\Invoice;
 use App\Models\Movement;
@@ -429,6 +430,126 @@ class FinanceDashboardFlowTest extends TestCase
             ($item['financial_entry_id'] ?? null) === $canonicalEntry->id
             && ($item['source_kind'] ?? null) === 'financial_entry'
             && ($item['classificacao'] ?? null) === 'despesa'
+        ));
+    }
+
+    public function test_financeiro_index_exposes_only_monthly_and_revenue_fiscal_requests(): void
+    {
+        $admin = User::query()->where('email', 'admin@test.com')->firstOrFail();
+        $costCenter = CostCenter::query()->firstOrFail();
+        $user = User::factory()->create([
+            'nome_completo' => 'Atleta Fila Fiscal',
+            'email' => 'fila-fiscal@example.com',
+            'nif' => '963852741',
+        ]);
+
+        $monthlyInvoice = Invoice::query()->create([
+            'user_id' => $user->id,
+            'centro_custo_id' => $costCenter->id,
+            'data_fatura' => now()->subDays(8)->toDateString(),
+            'data_emissao' => now()->subDays(8)->toDateString(),
+            'data_vencimento' => now()->subDays(2)->toDateString(),
+            'valor_total' => 35.00,
+            'valor_pago' => 35.00,
+            'valor_em_aberto' => 0,
+            'estado_pagamento' => 'pago',
+            'tipo' => 'mensalidade',
+            'oculta' => false,
+            'mes' => now()->format('Y-m'),
+        ]);
+
+        $revenueEntry = FinancialEntry::query()->create([
+            'data' => now()->subDay()->toDateString(),
+            'tipo' => 'receita',
+            'categoria' => 'Servicos',
+            'descricao' => 'Receita liquidada fiscalizavel',
+            'documento_ref' => 'REC-FISC-1',
+            'valor' => 55.00,
+            'valor_pago' => 55.00,
+            'valor_em_aberto' => 0,
+            'estado' => 'pago',
+            'data_pagamento' => now()->subDay()->toDateString(),
+            'centro_custo_id' => $costCenter->id,
+            'user_id' => $user->id,
+            'origem_tipo' => 'manual',
+            'origem_modulo' => 'financeiro',
+            'entidade_nome' => 'Cliente Receita',
+        ]);
+
+        $expenseEntry = FinancialEntry::query()->create([
+            'data' => now()->subDay()->toDateString(),
+            'tipo' => 'despesa',
+            'categoria' => 'Fornecedores',
+            'descricao' => 'Despesa liquidada sem fila fiscal',
+            'documento_ref' => 'DESP-FISC-1',
+            'valor' => 20.00,
+            'valor_pago' => 20.00,
+            'valor_em_aberto' => 0,
+            'estado' => 'pago',
+            'data_pagamento' => now()->subDay()->toDateString(),
+            'centro_custo_id' => $costCenter->id,
+            'user_id' => $user->id,
+            'origem_tipo' => 'manual',
+            'origem_modulo' => 'financeiro',
+            'entidade_nome' => 'Fornecedor Despesa',
+        ]);
+
+        $monthlyRequest = FiscalDocumentRequest::query()->create([
+            'invoice_id' => $monthlyInvoice->id,
+            'user_id' => $user->id,
+            'provider' => FiscalDocumentRequest::PROVIDER_WINTOUCH,
+            'document_type' => FiscalDocumentRequest::DOCUMENT_TYPE_RECEIPT,
+            'status' => FiscalDocumentRequest::STATUS_PENDING,
+            'priority' => FiscalDocumentRequest::PRIORITY_NORMAL,
+            'amount' => 35.00,
+            'customer_name' => $user->nome_completo,
+            'internal_reference' => 'MENS-QUEUE-1',
+        ]);
+
+        $revenueRequest = FiscalDocumentRequest::query()->create([
+            'financial_entry_id' => $revenueEntry->id,
+            'user_id' => $user->id,
+            'provider' => FiscalDocumentRequest::PROVIDER_WINTOUCH,
+            'document_type' => FiscalDocumentRequest::DOCUMENT_TYPE_RECEIPT,
+            'status' => FiscalDocumentRequest::STATUS_PENDING,
+            'priority' => FiscalDocumentRequest::PRIORITY_NORMAL,
+            'amount' => 55.00,
+            'customer_name' => $user->nome_completo,
+            'internal_reference' => 'REV-QUEUE-1',
+        ]);
+
+        FiscalDocumentRequest::query()->create([
+            'financial_entry_id' => $expenseEntry->id,
+            'user_id' => $user->id,
+            'provider' => FiscalDocumentRequest::PROVIDER_WINTOUCH,
+            'document_type' => FiscalDocumentRequest::DOCUMENT_TYPE_RECEIPT,
+            'status' => FiscalDocumentRequest::STATUS_PENDING,
+            'priority' => FiscalDocumentRequest::PRIORITY_NORMAL,
+            'amount' => 20.00,
+            'customer_name' => 'Fornecedor Despesa',
+            'internal_reference' => 'DESP-QUEUE-1',
+        ]);
+
+        Cache::flush();
+
+        $response = $this->inertiaGetAs($admin, route('financeiro.index', ['fresh' => 1]));
+        $fiscalRequests = collect($response->json('props.fiscalRequests'));
+
+        $response->assertOk();
+        $response->assertJsonPath('component', 'Financeiro/Index');
+
+        $this->assertTrue($fiscalRequests->contains(fn (array $item): bool =>
+            ($item['id'] ?? null) === $monthlyRequest->id
+            && ($item['invoice_id'] ?? null) === $monthlyInvoice->id
+        ));
+
+        $this->assertTrue($fiscalRequests->contains(fn (array $item): bool =>
+            ($item['id'] ?? null) === $revenueRequest->id
+            && ($item['financial_entry_id'] ?? null) === $revenueEntry->id
+        ));
+
+        $this->assertFalse($fiscalRequests->contains(fn (array $item): bool =>
+            ($item['financial_entry_id'] ?? null) === $expenseEntry->id
         ));
     }
 

@@ -20,6 +20,7 @@ import {
   AgeGroup,
   InvoiceType,
   FinanceDashboardData,
+  FiscalDocumentRequest,
 } from './types';
 
 const DashboardTab = lazy(() => import('./DashboardTab').then((module) => ({ default: module.DashboardTab })));
@@ -50,6 +51,7 @@ interface Props {
   ageGroups: AgeGroup[];
   invoiceTypes: InvoiceType[];
   dashboardData: FinanceDashboardData;
+  fiscalRequests: FiscalDocumentRequest[];
 }
 
 export default function FinanceiroIndex({
@@ -69,6 +71,7 @@ export default function FinanceiroIndex({
   ageGroups,
   invoiceTypes,
   dashboardData,
+  fiscalRequests,
 }: Props) {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [faturasState, setFaturas] = useState<Fatura[]>(faturas || []);
@@ -269,7 +272,7 @@ export default function FinanceiroIndex({
           <TabsContent value="emissao-fiscal" className={moduleTabbedContentClass}>
             {activeTab === 'emissao-fiscal' ? (
               <Suspense fallback={<TabFallback />}>
-                <FiscalDocumentsTab />
+                <FiscalDocumentsTab fiscalRequests={fiscalRequests || []} />
               </Suspense>
             ) : null}
           </TabsContent>
