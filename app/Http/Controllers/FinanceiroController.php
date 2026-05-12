@@ -1696,6 +1696,7 @@ class FinanceiroController extends Controller
     private function invalidateFinanceiroCaches(): void
     {
         Cache::forget('financeiro:index');
+        Cache::forget('financeiro:fiscal_requests');
         Cache::forget('financeiro:faturas');
         Cache::forget('financeiro:fatura_itens');
         Cache::forget('financeiro:movimentos');
