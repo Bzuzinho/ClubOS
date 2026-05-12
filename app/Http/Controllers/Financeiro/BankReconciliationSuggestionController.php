@@ -8,7 +8,7 @@ use App\Models\BankStatement;
 use App\Models\Invoice;
 use App\Models\Payment;
 use App\Services\Financeiro\BankReconciliationSuggestionService;
-use App\Services\Financeiro\PaymentAllocationService;
+use App\Services\Financeiro\FinancialSettlementService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -17,7 +17,7 @@ class BankReconciliationSuggestionController extends Controller
 {
     public function __construct(
         private readonly BankReconciliationSuggestionService $suggestionService,
-        private readonly PaymentAllocationService $paymentAllocationService,
+        private readonly FinancialSettlementService $financialSettlementService,
     ) {
     }
 
@@ -233,7 +233,8 @@ class BankReconciliationSuggestionController extends Controller
             ->whereIn('invoice_id', $invoiceIds)
             ->count();
 
-        $payment = $this->paymentAllocationService->createFromBankStatement($bankStatement, $allocations, [
+        $payment = $this->financialSettlementService->settleInvoices($allocations, [
+            'bank_statement_id' => $bankStatement->id,
             'method' => 'transferencia',
             'reference' => $bankStatement->referencia,
             'description' => $bankStatement->descricao,

@@ -384,6 +384,15 @@ class FinanceiroController extends Controller
         $data = $request->validated();
 
         $requestedStatus = $data['estado_pagamento'] ?? $financeiro->estado_pagamento;
+        if (
+            in_array($requestedStatus, ['pago', 'parcial'], true)
+            && !in_array($financeiro->estado_pagamento, ['pago', 'parcial'], true)
+        ) {
+            throw ValidationException::withMessages([
+                'estado_pagamento' => 'A liquidacao da fatura tem de ser efetuada pelo fluxo de pagamento.',
+            ]);
+        }
+
         $isManualPaymentReversal = in_array($financeiro->estado_pagamento, ['pago', 'parcial'], true)
             && !in_array($requestedStatus, ['pago', 'parcial'], true);
 
@@ -581,35 +590,19 @@ class FinanceiroController extends Controller
             ->count();
 
         try {
-            if (!empty($data['bank_statement_id'])) {
-                $bankStatement = BankStatement::query()->findOrFail($data['bank_statement_id']);
-                $payment = $this->paymentAllocationService->createFromBankStatement($bankStatement, $allocations, [
-                    'method' => $data['method'] ?? null,
-                    'reference' => $data['reference'] ?? null,
-                    'notes' => $data['notes'] ?? null,
-                    'family_id' => $data['family_id'] ?? null,
-                    'create_credit' => (bool) ($data['create_credit'] ?? false),
-                    'created_by' => $request->user()?->id,
-                ]);
-            } else {
-                $payment = $this->paymentAllocationService->createPayment([
-                    'amount' => $data['amount'] ?? collect($allocations)->sum('amount'),
-                    'payment_date' => $data['payment_date'] ?? now()->toDateString(),
-                    'method' => $data['method'] ?? null,
-                    'reference' => $data['reference'] ?? null,
-                    'notes' => $data['notes'] ?? null,
-                    'family_id' => $data['family_id'] ?? null,
-                    'user_id' => $invoiceIds->count() === 1 ? $invoicesBefore->first()?->user_id : null,
-                    'source' => Payment::SOURCE_MANUAL,
-                    'created_by' => $request->user()?->id,
-                ]);
-
-                $payment = $this->paymentAllocationService->allocatePayment($payment, $allocations, [
-                    'create_credit' => (bool) ($data['create_credit'] ?? false),
-                    'created_by' => $request->user()?->id,
-                    'notes' => $data['notes'] ?? null,
-                ]);
-            }
+            $payment = $this->financialSettlementService->settleInvoices($allocations, [
+                'bank_statement_id' => $data['bank_statement_id'] ?? null,
+                'amount' => $data['amount'] ?? collect($allocations)->sum('amount'),
+                'payment_date' => $data['payment_date'] ?? now()->toDateString(),
+                'method' => $data['method'] ?? null,
+                'reference' => $data['reference'] ?? null,
+                'notes' => $data['notes'] ?? null,
+                'family_id' => $data['family_id'] ?? null,
+                'user_id' => $invoiceIds->count() === 1 ? $invoicesBefore->first()?->user_id : null,
+                'create_credit' => (bool) ($data['create_credit'] ?? false),
+                'created_by' => $request->user()?->id,
+                'source' => !empty($data['bank_statement_id']) ? Payment::SOURCE_BANK_STATEMENT : Payment::SOURCE_MANUAL,
+            ]);
         } catch (ValidationException $exception) {
             throw $exception;
         }
@@ -946,6 +939,12 @@ class FinanceiroController extends Controller
             'items.*.fatura_id' => ['nullable', 'string', 'max:255'],
         ]);
 
+        if (in_array($data['estado_pagamento'] ?? 'pendente', ['pago', 'parcial'], true)) {
+            throw ValidationException::withMessages([
+                'estado_pagamento' => 'A liquidacao do movimento tem de ser efetuada pelo fluxo de pagamento.',
+            ]);
+        }
+
         if (!$data['user_id'] && empty($data['nome_manual'])) {
             $data['nome_manual'] = app(ClubSettingsService::class)->defaultFinancialEntityName($data['classificacao'] ?? null);
         }
@@ -1041,6 +1040,15 @@ class FinanceiroController extends Controller
             'items.*.centro_custo_id' => ['nullable', 'exists:cost_centers,id'],
             'items.*.fatura_id' => ['nullable', 'string', 'max:255'],
         ]);
+
+        if (
+            in_array($data['estado_pagamento'] ?? $movimento->estado_pagamento, ['pago', 'parcial'], true)
+            && !in_array($movimento->estado_pagamento, ['pago', 'parcial'], true)
+        ) {
+            throw ValidationException::withMessages([
+                'estado_pagamento' => 'A liquidacao do movimento tem de ser efetuada pelo fluxo de pagamento.',
+            ]);
+        }
 
         if (!$data['user_id'] && empty($data['nome_manual'])) {
             $data['nome_manual'] = app(ClubSettingsService::class)->defaultFinancialEntityName($data['classificacao'] ?? null);
@@ -1160,10 +1168,22 @@ class FinanceiroController extends Controller
             $movimento->comprovativo = $request->file('comprovativo')->store('financeiro/movimentos', 'public');
         }
 
-        $result = $this->financialSettlementService->settleMovement($movimento, [
+        $financialEntry = $this->financialSettlementService->findOrCreateFinancialEntryForMovement($movimento, [
+            'description' => $movimento->observacoes,
+            'reference' => $data['numero_recibo'],
+            'method' => $data['metodo_pagamento'] ?? $movimento->metodo_pagamento,
+            'comprovativo' => $movimento->comprovativo,
+        ]);
+
+        $result = $this->financialSettlementService->settleFinancialEntry($financialEntry, [
             'numero_recibo' => $data['numero_recibo'],
+            'amount' => abs((float) $movimento->valor_total),
+            'payment_amount' => abs((float) $movimento->valor_total),
+            'payment_date' => optional($movimento->data_emissao)?->toDateString() ?? now()->toDateString(),
             'method' => $data['metodo_pagamento'] ?? $movimento->metodo_pagamento,
             'reference' => $data['numero_recibo'],
+            'description' => $movimento->observacoes,
+            'user_id' => $movimento->user_id,
             'comprovativo' => $movimento->comprovativo,
             'created_by' => $request->user()?->id,
             'source' => Payment::SOURCE_MANUAL,
@@ -1173,7 +1193,7 @@ class FinanceiroController extends Controller
         $this->invalidateFinanceiroCaches();
 
         return response()->json([
-            'movimento' => $result['movement'],
+            'movimento' => $movimento->fresh(),
             'lancamento' => $result['financial_entry'],
             'payment' => $result['payment'],
         ]);
@@ -1360,8 +1380,9 @@ class FinanceiroController extends Controller
             'user_id' => ['nullable', 'exists:users,id'],
             'fatura_id' => ['nullable', 'exists:invoices,id'],
             'movimento_id' => ['nullable', 'exists:movements,id'],
+            'financial_entry_id' => ['nullable', 'exists:financial_entries,id'],
             'itens' => ['nullable', 'array', 'min:1'],
-            'itens.*.tipo' => ['required_with:itens', 'in:fatura,movimento'],
+            'itens.*.tipo' => ['required_with:itens', 'in:fatura,movimento,financial_entry'],
             'itens.*.id' => ['required_with:itens', 'string'],
             'itens.*.valor' => ['required_with:itens', 'numeric', 'min:0.01'],
         ]);
@@ -1379,6 +1400,13 @@ class FinanceiroController extends Controller
                 $items[] = [
                     'tipo' => 'movimento',
                     'id' => $data['movimento_id'],
+                    'valor' => abs((float) $extrato->valor),
+                ];
+            }
+            if (!empty($data['financial_entry_id'])) {
+                $items[] = [
+                    'tipo' => 'financial_entry',
+                    'id' => $data['financial_entry_id'],
                     'valor' => abs((float) $extrato->valor),
                 ];
             }

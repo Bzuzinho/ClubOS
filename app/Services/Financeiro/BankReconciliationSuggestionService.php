@@ -22,7 +22,7 @@ class BankReconciliationSuggestionService
 
     public function __construct(
         private readonly BankAliasNormalizer $normalizer,
-        private readonly PaymentAllocationService $paymentAllocationService,
+        private readonly FinancialSettlementService $financialSettlementService,
         private readonly ReconciliationAliasService $reconciliationAliasService,
         private readonly ReconciliationRepositoryService $reconciliationRepositoryService,
     ) {
@@ -432,7 +432,8 @@ class BankReconciliationSuggestionService
                 ]);
             }
 
-            $payment = $this->paymentAllocationService->createFromBankStatement($bankStatement, $allocations, [
+            $payment = $this->financialSettlementService->settleInvoices($allocations, [
+                'bank_statement_id' => $bankStatement->id,
                 'method' => $options['method'] ?? 'transferencia',
                 'reference' => $options['reference'] ?? $bankStatement->referencia,
                 'description' => $options['description'] ?? $bankStatement->descricao,

@@ -110,6 +110,22 @@ class BankReconciliationService
                     'financial_entry_id' => $entry->id,
                     'amount' => $amount,
                 ];
+                continue;
+            }
+
+            if ($type === 'financial_entry') {
+                $entry = FinancialEntry::query()->find($id);
+                if (!$entry) {
+                    throw ValidationException::withMessages([
+                        'itens' => 'Foi indicada uma entrada financeira invalida.',
+                    ]);
+                }
+
+                $createdEntries->push($entry);
+                $entryAllocations[] = [
+                    'financial_entry_id' => $entry->id,
+                    'amount' => $amount,
+                ];
             }
         }
 
