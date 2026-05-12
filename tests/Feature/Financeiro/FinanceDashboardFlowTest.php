@@ -354,6 +354,84 @@ class FinanceDashboardFlowTest extends TestCase
         $response->assertJsonPath('props.mensalidadesFaturas.0.estado_pagamento', 'vencido');
     }
 
+    public function test_financeiro_index_exposes_canonical_movements_payload_without_monthly_invoices(): void
+    {
+        $admin = User::query()->where('email', 'admin@test.com')->firstOrFail();
+        $costCenter = CostCenter::query()->firstOrFail();
+        $user = User::factory()->create([
+            'nome_completo' => 'Atleta Payload Movimentos',
+            'email' => 'payload-movimentos@example.com',
+            'nif' => '147258369',
+        ]);
+
+        Invoice::query()->create([
+            'user_id' => $user->id,
+            'centro_custo_id' => $costCenter->id,
+            'data_fatura' => now()->subDays(15)->toDateString(),
+            'data_emissao' => now()->subDays(15)->toDateString(),
+            'data_vencimento' => now()->subDays(5)->toDateString(),
+            'valor_total' => 30.00,
+            'valor_pago' => 0,
+            'valor_em_aberto' => 30.00,
+            'estado_pagamento' => 'pendente',
+            'tipo' => 'mensalidade',
+            'oculta' => false,
+            'mes' => now()->format('Y-m'),
+        ]);
+
+        $legacyMovement = Movement::query()->create([
+            'user_id' => $user->id,
+            'classificacao' => 'receita',
+            'data_emissao' => now()->subDays(2)->toDateString(),
+            'data_vencimento' => now()->addDay()->toDateString(),
+            'valor_total' => 70.00,
+            'estado_pagamento' => 'pendente',
+            'centro_custo_id' => $costCenter->id,
+            'tipo' => 'servico',
+            'origem_tipo' => 'manual',
+            'origem_id' => null,
+            'nome_manual' => 'Receita legacy',
+        ]);
+
+        $canonicalEntry = FinancialEntry::query()->create([
+            'data' => now()->toDateString(),
+            'tipo' => 'despesa',
+            'categoria' => 'Fornecedor',
+            'descricao' => 'Despesa canonica manual',
+            'documento_ref' => 'DESP-CAN-1',
+            'valor' => 25.00,
+            'valor_pago' => 0,
+            'valor_em_aberto' => 25.00,
+            'estado' => 'pendente',
+            'centro_custo_id' => $costCenter->id,
+            'user_id' => $user->id,
+            'origem_tipo' => 'manual',
+            'origem_modulo' => 'financeiro',
+            'entidade_nome' => 'Fornecedor Canonico',
+        ]);
+
+        Cache::flush();
+
+        $response = $this->inertiaGetAs($admin, route('financeiro.index', ['fresh' => 1]));
+        $movimentosFinanceiros = collect($response->json('props.movimentosFinanceiros'));
+
+        $response->assertOk();
+        $response->assertJsonPath('component', 'Financeiro/Index');
+        $response->assertJsonCount(2, 'props.movimentosFinanceiros');
+
+        $this->assertTrue($movimentosFinanceiros->contains(fn (array $item): bool =>
+            ($item['movimento_id'] ?? null) === $legacyMovement->id
+            && ($item['source_kind'] ?? null) === 'movement'
+            && ($item['classificacao'] ?? null) === 'receita'
+        ));
+
+        $this->assertTrue($movimentosFinanceiros->contains(fn (array $item): bool =>
+            ($item['financial_entry_id'] ?? null) === $canonicalEntry->id
+            && ($item['source_kind'] ?? null) === 'financial_entry'
+            && ($item['classificacao'] ?? null) === 'despesa'
+        ));
+    }
+
     private function inertiaGetAs(User $user, string $uri)
     {
         $inertiaVersion = app(HandleInertiaRequests::class)->version(request());

@@ -145,6 +145,11 @@ class FinanceiroController extends Controller
             $lancamentos = [];
         }
 
+        $movimentosFinanceiros = $this->buildFinancialMovementsPayload(
+            collect($movimentos),
+            collect($lancamentos),
+        );
+
         try {
             $extratos = Cache::remember('financeiro:extratos', 60, fn () =>
                 BankStatement::orderBy('data_movimento', 'desc')->limit(1000)->get()->map(function ($extrato) {
@@ -197,6 +202,7 @@ class FinanceiroController extends Controller
             'mensalidadesFaturas' => $mensalidadesFaturas,
             'faturaItens' => $faturaItens,
             'movimentos' => $movimentos,
+            'movimentosFinanceiros' => $movimentosFinanceiros,
             'movimentoItens' => $movimentoItens,
             'lancamentos' => $lancamentos,
             'extratos' => $extratos,
@@ -798,6 +804,194 @@ class FinanceiroController extends Controller
         }
 
         return $invoice;
+    }
+
+    private function buildFinancialMovementsPayload(Collection $movements, Collection $entries): Collection
+    {
+        $movementById = $movements
+            ->filter(fn ($movement) => $movement instanceof Movement)
+            ->keyBy(fn (Movement $movement) => (string) $movement->id);
+
+        $canonicalEntries = $entries
+            ->filter(fn ($entry) => $entry instanceof FinancialEntry)
+            ->filter(function (FinancialEntry $entry): bool {
+                if ($entry->fatura_id !== null) {
+                    return false;
+                }
+
+                return $entry->origem_tipo === null
+                    || !in_array($entry->origem_tipo, ['payment_allocation', 'account_credit'], true);
+            })
+            ->values();
+
+        $movementIdsWithEntries = $canonicalEntries
+            ->filter(fn (FinancialEntry $entry) => $entry->origem_tipo === 'movement' && !empty($entry->origem_id))
+            ->pluck('origem_id')
+            ->map(fn ($id) => (string) $id)
+            ->unique();
+
+        $canonicalItems = $canonicalEntries->map(function (FinancialEntry $entry) use ($movementById): array {
+            $movement = $entry->origem_tipo === 'movement'
+                ? $movementById->get((string) $entry->origem_id)
+                : null;
+
+            return $this->mapCanonicalFinancialMovement($entry, $movement);
+        });
+
+        $legacyItems = $movements
+            ->filter(fn ($movement) => $movement instanceof Movement)
+            ->reject(fn (Movement $movement) => $movementIdsWithEntries->contains((string) $movement->id))
+            ->map(fn (Movement $movement): array => $this->mapLegacyFinancialMovement($movement));
+
+        return $canonicalItems
+            ->concat($legacyItems)
+            ->sortByDesc('sort_date')
+            ->values()
+            ->map(function (array $item): array {
+                unset($item['sort_date']);
+
+                return $item;
+            });
+    }
+
+    private function mapCanonicalFinancialMovement(FinancialEntry $entry, ?Movement $movement = null): array
+    {
+        $classificacao = $entry->tipo === 'despesa' ? 'despesa' : 'receita';
+        $totalAmount = abs((float) ($entry->valor ?? 0));
+        $paidAmount = $entry->valor_pago !== null
+            ? abs((float) $entry->valor_pago)
+            : ($entry->estado === 'pago' ? $totalAmount : null);
+        $openAmount = $entry->valor_em_aberto !== null
+            ? abs((float) $entry->valor_em_aberto)
+            : ($entry->estado === 'pago' ? 0.0 : $totalAmount);
+        $emissionDate = $movement?->data_emissao
+            ? Carbon::parse($movement->data_emissao)
+            : ($entry->data ? Carbon::parse($entry->data) : null);
+        $dueDate = $movement?->data_vencimento
+            ? Carbon::parse($movement->data_vencimento)
+            : $emissionDate;
+
+        return [
+            'id' => (string) ($movement?->id ?? $entry->id),
+            'movimento_id' => $movement?->id ? (string) $movement->id : null,
+            'financial_entry_id' => (string) $entry->id,
+            'source_kind' => $movement ? 'movement' : 'financial_entry',
+            'read_only' => $movement === null,
+            'user_id' => $movement?->user_id ?? $entry->user_id,
+            'nome_manual' => $movement?->nome_manual ?? $entry->entidade_nome ?? $entry->descricao,
+            'nif_manual' => $movement?->nif_manual,
+            'morada_manual' => $movement?->morada_manual,
+            'classificacao' => $classificacao,
+            'data_emissao' => $emissionDate?->toDateString() ?? now()->toDateString(),
+            'data_vencimento' => $dueDate?->toDateString() ?? ($emissionDate?->toDateString() ?? now()->toDateString()),
+            'valor_total' => $classificacao === 'despesa' ? -$totalAmount : $totalAmount,
+            'valor_pago' => $paidAmount,
+            'valor_em_aberto' => $openAmount,
+            'estado_pagamento' => $this->resolveFinancialMovementState($entry->estado ?? 'pendente', $dueDate, $openAmount),
+            'numero_recibo' => $movement?->numero_recibo ?? $entry->documento_ref,
+            'referencia_pagamento' => $movement?->referencia_pagamento ?? $entry->documento_ref,
+            'metodo_pagamento' => $movement?->metodo_pagamento ?? $entry->metodo_pagamento,
+            'comprovativo' => $movement?->comprovativo ?? $entry->comprovativo,
+            'documento_original' => $movement?->documento_original ?? $entry->documento_original,
+            'centro_custo_id' => $movement?->centro_custo_id ?? $entry->centro_custo_id,
+            'tipo' => $movement?->tipo ?? $this->resolveFinancialMovementTypeFromEntry($entry),
+            'origem_tipo' => $movement?->origem_tipo ?? $this->resolveFinancialMovementOriginType($entry->origem_tipo),
+            'origem_id' => $movement?->origem_id ?? $entry->origem_id,
+            'observacoes' => $movement?->observacoes ?? $entry->descricao,
+            'created_at' => optional($movement?->created_at ?? $entry->created_at)?->toISOString(),
+            'descricao_financeira' => $entry->descricao,
+            'sort_date' => ($emissionDate ?? now())->toDateString(),
+        ];
+    }
+
+    private function mapLegacyFinancialMovement(Movement $movement): array
+    {
+        $totalAmount = abs((float) $movement->valor_total);
+        $paidAmount = match ($movement->estado_pagamento) {
+            'pago' => $totalAmount,
+            'pendente', 'vencido', 'cancelado' => 0.0,
+            default => null,
+        };
+        $openAmount = match ($movement->estado_pagamento) {
+            'pago', 'cancelado' => 0.0,
+            'pendente', 'vencido' => $totalAmount,
+            default => null,
+        };
+        $emissionDate = $movement->data_emissao ? Carbon::parse($movement->data_emissao) : null;
+        $dueDate = $movement->data_vencimento ? Carbon::parse($movement->data_vencimento) : $emissionDate;
+
+        return [
+            'id' => (string) $movement->id,
+            'movimento_id' => (string) $movement->id,
+            'financial_entry_id' => null,
+            'source_kind' => 'movement',
+            'read_only' => false,
+            'user_id' => $movement->user_id,
+            'nome_manual' => $movement->nome_manual,
+            'nif_manual' => $movement->nif_manual,
+            'morada_manual' => $movement->morada_manual,
+            'classificacao' => $movement->classificacao,
+            'data_emissao' => $emissionDate?->toDateString() ?? now()->toDateString(),
+            'data_vencimento' => $dueDate?->toDateString() ?? ($emissionDate?->toDateString() ?? now()->toDateString()),
+            'valor_total' => (float) $movement->valor_total,
+            'valor_pago' => $paidAmount,
+            'valor_em_aberto' => $openAmount,
+            'estado_pagamento' => $this->resolveFinancialMovementState($movement->estado_pagamento, $dueDate, $openAmount),
+            'numero_recibo' => $movement->numero_recibo,
+            'referencia_pagamento' => $movement->referencia_pagamento,
+            'metodo_pagamento' => $movement->metodo_pagamento,
+            'comprovativo' => $movement->comprovativo,
+            'documento_original' => $movement->documento_original,
+            'centro_custo_id' => $movement->centro_custo_id,
+            'tipo' => $movement->tipo,
+            'origem_tipo' => $movement->origem_tipo,
+            'origem_id' => $movement->origem_id,
+            'observacoes' => $movement->observacoes,
+            'created_at' => optional($movement->created_at)?->toISOString(),
+            'descricao_financeira' => $movement->observacoes,
+            'sort_date' => ($emissionDate ?? now())->toDateString(),
+        ];
+    }
+
+    private function resolveFinancialMovementTypeFromEntry(FinancialEntry $entry): string
+    {
+        return match ($entry->origem_tipo) {
+            'stock' => 'material',
+            'patrocinio' => 'patrocinio',
+            default => 'outro',
+        };
+    }
+
+    private function resolveFinancialMovementOriginType(?string $originType): ?string
+    {
+        return in_array($originType, ['evento', 'stock', 'patrocinio', 'manual'], true)
+            ? $originType
+            : null;
+    }
+
+    private function resolveFinancialMovementState(string $state, ?Carbon $dueDate, ?float $openAmount): string
+    {
+        if ($state === 'cancelado') {
+            return 'cancelado';
+        }
+
+        if ($state === 'pago') {
+            return 'pago';
+        }
+
+        if ($state === 'parcial') {
+            return 'parcial';
+        }
+
+        if (
+            $dueDate !== null
+            && ($openAmount === null || $openAmount > 0.009)
+            && $dueDate->lt(now()->startOfDay())
+        ) {
+            return 'vencido';
+        }
+
+        return 'pendente';
     }
 
     private function invoiceFinancialSnapshotQuery()

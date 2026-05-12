@@ -8,6 +8,7 @@ import {
   Fatura,
   FaturaItem,
   Movimento,
+  MovimentoFinanceiro,
   MovimentoItem,
   LancamentoFinanceiro,
   ExtratoBancario,
@@ -37,6 +38,7 @@ interface Props {
   mensalidadesFaturas: Fatura[];
   faturaItens: FaturaItem[];
   movimentos: Movimento[];
+  movimentosFinanceiros: MovimentoFinanceiro[];
   movimentoItens: MovimentoItem[];
   lancamentos: LancamentoFinanceiro[];
   extratos: ExtratoBancario[];
@@ -55,6 +57,7 @@ export default function FinanceiroIndex({
   mensalidadesFaturas,
   faturaItens,
   movimentos,
+  movimentosFinanceiros,
   movimentoItens,
   lancamentos,
   extratos,
@@ -72,6 +75,7 @@ export default function FinanceiroIndex({
   const [mensalidadesFaturasState, setMensalidadesFaturas] = useState<Fatura[]>(mensalidadesFaturas || []);
   const [faturaItensState, setFaturaItens] = useState<FaturaItem[]>(faturaItens || []);
   const [movimentosState, setMovimentos] = useState<Movimento[]>(movimentos || []);
+  const [movimentosFinanceirosState, setMovimentosFinanceiros] = useState<MovimentoFinanceiro[]>(movimentosFinanceiros || []);
   const [movimentoItensState, setMovimentoItens] = useState<MovimentoItem[]>(movimentoItens || []);
   const [lancamentosState, setLancamentos] = useState<LancamentoFinanceiro[]>(lancamentos || []);
   const [extratosState, setExtratos] = useState<ExtratoBancario[]>(extratos || []);
@@ -93,6 +97,10 @@ export default function FinanceiroIndex({
   useEffect(() => {
     setMovimentos(movimentos || []);
   }, [movimentos]);
+
+  useEffect(() => {
+    setMovimentosFinanceiros(movimentosFinanceiros || []);
+  }, [movimentosFinanceiros]);
 
   useEffect(() => {
     setMovimentoItens(movimentoItens || []);
@@ -209,6 +217,7 @@ export default function FinanceiroIndex({
               <Suspense fallback={<TabFallback />}>
                 <MovimentosTab
                   movimentos={movimentosState}
+                  movimentosFinanceiros={movimentosFinanceirosState}
                   setMovimentos={setMovimentos}
                   movimentoItens={movimentoItensState}
                   setMovimentoItens={setMovimentoItens}
@@ -218,7 +227,6 @@ export default function FinanceiroIndex({
                   centrosCusto={centrosCusto || []}
                   products={productsState}
                   setProducts={setProducts}
-                  faturas={faturasState}
                 />
               </Suspense>
             ) : null}

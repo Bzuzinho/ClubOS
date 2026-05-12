@@ -190,6 +190,16 @@ export interface Movimento {
   created_at?: string | null;
 }
 
+export interface MovimentoFinanceiro extends Movimento {
+  movimento_id?: string | null;
+  financial_entry_id?: string | null;
+  source_kind?: 'movement' | 'financial_entry';
+  valor_pago?: number | null;
+  valor_em_aberto?: number | null;
+  read_only?: boolean;
+  descricao_financeira?: string | null;
+}
+
 export interface MovimentoItem {
   id: string;
   movimento_id: string;
