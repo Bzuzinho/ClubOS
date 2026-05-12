@@ -50,6 +50,12 @@ class Movement extends Model
         return $this->belongsTo(CostCenter::class, 'centro_custo_id');
     }
 
+    public function financialEntries(): HasMany
+    {
+        return $this->hasMany(FinancialEntry::class, 'origem_id')
+            ->where('origem_tipo', 'movement');
+    }
+
     public function items(): HasMany
     {
         return $this->hasMany(MovementItem::class, 'movimento_id');
