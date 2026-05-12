@@ -1434,75 +1434,17 @@ class FinanceiroController extends Controller
 
     public function desconciliarExtrato(BankStatement $extrato)
     {
-        $mapas = MapaConciliacao::where('extrato_id', $extrato->id)->get();
-        $faturasAfetadas = [];
-        $movimentosAfetados = [];
-        $lancamentosRemovidos = [];
-
-        foreach ($mapas as $mapa) {
-            if ($mapa->lancamento_id) {
-                $lancamentosRemovidos[] = $mapa->lancamento_id;
-                FinancialEntry::where('id', $mapa->lancamento_id)->delete();
-            }
-            if ($mapa->fatura_id) {
-                $faturasAfetadas[$mapa->fatura_id] = $mapa->estado_fatura_anterior;
-            }
-            if ($mapa->movimento_id) {
-                $movimentosAfetados[$mapa->movimento_id] = $mapa->estado_movimento_anterior;
-            }
-        }
-
-        MapaConciliacao::where('extrato_id', $extrato->id)->delete();
-
-        $faturasAtualizadas = [];
-        foreach ($faturasAfetadas as $faturaId => $estadoAnterior) {
-            $fatura = Invoice::find($faturaId);
-            if (!$fatura) {
-                continue;
-            }
-            $totalPago = (float) $this->invoicePaymentEntriesQuery()->where('fatura_id', $faturaId)->sum('valor');
-            if ($totalPago >= (float) $fatura->valor_total) {
-                $fatura->estado_pagamento = 'pago';
-            } elseif ($totalPago > 0) {
-                $fatura->estado_pagamento = 'parcial';
-            } else {
-                $fatura->estado_pagamento = $estadoAnterior ?? 'pendente';
-            }
-            $fatura->save();
-            $faturasAtualizadas[] = $fatura;
-        }
-
-        $movimentosAtualizados = [];
-        foreach ($movimentosAfetados as $movimentoId => $estadoAnterior) {
-            $movimento = Movement::find($movimentoId);
-            if (!$movimento) {
-                continue;
-            }
-            $totalPago = (float) FinancialEntry::where('origem_id', $movimentoId)->sum('valor');
-            $valorMovimento = abs((float) $movimento->valor_total);
-            if ($totalPago >= $valorMovimento) {
-                $movimento->estado_pagamento = 'pago';
-            } elseif ($totalPago > 0) {
-                $movimento->estado_pagamento = 'parcial';
-            } else {
-                $movimento->estado_pagamento = $estadoAnterior ?? 'pendente';
-            }
-            $movimento->save();
-            $movimentosAtualizados[] = $movimento;
-        }
-
-        $extrato->update([
-            'conciliado' => false,
-            'lancamento_id' => null,
+        $result = $this->bankReconciliationService->unreconcile($extrato, [
+            'created_by' => auth()->id(),
         ]);
 
         $this->invalidateFinanceiroCaches();
 
         return response()->json([
-            'extrato' => $extrato,
-            'faturas' => $faturasAtualizadas,
-            'movimentos' => $movimentosAtualizados,
-            'lancamentos_removidos' => $lancamentosRemovidos,
+            'extrato' => $result['bank_statement'],
+            'faturas' => $result['invoices'],
+            'movimentos' => $result['movements'],
+            'lancamentos_removidos' => $result['removed_entry_ids'],
         ]);
     }
 

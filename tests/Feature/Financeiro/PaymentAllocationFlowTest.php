@@ -949,6 +949,87 @@ class PaymentAllocationFlowTest extends TestCase
         ]);
     }
 
+    public function test_unreconciling_bank_statement_cancels_invoice_allocations_and_account_credit(): void
+    {
+        $admin = User::factory()->admin()->create();
+        [$invoice] = $this->createInvoicesForUser([30.00]);
+        $statement = $this->createBankStatement(50.00);
+
+        $this->actingAs($admin)->postJson(route('financeiro.payments.allocate'), [
+            'bank_statement_id' => $statement->id,
+            'create_credit' => true,
+            'allocations' => [
+                ['invoice_id' => $invoice->id, 'amount' => 30.00],
+            ],
+        ])->assertOk();
+
+        $payment = Payment::query()->where('bank_statement_id', $statement->id)->firstOrFail();
+        $credit = AccountCredit::query()->where('payment_id', $payment->id)->firstOrFail();
+
+        $response = $this->actingAs($admin)
+            ->postJson(route('financeiro.extratos.desconciliar', $statement));
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('extrato.conciliado', false)
+            ->assertJsonPath('extrato.conciliacao_status', 'unreconciled');
+
+        $invoice->refresh();
+        $statement->refresh();
+        $payment->refresh();
+
+        $this->assertSame($invoice->data_vencimento->isPast() ? 'vencido' : 'pendente', $invoice->estado_pagamento);
+        $this->assertSame('0.00', $invoice->valor_pago);
+        $this->assertSame('30.00', $invoice->valor_em_aberto);
+        $this->assertFalse($statement->conciliado);
+        $this->assertSame('unreconciled', $statement->conciliacao_status);
+        $this->assertSame('0.00', $statement->valor_conciliado);
+        $this->assertSame('50.00', $statement->valor_por_conciliar);
+        $this->assertSame('0.00', $payment->allocated_amount);
+        $this->assertSame('50.00', $payment->unallocated_amount);
+        $this->assertTrue(AccountCredit::withTrashed()->whereKey($credit->id)->where('status', AccountCredit::STATUS_CANCELLED)->exists());
+        $this->assertTrue(PaymentAllocation::withTrashed()->where('payment_id', $payment->id)->where('status', PaymentAllocation::STATUS_CANCELLED)->exists());
+        $this->assertDatabaseMissing('mapa_conciliacao', [
+            'extrato_id' => $statement->id,
+        ]);
+    }
+
+    public function test_unreconciling_bank_statement_restores_financial_entry_to_pending(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $entry = $this->createStandaloneFinancialEntry('receita', 60.00, true);
+        $statement = $this->createBankStatement(60.00);
+
+        $this->actingAs($admin)->postJson(route('financeiro.extratos.conciliar', $statement), [
+            'tipo' => 'receita',
+            'centro_custo_id' => $entry->centro_custo_id,
+            'financial_entry_id' => $entry->id,
+        ])->assertOk();
+
+        $response = $this->actingAs($admin)
+            ->postJson(route('financeiro.extratos.desconciliar', $statement));
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('extrato.conciliado', false)
+            ->assertJsonPath('extrato.conciliacao_status', 'unreconciled');
+
+        $entry->refresh();
+        $statement->refresh();
+
+        $this->assertSame('pendente', $entry->estado);
+        $this->assertSame('0.00', $entry->valor_pago);
+        $this->assertSame('60.00', $entry->valor_em_aberto);
+        $this->assertFalse($statement->conciliado);
+        $this->assertSame('0.00', $statement->valor_conciliado);
+        $this->assertSame('60.00', $statement->valor_por_conciliar);
+        $this->assertDatabaseMissing('mapa_conciliacao', [
+            'extrato_id' => $statement->id,
+        ]);
+        $this->assertSame(0, FiscalDocumentRequest::query()->where('financial_entry_id', $entry->id)->count());
+        $this->assertSame(1, FiscalDocumentRequest::withTrashed()->where('financial_entry_id', $entry->id)->count());
+    }
+
     public function test_monthly_invoice_settlement_continues_to_delegate_to_payment_allocation_service(): void
     {
         [$invoice] = $this->createInvoicesForUser([100.00]);
