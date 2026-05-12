@@ -1,171 +1,197 @@
-import { useState, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { Button } from '@/Components/ui/button';
 import { Card } from '@/Components/ui/card';
+import { Input } from '@/Components/ui/input';
 import { Label } from '@/Components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/Components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/Components/ui/table';
-import { ChartBar, Users, CurrencyCircleDollar, Funnel } from '@phosphor-icons/react';
+import { ChartBar, Users, CurrencyCircleDollar, Funnel, ArrowsClockwise, CalendarBlank } from '@phosphor-icons/react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { Fatura, LancamentoFinanceiro, CentroCusto, User, AgeGroup } from './types';
+import { toast } from 'sonner';
+import { CentroCusto, User, AgeGroup, FinanceReportAgeGroupItem, FinanceReportCostCenterItem, FinanceReportResponse } from './types';
 
-type TipoRelatorio = 'escalao' | 'centro-custo' | 'atleta';
+type TipoRelatorio = 'periodo' | 'escalao' | 'centro-custo' | 'atleta';
 
 interface RelatoriosTabProps {
-  faturas: Fatura[];
-  lancamentos: LancamentoFinanceiro[];
   centrosCusto: CentroCusto[];
   users: User[];
   ageGroups: AgeGroup[];
 }
 
-export function RelatoriosTab({ faturas, lancamentos, centrosCusto, users, ageGroups }: RelatoriosTabProps) {
-  const toNumber = (value: unknown, fallback = 0) => {
-    if (typeof value === 'number' && !Number.isNaN(value)) return value;
-    if (typeof value === 'string' && value.trim() !== '') {
-      const parsed = Number(value);
-      return Number.isNaN(parsed) ? fallback : parsed;
-    }
-    return fallback;
-  };
-  const getStartOfToday = () => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    return today;
-  };
-  const isFutureInvoice = (fatura: Fatura) => new Date(fatura.data_fatura) > getStartOfToday();
-  const faturasAtivas = (faturas || []).filter((f) => !isFutureInvoice(f));
+type ReportFilters = {
+  data_inicio: string;
+  data_fim: string;
+  centro_custo_id: string;
+  user_id: string;
+  tipo: string;
+  origem_modulo: string;
+  origem_tipo: string;
+};
 
+const buildDefaultFilters = (): ReportFilters => {
+  const today = new Date();
+  const yearStart = new Date(today.getFullYear(), 0, 1);
+
+  return {
+    data_inicio: yearStart.toISOString().slice(0, 10),
+    data_fim: today.toISOString().slice(0, 10),
+    centro_custo_id: 'all',
+    user_id: 'all',
+    tipo: 'all',
+    origem_modulo: '',
+    origem_tipo: '',
+  };
+};
+
+function formatCurrency(value?: number | null) {
+  return new Intl.NumberFormat('pt-PT', {
+    style: 'currency',
+    currency: 'EUR',
+  }).format(value ?? 0);
+}
+
+function parseJsonResponse(response: Response) {
+  const contentType = response.headers.get('content-type') || '';
+
+  if (contentType.includes('application/json')) {
+    return response.json();
+  }
+
+  return response.text();
+}
+
+export function RelatoriosTab({ centrosCusto, users, ageGroups }: RelatoriosTabProps) {
   const [tipoRelatorio, setTipoRelatorio] = useState<TipoRelatorio>('escalao');
+  const [filters, setFilters] = useState<ReportFilters>(buildDefaultFilters);
   const [escalaoFilter, setEscalaoFilter] = useState<string>('all');
-  const [centroCustoFilter, setCentroCustoFilter] = useState<string>('all');
-
-  const getEscalaoName = (escalaoId: string) => {
-    const ageGroup = (ageGroups || []).find((ag) => ag.id === escalaoId);
-    return ageGroup?.nome || escalaoId;
-  };
+  const [reportData, setReportData] = useState<FinanceReportResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const escaloes = useMemo(() => {
-    const escalaoSet = new Set<string>();
-    (users || []).forEach((user) => {
-      (user.escalao || []).forEach((esc) => escalaoSet.add(esc));
-    });
-    return Array.from(escalaoSet);
-  }, [users]);
+    return (ageGroups || []).map((ageGroup) => ({ id: ageGroup.id, nome: ageGroup.nome }));
+  }, [ageGroups]);
+
+  const loadReportData = async (nextFilters?: ReportFilters) => {
+    const activeFilters = nextFilters ?? filters;
+    setLoading(true);
+    setErrorMessage(null);
+
+    const params = new URLSearchParams();
+    params.set('data_inicio', activeFilters.data_inicio);
+    params.set('data_fim', activeFilters.data_fim);
+
+    if (activeFilters.centro_custo_id !== 'all') params.set('centro_custo_id', activeFilters.centro_custo_id);
+    if (activeFilters.user_id !== 'all') params.set('user_id', activeFilters.user_id);
+    if (activeFilters.tipo !== 'all') params.set('tipo', activeFilters.tipo);
+    if (activeFilters.origem_modulo.trim()) params.set('origem_modulo', activeFilters.origem_modulo.trim());
+    if (activeFilters.origem_tipo.trim()) params.set('origem_tipo', activeFilters.origem_tipo.trim());
+
+    try {
+      const response = await fetch(`${route('relatorios-financeiros.index')}?${params.toString()}`, {
+        headers: {
+          Accept: 'application/json',
+          'X-Requested-With': 'XMLHttpRequest',
+        },
+        credentials: 'same-origin',
+      });
+
+      const payload = await parseJsonResponse(response);
+
+      if (!response.ok || typeof payload === 'string') {
+        throw new Error(typeof payload === 'string' ? payload : 'Nao foi possivel carregar os relatórios.');
+      }
+
+      setReportData(payload as FinanceReportResponse);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Erro inesperado ao carregar os relatórios.';
+      setErrorMessage(message);
+      toast.error(message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadReportData(buildDefaultFilters());
+  }, []);
 
   const relatorioEscalao = useMemo(() => {
-    const data = escaloes.map((escalao) => {
-      const usuariosEscalao = (users || []).filter((u) => u.escalao?.includes(escalao));
-      const userIds = usuariosEscalao.map((u) => u.id);
+    const items = reportData?.reports.age_groups.items ?? [];
 
-      const receitas = (lancamentos || [])
-        .filter((l) => l.tipo === 'receita' && l.user_id && userIds.includes(l.user_id))
-        .reduce((sum, l) => sum + toNumber(l.valor), 0);
-
-      const faturasEscalao = faturasAtivas.filter((f) => userIds.includes(f.user_id));
-      const totalFaturado = faturasEscalao.reduce((sum, f) => sum + toNumber(f.valor_total), 0);
-      const totalPago = faturasEscalao
-        .filter((f) => f.estado_pagamento === 'pago')
-        .reduce((sum, f) => sum + toNumber(f.valor_total), 0);
-      const totalPendente = faturasEscalao
-        .filter((f) => f.estado_pagamento === 'pendente' || f.estado_pagamento === 'vencido')
-        .reduce((sum, f) => sum + toNumber(f.valor_total), 0);
-
-      return {
-        escalaoId: escalao,
-        escalao: getEscalaoName(escalao),
-        receitas,
-        totalFaturado,
-        totalPago,
-        totalPendente,
-        numeroAtletas: usuariosEscalao.length,
-      };
-    });
-
-    if (escalaoFilter !== 'all') {
-      return data.filter((d) => d.escalaoId === escalaoFilter);
+    if (escalaoFilter === 'all') {
+      return items;
     }
 
-    return data.sort((a, b) => b.receitas - a.receitas);
-  }, [escaloes, users, lancamentos, faturasAtivas, escalaoFilter, ageGroups]);
-
-  const relatorioCentroCusto = useMemo(() => {
-    const data = (centrosCusto || [])
-      .filter((cc) => cc.ativo)
-      .map((cc) => {
-        const despesas = (lancamentos || [])
-          .filter((l) => l.tipo === 'despesa' && l.centro_custo_id === cc.id)
-          .reduce((sum, l) => sum + toNumber(l.valor), 0);
-
-        const receitas = (lancamentos || [])
-          .filter((l) => l.tipo === 'receita' && l.centro_custo_id === cc.id)
-          .reduce((sum, l) => sum + toNumber(l.valor), 0);
-
-        const saldo = receitas - despesas;
-
-        return {
-          id: cc.id,
-          nome: cc.nome,
-          tipo: cc.tipo,
-          despesas,
-          receitas,
-          saldo,
-        };
-      });
-
-    if (centroCustoFilter !== 'all') {
-      return data.filter((d) => d.id === centroCustoFilter);
-    }
-
-    return data.sort((a, b) => b.despesas - a.despesas);
-  }, [centrosCusto, lancamentos, centroCustoFilter]);
-
-  const relatorioAtleta = useMemo(() => {
-    const data = (users || [])
-      .filter((u) => (u.tipo_membro || []).includes('atleta'))
-      .map((user) => {
-        const faturasUsuario = faturasAtivas.filter((f) => f.user_id === user.id);
-        const valorPago = faturasUsuario
-          .filter((f) => f.estado_pagamento === 'pago')
-          .reduce((sum, f) => sum + toNumber(f.valor_total), 0);
-
-        const despesas = (lancamentos || [])
-          .filter((l) => l.tipo === 'despesa' && l.user_id === user.id)
-          .reduce((sum, l) => sum + toNumber(l.valor), 0);
-
-        const pesoFinanceiro = valorPago - despesas;
-
-        const escalaoNames = (user.escalao || []).map((escId) => getEscalaoName(escId)).join(', ');
-
-        return {
-          id: user.id,
-          nome: user.nome_completo,
-          numero_socio: user.numero_socio,
-          valorPago,
-          despesas,
-          pesoFinanceiro,
-          escalao: escalaoNames || '-',
-        };
-      });
-
-    return data.sort((a, b) => b.pesoFinanceiro - a.pesoFinanceiro);
-  }, [users, faturasAtivas, lancamentos, ageGroups]);
+    return items.filter((item) => item.age_group_id === escalaoFilter);
+  }, [escalaoFilter, reportData]);
 
   const chartData = useMemo(() => {
-    if (tipoRelatorio === 'escalao') {
-      return relatorioEscalao.map((item) => ({
-        name: item.escalao,
-        Receitas: item.receitas,
-        Faturado: item.totalFaturado,
-      }));
+    if (!reportData) {
+      return [];
     }
-    if (tipoRelatorio === 'centro-custo') {
-      return relatorioCentroCusto.slice(0, 10).map((item) => ({
-        name: item.nome.length > 15 ? item.nome.substring(0, 15) + '...' : item.nome,
+
+    if (tipoRelatorio === 'periodo') {
+      return reportData.reports.period.items.map((item) => ({
+        name: item.period_label,
         Receitas: item.receitas,
         Despesas: item.despesas,
       }));
     }
+
+    if (tipoRelatorio === 'escalao') {
+      return relatorioEscalao.map((item) => ({
+        name: item.age_group,
+        Receitas: item.receitas,
+        Pago: item.total_pago,
+      }));
+    }
+
+    if (tipoRelatorio === 'centro-custo') {
+      return reportData.reports.cost_centers.items.slice(0, 10).map((item: FinanceReportCostCenterItem) => ({
+        name: item.nome.length > 15 ? `${item.nome.substring(0, 15)}...` : item.nome,
+        Receitas: item.receitas,
+        Despesas: item.despesas,
+      }));
+    }
+
     return [];
-  }, [tipoRelatorio, relatorioEscalao, relatorioCentroCusto]);
+  }, [reportData, relatorioEscalao, tipoRelatorio]);
+
+  const handleApplyFilters = async () => {
+    await loadReportData(filters);
+  };
+
+  const handleResetFilters = async () => {
+    const defaultFilters = buildDefaultFilters();
+    setFilters(defaultFilters);
+    setEscalaoFilter('all');
+    await loadReportData(defaultFilters);
+  };
+
+  const ageGroupTotals = useMemo(() => {
+    if (escalaoFilter === 'all' || !reportData) {
+      return reportData?.reports.age_groups.totals ?? null;
+    }
+
+    return relatorioEscalao.reduce((totals, item: FinanceReportAgeGroupItem) => ({
+      numero_atletas: totals.numero_atletas + item.numero_atletas,
+      receitas: totals.receitas + item.receitas,
+      total_faturado: totals.total_faturado + item.total_faturado,
+      total_pago: totals.total_pago + item.total_pago,
+      total_pendente: totals.total_pendente + item.total_pendente,
+      despesas: totals.despesas + item.despesas,
+      peso_financeiro: totals.peso_financeiro + item.peso_financeiro,
+    }), {
+      numero_atletas: 0,
+      receitas: 0,
+      total_faturado: 0,
+      total_pago: 0,
+      total_pendente: 0,
+      despesas: 0,
+      peso_financeiro: 0,
+    });
+  }, [escalaoFilter, relatorioEscalao, reportData]);
 
   return (
     <div className="space-y-3">
@@ -175,7 +201,7 @@ export function RelatoriosTab({ faturas, lancamentos, centrosCusto, users, ageGr
           <h3 className="font-semibold text-xs">Filtros de Relatorio</h3>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+        <div className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-4 gap-2">
           <div className="space-y-0.5">
             <Label className="text-xs">Tipo de Relatorio</Label>
             <Select value={tipoRelatorio} onValueChange={(v) => setTipoRelatorio(v as TipoRelatorio)}>
@@ -183,11 +209,76 @@ export function RelatoriosTab({ faturas, lancamentos, centrosCusto, users, ageGr
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
+                <SelectItem value="periodo">Receitas/Despesas por Periodo</SelectItem>
                 <SelectItem value="escalao">Rendimento por Escalao</SelectItem>
-                <SelectItem value="centro-custo">Gastos por Centro de Custo</SelectItem>
+                <SelectItem value="centro-custo">Receitas/Despesas por Centro de Custo</SelectItem>
                 <SelectItem value="atleta">Peso Financeiro por Atleta</SelectItem>
               </SelectContent>
             </Select>
+          </div>
+
+          <div className="space-y-0.5">
+            <Label className="text-xs">Data inicio</Label>
+            <Input className="h-7 text-xs" type="date" value={filters.data_inicio} onChange={(event) => setFilters((current) => ({ ...current, data_inicio: event.target.value }))} />
+          </div>
+
+          <div className="space-y-0.5">
+            <Label className="text-xs">Data fim</Label>
+            <Input className="h-7 text-xs" type="date" value={filters.data_fim} onChange={(event) => setFilters((current) => ({ ...current, data_fim: event.target.value }))} />
+          </div>
+
+          <div className="space-y-0.5">
+            <Label className="text-xs">Tipo financeiro</Label>
+            <Select value={filters.tipo} onValueChange={(value) => setFilters((current) => ({ ...current, tipo: value }))}>
+              <SelectTrigger className="h-7 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Receitas e despesas</SelectItem>
+                <SelectItem value="receita">Receitas</SelectItem>
+                <SelectItem value="despesa">Despesas</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-0.5">
+            <Label className="text-xs">Centro de custo</Label>
+            <Select value={filters.centro_custo_id} onValueChange={(value) => setFilters((current) => ({ ...current, centro_custo_id: value }))}>
+              <SelectTrigger className="h-7 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos os centros</SelectItem>
+                {(centrosCusto || []).filter((cc) => cc.ativo).map((cc) => (
+                  <SelectItem key={cc.id} value={cc.id}>{cc.nome}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-0.5">
+            <Label className="text-xs">Utilizador</Label>
+            <Select value={filters.user_id} onValueChange={(value) => setFilters((current) => ({ ...current, user_id: value }))}>
+              <SelectTrigger className="h-7 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos os utilizadores</SelectItem>
+                {(users || []).map((user) => (
+                  <SelectItem key={user.id} value={user.id}>{user.nome_completo}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-0.5">
+            <Label className="text-xs">Origem modulo</Label>
+            <Input className="h-7 text-xs" value={filters.origem_modulo} onChange={(event) => setFilters((current) => ({ ...current, origem_modulo: event.target.value }))} placeholder="Ex.: financeiro" />
+          </div>
+
+          <div className="space-y-0.5">
+            <Label className="text-xs">Origem tipo</Label>
+            <Input className="h-7 text-xs" value={filters.origem_tipo} onChange={(event) => setFilters((current) => ({ ...current, origem_tipo: event.target.value }))} placeholder="Ex.: movement" />
           </div>
 
           {tipoRelatorio === 'escalao' && (
@@ -200,39 +291,42 @@ export function RelatoriosTab({ faturas, lancamentos, centrosCusto, users, ageGr
                 <SelectContent>
                   <SelectItem value="all">Todos os Escaloes</SelectItem>
                   {escaloes.map((esc) => (
-                    <SelectItem key={esc} value={esc}>
-                      {getEscalaoName(esc)}
+                    <SelectItem key={esc.id} value={esc.id}>
+                      {esc.nome}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
           )}
+        </div>
 
-          {tipoRelatorio === 'centro-custo' && (
-            <div className="space-y-0.5">
-              <Label className="text-xs">Filtrar Centro de Custo</Label>
-              <Select value={centroCustoFilter} onValueChange={setCentroCustoFilter}>
-                <SelectTrigger className="h-7 text-xs">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todos os Centros</SelectItem>
-                  {(centrosCusto || [])
-                    .filter((cc) => cc.ativo)
-                    .map((cc) => (
-                      <SelectItem key={cc.id} value={cc.id}>
-                        {cc.nome}
-                      </SelectItem>
-                    ))}
-                </SelectContent>
-              </Select>
-            </div>
-          )}
+        <div className="mt-2 flex flex-wrap gap-2">
+          <Button type="button" size="sm" onClick={() => void handleApplyFilters()} disabled={loading}>
+            <CalendarBlank size={14} className="mr-1.5" />
+            Aplicar filtros
+          </Button>
+          <Button type="button" size="sm" variant="outline" onClick={() => void handleResetFilters()} disabled={loading}>
+            Limpar
+          </Button>
+          <Button type="button" size="sm" variant="outline" onClick={() => void loadReportData(filters)} disabled={loading}>
+            <ArrowsClockwise size={14} className="mr-1.5" />
+            Atualizar
+          </Button>
         </div>
       </Card>
 
-      {(tipoRelatorio === 'escalao' || tipoRelatorio === 'centro-custo') && chartData.length > 0 && (
+      {errorMessage ? (
+        <Card className="p-4 text-sm text-rose-700 border-rose-200 bg-rose-50">
+          {errorMessage}
+        </Card>
+      ) : null}
+
+      {loading ? (
+        <Card className="p-4 text-sm text-muted-foreground">A carregar relatórios canónicos...</Card>
+      ) : null}
+
+      {!loading && (tipoRelatorio === 'periodo' || tipoRelatorio === 'escalao' || tipoRelatorio === 'centro-custo') && chartData.length > 0 && (
         <Card className="p-3">
           <h3 className="font-semibold text-sm mb-3 flex items-center gap-2">
             <ChartBar size={18} className="text-primary" />
@@ -246,10 +340,16 @@ export function RelatoriosTab({ faturas, lancamentos, centrosCusto, users, ageGr
                 <YAxis tick={{ fontSize: 11 }} />
                 <Tooltip formatter={(value) => `€${Number(value).toFixed(2)}`} />
                 <Legend wrapperStyle={{ fontSize: '11px' }} />
+                {tipoRelatorio === 'periodo' && (
+                  <>
+                    <Bar dataKey="Receitas" fill="oklch(0.55 0.15 150)" />
+                    <Bar dataKey="Despesas" fill="oklch(0.55 0.22 25)" />
+                  </>
+                )}
                 {tipoRelatorio === 'escalao' && (
                   <>
                     <Bar dataKey="Receitas" fill="oklch(0.55 0.15 150)" />
-                    <Bar dataKey="Faturado" fill="oklch(0.45 0.15 250)" />
+                    <Bar dataKey="Pago" fill="oklch(0.45 0.15 250)" />
                   </>
                 )}
                 {tipoRelatorio === 'centro-custo' && (
@@ -264,7 +364,56 @@ export function RelatoriosTab({ faturas, lancamentos, centrosCusto, users, ageGr
         </Card>
       )}
 
-      {tipoRelatorio === 'escalao' && (
+      {!loading && tipoRelatorio === 'periodo' && reportData && (
+        <Card className="p-4">
+          <h3 className="text-base font-semibold mb-4 flex items-center gap-2">
+            <CalendarBlank size={20} className="text-primary" />
+            Relatorio: Receitas/Despesas por Periodo
+          </h3>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Periodo</TableHead>
+                <TableHead className="text-right">Receitas</TableHead>
+                <TableHead className="text-right">Despesas</TableHead>
+                <TableHead className="text-right">Saldo</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {!reportData.reports.period.available || reportData.reports.period.items.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={4} className="text-center text-muted-foreground py-8">
+                    {reportData.reports.period.empty_message}
+                  </TableCell>
+                </TableRow>
+              ) : (
+                reportData.reports.period.items.map((item) => (
+                  <TableRow key={item.period_key}>
+                    <TableCell className="font-medium">{item.period_label}</TableCell>
+                    <TableCell className="text-right text-green-600">{formatCurrency(item.receitas)}</TableCell>
+                    <TableCell className="text-right text-red-600">{formatCurrency(item.despesas)}</TableCell>
+                    <TableCell className={`text-right font-semibold ${item.saldo >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                      {formatCurrency(item.saldo)}
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+              {reportData.reports.period.items.length > 0 ? (
+                <TableRow className="font-bold bg-muted/50">
+                  <TableCell>TOTAL</TableCell>
+                  <TableCell className="text-right text-green-600">{formatCurrency(reportData.reports.period.totals.receitas)}</TableCell>
+                  <TableCell className="text-right text-red-600">{formatCurrency(reportData.reports.period.totals.despesas)}</TableCell>
+                  <TableCell className={`text-right ${reportData.reports.period.totals.saldo >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                    {formatCurrency(reportData.reports.period.totals.saldo)}
+                  </TableCell>
+                </TableRow>
+              ) : null}
+            </TableBody>
+          </Table>
+        </Card>
+      )}
+
+      {!loading && tipoRelatorio === 'escalao' && reportData && (
         <Card className="p-4">
           <h3 className="text-base font-semibold mb-4 flex items-center gap-2">
             <Users size={20} className="text-primary" />
@@ -282,43 +431,39 @@ export function RelatoriosTab({ faturas, lancamentos, centrosCusto, users, ageGr
               </TableRow>
             </TableHeader>
             <TableBody>
-              {relatorioEscalao.length === 0 ? (
+              {!reportData.reports.age_groups.available || relatorioEscalao.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
-                    Nenhum dado disponivel
+                    {reportData.reports.age_groups.empty_message}
                   </TableCell>
                 </TableRow>
               ) : (
-                relatorioEscalao.map((item, idx) => (
-                  <TableRow key={idx}>
-                    <TableCell className="font-medium">{item.escalao}</TableCell>
-                    <TableCell className="text-right">{item.numeroAtletas}</TableCell>
+                relatorioEscalao.map((item) => (
+                  <TableRow key={item.age_group_id}>
+                    <TableCell className="font-medium">{item.age_group}</TableCell>
+                    <TableCell className="text-right">{item.numero_atletas}</TableCell>
                     <TableCell className="text-right font-semibold text-green-600">
-                      €{toNumber(item.receitas).toFixed(2)}
+                      {formatCurrency(item.receitas)}
                     </TableCell>
-                    <TableCell className="text-right">€{toNumber(item.totalFaturado).toFixed(2)}</TableCell>
-                    <TableCell className="text-right text-green-600">€{toNumber(item.totalPago).toFixed(2)}</TableCell>
-                    <TableCell className="text-right text-orange-600">€{toNumber(item.totalPendente).toFixed(2)}</TableCell>
+                    <TableCell className="text-right">{formatCurrency(item.total_faturado)}</TableCell>
+                    <TableCell className="text-right text-green-600">{formatCurrency(item.total_pago)}</TableCell>
+                    <TableCell className="text-right text-orange-600">{formatCurrency(item.total_pendente)}</TableCell>
                   </TableRow>
                 ))
               )}
-              {relatorioEscalao.length > 0 && (
+              {relatorioEscalao.length > 0 && ageGroupTotals && (
                 <TableRow className="font-bold bg-muted/50">
                   <TableCell>TOTAL</TableCell>
-                  <TableCell className="text-right">
-                    {relatorioEscalao.reduce((sum, item) => sum + item.numeroAtletas, 0)}
-                  </TableCell>
+                  <TableCell className="text-right">{ageGroupTotals.numero_atletas}</TableCell>
                   <TableCell className="text-right text-green-600">
-                    €{relatorioEscalao.reduce((sum, item) => sum + toNumber(item.receitas), 0).toFixed(2)}
+                    {formatCurrency(ageGroupTotals.receitas)}
                   </TableCell>
-                  <TableCell className="text-right">
-                    €{relatorioEscalao.reduce((sum, item) => sum + toNumber(item.totalFaturado), 0).toFixed(2)}
-                  </TableCell>
+                  <TableCell className="text-right">{formatCurrency(ageGroupTotals.total_faturado)}</TableCell>
                   <TableCell className="text-right text-green-600">
-                    €{relatorioEscalao.reduce((sum, item) => sum + toNumber(item.totalPago), 0).toFixed(2)}
+                    {formatCurrency(ageGroupTotals.total_pago)}
                   </TableCell>
                   <TableCell className="text-right text-orange-600">
-                    €{relatorioEscalao.reduce((sum, item) => sum + toNumber(item.totalPendente), 0).toFixed(2)}
+                    {formatCurrency(ageGroupTotals.total_pendente)}
                   </TableCell>
                 </TableRow>
               )}
@@ -327,11 +472,11 @@ export function RelatoriosTab({ faturas, lancamentos, centrosCusto, users, ageGr
         </Card>
       )}
 
-      {tipoRelatorio === 'centro-custo' && (
+      {!loading && tipoRelatorio === 'centro-custo' && reportData && (
         <Card className="p-4">
           <h3 className="text-base font-semibold mb-4 flex items-center gap-2">
             <CurrencyCircleDollar size={20} className="text-primary" />
-            Relatorio: Gastos por Centro de Custo
+            Relatorio: Receitas/Despesas por Centro de Custo
           </h3>
           <Table>
             <TableHeader>
@@ -344,50 +489,44 @@ export function RelatoriosTab({ faturas, lancamentos, centrosCusto, users, ageGr
               </TableRow>
             </TableHeader>
             <TableBody>
-              {relatorioCentroCusto.length === 0 ? (
+              {!reportData.reports.cost_centers.available || reportData.reports.cost_centers.items.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
-                    Nenhum centro de custo configurado
+                    {reportData.reports.cost_centers.empty_message}
                   </TableCell>
                 </TableRow>
               ) : (
-                relatorioCentroCusto.map((item) => (
+                reportData.reports.cost_centers.items.map((item) => (
                   <TableRow key={item.id}>
                     <TableCell className="font-medium">{item.nome}</TableCell>
                     <TableCell className="capitalize">{item.tipo}</TableCell>
                     <TableCell className="text-right font-semibold text-green-600">
-                      €{toNumber(item.receitas).toFixed(2)}
+                      {formatCurrency(item.receitas)}
                     </TableCell>
                     <TableCell className="text-right font-semibold text-red-600">
-                      €{toNumber(item.despesas).toFixed(2)}
+                      {formatCurrency(item.despesas)}
                     </TableCell>
                     <TableCell
-                      className={`text-right font-bold ${toNumber(item.saldo) >= 0 ? 'text-green-600' : 'text-red-600'}`}
+                      className={`text-right font-bold ${item.saldo >= 0 ? 'text-green-600' : 'text-red-600'}`}
                     >
-                      €{toNumber(item.saldo).toFixed(2)}
+                      {formatCurrency(item.saldo)}
                     </TableCell>
                   </TableRow>
                 ))
               )}
-              {relatorioCentroCusto.length > 0 && (
+              {reportData.reports.cost_centers.items.length > 0 && (
                 <TableRow className="font-bold bg-muted/50">
                   <TableCell colSpan={2}>TOTAL</TableCell>
                   <TableCell className="text-right text-green-600">
-                    €{relatorioCentroCusto.reduce((sum, item) => sum + toNumber(item.receitas), 0).toFixed(2)}
+                    {formatCurrency(reportData.reports.cost_centers.totals.receitas)}
                   </TableCell>
                   <TableCell className="text-right text-red-600">
-                    €{relatorioCentroCusto.reduce((sum, item) => sum + toNumber(item.despesas), 0).toFixed(2)}
+                    {formatCurrency(reportData.reports.cost_centers.totals.despesas)}
                   </TableCell>
                   <TableCell
-                    className={`text-right ${
-                      relatorioCentroCusto.reduce((sum, item) => sum + toNumber(item.saldo), 0) >= 0
-                        ? 'text-green-600'
-                        : 'text-red-600'
-                    }`}
+                    className={`text-right ${reportData.reports.cost_centers.totals.saldo >= 0 ? 'text-green-600' : 'text-red-600'}`}
                   >
-                    €{relatorioCentroCusto
-                      .reduce((sum, item) => sum + toNumber(item.saldo), 0)
-                      .toFixed(2)}
+                    {formatCurrency(reportData.reports.cost_centers.totals.saldo)}
                   </TableCell>
                 </TableRow>
               )}
@@ -396,14 +535,14 @@ export function RelatoriosTab({ faturas, lancamentos, centrosCusto, users, ageGr
         </Card>
       )}
 
-      {tipoRelatorio === 'atleta' && (
+      {!loading && tipoRelatorio === 'atleta' && reportData && (
         <Card className="p-4">
           <h3 className="text-base font-semibold mb-3 flex items-center gap-2">
             <Users size={20} className="text-primary" />
             Relatorio: Peso Financeiro por Atleta
           </h3>
           <p className="text-xs text-muted-foreground mb-3">
-            Valor Pago - Despesas = Peso Financeiro (quanto o atleta contribui liquido para o clube)
+            Valor Pago - Valor Gasto = Peso Financeiro. A tab apenas apresenta leitura canónica do backend.
           </p>
           <Table>
             <TableHeader>
@@ -412,35 +551,45 @@ export function RelatoriosTab({ faturas, lancamentos, centrosCusto, users, ageGr
                 <TableHead>Numero Socio</TableHead>
                 <TableHead>Escalao</TableHead>
                 <TableHead className="text-right">Valor Pago</TableHead>
-                <TableHead className="text-right">Despesas</TableHead>
+                <TableHead className="text-right">Valor Gasto</TableHead>
                 <TableHead className="text-right">Peso Financeiro</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {relatorioAtleta.length === 0 ? (
+              {!reportData.reports.athletes.available || reportData.reports.athletes.items.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
-                    Nenhum atleta encontrado
+                    {reportData.reports.athletes.empty_message}
                   </TableCell>
                 </TableRow>
               ) : (
-                relatorioAtleta.map((item) => (
+                reportData.reports.athletes.items.map((item) => (
                   <TableRow key={item.id}>
                     <TableCell className="font-medium">{item.nome}</TableCell>
                     <TableCell>{item.numero_socio}</TableCell>
                     <TableCell>{item.escalao}</TableCell>
                     <TableCell className="text-right text-green-600 font-semibold">
-                      €{toNumber(item.valorPago).toFixed(2)}
+                      {formatCurrency(item.valor_pago)}
                     </TableCell>
-                    <TableCell className="text-right text-red-600">€{toNumber(item.despesas).toFixed(2)}</TableCell>
+                    <TableCell className="text-right text-red-600">{formatCurrency(item.valor_gasto)}</TableCell>
                     <TableCell
-                      className={`text-right font-bold ${toNumber(item.pesoFinanceiro) >= 0 ? 'text-green-600' : 'text-red-600'}`}
+                      className={`text-right font-bold ${item.peso_financeiro >= 0 ? 'text-green-600' : 'text-red-600'}`}
                     >
-                      €{toNumber(item.pesoFinanceiro).toFixed(2)}
+                      {formatCurrency(item.peso_financeiro)}
                     </TableCell>
                   </TableRow>
                 ))
               )}
+              {reportData.reports.athletes.items.length > 0 ? (
+                <TableRow className="font-bold bg-muted/50">
+                  <TableCell colSpan={3}>TOTAL</TableCell>
+                  <TableCell className="text-right text-green-600">{formatCurrency(reportData.reports.athletes.totals.valor_pago)}</TableCell>
+                  <TableCell className="text-right text-red-600">{formatCurrency(reportData.reports.athletes.totals.valor_gasto)}</TableCell>
+                  <TableCell className={`text-right ${reportData.reports.athletes.totals.peso_financeiro >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                    {formatCurrency(reportData.reports.athletes.totals.peso_financeiro)}
+                  </TableCell>
+                </TableRow>
+              ) : null}
             </TableBody>
           </Table>
         </Card>

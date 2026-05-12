@@ -259,8 +259,6 @@ export default function FinanceiroIndex({
             {activeTab === 'relatorios' ? (
               <Suspense fallback={<TabFallback />}>
                 <RelatoriosTab
-                  faturas={faturasState}
-                  lancamentos={lancamentosState}
                   centrosCusto={centrosCusto || []}
                   users={users || []}
                   ageGroups={ageGroups || []}

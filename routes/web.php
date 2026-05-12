@@ -227,6 +227,11 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::post('cais/metricas', [DesportivoController::class, 'storeCaisMetrics'])->middleware('permission.access:desportivo.treinos.cais,edit')->name('desportivo.cais.metrics.store');
     });
     
+    Route::get('financeiro/relatorios', [RelatoriosFinanceirosController::class, 'index'])
+        ->middleware('module.access:financeiro')
+        ->middleware('permission.access:financeiro.dashboard,view')
+        ->name('relatorios-financeiros.index');
+
     Route::resource('financeiro', FinanceiroController::class)
         ->middleware('module.access:financeiro')
         ->middlewareFor(['index', 'show'], 'permission.access:financeiro.dashboard,view')
@@ -489,9 +494,6 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::put('/categorias/{category}', [CategoriasFinanceirasController::class, 'update'])->name('categorias-financeiras.update');
         Route::delete('/categorias/{category}', [CategoriasFinanceirasController::class, 'destroy'])->name('categorias-financeiras.destroy');
         
-        // Reports
-        Route::get('/relatorios', [RelatoriosFinanceirosController::class, 'index'])->name('relatorios-financeiros.index');
-
         Route::post('/movimentos', [FinanceiroController::class, 'storeMovimento'])->name('financeiro.movimentos.store');
         Route::put('/movimentos/{movimento}', [FinanceiroController::class, 'updateMovimento'])->name('financeiro.movimentos.update');
         Route::delete('/movimentos/{movimento}', [FinanceiroController::class, 'destroyMovimento'])->name('financeiro.movimentos.destroy');

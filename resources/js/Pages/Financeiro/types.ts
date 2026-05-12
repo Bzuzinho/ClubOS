@@ -252,6 +252,83 @@ export interface FinanceDashboardData {
   receitas_despesas_por_centro_custo: FinanceDashboardPoint[];
 }
 
+export interface FinanceReportPeriodItem {
+  period_key: string;
+  period_label: string;
+  receitas: number;
+  despesas: number;
+  saldo: number;
+}
+
+export interface FinanceReportCostCenterItem {
+  id?: string | null;
+  nome: string;
+  tipo: string;
+  receitas: number;
+  despesas: number;
+  saldo: number;
+}
+
+export interface FinanceReportAgeGroupItem {
+  age_group_id: string;
+  age_group: string;
+  numero_atletas: number;
+  receitas: number;
+  total_faturado: number;
+  total_pago: number;
+  total_pendente: number;
+  despesas: number;
+  peso_financeiro: number;
+}
+
+export interface FinanceReportAthleteItem {
+  id: string;
+  nome: string;
+  numero_socio?: string | null;
+  escalao?: string | null;
+  valor_pago: number;
+  valor_gasto: number;
+  peso_financeiro: number;
+}
+
+export interface FinanceReportSection<TItem, TTotals = { receitas: number; despesas: number; saldo: number }> {
+  available: boolean;
+  empty_message: string;
+  items: TItem[];
+  totals: TTotals;
+}
+
+export interface FinanceReportResponse {
+  summary: FinanceDashboardData;
+  filters: {
+    data_inicio?: string | null;
+    data_fim?: string | null;
+    centro_custo_id?: string | null;
+    user_id?: string | null;
+    tipo?: 'receita' | 'despesa' | null;
+    origem_modulo?: string | null;
+    origem_tipo?: string | null;
+  };
+  reports: {
+    period: FinanceReportSection<FinanceReportPeriodItem>;
+    cost_centers: FinanceReportSection<FinanceReportCostCenterItem>;
+    age_groups: FinanceReportSection<FinanceReportAgeGroupItem, {
+      numero_atletas: number;
+      receitas: number;
+      total_faturado: number;
+      total_pago: number;
+      total_pendente: number;
+      despesas: number;
+      peso_financeiro: number;
+    }>;
+    athletes: FinanceReportSection<FinanceReportAthleteItem, {
+      valor_pago: number;
+      valor_gasto: number;
+      peso_financeiro: number;
+    }>;
+  };
+}
+
 export interface AgeGroup {
   id: string;
   nome: string;

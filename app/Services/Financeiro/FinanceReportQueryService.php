@@ -14,10 +14,15 @@ class FinanceReportQueryService
 {
     public function visibleMonthlyInvoices(array $filters = []): Builder
     {
+        $visibilityCutoff = $this->resolveMonthlyInvoiceVisibilityCutoff($filters);
+
         return Invoice::query()
             ->where('tipo', 'mensalidade')
             ->where('oculta', false)
-            ->when(!empty($filters['centro_custo_id']), fn (Builder $query) => $query->where('centro_custo_id', $filters['centro_custo_id']));
+            ->whereDate('data_fatura', '<=', $visibilityCutoff->toDateString())
+            ->when(!empty($filters['user_id']), fn (Builder $query) => $query->where('user_id', $filters['user_id']))
+            ->when(!empty($filters['centro_custo_id']), fn (Builder $query) => $query->where('centro_custo_id', $filters['centro_custo_id']))
+            ->when(($filters['tipo'] ?? null) === 'despesa', fn (Builder $query) => $query->whereRaw('1 = 0'));
     }
 
     public function overdueMonthlyInvoices(array $filters = []): Builder
@@ -46,13 +51,17 @@ class FinanceReportQueryService
                     ->whereNull('origem_tipo')
                     ->orWhereNotIn('origem_tipo', ['payment_allocation', 'account_credit']);
             })
-            ->when(!empty($filters['centro_custo_id']), fn (Builder $query) => $query->where('centro_custo_id', $filters['centro_custo_id']));
+            ->when(!empty($filters['user_id']), fn (Builder $query) => $query->where('user_id', $filters['user_id']))
+            ->when(!empty($filters['centro_custo_id']), fn (Builder $query) => $query->where('centro_custo_id', $filters['centro_custo_id']))
+            ->when(!empty($filters['tipo']), fn (Builder $query) => $query->where('tipo', $filters['tipo']))
+            ->when(!empty($filters['origem_modulo']), fn (Builder $query) => $query->where('origem_modulo', $filters['origem_modulo']))
+            ->when(!empty($filters['origem_tipo']), fn (Builder $query) => $query->where('origem_tipo', $filters['origem_tipo']));
     }
 
-    public function paidCanonicalFinancialEntries(string $type, ?Carbon $start = null, ?Carbon $end = null, array $filters = []): Builder
+        public function paidCanonicalFinancialEntries(?string $type = null, ?Carbon $start = null, ?Carbon $end = null, array $filters = []): Builder
     {
         return $this->canonicalFinancialEntries($filters)
-            ->where('tipo', $type)
+            ->when($type !== null, fn (Builder $query) => $query->where('tipo', $type))
             ->where('estado', 'pago')
             ->whereNotNull('data_pagamento')
             ->when($start && $end, fn (Builder $query) => $query->whereBetween('data_pagamento', [$start->toDateString(), $end->toDateString()]));
@@ -68,13 +77,16 @@ class FinanceReportQueryService
     {
         return Movement::query()
             ->whereDoesntHave('financialEntries')
-            ->when(!empty($filters['centro_custo_id']), fn (Builder $query) => $query->where('centro_custo_id', $filters['centro_custo_id']));
+            ->when(!empty($filters['user_id']), fn (Builder $query) => $query->where('user_id', $filters['user_id']))
+            ->when(!empty($filters['centro_custo_id']), fn (Builder $query) => $query->where('centro_custo_id', $filters['centro_custo_id']))
+            ->when(!empty($filters['tipo']), fn (Builder $query) => $query->where('classificacao', $filters['tipo']))
+            ->when(!empty($filters['origem_tipo']), fn (Builder $query) => $query->where('origem_tipo', $filters['origem_tipo']));
     }
 
-    public function paidLegacyMovements(string $type, ?Carbon $start = null, ?Carbon $end = null, array $filters = []): Builder
+        public function paidLegacyMovements(?string $type = null, ?Carbon $start = null, ?Carbon $end = null, array $filters = []): Builder
     {
         return $this->legacyMovementsWithoutEntries($filters)
-            ->where('classificacao', $type)
+            ->when($type !== null, fn (Builder $query) => $query->where('classificacao', $type))
             ->where('estado_pagamento', 'pago')
             ->when($start && $end, fn (Builder $query) => $query->whereBetween('data_emissao', [$start->toDateString(), $end->toDateString()]));
     }
@@ -97,5 +109,20 @@ class FinanceReportQueryService
         }
 
         return Carbon::today();
+    }
+
+    private function resolveMonthlyInvoiceVisibilityCutoff(array $filters): Carbon
+    {
+        $today = Carbon::today();
+
+        if (!empty($filters['data_fim'])) {
+            $end = Carbon::parse($filters['data_fim'])->startOfDay();
+
+            return $end->greaterThan($today) ? $today : $end;
+        }
+
+        return $this->resolveReferenceDate($filters)->greaterThan($today)
+            ? $today
+            : $this->resolveReferenceDate($filters);
     }
 }
