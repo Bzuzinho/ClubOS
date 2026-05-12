@@ -16,6 +16,7 @@ use App\Models\PaymentAllocation;
 use App\Models\User;
 use App\Models\InvoiceType;
 use App\Services\Financeiro\FinancialSettlementService;
+use App\Services\Financeiro\FiscalEmissionQueueService;
 use App\Services\Financeiro\PaymentAllocationService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -685,6 +686,96 @@ class PaymentAllocationFlowTest extends TestCase
         $this->assertSame('partial', $statement->conciliacao_status);
         $this->assertSame('40.00', $statement->valor_conciliado);
         $this->assertSame('60.00', $statement->valor_por_conciliar);
+    }
+
+    public function test_multiple_settlements_complete_revenue_entry_without_creating_duplicate_active_fiscal_requests(): void
+    {
+        $entry = $this->createStandaloneFinancialEntry('receita', 100.00, true);
+        $adminId = User::factory()->admin()->create()->id;
+
+        $first = app(FinancialSettlementService::class)->settleFinancialEntry($entry, [
+            'amount' => 40.00,
+            'payment_amount' => 40.00,
+            'payment_date' => '2026-05-05',
+            'method' => 'transferencia',
+            'reference' => 'PARTIAL-ENTRY-001',
+            'created_by' => $adminId,
+        ]);
+
+        $entry = $first['financial_entry'];
+
+        $this->assertSame('parcial', $entry->estado);
+        $this->assertDatabaseCount('fiscal_document_requests', 0);
+
+        $second = app(FinancialSettlementService::class)->settleFinancialEntry($entry, [
+            'amount' => 60.00,
+            'payment_amount' => 60.00,
+            'payment_date' => '2026-05-06',
+            'method' => 'transferencia',
+            'reference' => 'PARTIAL-ENTRY-002',
+            'created_by' => $adminId,
+        ]);
+
+        $entry = $second['financial_entry'];
+
+        $this->assertSame('pago', $entry->estado);
+        $this->assertDatabaseCount('fiscal_document_requests', 1);
+
+        $requestId = FiscalDocumentRequest::query()
+            ->where('financial_entry_id', $entry->id)
+            ->value('id');
+
+        $this->assertNotNull($requestId);
+
+        $third = app(FiscalEmissionQueueService::class)->queueFinancialEntry($entry, [
+            'paid_at' => '2026-05-06',
+            'created_by' => $adminId,
+        ]);
+
+        $this->assertNotNull($third);
+        $this->assertDatabaseCount('fiscal_document_requests', 1);
+        $this->assertSame($requestId, FiscalDocumentRequest::query()
+            ->where('financial_entry_id', $entry->id)
+            ->value('id'));
+    }
+
+    public function test_expense_financial_entry_settlement_with_bank_statement_reconciles_without_fiscal_request(): void
+    {
+        $entry = $this->createStandaloneFinancialEntry('despesa', 80.00, false);
+        $statement = $this->createBankStatement(80.00);
+
+        $result = app(FinancialSettlementService::class)->settleFinancialEntry($entry, [
+            'payment_date' => '2026-05-05',
+            'method' => 'transferencia',
+            'reference' => 'BANK-EXP-001',
+            'bank_statement_id' => $statement->id,
+            'created_by' => User::factory()->admin()->create()->id,
+        ]);
+
+        $entry = $result['financial_entry'];
+        $statement->refresh();
+
+        $this->assertSame('pago', $entry->estado);
+        $this->assertTrue($statement->conciliado);
+        $this->assertSame('reconciled', $statement->conciliacao_status);
+        $this->assertSame('80.00', $statement->valor_conciliado);
+        $this->assertDatabaseHas('payments', [
+            'bank_statement_id' => $statement->id,
+            'status' => Payment::STATUS_CONFIRMED,
+        ]);
+        $this->assertDatabaseHas('payment_allocations', [
+            'financial_entry_id' => $entry->id,
+            'invoice_id' => null,
+            'amount' => 80.00,
+        ]);
+        $this->assertDatabaseHas('mapa_conciliacao', [
+            'extrato_id' => $statement->id,
+            'lancamento_id' => $entry->id,
+            'valor_conciliado' => 80.00,
+        ]);
+        $this->assertDatabaseMissing('fiscal_document_requests', [
+            'financial_entry_id' => $entry->id,
+        ]);
     }
 
     public function test_monthly_invoice_settlement_continues_to_delegate_to_payment_allocation_service(): void
