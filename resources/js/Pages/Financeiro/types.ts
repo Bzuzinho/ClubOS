@@ -221,12 +221,14 @@ export interface MonthlyFee {
 }
 
 export interface FinanceDashboardPoint {
+  tipo?: string;
   label?: string;
   total?: number;
   mes?: string;
   receitas?: number;
   despesas?: number;
   centro_custo_id?: string;
+  centro_custo_nome?: string;
 }
 
 export interface FinanceDashboardData {
