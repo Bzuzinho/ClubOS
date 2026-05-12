@@ -34,6 +34,7 @@ function TabFallback() {
 
 interface Props {
   faturas: Fatura[];
+  mensalidadesFaturas: Fatura[];
   faturaItens: FaturaItem[];
   movimentos: Movimento[];
   movimentoItens: MovimentoItem[];
@@ -51,6 +52,7 @@ interface Props {
 
 export default function FinanceiroIndex({
   faturas,
+  mensalidadesFaturas,
   faturaItens,
   movimentos,
   movimentoItens,
@@ -67,6 +69,7 @@ export default function FinanceiroIndex({
 }: Props) {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [faturasState, setFaturas] = useState<Fatura[]>(faturas || []);
+  const [mensalidadesFaturasState, setMensalidadesFaturas] = useState<Fatura[]>(mensalidadesFaturas || []);
   const [faturaItensState, setFaturaItens] = useState<FaturaItem[]>(faturaItens || []);
   const [movimentosState, setMovimentos] = useState<Movimento[]>(movimentos || []);
   const [movimentoItensState, setMovimentoItens] = useState<MovimentoItem[]>(movimentoItens || []);
@@ -78,6 +81,10 @@ export default function FinanceiroIndex({
   useEffect(() => {
     setFaturas(faturas || []);
   }, [faturas]);
+
+  useEffect(() => {
+    setMensalidadesFaturas(mensalidadesFaturas || []);
+  }, [mensalidadesFaturas]);
 
   useEffect(() => {
     setFaturaItens(faturaItens || []);
@@ -106,6 +113,18 @@ export default function FinanceiroIndex({
   useEffect(() => {
     setProducts(products || []);
   }, [products]);
+
+  const updateFaturasState = (updater: React.SetStateAction<Fatura[]>) => {
+    setFaturas((current) => {
+      const next = typeof updater === 'function'
+        ? (updater as (current: Fatura[]) => Fatura[])(current)
+        : updater;
+
+      setMensalidadesFaturas((next || []).filter((invoice) => invoice.tipo === 'mensalidade'));
+
+      return next;
+    });
+  };
 
   return (
     <AuthenticatedLayout
@@ -164,8 +183,8 @@ export default function FinanceiroIndex({
             {activeTab === 'mensalidades' ? (
               <Suspense fallback={<TabFallback />}>
                 <FaturasTab
-                  faturas={faturasState}
-                  setFaturas={setFaturas}
+                  faturas={mensalidadesFaturasState}
+                  setFaturas={updateFaturasState}
                   faturaItens={faturaItensState}
                   setFaturaItens={setFaturaItens}
                   lancamentos={lancamentosState}

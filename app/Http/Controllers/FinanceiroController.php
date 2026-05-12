@@ -99,6 +99,10 @@ class FinanceiroController extends Controller
             $faturas = [];
         }
 
+        $mensalidadesFaturas = collect($faturas)
+            ->filter(fn ($fatura) => ($fatura->tipo ?? null) === 'mensalidade')
+            ->values();
+
         try {
             $faturaItens = Cache::remember('financeiro:fatura_itens', 60, fn () =>
                 InvoiceItem::orderBy('created_at', 'desc')->limit(3000)->get()
@@ -190,6 +194,7 @@ class FinanceiroController extends Controller
         return [
             'dashboardData' => $this->financeDashboardService->build(),
             'faturas' => $faturas,
+            'mensalidadesFaturas' => $mensalidadesFaturas,
             'faturaItens' => $faturaItens,
             'movimentos' => $movimentos,
             'movimentoItens' => $movimentoItens,
@@ -777,6 +782,19 @@ class FinanceiroController extends Controller
             } elseif ($paidAmount > 0) {
                 $invoice->estado_pagamento = 'parcial';
             }
+        }
+
+        $dueDate = $invoice->data_vencimento !== null
+            ? Carbon::parse($invoice->data_vencimento)->startOfDay()
+            : null;
+
+        if (
+            $dueDate !== null
+            && in_array($invoice->estado_pagamento, ['pendente', 'vencido'], true)
+            && (float) $invoice->valor_em_aberto > 0.009
+            && $dueDate->lt(now()->startOfDay())
+        ) {
+            $invoice->estado_pagamento = 'vencido';
         }
 
         return $invoice;

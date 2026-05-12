@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Financeiro;
 
+use App\Http\Middleware\HandleInertiaRequests;
 use App\Models\CostCenter;
 use App\Models\FinancialEntry;
 use App\Models\Invoice;
@@ -9,6 +10,7 @@ use App\Models\Movement;
 use App\Models\User;
 use App\Services\Financeiro\FinanceDashboardService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
 use Tests\TestCase;
 
 class FinanceDashboardFlowTest extends TestCase
@@ -299,5 +301,67 @@ class FinanceDashboardFlowTest extends TestCase
         $response->assertSee('dashboardData', false);
         $response->assertSee('receitas_mes', false);
         $response->assertSee('mensalidades_vencidas', false);
+    }
+
+    public function test_financeiro_index_exposes_only_monthly_invoices_in_mensalidades_payload(): void
+    {
+        $admin = User::query()->where('email', 'admin@test.com')->firstOrFail();
+        $costCenter = CostCenter::query()->firstOrFail();
+        $user = User::factory()->create([
+            'nome_completo' => 'Atleta Payload Mensalidades',
+            'email' => 'payload-mensalidades@example.com',
+            'nif' => '963852741',
+        ]);
+
+        $monthlyInvoice = Invoice::query()->create([
+            'user_id' => $user->id,
+            'centro_custo_id' => $costCenter->id,
+            'data_fatura' => now()->subDays(15)->toDateString(),
+            'data_emissao' => now()->subDays(15)->toDateString(),
+            'data_vencimento' => now()->subDays(5)->toDateString(),
+            'valor_total' => 30.00,
+            'valor_pago' => 0,
+            'valor_em_aberto' => 30.00,
+            'estado_pagamento' => 'pendente',
+            'tipo' => 'mensalidade',
+            'oculta' => false,
+            'mes' => now()->format('Y-m'),
+        ]);
+
+        Invoice::query()->create([
+            'user_id' => $user->id,
+            'centro_custo_id' => $costCenter->id,
+            'data_fatura' => now()->subDays(10)->toDateString(),
+            'data_emissao' => now()->subDays(10)->toDateString(),
+            'data_vencimento' => now()->subDays(2)->toDateString(),
+            'valor_total' => 45.00,
+            'valor_pago' => 0,
+            'valor_em_aberto' => 45.00,
+            'estado_pagamento' => 'pendente',
+            'tipo' => 'servico',
+            'oculta' => false,
+        ]);
+
+        Cache::flush();
+
+        $response = $this->inertiaGetAs($admin, route('financeiro.index', ['fresh' => 1]));
+
+        $response->assertOk();
+        $response->assertJsonPath('component', 'Financeiro/Index');
+        $response->assertJsonCount(1, 'props.mensalidadesFaturas');
+        $response->assertJsonPath('props.mensalidadesFaturas.0.id', $monthlyInvoice->id);
+        $response->assertJsonPath('props.mensalidadesFaturas.0.tipo', 'mensalidade');
+        $response->assertJsonPath('props.mensalidadesFaturas.0.estado_pagamento', 'vencido');
+    }
+
+    private function inertiaGetAs(User $user, string $uri)
+    {
+        $inertiaVersion = app(HandleInertiaRequests::class)->version(request());
+
+        return $this->actingAs($user)->withHeaders([
+            'X-Inertia' => 'true',
+            'X-Requested-With' => 'XMLHttpRequest',
+            'X-Inertia-Version' => (string) $inertiaVersion,
+        ])->get($uri);
     }
 }
