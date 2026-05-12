@@ -1030,6 +1030,68 @@ class PaymentAllocationFlowTest extends TestCase
         $this->assertSame(1, FiscalDocumentRequest::withTrashed()->where('financial_entry_id', $entry->id)->count());
     }
 
+    public function test_unreconciling_one_bank_statement_preserves_independent_previous_invoice_payments(): void
+    {
+        $admin = User::factory()->admin()->create();
+        [$invoice] = $this->createInvoicesForUser([100.00]);
+
+        $this->actingAs($admin)->postJson(route('financeiro.payments.allocate'), [
+            'amount' => 40.00,
+            'payment_date' => '2026-05-04',
+            'method' => 'transferencia',
+            'reference' => 'TRX-MANUAL-40',
+            'allocations' => [
+                ['invoice_id' => $invoice->id, 'amount' => 40.00],
+            ],
+        ])->assertOk();
+
+        $manualPayment = Payment::query()->where('reference', 'TRX-MANUAL-40')->firstOrFail();
+        $manualAllocation = PaymentAllocation::query()->where('payment_id', $manualPayment->id)->firstOrFail();
+
+        $statement = $this->createBankStatement(60.00);
+
+        $this->actingAs($admin)->postJson(route('financeiro.extratos.conciliar', $statement), [
+            'tipo' => 'receita',
+            'centro_custo_id' => $invoice->centro_custo_id,
+            'fatura_id' => $invoice->id,
+        ])->assertOk();
+
+        $statementPayment = Payment::query()->where('bank_statement_id', $statement->id)->firstOrFail();
+        $statementAllocation = PaymentAllocation::query()->where('payment_id', $statementPayment->id)->firstOrFail();
+
+        $invoice->refresh();
+        $this->assertSame('pago', $invoice->estado_pagamento);
+        $this->assertSame('100.00', $invoice->valor_pago);
+        $this->assertSame('0.00', $invoice->valor_em_aberto);
+
+        $response = $this->actingAs($admin)
+            ->postJson(route('financeiro.extratos.desconciliar', $statement));
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('extrato.conciliado', false)
+            ->assertJsonPath('extrato.conciliacao_status', 'unreconciled');
+
+        $invoice->refresh();
+        $statement->refresh();
+        $manualPayment->refresh();
+        $statementPayment->refresh();
+
+        $this->assertSame('parcial', $invoice->estado_pagamento);
+        $this->assertSame('40.00', $invoice->valor_pago);
+        $this->assertSame('60.00', $invoice->valor_em_aberto);
+        $this->assertSame('40.00', $manualPayment->allocated_amount);
+        $this->assertSame('0.00', $manualPayment->unallocated_amount);
+        $this->assertSame('0.00', $statementPayment->allocated_amount);
+        $this->assertSame('60.00', $statementPayment->unallocated_amount);
+        $this->assertTrue(PaymentAllocation::query()->whereKey($manualAllocation->id)->where('status', PaymentAllocation::STATUS_CONFIRMED)->exists());
+        $this->assertTrue(PaymentAllocation::withTrashed()->whereKey($statementAllocation->id)->where('status', PaymentAllocation::STATUS_CANCELLED)->exists());
+        $this->assertSame(1, PaymentAllocation::query()->confirmed()->where('invoice_id', $invoice->id)->count());
+        $this->assertDatabaseMissing('mapa_conciliacao', [
+            'extrato_id' => $statement->id,
+        ]);
+    }
+
     public function test_monthly_invoice_settlement_continues_to_delegate_to_payment_allocation_service(): void
     {
         [$invoice] = $this->createInvoicesForUser([100.00]);
