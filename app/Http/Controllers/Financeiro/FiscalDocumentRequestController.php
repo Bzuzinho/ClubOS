@@ -9,6 +9,7 @@ use App\Services\Financeiro\FiscalDocumentRequestService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Validation\Rule;
 
 class FiscalDocumentRequestController extends Controller
@@ -97,14 +98,18 @@ class FiscalDocumentRequestController extends Controller
         $validated = $request->validate($this->storeRules());
         $validated['created_by'] = $request->user()?->id;
 
-        if (!empty($validated['invoice_id'])) {
-            $fiscalRequest = $this->service->createFromInvoice(
-                Invoice::query()->findOrFail($validated['invoice_id']),
-                $validated,
-            );
-        } else {
-            $fiscalRequest = FiscalDocumentRequest::create($validated);
+        if (empty($validated['invoice_id'])) {
+            return response()->json([
+                'message' => 'A criacao manual direta de pedidos fiscais fora do fluxo canonico nao esta disponivel.',
+            ], 422);
         }
+
+        $fiscalRequest = $this->service->createFromInvoice(
+            Invoice::query()->findOrFail($validated['invoice_id']),
+            $validated,
+        );
+
+        $this->invalidateFinanceiroCaches();
 
         return response()->json([
             'data' => $fiscalRequest->load(['invoice', 'user', 'bankStatement']),
@@ -132,6 +137,8 @@ class FiscalDocumentRequestController extends Controller
             'created_by' => $request->user()?->id,
         ]);
 
+        $this->invalidateFinanceiroCaches();
+
         return response()->json([
             'message' => 'Pedido fiscal criado com sucesso.',
             'data' => $fiscalRequest->load(['invoice', 'user', 'bankStatement']),
@@ -144,6 +151,8 @@ class FiscalDocumentRequestController extends Controller
         $fiscalDocumentRequest->fill($validated);
         $fiscalDocumentRequest->save();
 
+        $this->invalidateFinanceiroCaches();
+
         return response()->json([
             'data' => $fiscalDocumentRequest->refresh()->load(['invoice', 'user', 'bankStatement']),
         ]);
@@ -151,8 +160,11 @@ class FiscalDocumentRequestController extends Controller
 
     public function markInProgress(Request $request, FiscalDocumentRequest $fiscalDocumentRequest): JsonResponse
     {
+        $updatedRequest = $this->service->markInProgress($fiscalDocumentRequest, $request->user()?->id);
+        $this->invalidateFinanceiroCaches();
+
         return response()->json([
-            'data' => $this->service->markInProgress($fiscalDocumentRequest, $request->user()?->id),
+            'data' => $updatedRequest,
         ]);
     }
 
@@ -168,8 +180,11 @@ class FiscalDocumentRequestController extends Controller
             'notes' => ['nullable', 'string'],
         ]);
 
+        $updatedRequest = $this->service->markIssued($fiscalDocumentRequest, $validated, $request->user()?->id);
+        $this->invalidateFinanceiroCaches();
+
         return response()->json([
-            'data' => $this->service->markIssued($fiscalDocumentRequest, $validated, $request->user()?->id),
+            'data' => $updatedRequest,
         ]);
     }
 
@@ -179,8 +194,11 @@ class FiscalDocumentRequestController extends Controller
             'reason' => ['required', 'string'],
         ]);
 
+        $updatedRequest = $this->service->markCancelled($fiscalDocumentRequest, $validated['reason'], $request->user()?->id);
+        $this->invalidateFinanceiroCaches();
+
         return response()->json([
-            'data' => $this->service->markCancelled($fiscalDocumentRequest, $validated['reason'], $request->user()?->id),
+            'data' => $updatedRequest,
         ]);
     }
 
@@ -194,16 +212,27 @@ class FiscalDocumentRequestController extends Controller
 
         $error = $validated['last_error'] ?? $validated['error'];
 
+        $updatedRequest = $this->service->markErrorData($fiscalDocumentRequest, $error, $validated['notes'] ?? null, $request->user()?->id);
+        $this->invalidateFinanceiroCaches();
+
         return response()->json([
-            'data' => $this->service->markErrorData($fiscalDocumentRequest, $error, $validated['notes'] ?? null, $request->user()?->id),
+            'data' => $updatedRequest,
         ]);
     }
 
     public function destroy(FiscalDocumentRequest $fiscalDocumentRequest): JsonResponse
     {
         $this->service->deleteRequest($fiscalDocumentRequest);
+        $this->invalidateFinanceiroCaches();
 
         return response()->json([], 204);
+    }
+
+    private function invalidateFinanceiroCaches(): void
+    {
+        Cache::forget('financeiro:index');
+        Cache::forget('financeiro:fiscal_requests');
+        Cache::forget('financeiro:faturas');
     }
 
     private function storeRules(): array

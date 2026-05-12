@@ -2,16 +2,25 @@
 
 namespace App\Services\Financeiro;
 
+use App\Models\AccountCredit;
 use App\Models\BankStatement;
 use App\Models\FinancialEntry;
+use App\Models\FiscalDocumentRequest;
+use App\Models\Invoice;
+use App\Models\MapaConciliacao;
 use App\Models\Movement;
+use App\Models\Payment;
+use App\Models\PaymentAllocation;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 class BankReconciliationService
 {
     public function __construct(
         private readonly FinancialSettlementService $financialSettlementService,
+        private readonly PaymentAllocationService $paymentAllocationService,
+        private readonly FinancialBalanceService $financialBalanceService,
     ) {
     }
 
@@ -58,6 +67,9 @@ class BankReconciliationService
                 'description' => $bankStatement->descricao,
                 'user_id' => $payload['user_id'] ?? null,
                 'create_credit' => (bool) ($payload['create_credit'] ?? false),
+                'map_metadata' => [
+                    'created_manual_entry' => true,
+                ],
             ]));
 
             $bankStatement->forceFill([
@@ -105,6 +117,22 @@ class BankReconciliationService
                     'categoria' => 'Movimento Financeiro',
                     'method' => $payload['metodo_pagamento'] ?? 'transferencia',
                 ]);
+                $createdEntries->push($entry);
+                $entryAllocations[] = [
+                    'financial_entry_id' => $entry->id,
+                    'amount' => $amount,
+                ];
+                continue;
+            }
+
+            if ($type === 'financial_entry') {
+                $entry = FinancialEntry::query()->find($id);
+                if (!$entry) {
+                    throw ValidationException::withMessages([
+                        'itens' => 'Foi indicada uma entrada financeira invalida.',
+                    ]);
+                }
+
                 $createdEntries->push($entry);
                 $entryAllocations[] = [
                     'financial_entry_id' => $entry->id,
@@ -163,5 +191,262 @@ class BankReconciliationService
             'invoices' => $updatedInvoices->all(),
             'movements' => $updatedMovements->all(),
         ];
+    }
+
+    public function unreconcile(BankStatement $bankStatement, array $options = []): array
+    {
+        return DB::transaction(function () use ($bankStatement, $options): array {
+            $bankStatement = $bankStatement->fresh();
+            $maps = MapaConciliacao::query()
+                ->where('extrato_id', $bankStatement->id)
+                ->with(['lancamento'])
+                ->get();
+
+            $payments = Payment::query()
+                ->confirmed()
+                ->where('bank_statement_id', $bankStatement->id)
+                ->with('credits')
+                ->get();
+
+            $paymentIds = $payments->pluck('id');
+
+            $this->ensureCreditsCanBeUnreconciled($paymentIds);
+
+            $allocations = PaymentAllocation::query()
+                ->confirmed()
+                ->whereIn('payment_id', $paymentIds)
+                ->with(['payment', 'invoice', 'financialEntry'])
+                ->get();
+
+            $affectedInvoiceIds = [];
+            $affectedEntryIds = [];
+            $removedEntryIds = [];
+
+            foreach ($allocations as $allocation) {
+                if ($allocation->invoice_id) {
+                    $affectedInvoiceIds[$allocation->invoice_id] = $allocation->invoice_id;
+                }
+
+                if ($allocation->financial_entry_id) {
+                    $affectedEntryIds[$allocation->financial_entry_id] = $allocation->financial_entry_id;
+                }
+
+                MapaConciliacao::query()
+                    ->where('payment_allocation_id', $allocation->id)
+                    ->delete();
+
+                FinancialEntry::query()
+                    ->where('origem_tipo', 'payment_allocation')
+                    ->where('origem_id', $allocation->id)
+                    ->delete();
+
+                $allocation->forceFill([
+                    'status' => PaymentAllocation::STATUS_CANCELLED,
+                ]);
+                $allocation->save();
+                $allocation->delete();
+            }
+
+            $this->cancelCreditsForPayments($payments, $removedEntryIds);
+
+            $manualEntries = $maps
+                ->filter(fn (MapaConciliacao $mapa) => (bool) data_get($mapa->metadata, 'created_manual_entry', false))
+                ->pluck('lancamento')
+                ->filter(fn ($entry) => $entry instanceof FinancialEntry)
+                ->unique('id');
+
+            foreach ($manualEntries as $entry) {
+                $removedEntryIds[] = $entry->id;
+                unset($affectedEntryIds[$entry->id]);
+                $entry->delete();
+            }
+
+            MapaConciliacao::query()
+                ->where('extrato_id', $bankStatement->id)
+                ->delete();
+
+            $updatedInvoices = collect($affectedInvoiceIds)
+                ->map(fn ($invoiceId) => Invoice::query()->find($invoiceId))
+                ->filter()
+                ->map(function (Invoice $invoice): Invoice {
+                    $invoice->forceFill([
+                        'valor_pago' => 0,
+                        'valor_em_aberto' => round((float) $invoice->valor_total, 2),
+                        'data_pagamento' => null,
+                        'metodo_pagamento' => null,
+                        'referencia_pagamento' => null,
+                        'pagamento_observacoes' => null,
+                        'estado_pagamento' => 'pendente',
+                    ]);
+                    $invoice->save();
+
+                    return $this->paymentAllocationService->recalculateInvoicePaymentStatus($invoice->fresh());
+                })
+                ->values();
+
+            $updatedEntries = collect($affectedEntryIds)
+                ->map(fn ($entryId) => FinancialEntry::query()->find($entryId))
+                ->filter()
+                ->map(function (FinancialEntry $entry): FinancialEntry {
+                    $entry = $this->financialBalanceService->recalculateFinancialEntry($entry->fresh());
+                    $this->deletePendingFiscalRequestsForFinancialEntry($entry);
+
+                    return $entry;
+                })
+                ->values();
+
+            $updatedMovements = $updatedEntries
+                ->map(fn (FinancialEntry $entry) => $this->syncMovementFromFinancialEntry($entry))
+                ->filter()
+                ->values();
+
+            foreach ($payments as $payment) {
+                $this->syncPaymentBalances($payment->fresh());
+            }
+
+            $bankStatement = $this->syncBankStatementStatus($bankStatement->fresh());
+            $bankStatement->forceFill([
+                'lancamento_id' => null,
+            ])->save();
+
+            return [
+                'bank_statement' => $bankStatement->fresh(),
+                'payments' => $payments->map(fn (Payment $payment) => $payment->fresh())->all(),
+                'entries' => $updatedEntries->all(),
+                'invoices' => $updatedInvoices->all(),
+                'movements' => $updatedMovements->all(),
+                'removed_entry_ids' => array_values(array_unique($removedEntryIds)),
+            ];
+        });
+    }
+
+    private function ensureCreditsCanBeUnreconciled(Collection $paymentIds): void
+    {
+        if ($paymentIds->isEmpty()) {
+            return;
+        }
+
+        $hasUsedCredits = AccountCredit::query()
+            ->whereIn('payment_id', $paymentIds)
+            ->whereIn('status', [
+                AccountCredit::STATUS_PARTIALLY_USED,
+                AccountCredit::STATUS_USED,
+            ])
+            ->exists();
+
+        if ($hasUsedCredits) {
+            throw ValidationException::withMessages([
+                'extrato' => 'Nao e possivel desconciliar um extrato com credito de conta corrente ja utilizado.',
+            ]);
+        }
+    }
+
+    private function cancelCreditsForPayments(Collection $payments, array &$removedEntryIds): void
+    {
+        foreach ($payments as $payment) {
+            $credits = $payment->credits
+                ->filter(fn (AccountCredit $credit) => $credit->status !== AccountCredit::STATUS_CANCELLED);
+
+            foreach ($credits as $credit) {
+                $credit->forceFill([
+                    'status' => AccountCredit::STATUS_CANCELLED,
+                    'remaining_amount' => 0,
+                ]);
+                $credit->save();
+                $credit->delete();
+
+                FinancialEntry::query()
+                    ->where('origem_tipo', 'account_credit')
+                    ->where('origem_id', $credit->id)
+                    ->get()
+                    ->each(function (FinancialEntry $entry) use (&$removedEntryIds): void {
+                        $removedEntryIds[] = $entry->id;
+                        $entry->delete();
+                    });
+            }
+        }
+    }
+
+    private function deletePendingFiscalRequestsForFinancialEntry(FinancialEntry $financialEntry): void
+    {
+        if ($financialEntry->estado === 'pago') {
+            return;
+        }
+
+        FiscalDocumentRequest::query()
+            ->where('financial_entry_id', $financialEntry->id)
+            ->where(function ($query): void {
+                $query
+                    ->whereNull('external_document_number')
+                    ->orWhere('external_document_number', '');
+            })
+            ->delete();
+    }
+
+    private function syncMovementFromFinancialEntry(FinancialEntry $financialEntry): ?Movement
+    {
+        if ($financialEntry->origem_tipo !== 'movement' || !$financialEntry->origem_id) {
+            return null;
+        }
+
+        $movement = Movement::query()->find($financialEntry->origem_id);
+        if (!$movement) {
+            return null;
+        }
+
+        $movement->fill([
+            'estado_pagamento' => $financialEntry->estado,
+            'metodo_pagamento' => $financialEntry->metodo_pagamento,
+        ]);
+        $movement->save();
+
+        return $movement->fresh();
+    }
+
+    private function syncPaymentBalances(Payment $payment): Payment
+    {
+        $allocatedAmount = round((float) PaymentAllocation::query()
+            ->confirmed()
+            ->where('payment_id', $payment->id)
+            ->sum('amount'), 2);
+        $creditedAmount = round((float) AccountCredit::query()
+            ->where('payment_id', $payment->id)
+            ->where('status', '!=', AccountCredit::STATUS_CANCELLED)
+            ->sum('amount'), 2);
+
+        $payment->forceFill([
+            'allocated_amount' => $allocatedAmount,
+            'unallocated_amount' => round(max((float) $payment->amount - $allocatedAmount - $creditedAmount, 0), 2),
+        ]);
+        $payment->save();
+
+        return $payment->fresh();
+    }
+
+    private function syncBankStatementStatus(BankStatement $bankStatement): BankStatement
+    {
+        $treatedAmount = round((float) Payment::query()
+            ->confirmed()
+            ->where('bank_statement_id', $bankStatement->id)
+            ->get()
+            ->sum(fn (Payment $payment) => (float) $payment->amount - (float) $payment->unallocated_amount), 2);
+        $statementAmount = round(abs((float) $bankStatement->valor), 2);
+        $remainingAmount = round(max($statementAmount - $treatedAmount, 0), 2);
+
+        $status = 'unreconciled';
+        if ($treatedAmount > 0 && $remainingAmount > 0.009) {
+            $status = 'partial';
+        } elseif ($statementAmount > 0 && $remainingAmount <= 0.009) {
+            $status = 'reconciled';
+        }
+
+        $bankStatement->forceFill([
+            'valor_conciliado' => $treatedAmount,
+            'valor_por_conciliar' => $remainingAmount,
+            'conciliacao_status' => $status,
+            'conciliado' => $status === 'reconciled',
+        ])->save();
+
+        return $bankStatement->fresh();
     }
 }

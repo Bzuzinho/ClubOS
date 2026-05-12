@@ -2,91 +2,33 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Transaction;
-use App\Models\MembershipFee;
-use Carbon\Carbon;
+use App\Services\Financeiro\FinanceReportService;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 class RelatoriosFinanceirosController extends Controller
 {
-    public function index()
+    public function __construct(
+        private readonly FinanceReportService $financeReportService,
+    ) {
+    }
+
+    public function index(Request $request): JsonResponse
     {
-        $now = Carbon::now();
-        $currentMonth = $now->month;
-        $currentYear = $now->year;
-
-        // Saldo atual
-        $receitas = Transaction::where('type', 'receita')
-            ->where('status', 'paga')
-            ->sum('amount');
-        
-        $despesas = Transaction::where('type', 'despesa')
-            ->where('status', 'paga')
-            ->sum('amount');
-        
-        $saldoAtual = $receitas - $despesas;
-
-        // Receitas do mês
-        $receitasMes = Transaction::where('type', 'receita')
-            ->where('status', 'paga')
-            ->whereMonth('date', $currentMonth)
-            ->whereYear('date', $currentYear)
-            ->sum('amount');
-
-        // Despesas do mês
-        $despesasMes = Transaction::where('type', 'despesa')
-            ->where('status', 'paga')
-            ->whereMonth('date', $currentMonth)
-            ->whereYear('date', $currentYear)
-            ->sum('amount');
-
-        // Mensalidades atrasadas
-        $mensalidadesAtrasadas = MembershipFee::where('status', 'atrasada')
-            ->orWhere(function($query) use ($now) {
-                $query->where('status', 'pendente')
-                    ->where(function($q) use ($now) {
-                        $q->where('year', '<', $now->year)
-                            ->orWhere(function($q2) use ($now) {
-                                $q2->where('year', '=', $now->year)
-                                    ->where('month', '<', $now->month);
-                            });
-                    });
-            })
-            ->count();
-
-        // Evolução mensal (últimos 6 meses)
-        $monthlyData = [];
-        for ($i = 5; $i >= 0; $i--) {
-            $date = Carbon::now()->subMonths($i);
-            $month = $date->month;
-            $year = $date->year;
-
-            $monthlyReceitas = Transaction::where('type', 'receita')
-                ->where('status', 'paga')
-                ->whereMonth('date', $month)
-                ->whereYear('date', $year)
-                ->sum('amount');
-
-            $monthlyDespesas = Transaction::where('type', 'despesa')
-                ->where('status', 'paga')
-                ->whereMonth('date', $month)
-                ->whereYear('date', $year)
-                ->sum('amount');
-
-            $monthlyData[] = [
-                'mes' => $date->format('M'),
-                'receitas' => (float) $monthlyReceitas,
-                'despesas' => (float) $monthlyDespesas,
-            ];
-        }
+        $validated = $request->validate([
+            'data_inicio' => ['nullable', 'date'],
+            'data_fim' => ['nullable', 'date', 'after_or_equal:data_inicio'],
+            'centro_custo_id' => ['nullable', 'string'],
+            'user_id' => ['nullable', 'string'],
+            'tipo' => ['nullable', Rule::in(['receita', 'despesa'])],
+            'origem_modulo' => ['nullable', 'string', 'max:100'],
+            'origem_tipo' => ['nullable', 'string', 'max:100'],
+        ]);
 
         return response()->json([
-            'saldoAtual' => (float) $saldoAtual,
-            'receitasMes' => (float) $receitasMes,
-            'despesasMes' => (float) $despesasMes,
-            'mensalidadesAtrasadas' => $mensalidadesAtrasadas,
-            'monthlyData' => $monthlyData,
-            'totalReceitas' => (float) $receitas,
-            'totalDespesas' => (float) $despesas,
+            'summary' => $this->financeReportService->summary($validated),
+            ...$this->financeReportService->reports($validated),
         ]);
     }
 }

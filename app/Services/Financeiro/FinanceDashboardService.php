@@ -2,97 +2,136 @@
 
 namespace App\Services\Financeiro;
 
-use App\Models\FinancialEntry;
-use App\Models\Invoice;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 
 class FinanceDashboardService
 {
-    public function build(): array
+    public function __construct(
+        private readonly FinanceReportQueryService $queryService,
+    ) {
+    }
+
+    public function build(array $filters = []): array
     {
-        $now = Carbon::now();
+        $now = !empty($filters['reference_date'])
+            ? Carbon::parse($filters['reference_date'])
+            : Carbon::now();
         $monthStart = $now->copy()->startOfMonth();
+        $monthEnd = $now->copy()->endOfMonth();
 
-        $mensalidadesVencidas = Invoice::query()
-            ->where('tipo', 'mensalidade')
-            ->whereIn('estado_pagamento', ['pendente', 'vencido', 'parcial'])
-            ->where('oculta', false)
-            ->sum('valor_em_aberto');
+        $monthlyPaidThisMonth = (float) $this->queryService->paidMonthlyInvoices($monthStart, $monthEnd, $filters)->sum('valor_pago');
+        $paidRevenueEntriesThisMonth = (float) $this->queryService->paidCanonicalFinancialEntries('receita', $monthStart, $monthEnd, $filters)->sum('valor_pago');
+        $paidExpenseEntriesThisMonth = (float) $this->queryService->paidCanonicalFinancialEntries('despesa', $monthStart, $monthEnd, $filters)->sum('valor_pago');
+        $paidLegacyRevenueThisMonth = (float) $this->queryService->paidLegacyMovements('receita', $monthStart, $monthEnd, $filters)->sum('valor_total');
+        $paidLegacyExpenseThisMonth = (float) $this->queryService->paidLegacyMovements('despesa', $monthStart, $monthEnd, $filters)->sum('valor_total');
 
-        $receitasMes = FinancialEntry::query()
-            ->where('tipo', 'receita')
-            ->where('estado', 'pago')
-            ->whereDate('data_pagamento', '>=', $monthStart->toDateString())
-            ->sum('valor_pago');
+        $totalReceitas = (float) $this->queryService->paidMonthlyInvoices(null, null, $filters)->sum('valor_pago')
+            + (float) $this->queryService->paidCanonicalFinancialEntries('receita', null, null, $filters)->sum('valor_pago')
+            + (float) $this->queryService->paidLegacyMovements('receita', null, null, $filters)->sum('valor_total');
+        $totalDespesas = (float) $this->queryService->paidCanonicalFinancialEntries('despesa', null, null, $filters)->sum('valor_pago')
+            + (float) $this->queryService->paidLegacyMovements('despesa', null, null, $filters)->sum('valor_total');
 
-        $despesasMes = FinancialEntry::query()
-            ->where('tipo', 'despesa')
-            ->where('estado', 'pago')
-            ->whereDate('data_pagamento', '>=', $monthStart->toDateString())
-            ->sum('valor_pago');
+        $receitasMes = round($monthlyPaidThisMonth + $paidRevenueEntriesThisMonth + $paidLegacyRevenueThisMonth, 2);
+        $despesasMes = round($paidExpenseEntriesThisMonth + $paidLegacyExpenseThisMonth, 2);
+
+        $movimentosPendentes = round(
+            (float) $this->queryService->pendingCanonicalFinancialEntries($filters)->sum('valor_em_aberto')
+            + (float) $this->queryService->pendingLegacyMovements($filters)->sum('valor_total'),
+            2
+        );
 
         return [
-            'total_geral' => round((float) ($receitasMes - $despesasMes), 2),
-            'receitas_mes' => round((float) $receitasMes, 2),
-            'despesas_mes' => round((float) $despesasMes, 2),
-            'mensalidades_vencidas' => round((float) $mensalidadesVencidas, 2),
-            'movimentos_pendentes' => round((float) FinancialEntry::query()->whereIn('estado', ['pendente', 'parcial'])->sum('valor_em_aberto'), 2),
-            'distribuicao_por_tipo' => $this->groupTotals('tipo'),
-            'evolucao_mensal_ultimos_6_meses' => $this->buildMonthlyEvolution(),
-            'receitas_despesas_por_centro_custo' => $this->buildCostCenterSummary(),
+            'total_geral' => round($totalReceitas - $totalDespesas, 2),
+            'receitas_mes' => $receitasMes,
+            'despesas_mes' => $despesasMes,
+            'mensalidades_vencidas' => round((float) $this->queryService->overdueMonthlyInvoices($filters)->sum('valor_em_aberto'), 2),
+            'movimentos_pendentes' => $movimentosPendentes,
+            'distribuicao_por_tipo' => $this->buildDistributionByType($filters),
+            'evolucao_mensal_ultimos_6_meses' => $this->buildMonthlyEvolution($now, $filters),
+            'receitas_despesas_por_centro_custo' => $this->buildCostCenterSummary($filters),
         ];
     }
 
-    private function groupTotals(string $column): array
+    private function buildDistributionByType(array $filters = []): array
     {
-        return FinancialEntry::query()
-            ->selectRaw($column . ', SUM(valor) as total')
-            ->groupBy($column)
-            ->get()
-            ->map(fn ($row) => [
-                'label' => $row->{$column},
+        $monthlyTotal = (float) $this->queryService->paidMonthlyInvoices(null, null, $filters)->sum('valor_pago');
+        $entries = $this->queryService->canonicalFinancialEntries($filters)
+            ->where('estado', 'pago')
+            ->selectRaw('tipo, COALESCE(categoria, origem_tipo, ? ) as label, SUM(valor_pago) as total', ['Sem categoria'])
+            ->groupBy('tipo', 'label')
+            ->get();
+
+        $distribution = collect();
+
+        if ($monthlyTotal > 0) {
+            $distribution->push([
+                'tipo' => 'receita',
+                'label' => 'mensalidade',
+                'total' => round($monthlyTotal, 2),
+            ]);
+        }
+
+        return $distribution
+            ->merge($entries->map(fn ($row) => [
+                'tipo' => $row->tipo,
+                'label' => $row->label,
                 'total' => round((float) $row->total, 2),
-            ])
+            ]))
+            ->values()
             ->all();
     }
 
-    private function buildMonthlyEvolution(): array
+    private function buildMonthlyEvolution(Carbon $referenceDate, array $filters = []): array
     {
-        $months = collect(range(0, 5))->map(fn (int $offset) => now()->copy()->subMonths(5 - $offset));
+        $months = collect(range(0, 5))->map(fn (int $offset) => $referenceDate->copy()->subMonths(5 - $offset));
 
-        return $months->map(function (Carbon $month): array {
+        return $months->map(function (Carbon $month) use ($filters): array {
             $start = $month->copy()->startOfMonth()->toDateString();
             $end = $month->copy()->endOfMonth()->toDateString();
 
             return [
                 'mes' => $month->format('Y-m'),
-                'receitas' => round((float) FinancialEntry::query()
-                    ->where('tipo', 'receita')
-                    ->whereBetween('data', [$start, $end])
-                    ->sum('valor'), 2),
-                'despesas' => round((float) FinancialEntry::query()
-                    ->where('tipo', 'despesa')
-                    ->whereBetween('data', [$start, $end])
-                    ->sum('valor'), 2),
+                'receitas' => round(
+                    (float) $this->queryService->paidMonthlyInvoices(Carbon::parse($start), Carbon::parse($end), $filters)->sum('valor_pago')
+                    + (float) $this->queryService->paidCanonicalFinancialEntries('receita', Carbon::parse($start), Carbon::parse($end), $filters)->sum('valor_pago')
+                    + (float) $this->queryService->paidLegacyMovements('receita', Carbon::parse($start), Carbon::parse($end), $filters)->sum('valor_total'),
+                    2
+                ),
+                'despesas' => round(
+                    (float) $this->queryService->paidCanonicalFinancialEntries('despesa', Carbon::parse($start), Carbon::parse($end), $filters)->sum('valor_pago')
+                    + (float) $this->queryService->paidLegacyMovements('despesa', Carbon::parse($start), Carbon::parse($end), $filters)->sum('valor_total'),
+                    2
+                ),
             ];
         })->all();
     }
 
-    private function buildCostCenterSummary(): array
+    private function buildCostCenterSummary(array $filters = []): array
     {
-        return FinancialEntry::query()
-            ->selectRaw('centro_custo_id, tipo, SUM(valor) as total')
-            ->groupBy('centro_custo_id', 'tipo')
-            ->get()
-            ->groupBy('centro_custo_id')
-            ->map(function (Collection $rows, string $costCenterId): array {
+        return $this->queryService->costCenters()
+            ->map(function ($costCenter) use ($filters): array {
+                $costCenterFilters = array_merge($filters, [
+                    'centro_custo_id' => $costCenter->id,
+                ]);
+
                 return [
-                    'centro_custo_id' => $costCenterId,
-                    'receitas' => round((float) $rows->where('tipo', 'receita')->sum('total'), 2),
-                    'despesas' => round((float) $rows->where('tipo', 'despesa')->sum('total'), 2),
+                    'centro_custo_id' => $costCenter->id,
+                    'centro_custo_nome' => $costCenter->nome,
+                    'receitas' => round(
+                        (float) $this->queryService->paidMonthlyInvoices(null, null, $costCenterFilters)->sum('valor_pago')
+                        + (float) $this->queryService->paidCanonicalFinancialEntries('receita', null, null, $costCenterFilters)->sum('valor_pago')
+                        + (float) $this->queryService->paidLegacyMovements('receita', null, null, $costCenterFilters)->sum('valor_total'),
+                        2
+                    ),
+                    'despesas' => round(
+                        (float) $this->queryService->paidCanonicalFinancialEntries('despesa', null, null, $costCenterFilters)->sum('valor_pago')
+                        + (float) $this->queryService->paidLegacyMovements('despesa', null, null, $costCenterFilters)->sum('valor_total'),
+                        2
+                    ),
                 ];
             })
+            ->filter(fn (array $row) => $row['receitas'] > 0 || $row['despesas'] > 0)
             ->values()
             ->all();
     }

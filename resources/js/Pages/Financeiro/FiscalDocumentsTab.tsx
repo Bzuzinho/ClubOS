@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { router } from '@inertiajs/react';
 import { Badge } from '@/Components/ui/badge';
 import { Button } from '@/Components/ui/button';
 import { Card } from '@/Components/ui/card';
@@ -38,6 +39,10 @@ type PaginationMeta = {
   lastPage: number;
   total: number;
   perPage: number;
+};
+
+type FiscalDocumentsTabProps = {
+  fiscalRequests: FiscalDocumentRequest[];
 };
 
 const STATUS_LABELS: Record<FiscalDocumentRequestStatus, string> = {
@@ -163,13 +168,40 @@ async function parseJsonResponse(response: Response) {
   return response.text();
 }
 
-export function FiscalDocumentsTab() {
+function getRequestOriginLabel(request: FiscalDocumentRequest) {
+  if (request.invoice_id) {
+    return 'Mensalidade / invoice';
+  }
+
+  if (request.financial_entry_id) {
+    return 'Movimento de receita / financial_entry';
+  }
+
+  return 'Origem fiscal';
+}
+
+function normalizeStatusFilter(status: string): FiscalDocumentRequestStatus | 'all' {
+  switch (status) {
+    case 'por_tratar':
+      return 'pending';
+    case 'erro_dados':
+      return 'error_data';
+    case 'erro_api':
+      return 'api_error';
+    case 'recibo_emitido':
+      return 'issued';
+    case 'cancelado':
+      return 'cancelled';
+    default:
+      return status as FiscalDocumentRequestStatus | 'all';
+  }
+}
+
+export function FiscalDocumentsTab({ fiscalRequests }: FiscalDocumentsTabProps) {
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
-  const [requests, setRequests] = useState<FiscalDocumentRequest[]>([]);
   const [pagination, setPagination] = useState<PaginationMeta>(DEFAULT_PAGINATION);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState<string | null>(null);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [selectedRequest, setSelectedRequest] = useState<FiscalDocumentRequest | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [issuedOpen, setIssuedOpen] = useState(false);
@@ -185,74 +217,113 @@ export function FiscalDocumentsTab() {
 
   const providerOptions = useMemo(() => {
     const providers = new Set(['wintouch']);
-    requests.forEach((request) => {
+    fiscalRequests.forEach((request) => {
       if (request.provider) providers.add(request.provider);
     });
     if (filters.provider !== 'all') providers.add(filters.provider);
     return Array.from(providers);
-  }, [filters.provider, requests]);
+  }, [filters.provider, fiscalRequests]);
 
-  const loadRequests = async (page = 1, nextFilters?: Filters) => {
-    setLoading(true);
-    setErrorMessage(null);
+  const filteredRequests = useMemo(() => {
+    const normalizedStatusFilter = normalizeStatusFilter(filters.status);
+    const search = filters.search.trim().toLocaleLowerCase('pt-PT');
 
-    const activeFilters = nextFilters ?? filters;
-    const perPage = pagination.perPage || 25;
+    return fiscalRequests.filter((request) => {
+      if (normalizedStatusFilter !== 'all') {
+        const matchesPendingGroup = normalizedStatusFilter === 'pending'
+          ? request.status === 'pending' || request.status === 'in_progress'
+          : false;
 
-    const params = new URLSearchParams();
-    params.set('page', String(page));
-    params.set('per_page', String(perPage));
-
-    if (activeFilters.status !== 'all') params.set('status', activeFilters.status);
-    if (activeFilters.documentType !== 'all') params.set('document_type', activeFilters.documentType);
-    if (activeFilters.provider !== 'all') params.set('provider', activeFilters.provider);
-    if (activeFilters.search.trim()) params.set('search', activeFilters.search.trim());
-
-    try {
-      const response = await fetch(`${route('financeiro.fiscal-document-requests.index')}?${params.toString()}`, {
-        headers: {
-          Accept: 'application/json',
-          'X-Requested-With': 'XMLHttpRequest',
-        },
-        credentials: 'same-origin',
-      });
-
-      const payload = await parseJsonResponse(response);
-
-      if (!response.ok) {
-        const message = typeof payload === 'string'
-          ? payload
-          : payload?.message || 'Nao foi possivel carregar a fila de emissao fiscal.';
-        throw new Error(message);
+        if (!matchesPendingGroup && request.status !== normalizedStatusFilter) {
+          return false;
+        }
       }
 
-      setRequests(Array.isArray(payload?.data) ? payload.data : []);
-      setPagination({
-        currentPage: Number(payload?.current_page || 1),
-        lastPage: Number(payload?.last_page || 1),
-        total: Number(payload?.total || 0),
-        perPage: Number(payload?.per_page || perPage),
-      });
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Erro inesperado ao carregar a fila fiscal.');
-      setRequests([]);
-    } finally {
-      setLoading(false);
-    }
-  };
+      if (filters.documentType !== 'all' && request.document_type !== filters.documentType) {
+        return false;
+      }
+
+      if (filters.provider !== 'all' && request.provider !== filters.provider) {
+        return false;
+      }
+
+      if (!search) {
+        return true;
+      }
+
+      const haystack = [
+        getCustomerLabel(request),
+        request.customer_tax_number,
+        request.internal_reference,
+        request.external_document_number,
+        request.description,
+        getRequestOriginLabel(request),
+        request.invoice_id,
+        request.financial_entry_id,
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLocaleLowerCase('pt-PT');
+
+      return haystack.includes(search);
+    });
+  }, [filters, fiscalRequests]);
+
+  const paginatedRequests = useMemo(() => {
+    const perPage = pagination.perPage || DEFAULT_PAGINATION.perPage;
+    const lastPage = Math.max(1, Math.ceil(filteredRequests.length / perPage));
+    const currentPage = Math.min(pagination.currentPage, lastPage);
+    const start = (currentPage - 1) * perPage;
+
+    return {
+      items: filteredRequests.slice(start, start + perPage),
+      currentPage,
+      lastPage,
+      total: filteredRequests.length,
+      perPage,
+    };
+  }, [filteredRequests, pagination.currentPage, pagination.perPage]);
 
   useEffect(() => {
-    void loadRequests(1);
-  }, []);
+    setPagination((current) => {
+      const next = {
+        currentPage: Math.min(current.currentPage, paginatedRequests.lastPage),
+        lastPage: paginatedRequests.lastPage,
+        total: paginatedRequests.total,
+        perPage: paginatedRequests.perPage,
+      };
+
+      if (
+        current.currentPage === next.currentPage
+        && current.lastPage === next.lastPage
+        && current.total === next.total
+        && current.perPage === next.perPage
+      ) {
+        return current;
+      }
+
+      return next;
+    });
+  }, [paginatedRequests.currentPage, paginatedRequests.lastPage, paginatedRequests.perPage, paginatedRequests.total]);
+
+  const refreshFinanceiroData = () => {
+    setLoading(true);
+    router.reload({
+      only: ['fiscalRequests', 'faturas', 'mensalidadesFaturas', 'movimentosFinanceiros', 'dashboardData'],
+      preserveScroll: true,
+      preserveState: true,
+      onFinish: () => setLoading(false),
+    });
+  };
 
   const handleFilterSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    await loadRequests(1);
+    setPagination((current) => ({ ...current, currentPage: 1 }));
   };
 
   const handleResetFilters = async () => {
     setFilters(DEFAULT_FILTERS);
-    await loadRequests(1, DEFAULT_FILTERS);
+    setPagination((current) => ({ ...current, currentPage: 1 }));
   };
 
   const handleAction = async (
@@ -296,7 +367,7 @@ export function FiscalDocumentsTab() {
 
       toast.success(successMessage);
       onSuccess?.();
-      await loadRequests(pagination.currentPage);
+      refreshFinanceiroData();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Erro inesperado ao executar a acao.');
     } finally {
@@ -305,7 +376,7 @@ export function FiscalDocumentsTab() {
   };
 
   const summary = useMemo(() => {
-    return requests.reduce(
+    return fiscalRequests.reduce(
       (accumulator, request) => {
         accumulator[request.status] = (accumulator[request.status] || 0) + 1;
         return accumulator;
@@ -320,7 +391,7 @@ export function FiscalDocumentsTab() {
         api_error: 0,
       } as Record<FiscalDocumentRequestStatus, number>
     );
-  }, [requests]);
+  }, [fiscalRequests]);
 
   const openIssuedModal = (request: FiscalDocumentRequest) => {
     setSelectedRequest(request);
@@ -491,7 +562,7 @@ export function FiscalDocumentsTab() {
             <Button type="button" size="sm" variant="outline" onClick={() => void handleResetFilters()} disabled={loading}>
               Limpar
             </Button>
-            <Button type="button" size="sm" variant="outline" onClick={() => void loadRequests(pagination.currentPage)} disabled={loading}>
+            <Button type="button" size="sm" variant="outline" onClick={refreshFinanceiroData} disabled={loading}>
               <ArrowsClockwise size={16} className="mr-1.5" />
               Atualizar
             </Button>
@@ -500,22 +571,16 @@ export function FiscalDocumentsTab() {
       </Card>
 
       <Card className="overflow-hidden">
-        {errorMessage ? (
-          <div className="border-b bg-rose-50 px-4 py-3 text-sm text-rose-700">
-            {errorMessage}
-          </div>
-        ) : null}
-
         {loading ? (
           <div className="px-4 py-10 text-sm text-muted-foreground">A carregar fila fiscal...</div>
-        ) : requests.length === 0 ? (
+        ) : paginatedRequests.items.length === 0 ? (
           <div className="px-4 py-10 text-sm text-muted-foreground">
             Nao existem documentos fiscais pendentes para os filtros selecionados.
           </div>
         ) : (
           <>
             <div className="space-y-3 p-4 xl:hidden">
-              {requests.map((request) => {
+              {paginatedRequests.items.map((request) => {
                 const alert = getRequestAlert(request);
 
                 return (
@@ -541,6 +606,7 @@ export function FiscalDocumentsTab() {
                     <div className="mt-4 grid gap-3 sm:grid-cols-2">
                       <DetailItem label="Cliente" value={getCustomerLabel(request)} multiline />
                       <DetailItem label="NIF" value={request.customer_tax_number || request.user?.nif || 'Sem NIF'} />
+                      <DetailItem label="Origem" value={getRequestOriginLabel(request)} />
                       <DetailItem label="Tipo documento" value={DOCUMENT_TYPE_LABELS[request.document_type] || request.document_type} />
                       <DetailItem label="Valor" value={formatCurrency(request.amount)} />
                       <DetailItem label="Data pagamento" value={formatDate(request.paid_at)} />
@@ -565,6 +631,7 @@ export function FiscalDocumentsTab() {
                   <TableHead className="whitespace-normal">Estado</TableHead>
                   <TableHead className="whitespace-normal">Prioridade</TableHead>
                   <TableHead className="whitespace-normal">Cliente/Utilizador</TableHead>
+                  <TableHead className="whitespace-normal">Origem</TableHead>
                   <TableHead className="whitespace-normal">Tipo documento</TableHead>
                   <TableHead className="whitespace-normal">Valor</TableHead>
                   <TableHead className="whitespace-normal">Data pagamento</TableHead>
@@ -576,7 +643,7 @@ export function FiscalDocumentsTab() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {requests.map((request) => {
+                {paginatedRequests.items.map((request) => {
                   const alert = getRequestAlert(request);
 
                   return (
@@ -605,6 +672,7 @@ export function FiscalDocumentsTab() {
                           <div className="text-xs text-muted-foreground">{request.customer_tax_number || request.user?.nif || 'Sem NIF'}</div>
                         </div>
                       </TableCell>
+                      <TableCell className="align-top whitespace-normal break-words">{getRequestOriginLabel(request)}</TableCell>
                       <TableCell className="align-top whitespace-normal break-words">{DOCUMENT_TYPE_LABELS[request.document_type] || request.document_type}</TableCell>
                       <TableCell className="align-top whitespace-normal break-words">{formatCurrency(request.amount)}</TableCell>
                       <TableCell className="align-top whitespace-normal break-words">{formatDate(request.paid_at)}</TableCell>
@@ -629,7 +697,7 @@ export function FiscalDocumentsTab() {
 
         <div className="flex flex-col gap-3 border-t px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between">
           <div className="text-muted-foreground">
-            Pagina {pagination.currentPage} de {pagination.lastPage} · {pagination.total} registos
+            Pagina {paginatedRequests.currentPage} de {paginatedRequests.lastPage} · {paginatedRequests.total} registos
           </div>
 
           <div className="flex items-center gap-2">
@@ -637,8 +705,8 @@ export function FiscalDocumentsTab() {
               type="button"
               size="sm"
               variant="outline"
-              disabled={loading || pagination.currentPage <= 1}
-              onClick={() => void loadRequests(pagination.currentPage - 1)}
+              disabled={loading || paginatedRequests.currentPage <= 1}
+              onClick={() => setPagination((current) => ({ ...current, currentPage: Math.max(1, paginatedRequests.currentPage - 1) }))}
             >
               Anterior
             </Button>
@@ -646,8 +714,8 @@ export function FiscalDocumentsTab() {
               type="button"
               size="sm"
               variant="outline"
-              disabled={loading || pagination.currentPage >= pagination.lastPage}
-              onClick={() => void loadRequests(pagination.currentPage + 1)}
+              disabled={loading || paginatedRequests.currentPage >= paginatedRequests.lastPage}
+              onClick={() => setPagination((current) => ({ ...current, currentPage: Math.min(paginatedRequests.lastPage, paginatedRequests.currentPage + 1) }))}
             >
               Seguinte
             </Button>
@@ -801,6 +869,7 @@ export function FiscalDocumentsTab() {
                 <DetailItem label="Email" value={selectedRequest.customer_email || selectedRequest.user?.email || '—'} />
                 <DetailItem label="Morada" value={selectedRequest.customer_address || selectedRequest.user?.morada || '—'} multiline />
                 <DetailItem label="Valor" value={formatCurrency(selectedRequest.amount)} />
+                <DetailItem label="Origem" value={getRequestOriginLabel(selectedRequest)} />
                 <DetailItem label="Descricao" value={selectedRequest.description || '—'} multiline />
                 <DetailItem label="Referencia interna" value={selectedRequest.internal_reference || '—'} />
               </div>

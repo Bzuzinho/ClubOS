@@ -114,7 +114,10 @@ class FinancialSettlementService
 
             $payment = $this->syncPaymentBalances($payment->fresh());
 
-            if (($options['create_credit'] ?? false) && (float) $payment->unallocated_amount > 0) {
+            $shouldCreateCredit = (bool) ($options['create_credit'] ?? false)
+                || ((float) $payment->unallocated_amount > 0 && ($payment->user_id || $payment->family_id));
+
+            if ($shouldCreateCredit && (float) $payment->unallocated_amount > 0) {
                 $this->createAccountCredit($payment, $options['created_by'] ?? null, $options);
                 $payment = $this->syncPaymentBalances($payment->fresh());
             }
@@ -130,6 +133,44 @@ class FinancialSettlementService
 
             return $payment->fresh(['allocations.financialEntry', 'credits', 'bankStatement']);
         });
+    }
+
+    public function settleFinancialEntry(FinancialEntry $financialEntry, array $options = []): array
+    {
+        $financialEntry = $financialEntry->fresh();
+        $openAmount = $this->financialBalanceService->getFinancialEntryOutstandingAmount($financialEntry);
+        $amount = round(abs((float) ($options['amount'] ?? $openAmount)), 2);
+
+        if ($amount <= 0) {
+            throw ValidationException::withMessages([
+                'amount' => 'O valor da liquidacao deve ser superior a zero.',
+            ]);
+        }
+
+        $payment = $this->settleFinancialEntries([
+            [
+                'financial_entry_id' => $financialEntry->id,
+                'amount' => $amount,
+                'notes' => $options['notes'] ?? null,
+                'metadata' => $options['metadata'] ?? null,
+            ],
+        ], array_merge([
+            'amount' => $options['payment_amount'] ?? $amount,
+            'payment_date' => $options['payment_date'] ?? now()->toDateString(),
+            'method' => $options['method'] ?? $financialEntry->metodo_pagamento,
+            'reference' => $options['reference'] ?? $financialEntry->documento_ref,
+            'description' => $options['description'] ?? $financialEntry->descricao,
+            'user_id' => $options['user_id'] ?? $financialEntry->user_id,
+            'bank_statement_id' => $options['bank_statement_id'] ?? $financialEntry->bank_statement_id,
+        ], $options));
+
+        return [
+            'financial_entry' => $financialEntry->fresh(),
+            'payment' => $payment,
+            'bank_statement' => !empty($options['bank_statement_id'])
+                ? BankStatement::query()->find($options['bank_statement_id'])?->fresh()
+                : null,
+        ];
     }
 
     public function settleMovement(Movement $movement, array $options = []): array

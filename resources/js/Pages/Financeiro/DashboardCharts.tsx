@@ -19,7 +19,7 @@ import { Card } from '@/Components/ui/card';
 interface DashboardChartsProps {
   tiposFaturaData: Array<{ name: string; value: number }>;
   monthlyData: Array<{ mes: string; receitas: number; despesas: number }>;
-  centrosCustoData: Array<{ nome: string; despesas: number; receitas: number; saldo: number }>;
+  centrosCustoData: Array<{ nome: string; despesas: number; receitas: number }>;
   colors: string[];
 }
 

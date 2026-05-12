@@ -239,8 +239,6 @@ export function FaturasTab({
   const [editingFaturaId, setEditingFaturaId] = useState<string | null>(null);
   const [showFutureInvoices, setShowFutureInvoices] = useState(false);
   const [creatingFiscalRequestId, setCreatingFiscalRequestId] = useState<string | null>(null);
-
-  const invoiceTypeOptions = (invoiceTypes || []).filter((type) => type.ativo);
   const getInvoiceTypeLabel = (tipo: string) => {
     const match = (invoiceTypes || []).find((type) => type.codigo === tipo);
     return match ? match.nome : tipo;
@@ -248,7 +246,7 @@ export function FaturasTab({
 
   const refreshInvoices = () => {
     router.reload({
-      only: ['faturas', 'faturaItens', 'lancamentos'],
+      only: ['faturas', 'mensalidadesFaturas', 'faturaItens', 'lancamentos'],
       preserveScroll: true,
     });
   };
@@ -271,35 +269,32 @@ export function FaturasTab({
   };
 
   const getInvoiceOutstandingAmount = (invoice: Fatura) => {
-    const totalAmount = Math.max(toNumber(invoice.valor_total, 0), 0);
-    const paidAmount = Math.max(toNumber(invoice.valor_pago, 0), 0);
-    const persistedOutstanding = invoice.valor_em_aberto !== null && invoice.valor_em_aberto !== undefined
-      ? Math.max(toNumber(invoice.valor_em_aberto, 0), 0)
-      : null;
-    const calculatedOutstanding = Math.max(totalAmount - paidAmount, 0);
-
     if (invoice.estado_pagamento === 'pago') {
       return 0;
     }
 
-    if (paidAmount > 0 && (persistedOutstanding === null || Math.abs(persistedOutstanding - calculatedOutstanding) > 0.009)) {
-      return calculatedOutstanding;
+    if (invoice.valor_em_aberto !== null && invoice.valor_em_aberto !== undefined) {
+      return Math.max(toNumber(invoice.valor_em_aberto, 0), 0);
     }
 
-    if (persistedOutstanding !== null && persistedOutstanding > 0) {
-      return persistedOutstanding;
+    return Math.max(toNumber(invoice.valor_total, 0), 0);
+  };
+
+  const getInvoicePaidAmount = (invoice: Fatura) => Math.max(toNumber(invoice.valor_pago, 0), 0);
+
+  const sanitizeAdministrativeState = (
+    nextState: Fatura['estado_pagamento'],
+    currentState?: Fatura['estado_pagamento']
+  ): Fatura['estado_pagamento'] => {
+    if (nextState === 'pago' || nextState === 'parcial') {
+      if (currentState === 'pago' || currentState === 'parcial') {
+        return currentState;
+      }
+
+      return 'pendente';
     }
 
-    if (calculatedOutstanding > 0) {
-      return calculatedOutstanding;
-    }
-
-    // Legacy/inconsistent rows can report 0 open amount while still pending or overdue.
-    if (totalAmount > 0 && invoice.estado_pagamento !== 'cancelado') {
-      return totalAmount;
-    }
-
-    return 0;
+    return nextState;
   };
 
   const resetPaymentDialog = () => {
@@ -318,7 +313,7 @@ export function FaturasTab({
 
   const [formData, setFormData] = useState({
     user_id: '',
-    tipo: 'outro' as Fatura['tipo'],
+    tipo: 'mensalidade' as Fatura['tipo'],
     valor_total: 0,
     data_emissao: format(new Date(), 'yyyy-MM-dd'),
     data_vencimento: format(addMonths(new Date(), 0), 'yyyy-MM-dd'),
@@ -341,20 +336,11 @@ export function FaturasTab({
 
   const filteredFaturas = useMemo(() => {
     return (faturas || [])
-      .filter((fatura) => fatura.tipo === 'mensalidade')
       .map((fatura) => {
-        const now = new Date();
         const futureInvoice = isFutureInvoice(fatura);
         const normalized = fatura.oculta && !futureInvoice
           ? { ...fatura, oculta: false }
           : fatura;
-
-        if (
-          (normalized.estado_pagamento === 'pendente' || normalized.estado_pagamento === 'vencido') &&
-          isBefore(new Date(normalized.data_vencimento), now)
-        ) {
-          return { ...normalized, estado_pagamento: 'vencido' as const };
-        }
 
         return normalized;
       })
@@ -922,9 +908,9 @@ export function FaturasTab({
         data_emissao: formData.data_emissao,
         data_vencimento: formData.data_vencimento,
         valor_total: total,
-        estado_pagamento: formData.estado_pagamento,
+        estado_pagamento: sanitizeAdministrativeState(formData.estado_pagamento, faturaOriginal?.estado_pagamento),
         centro_custo_id: formData.centro_custo_id || undefined,
-        tipo: formData.tipo,
+        tipo: 'mensalidade',
         origem_tipo: formData.origem_tipo || null,
         origem_id: formData.origem_id || null,
         observacoes: formData.observacoes || undefined,
@@ -1074,9 +1060,9 @@ export function FaturasTab({
         data_emissao: formData.data_emissao,
         data_vencimento: formData.data_vencimento,
         valor_total: total,
-        estado_pagamento: formData.estado_pagamento || 'pendente',
+        estado_pagamento: sanitizeAdministrativeState(formData.estado_pagamento),
         centro_custo_id: formData.centro_custo_id || undefined,
-        tipo: formData.tipo,
+        tipo: 'mensalidade',
         origem_tipo: formData.origem_tipo || null,
         origem_id: formData.origem_id || null,
         observacoes: formData.observacoes || undefined,
@@ -1175,7 +1161,7 @@ export function FaturasTab({
   const resetForm = () => {
     setFormData({
       user_id: '',
-      tipo: 'outro',
+      tipo: 'mensalidade',
       valor_total: 0,
       data_emissao: format(new Date(), 'yyyy-MM-dd'),
       data_vencimento: format(addMonths(new Date(), 0), 'yyyy-MM-dd'),
@@ -1494,17 +1480,17 @@ export function FaturasTab({
             <DialogTrigger asChild>
               <Button onClick={resetForm} className="w-full sm:w-auto text-xs sm:text-sm" size="sm">
                 <Plus className="mr-1 sm:mr-2" size={16} />
-                <span className="hidden sm:inline">Registo Manual</span>
+                <span className="hidden sm:inline">Mensalidade Manual</span>
                 <span className="sm:hidden">Manual</span>
               </Button>
             </DialogTrigger>
             <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto w-[95vw] sm:w-full">
               <DialogHeader>
                 <DialogTitle className="text-base sm:text-lg">
-                  {editingFaturaId ? 'Editar Fatura' : 'Criar Fatura Manual'}
+                  {editingFaturaId ? 'Editar Mensalidade' : 'Criar Mensalidade Manual'}
                 </DialogTitle>
                 <DialogDescription>
-                  {editingFaturaId ? 'Altere os dados da fatura' : 'Registe manualmente uma fatura ou pagamento'}
+                  {editingFaturaId ? 'Altere apenas os dados administrativos da mensalidade. A liquidacao continua a ser feita no modal de pagamento.' : 'Registe manualmente uma mensalidade sem misturar outros tipos de invoice nesta tab.'}
                 </DialogDescription>
               </DialogHeader>
               <div className="space-y-4">
@@ -1526,40 +1512,10 @@ export function FaturasTab({
                   </div>
 
                   <div className="space-y-2">
-                    <Label className="text-sm">Tipo *</Label>
-                    <Select
-                      value={formData.tipo}
-                      onValueChange={(v) =>
-                        setFormData((current) => {
-                          const tipo = v as Fatura['tipo'];
-                          let origem = current.origem_tipo;
-
-                          if (!origem || origem === 'manual') {
-                            if (tipo === 'inscricao') origem = 'evento';
-                            else if (tipo === 'material') origem = 'stock';
-                            else if (tipo === 'servico') origem = 'manual';
-                            else origem = null;
-                          }
-
-                          return { ...current, tipo, origem_tipo: origem };
-                        })
-                      }
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {invoiceTypeOptions.length === 0 ? (
-                          <SelectItem value="outro">Outro</SelectItem>
-                        ) : (
-                          invoiceTypeOptions.map((tipo) => (
-                            <SelectItem key={tipo.id} value={tipo.codigo}>
-                              {tipo.nome}
-                            </SelectItem>
-                          ))
-                        )}
-                      </SelectContent>
-                    </Select>
+                    <Label className="text-sm">Tipo</Label>
+                    <div className="flex h-10 items-center rounded-md border border-input bg-muted px-3 text-sm text-foreground">
+                      Mensalidade
+                    </div>
                   </div>
 
                   <div className="space-y-2">
@@ -1581,22 +1537,29 @@ export function FaturasTab({
                   </div>
 
                   <div className="space-y-2">
-                    <Label className="text-sm">Estado</Label>
-                    <Select
-                      value={formData.estado_pagamento}
-                      onValueChange={(v) => setFormData({ ...formData, estado_pagamento: v as Fatura['estado_pagamento'] })}
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="pendente">Pendente</SelectItem>
-                        <SelectItem value="pago">Pago</SelectItem>
-                        <SelectItem value="vencido">Vencido</SelectItem>
-                        <SelectItem value="parcial">Parcial</SelectItem>
-                        <SelectItem value="cancelado">Cancelado</SelectItem>
-                      </SelectContent>
-                    </Select>
+                    <Label className="text-sm">Estado de pagamento</Label>
+                    {editingFaturaId && ['pago', 'parcial'].includes(formData.estado_pagamento) ? (
+                      <div className="space-y-2 rounded-md border border-input bg-muted p-3">
+                        <div>{getEstadoBadge(formData.estado_pagamento)}</div>
+                        <p className="text-xs text-muted-foreground">
+                          Estados `pago` e `parcial` nao podem ser alterados por edicao. Use o modal de pagamento/liquidacao para registar movimentos financeiros.
+                        </p>
+                      </div>
+                    ) : (
+                      <Select
+                        value={sanitizeAdministrativeState(formData.estado_pagamento)}
+                        onValueChange={(v) => setFormData({ ...formData, estado_pagamento: v as Fatura['estado_pagamento'] })}
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="pendente">Pendente</SelectItem>
+                          <SelectItem value="vencido">Vencido</SelectItem>
+                          <SelectItem value="cancelado">Cancelado</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    )}
                   </div>
 
                   <div className="space-y-2 sm:col-span-2">
@@ -1622,38 +1585,10 @@ export function FaturasTab({
 
                   <div className="space-y-2">
                     <Label className="text-sm">Origem</Label>
-                    <Select
-                      value={formData.origem_tipo || 'none'}
-                      onValueChange={(v) =>
-                        setFormData((current) => ({
-                          ...current,
-                          origem_tipo: v === 'none' ? null : (v as Fatura['origem_tipo']),
-                        }))
-                      }
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Sem origem" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="none">Sem origem</SelectItem>
-                        <SelectItem value="evento">Evento</SelectItem>
-                        <SelectItem value="stock">Stock</SelectItem>
-                        <SelectItem value="patrocinio">Patrocinio</SelectItem>
-                        <SelectItem value="manual">Manual</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  {formData.origem_tipo && (
-                    <div className="space-y-2">
-                      <Label className="text-sm">Referencia</Label>
-                      <Input
-                        value={formData.origem_id}
-                        onChange={(e) => setFormData({ ...formData, origem_id: e.target.value })}
-                        placeholder="ID ou referencia externa"
-                      />
+                    <div className="flex h-10 items-center rounded-md border border-input bg-muted px-3 text-sm text-muted-foreground">
+                      Mantida automaticamente pela mensalidade. Esta tab nao liquida nem reclassifica invoices por edicao.
                     </div>
-                  )}
+                  </div>
                 </div>
 
                 <div className="space-y-2">
@@ -1783,7 +1718,7 @@ export function FaturasTab({
                 .sort((a, b) => new Date(b.data_emissao).getTime() - new Date(a.data_emissao).getTime())
                 .map((fatura) => {
                   const userName = getUserName(fatura.user_id);
-                  const paidAmount = Math.max(toNumber(fatura.valor_pago, 0), 0);
+                  const paidAmount = getInvoicePaidAmount(fatura);
                   const outstandingAmount = getInvoiceOutstandingAmount(fatura);
                   const competenceLabel = getInvoiceCompetenceLabel(fatura);
                   return (
@@ -1904,7 +1839,7 @@ export function FaturasTab({
                     filteredFaturas
                       .sort((a, b) => new Date(b.data_emissao).getTime() - new Date(a.data_emissao).getTime())
                       .map((fatura) => {
-                        const paidAmount = Math.max(toNumber(fatura.valor_pago, 0), 0);
+                        const paidAmount = getInvoicePaidAmount(fatura);
                         const outstandingAmount = getInvoiceOutstandingAmount(fatura);
                         const competenceLabel = getInvoiceCompetenceLabel(fatura);
 

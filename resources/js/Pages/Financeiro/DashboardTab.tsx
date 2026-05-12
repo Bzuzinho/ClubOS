@@ -26,33 +26,31 @@ export function DashboardTab({ dashboardData }: DashboardTabProps) {
     return () => window.clearTimeout(timeoutId);
   }, []);
 
-  const stats = {
-    totalGeral: dashboardData?.total_geral ?? 0,
-    receitasMes: dashboardData?.receitas_mes ?? 0,
-    despesasMes: dashboardData?.despesas_mes ?? 0,
-    valorMensalidadesVencidas: dashboardData?.mensalidades_vencidas ?? 0,
-    valorPendentes: dashboardData?.movimentos_pendentes ?? 0,
-    saldoMes: (dashboardData?.receitas_mes ?? 0) - (dashboardData?.despesas_mes ?? 0),
-    saldoTotal: dashboardData?.total_geral ?? 0,
+  const normalizedDashboard = {
+    totalGeral: Number(dashboardData?.total_geral ?? 0),
+    receitasMes: Number(dashboardData?.receitas_mes ?? 0),
+    despesasMes: Number(dashboardData?.despesas_mes ?? 0),
+    mensalidadesVencidas: Number(dashboardData?.mensalidades_vencidas ?? 0),
+    movimentosPendentes: Number(dashboardData?.movimentos_pendentes ?? 0),
+    distribuicaoPorTipo: (dashboardData?.distribuicao_por_tipo ?? [])
+      .map((row) => ({
+        name: row.label ?? '-',
+        value: Number(row.total ?? 0),
+      }))
+      .filter((row) => row.value > 0),
+    evolucaoMensal: (dashboardData?.evolucao_mensal_ultimos_6_meses ?? []).map((row) => ({
+      mes: row.mes ?? '-',
+      receitas: Number(row.receitas ?? 0),
+      despesas: Number(row.despesas ?? 0),
+    })),
+    centrosCusto: (dashboardData?.receitas_despesas_por_centro_custo ?? []).map((row) => ({
+      nome: row.centro_custo_nome ?? row.centro_custo_id ?? 'Sem centro de custo',
+      despesas: Number(row.despesas ?? 0),
+      receitas: Number(row.receitas ?? 0),
+    })),
   };
 
-  const centrosCustoData = (dashboardData?.receitas_despesas_por_centro_custo ?? []).map((row) => ({
-    nome: row.centro_custo_id ?? 'Sem centro de custo',
-    despesas: row.despesas ?? 0,
-    receitas: row.receitas ?? 0,
-    saldo: (row.receitas ?? 0) - (row.despesas ?? 0),
-  }));
-
-  const monthlyData = (dashboardData?.evolucao_mensal_ultimos_6_meses ?? []).map((row) => ({
-    mes: row.mes ?? '-',
-    receitas: row.receitas ?? 0,
-    despesas: row.despesas ?? 0,
-  }));
-
-  const tiposFaturaData = (dashboardData?.distribuicao_por_tipo ?? []).map((row) => ({
-    name: row.label ?? '-',
-    value: row.total ?? 0,
-  })).filter((row) => row.value > 0);
+  const saldoMes = normalizedDashboard.receitasMes - normalizedDashboard.despesasMes;
 
   const COLORS = [
     'oklch(0.45 0.15 250)',
@@ -70,7 +68,7 @@ export function DashboardTab({ dashboardData }: DashboardTabProps) {
             <div className="min-w-0 flex-1">
               <p className="text-xs text-muted-foreground font-medium leading-tight">Total Geral</p>
               <p className="text-lg sm:text-xl font-bold text-primary mt-0.5 truncate">
-                €{stats.totalGeral.toFixed(2)}
+                €{normalizedDashboard.totalGeral.toFixed(2)}
               </p>
             </div>
             <div className="p-1.5 rounded-lg bg-primary/10 flex-shrink-0">
@@ -84,7 +82,7 @@ export function DashboardTab({ dashboardData }: DashboardTabProps) {
             <div className="min-w-0 flex-1">
               <p className="text-xs text-muted-foreground font-medium leading-tight">Receitas Mês</p>
               <p className="text-lg sm:text-xl font-bold text-green-600 mt-0.5 truncate">
-                €{stats.receitasMes.toFixed(2)}
+                €{normalizedDashboard.receitasMes.toFixed(2)}
               </p>
             </div>
             <div className="p-1.5 rounded-lg bg-green-50 flex-shrink-0">
@@ -98,7 +96,7 @@ export function DashboardTab({ dashboardData }: DashboardTabProps) {
             <div className="min-w-0 flex-1">
               <p className="text-xs text-muted-foreground font-medium leading-tight">Mensalidades Vencidas</p>
               <p className="text-lg sm:text-xl font-bold text-red-600 mt-0.5 truncate">
-                €{stats.valorMensalidadesVencidas.toFixed(2)}
+                €{normalizedDashboard.mensalidadesVencidas.toFixed(2)}
               </p>
             </div>
             <div className="p-1.5 rounded-lg bg-red-50 flex-shrink-0">
@@ -112,7 +110,7 @@ export function DashboardTab({ dashboardData }: DashboardTabProps) {
             <div className="min-w-0 flex-1">
               <p className="text-xs text-muted-foreground font-medium leading-tight">Pendentes</p>
               <p className="text-lg sm:text-xl font-bold text-orange-600 mt-0.5 truncate">
-                €{stats.valorPendentes.toFixed(2)}
+                €{normalizedDashboard.movimentosPendentes.toFixed(2)}
               </p>
             </div>
             <div className="p-1.5 rounded-lg bg-orange-50 flex-shrink-0">
@@ -126,7 +124,7 @@ export function DashboardTab({ dashboardData }: DashboardTabProps) {
             <div className="min-w-0 flex-1">
               <p className="text-xs text-muted-foreground font-medium leading-tight">Despesas Mês</p>
               <p className="text-lg sm:text-xl font-bold text-red-600 mt-0.5 truncate">
-                €{stats.despesasMes.toFixed(2)}
+                €{normalizedDashboard.despesasMes.toFixed(2)}
               </p>
             </div>
             <div className="p-1.5 rounded-lg bg-red-50 flex-shrink-0">
@@ -147,20 +145,20 @@ export function DashboardTab({ dashboardData }: DashboardTabProps) {
               <span className="text-xs font-medium">Saldo Total</span>
               <span
                 className={`text-base sm:text-lg font-bold ${
-                  stats.saldoTotal >= 0 ? 'text-green-600' : 'text-red-600'
+                  normalizedDashboard.totalGeral >= 0 ? 'text-green-600' : 'text-red-600'
                 }`}
               >
-                €{stats.saldoTotal.toFixed(2)}
+                €{normalizedDashboard.totalGeral.toFixed(2)}
               </span>
             </div>
             <div className="flex items-center justify-between p-1.5 bg-muted/50 rounded-lg">
               <span className="text-xs font-medium">Saldo do Mês</span>
               <span
                 className={`text-base sm:text-lg font-bold ${
-                  stats.saldoMes >= 0 ? 'text-green-600' : 'text-red-600'
+                  saldoMes >= 0 ? 'text-green-600' : 'text-red-600'
                 }`}
               >
-                €{stats.saldoMes.toFixed(2)}
+                €{saldoMes.toFixed(2)}
               </span>
             </div>
           </div>
@@ -174,9 +172,9 @@ export function DashboardTab({ dashboardData }: DashboardTabProps) {
       {showCharts ? (
         <Suspense fallback={<div className="grid gap-2 sm:gap-3 grid-cols-1 lg:grid-cols-2"><Card className="p-4 text-xs text-muted-foreground">A carregar gráficos...</Card></div>}>
           <DashboardCharts
-            tiposFaturaData={tiposFaturaData}
-            monthlyData={monthlyData}
-            centrosCustoData={centrosCustoData}
+            tiposFaturaData={normalizedDashboard.distribuicaoPorTipo}
+            monthlyData={normalizedDashboard.evolucaoMensal}
+            centrosCustoData={normalizedDashboard.centrosCusto}
             colors={COLORS}
           />
         </Suspense>

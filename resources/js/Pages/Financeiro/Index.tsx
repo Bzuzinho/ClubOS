@@ -8,6 +8,7 @@ import {
   Fatura,
   FaturaItem,
   Movimento,
+  MovimentoFinanceiro,
   MovimentoItem,
   LancamentoFinanceiro,
   ExtratoBancario,
@@ -19,6 +20,7 @@ import {
   AgeGroup,
   InvoiceType,
   FinanceDashboardData,
+  FiscalDocumentRequest,
 } from './types';
 
 const DashboardTab = lazy(() => import('./DashboardTab').then((module) => ({ default: module.DashboardTab })));
@@ -34,8 +36,10 @@ function TabFallback() {
 
 interface Props {
   faturas: Fatura[];
+  mensalidadesFaturas: Fatura[];
   faturaItens: FaturaItem[];
   movimentos: Movimento[];
+  movimentosFinanceiros: MovimentoFinanceiro[];
   movimentoItens: MovimentoItem[];
   lancamentos: LancamentoFinanceiro[];
   extratos: ExtratoBancario[];
@@ -47,12 +51,15 @@ interface Props {
   ageGroups: AgeGroup[];
   invoiceTypes: InvoiceType[];
   dashboardData: FinanceDashboardData;
+  fiscalRequests: FiscalDocumentRequest[];
 }
 
 export default function FinanceiroIndex({
   faturas,
+  mensalidadesFaturas,
   faturaItens,
   movimentos,
+  movimentosFinanceiros,
   movimentoItens,
   lancamentos,
   extratos,
@@ -64,11 +71,14 @@ export default function FinanceiroIndex({
   ageGroups,
   invoiceTypes,
   dashboardData,
+  fiscalRequests,
 }: Props) {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [faturasState, setFaturas] = useState<Fatura[]>(faturas || []);
+  const [mensalidadesFaturasState, setMensalidadesFaturas] = useState<Fatura[]>(mensalidadesFaturas || []);
   const [faturaItensState, setFaturaItens] = useState<FaturaItem[]>(faturaItens || []);
   const [movimentosState, setMovimentos] = useState<Movimento[]>(movimentos || []);
+  const [movimentosFinanceirosState, setMovimentosFinanceiros] = useState<MovimentoFinanceiro[]>(movimentosFinanceiros || []);
   const [movimentoItensState, setMovimentoItens] = useState<MovimentoItem[]>(movimentoItens || []);
   const [lancamentosState, setLancamentos] = useState<LancamentoFinanceiro[]>(lancamentos || []);
   const [extratosState, setExtratos] = useState<ExtratoBancario[]>(extratos || []);
@@ -80,12 +90,20 @@ export default function FinanceiroIndex({
   }, [faturas]);
 
   useEffect(() => {
+    setMensalidadesFaturas(mensalidadesFaturas || []);
+  }, [mensalidadesFaturas]);
+
+  useEffect(() => {
     setFaturaItens(faturaItens || []);
   }, [faturaItens]);
 
   useEffect(() => {
     setMovimentos(movimentos || []);
   }, [movimentos]);
+
+  useEffect(() => {
+    setMovimentosFinanceiros(movimentosFinanceiros || []);
+  }, [movimentosFinanceiros]);
 
   useEffect(() => {
     setMovimentoItens(movimentoItens || []);
@@ -106,6 +124,18 @@ export default function FinanceiroIndex({
   useEffect(() => {
     setProducts(products || []);
   }, [products]);
+
+  const updateFaturasState = (updater: React.SetStateAction<Fatura[]>) => {
+    setFaturas((current) => {
+      const next = typeof updater === 'function'
+        ? (updater as (current: Fatura[]) => Fatura[])(current)
+        : updater;
+
+      setMensalidadesFaturas((next || []).filter((invoice) => invoice.tipo === 'mensalidade'));
+
+      return next;
+    });
+  };
 
   return (
     <AuthenticatedLayout
@@ -164,8 +194,8 @@ export default function FinanceiroIndex({
             {activeTab === 'mensalidades' ? (
               <Suspense fallback={<TabFallback />}>
                 <FaturasTab
-                  faturas={faturasState}
-                  setFaturas={setFaturas}
+                  faturas={mensalidadesFaturasState}
+                  setFaturas={updateFaturasState}
                   faturaItens={faturaItensState}
                   setFaturaItens={setFaturaItens}
                   lancamentos={lancamentosState}
@@ -190,6 +220,7 @@ export default function FinanceiroIndex({
               <Suspense fallback={<TabFallback />}>
                 <MovimentosTab
                   movimentos={movimentosState}
+                  movimentosFinanceiros={movimentosFinanceirosState}
                   setMovimentos={setMovimentos}
                   movimentoItens={movimentoItensState}
                   setMovimentoItens={setMovimentoItens}
@@ -199,7 +230,6 @@ export default function FinanceiroIndex({
                   centrosCusto={centrosCusto || []}
                   products={productsState}
                   setProducts={setProducts}
-                  faturas={faturasState}
                 />
               </Suspense>
             ) : null}
@@ -229,8 +259,6 @@ export default function FinanceiroIndex({
             {activeTab === 'relatorios' ? (
               <Suspense fallback={<TabFallback />}>
                 <RelatoriosTab
-                  faturas={faturasState}
-                  lancamentos={lancamentosState}
                   centrosCusto={centrosCusto || []}
                   users={users || []}
                   ageGroups={ageGroups || []}
@@ -242,7 +270,7 @@ export default function FinanceiroIndex({
           <TabsContent value="emissao-fiscal" className={moduleTabbedContentClass}>
             {activeTab === 'emissao-fiscal' ? (
               <Suspense fallback={<TabFallback />}>
-                <FiscalDocumentsTab />
+                <FiscalDocumentsTab fiscalRequests={fiscalRequests || []} />
               </Suspense>
             ) : null}
           </TabsContent>
