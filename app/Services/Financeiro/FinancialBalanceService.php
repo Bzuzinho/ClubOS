@@ -34,6 +34,7 @@ class FinancialBalanceService
             'valor_em_aberto' => $outstandingAmount,
             'estado' => $status,
             'data_pagamento' => $status === 'pago' ? ($latestAllocation?->payment?->payment_date ?? now()->toDateString()) : null,
+            'data_liquidacao' => $status === 'pago' ? ($latestAllocation?->payment?->payment_date ?? now()->toDateString()) : null,
             'metodo_pagamento' => $latestAllocation?->payment?->method,
             'payment_id' => $latestAllocation?->payment?->id,
             'bank_statement_id' => $latestAllocation?->payment?->bank_statement_id,

@@ -25,6 +25,7 @@ class FinancialEntry extends Model
         'valor_em_aberto',
         'estado',
         'data_pagamento',
+        'data_liquidacao',
         'centro_custo_id',
         'user_id',
         'fatura_id',
@@ -46,6 +47,7 @@ class FinancialEntry extends Model
         'valor_pago' => 'decimal:2',
         'valor_em_aberto' => 'decimal:2',
         'data_pagamento' => 'date',
+        'data_liquidacao' => 'date',
     ];
 
     public function centroCusto(): BelongsTo

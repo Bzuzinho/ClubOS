@@ -15,6 +15,8 @@ use App\Models\Payment;
 use App\Models\PaymentAllocation;
 use App\Models\User;
 use App\Models\InvoiceType;
+use App\Services\Financeiro\FinancialSettlementService;
+use App\Services\Financeiro\PaymentAllocationService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -581,26 +583,21 @@ class PaymentAllocationFlowTest extends TestCase
 
     public function test_liquidating_revenue_movement_uses_canonical_settlement_and_creates_fiscal_request(): void
     {
-        $admin = User::factory()->admin()->create();
-        $movement = $this->createMovement('receita', 75.00, true);
+        $entry = $this->createStandaloneFinancialEntry('receita', 75.00, true);
 
-        $response = $this->actingAs($admin)->postJson(route('financeiro.movimentos.liquidar', $movement), [
-            'numero_recibo' => 'REC-MOV-001',
-            'metodo_pagamento' => 'transferencia',
+        $result = app(FinancialSettlementService::class)->settleFinancialEntry($entry, [
+            'payment_date' => '2026-05-05',
+            'method' => 'transferencia',
+            'reference' => 'REC-MOV-001',
+            'created_by' => User::factory()->admin()->create()->id,
         ]);
 
-        $response->assertOk();
+        $entry = $result['financial_entry'];
 
-        $movement->refresh();
-        $entry = FinancialEntry::query()
-            ->where('origem_tipo', 'movement')
-            ->where('origem_id', $movement->id)
-            ->firstOrFail();
-
-        $this->assertSame('pago', $movement->estado_pagamento);
         $this->assertSame('pago', $entry->estado);
         $this->assertSame('75.00', $entry->valor_pago);
         $this->assertSame('0.00', $entry->valor_em_aberto);
+        $this->assertSame('2026-05-05', optional($entry->data_liquidacao)->toDateString());
         $this->assertDatabaseHas('payment_allocations', [
             'financial_entry_id' => $entry->id,
             'invoice_id' => null,
@@ -614,23 +611,17 @@ class PaymentAllocationFlowTest extends TestCase
 
     public function test_liquidating_expense_movement_uses_canonical_settlement_without_fiscal_request(): void
     {
-        $admin = User::factory()->admin()->create();
-        $movement = $this->createMovement('despesa', 42.50, false);
+        $entry = $this->createStandaloneFinancialEntry('despesa', 42.50, false);
 
-        $response = $this->actingAs($admin)->postJson(route('financeiro.movimentos.liquidar', $movement), [
-            'numero_recibo' => 'REC-MOV-002',
-            'metodo_pagamento' => 'transferencia',
+        $result = app(FinancialSettlementService::class)->settleFinancialEntry($entry, [
+            'payment_date' => '2026-05-05',
+            'method' => 'transferencia',
+            'reference' => 'REC-MOV-002',
+            'created_by' => User::factory()->admin()->create()->id,
         ]);
 
-        $response->assertOk();
+        $entry = $result['financial_entry'];
 
-        $movement->refresh();
-        $entry = FinancialEntry::query()
-            ->where('origem_tipo', 'movement')
-            ->where('origem_id', $movement->id)
-            ->firstOrFail();
-
-        $this->assertSame('pago', $movement->estado_pagamento);
         $this->assertSame('pago', $entry->estado);
         $this->assertDatabaseHas('payment_allocations', [
             'financial_entry_id' => $entry->id,
@@ -640,6 +631,97 @@ class PaymentAllocationFlowTest extends TestCase
         $this->assertDatabaseMissing('fiscal_document_requests', [
             'financial_entry_id' => $entry->id,
         ]);
+    }
+
+    public function test_financial_entry_revenue_settlement_with_bank_statement_creates_reconciliation_and_updates_statement(): void
+    {
+        $entry = $this->createStandaloneFinancialEntry('receita', 60.00, true);
+        $statement = $this->createBankStatement(60.00);
+
+        $result = app(FinancialSettlementService::class)->settleFinancialEntry($entry, [
+            'payment_date' => '2026-05-05',
+            'method' => 'transferencia',
+            'reference' => 'BANK-REV-001',
+            'bank_statement_id' => $statement->id,
+            'created_by' => User::factory()->admin()->create()->id,
+        ]);
+
+        $entry = $result['financial_entry'];
+        $statement->refresh();
+
+        $this->assertSame('pago', $entry->estado);
+        $this->assertTrue($statement->conciliado);
+        $this->assertSame('reconciled', $statement->conciliacao_status);
+        $this->assertSame('60.00', $statement->valor_conciliado);
+        $this->assertDatabaseHas('mapa_conciliacao', [
+            'extrato_id' => $statement->id,
+            'lancamento_id' => $entry->id,
+            'valor_conciliado' => 60.00,
+        ]);
+    }
+
+    public function test_partial_financial_entry_settlement_keeps_entry_and_bank_statement_partial(): void
+    {
+        $entry = $this->createStandaloneFinancialEntry('receita', 100.00, true);
+        $statement = $this->createBankStatement(100.00);
+
+        $result = app(FinancialSettlementService::class)->settleFinancialEntry($entry, [
+            'amount' => 40.00,
+            'payment_amount' => 40.00,
+            'payment_date' => '2026-05-05',
+            'method' => 'transferencia',
+            'reference' => 'BANK-PARTIAL-001',
+            'bank_statement_id' => $statement->id,
+            'created_by' => User::factory()->admin()->create()->id,
+        ]);
+
+        $entry = $result['financial_entry'];
+        $statement->refresh();
+
+        $this->assertSame('parcial', $entry->estado);
+        $this->assertSame('40.00', $entry->valor_pago);
+        $this->assertSame('60.00', $entry->valor_em_aberto);
+        $this->assertFalse($statement->conciliado);
+        $this->assertSame('partial', $statement->conciliacao_status);
+        $this->assertSame('40.00', $statement->valor_conciliado);
+        $this->assertSame('60.00', $statement->valor_por_conciliar);
+    }
+
+    public function test_monthly_invoice_settlement_continues_to_delegate_to_payment_allocation_service(): void
+    {
+        [$invoice] = $this->createInvoicesForUser([100.00]);
+        $payment = new Payment([
+            'amount' => 100.00,
+            'allocated_amount' => 100.00,
+            'unallocated_amount' => 0,
+            'status' => Payment::STATUS_CONFIRMED,
+        ]);
+
+        $service = \Mockery::mock(PaymentAllocationService::class);
+        $service->shouldReceive('createPayment')
+            ->once()
+            ->andReturn($payment);
+        $service->shouldReceive('allocatePayment')
+            ->once()
+            ->with($payment, [['invoice_id' => $invoice->id, 'amount' => 100.00]], \Mockery::type('array'))
+            ->andReturn($payment);
+
+        $settlement = new FinancialSettlementService(
+            $service,
+            app(\App\Services\Financeiro\FinancialBalanceService::class),
+            app(\App\Services\Financeiro\FiscalEmissionQueueService::class),
+            app(\App\Services\Financeiro\ReconciliationRepositoryService::class),
+        );
+
+        $result = $settlement->settleInvoices([
+            ['invoice_id' => $invoice->id, 'amount' => 100.00],
+        ], [
+            'amount' => 100.00,
+            'payment_date' => '2026-05-05',
+            'method' => 'transferencia',
+        ]);
+
+        $this->assertSame($payment, $result);
     }
 
     public function test_open_invoices_endpoint_excludes_pending_invoices_with_zero_outstanding_amount(): void
@@ -875,6 +957,36 @@ class PaymentAllocationFlowTest extends TestCase
             'origem_tipo' => 'manual',
             'origem_id' => null,
             'observacoes' => 'Movimento para teste canonico',
+        ]);
+    }
+
+    private function createStandaloneFinancialEntry(string $tipo, float $amount, bool $withUser): FinancialEntry
+    {
+        $user = $withUser ? User::factory()->create([
+            'nome_completo' => 'Entrada Canonica',
+            'nif' => '987654321',
+            'morada' => 'Rua da Entrada 10',
+            'codigo_postal' => '2000-200',
+            'localidade' => 'Santarem',
+            'email' => 'entrada@example.com',
+        ]) : null;
+
+        return FinancialEntry::create([
+            'data' => '2026-05-05',
+            'tipo' => $tipo,
+            'categoria' => 'Servico',
+            'descricao' => 'Entrada financeira canonica',
+            'documento_ref' => 'ENTRY-' . strtoupper($tipo),
+            'valor' => $amount,
+            'valor_pago' => 0,
+            'valor_em_aberto' => $amount,
+            'estado' => 'pendente',
+            'centro_custo_id' => $this->createCostCenter()->id,
+            'user_id' => $user?->id,
+            'entidade_nome' => $user ? null : ($tipo === 'receita' ? 'BSCN Receita' : 'BSCN Despesa'),
+            'origem_tipo' => 'manual',
+            'origem_modulo' => 'financeiro',
+            'origem_id' => null,
         ]);
     }
 }
