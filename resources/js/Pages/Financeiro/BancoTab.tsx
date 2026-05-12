@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
+import { router } from '@inertiajs/react';
 import { ExtratoBancario, LancamentoFinanceiro, Fatura, CentroCusto, User, Movimento, ConciliacaoMapa, BankReconciliationSuggestion, OpenInvoiceListItem } from './types';
 import { Button } from '@/Components/ui/button';
 import { Card } from '@/Components/ui/card';
@@ -85,6 +86,37 @@ export function BancoTab({
     }
     return fallback;
   };
+  const refreshFinanceiroData = () => {
+    router.reload({
+      only: ['extratos', 'movimentosFinanceiros', 'mensalidadesFaturas', 'faturas', 'lancamentos', 'dashboardData'],
+      preserveScroll: true,
+    });
+  };
+  const getStatementStatus = (extrato: ExtratoBancario): 'unreconciled' | 'partial' | 'reconciled' => {
+    if (extrato.conciliacao_status === 'partial' || extrato.conciliacao_status === 'reconciled' || extrato.conciliacao_status === 'unreconciled') {
+      return extrato.conciliacao_status;
+    }
+
+    return extrato.conciliado ? 'reconciled' : 'unreconciled';
+  };
+  const getStatementReconciledAmount = (extrato: ExtratoBancario) => {
+    if (extrato.valor_conciliado !== null && extrato.valor_conciliado !== undefined) {
+      return Math.abs(toNumber(extrato.valor_conciliado, 0));
+    }
+
+    return getStatementStatus(extrato) === 'reconciled'
+      ? Math.abs(toNumber(extrato.valor, 0))
+      : 0;
+  };
+  const getStatementRemainingAmount = (extrato: ExtratoBancario) => {
+    if (extrato.valor_por_conciliar !== null && extrato.valor_por_conciliar !== undefined) {
+      return Math.abs(toNumber(extrato.valor_por_conciliar, 0));
+    }
+
+    return getStatementStatus(extrato) === 'reconciled'
+      ? 0
+      : Math.abs(toNumber(extrato.valor, 0));
+  };
   const formatSuggestionInvoicePeriod = (invoice?: Fatura | null) => {
     if (!invoice) return null;
 
@@ -165,8 +197,9 @@ export function BancoTab({
   const [editingExtrato, setEditingExtrato] = useState<ExtratoBancario | null>(null);
   const [userPickerOpen, setUserPickerOpen] = useState(false);
   const [userSearchTerm, setUserSearchTerm] = useState('');
+  const [extratoSearchTerm, setExtratoSearchTerm] = useState('');
   const [conciliadoFilter, setConciliadoFilter] = useState<string>('all');
-  const [conciliacaoItens, setConciliacaoItens] = useState<Array<{ tipo: 'fatura' | 'movimento'; id: string; valor: number }>>([]);
+  const [conciliacaoItens, setConciliacaoItens] = useState<Array<{ tipo: 'fatura' | 'movimento' | 'financial_entry'; id: string; valor: number }>>([]);
   const [importFile, setImportFile] = useState<File | null>(null);
   const [importRawRows, setImportRawRows] = useState<any[][]>([]);
   const [importPreview, setImportPreview] = useState<any[]>([]);
@@ -261,6 +294,7 @@ export function BancoTab({
     fatura_id: '',
     user_id: '',
     movimento_id: '',
+    financial_entry_id: '',
   });
 
   const normalizeDateInputValue = (value: string | Date | null | undefined): string => {
@@ -285,7 +319,7 @@ export function BancoTab({
     });
   }, [userSearchTerm, users]);
 
-  const toggleConciliacaoItem = (tipo: 'fatura' | 'movimento', id: string, defaultValor: number) => {
+  const toggleConciliacaoItem = (tipo: 'fatura' | 'movimento' | 'financial_entry', id: string, defaultValor: number) => {
     setConciliacaoItens((current) => {
       const exists = current.find((item) => item.tipo === tipo && item.id === id);
       if (exists) {
@@ -295,7 +329,7 @@ export function BancoTab({
     });
   };
 
-  const updateConciliacaoValor = (tipo: 'fatura' | 'movimento', id: string, valor: number) => {
+  const updateConciliacaoValor = (tipo: 'fatura' | 'movimento' | 'financial_entry', id: string, valor: number) => {
     setConciliacaoItens((current) =>
       current.map((item) =>
         item.tipo === tipo && item.id === id ? { ...item, valor: valor } : item
@@ -304,13 +338,41 @@ export function BancoTab({
   };
 
   const filteredExtratos = useMemo(() => {
+    const normalizedSearch = extratoSearchTerm.trim().toLowerCase();
+
     return (extratos || []).filter((extrato) => {
-      if (conciliadoFilter === 'all') return true;
-      if (conciliadoFilter === 'conciliado') return extrato.conciliado;
-      if (conciliadoFilter === 'nao-conciliado') return !extrato.conciliado;
-      return true;
+      const status = getStatementStatus(extrato);
+
+      const filterMatch = (() => {
+        if (conciliadoFilter === 'all') return true;
+        if (conciliadoFilter === 'conciliado') return status === 'reconciled';
+        if (conciliadoFilter === 'nao-conciliado') return status === 'unreconciled';
+        if (conciliadoFilter === 'parcial') return status === 'partial';
+        return true;
+      })();
+
+      if (!filterMatch) {
+        return false;
+      }
+
+      if (!normalizedSearch) {
+        return true;
+      }
+
+      const haystack = [
+        extrato.descricao,
+        extrato.referencia,
+        extrato.conta,
+        getCentroCustoName(extrato.centro_custo_id),
+        getMovementDateKey(extrato.data_movimento),
+      ]
+        .filter((value): value is string => typeof value === 'string' && value.trim() !== '')
+        .join(' ')
+        .toLowerCase();
+
+      return haystack.includes(normalizedSearch);
     });
-  }, [extratos, conciliadoFilter]);
+  }, [extratos, conciliadoFilter, extratoSearchTerm]);
 
   const extratosTabela = useMemo(() => {
     const sortedAsc = [...filteredExtratos].sort((a, b) => {
@@ -368,27 +430,6 @@ export function BancoTab({
     return sugestoes.sort((a, b) => b.score - a.score).slice(0, 5);
   }, [selectedExtrato, faturas, users]);
 
-  const syncFinancialStateFromPayment = (data: {
-    invoices?: Fatura[];
-    bank_statement?: ExtratoBancario;
-    summary?: { new_fiscal_requests?: number; created_credit?: boolean };
-  }) => {
-    if (Array.isArray(data.invoices)) {
-      setFaturas((current) =>
-        (current || []).map((invoice) => {
-          const updated = data.invoices?.find((candidate) => candidate.id === invoice.id);
-          return updated ? { ...invoice, ...updated } : invoice;
-        })
-      );
-    }
-
-    if (data.bank_statement) {
-      setExtratos((current) =>
-        (current || []).map((statement) => (statement.id === data.bank_statement?.id ? { ...statement, ...data.bank_statement } : statement))
-      );
-    }
-  };
-
   useEffect(() => {
     if (!manualAllocationDialogOpen) {
       return;
@@ -416,7 +457,7 @@ export function BancoTab({
     setSuggestionCounts((current) => {
       const next = { ...current };
       (extratos || []).forEach((extrato) => {
-        if (extrato.conciliado || extrato.conciliacao_status === 'reconciled') {
+        if (getStatementStatus(extrato) === 'reconciled') {
           next[extrato.id] = 0;
         }
       });
@@ -426,7 +467,7 @@ export function BancoTab({
     setSuggestionBestScores((current) => {
       const next = { ...current };
       (extratos || []).forEach((extrato) => {
-        if (extrato.conciliado || extrato.conciliacao_status === 'reconciled') {
+        if (getStatementStatus(extrato) === 'reconciled') {
           next[extrato.id] = 0;
         }
       });
@@ -480,7 +521,7 @@ export function BancoTab({
 
   const handleGenerateSuggestionsBatch = async () => {
     const statementsToAnalyze = extratosTabela.filter(
-      (extrato) => !(extrato.conciliado || extrato.conciliacao_status === 'reconciled')
+      (extrato) => getStatementStatus(extrato) !== 'reconciled'
     );
 
     if (statementsToAnalyze.length === 0) {
@@ -602,7 +643,11 @@ export function BancoTab({
       }
 
       const payload = await response.json();
-      syncFinancialStateFromPayment(payload);
+      if (selectedSuggestionExtrato) {
+        setSuggestionCache((current) => ({ ...current, [selectedSuggestionExtrato.id]: [] }));
+        setSuggestionCounts((counts) => ({ ...counts, [selectedSuggestionExtrato.id]: 0 }));
+        setSuggestionBestScores((scores) => ({ ...scores, [selectedSuggestionExtrato.id]: 0 }));
+      }
       if (selectedSuggestionExtrato) {
         setSuggestionCache((current) => {
           const existing = current[selectedSuggestionExtrato.id] ?? [];
@@ -622,6 +667,7 @@ export function BancoTab({
       } else {
         toast.success('Sugestao confirmada com sucesso.');
       }
+      refreshFinanceiroData();
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Erro ao confirmar sugestao';
       toast.error(message);
@@ -767,7 +813,6 @@ export function BancoTab({
       }
 
       const payload = await response.json();
-      syncFinancialStateFromPayment(payload);
       if (selectedManualAllocationExtrato) {
         setSuggestionCache((current) => ({ ...current, [selectedManualAllocationExtrato.id]: [] }));
         setSuggestionCounts((current) => ({ ...current, [selectedManualAllocationExtrato.id]: 0 }));
@@ -783,6 +828,7 @@ export function BancoTab({
       } else {
         toast.success('Alocacao manual registada com sucesso.');
       }
+      refreshFinanceiroData();
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Erro ao alocar manualmente';
       toast.error(message);
@@ -790,11 +836,13 @@ export function BancoTab({
   };
 
   const getReconciliationBadge = (extrato: ExtratoBancario) => {
-    if (extrato.conciliado || extrato.conciliacao_status === 'reconciled') {
+    const statementStatus = getStatementStatus(extrato);
+
+    if (statementStatus === 'reconciled') {
       return <Badge className="text-[10px] md:text-xs whitespace-nowrap bg-green-100 text-green-800">Conciliado</Badge>;
     }
 
-    if (extrato.conciliacao_status === 'partial') {
+    if (statementStatus === 'partial') {
       return <Badge className="text-[10px] md:text-xs whitespace-nowrap bg-amber-100 text-amber-800">Parcial</Badge>;
     }
 
@@ -900,6 +948,7 @@ export function BancoTab({
           user_id: catalogData.user_id || undefined,
           fatura_id: conciliacaoItens.length === 0 ? catalogData.fatura_id || undefined : undefined,
           movimento_id: conciliacaoItens.length === 0 ? catalogData.movimento_id || undefined : undefined,
+          financial_entry_id: conciliacaoItens.length === 0 ? catalogData.financial_entry_id || undefined : undefined,
           itens: conciliacaoItens.length > 0
             ? conciliacaoItens.map((item) => ({
                 tipo: item.tipo,
@@ -914,51 +963,14 @@ export function BancoTab({
         throw new Error('Erro ao catalogar movimento');
       }
 
-      const data = await response.json();
-      if (data.lancamentos && Array.isArray(data.lancamentos)) {
-        setLancamentos((current) => [...(current || []), ...data.lancamentos]);
-      } else if (data.lancamento) {
-        setLancamentos((current) => [...(current || []), data.lancamento]);
-      }
-
-      if (data.extrato) {
-        setExtratos((current) => (current || []).map((e) => (e.id === selectedExtrato.id ? data.extrato : e)));
-      }
-
-      if (data.faturas && Array.isArray(data.faturas)) {
-        setFaturas((current) =>
-          (current || []).map((f) => {
-            const updated = data.faturas.find((u: Fatura) => u.id === f.id);
-            return updated ? { ...f, ...updated } : f;
-          })
-        );
-      }
-
-      if (data.movimentos && Array.isArray(data.movimentos)) {
-        setMovimentos((current) =>
-          (current || []).map((m) => {
-            const updated = data.movimentos.find((u: Movimento) => u.id === m.id);
-            return updated ? { ...m, ...updated } : m;
-          })
-        );
-      }
-
-      if (data.conciliacoes && Array.isArray(data.conciliacoes)) {
-        setConciliacoes((current) => {
-          const existing = new Set((current || []).map((c) => c.id));
-          const merged = [...(current || [])];
-          data.conciliacoes.forEach((c: ConciliacaoMapa) => {
-            if (!existing.has(c.id)) merged.push(c);
-          });
-          return merged;
-        });
-      }
+      await response.json();
 
       toast.success('Movimento catalogado e conciliado');
       setDialogCatalogOpen(false);
       setSelectedExtrato(null);
       setConciliacaoItens([]);
       resetCatalogData();
+      refreshFinanceiroData();
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Erro ao catalogar movimento';
       toast.error(message);
@@ -983,6 +995,7 @@ export function BancoTab({
       fatura_id: '',
       user_id: '',
       movimento_id: '',
+      financial_entry_id: '',
     });
     setUserSearchTerm('');
     setUserPickerOpen(false);
@@ -1066,40 +1079,10 @@ export function BancoTab({
         throw new Error('Erro ao desconciliar movimento');
       }
 
-      const data = await response.json();
-      setExtratos((current) =>
-        (current || []).map((e) => (e.id === extrato.id ? data.extrato : e))
-      );
-
-      if (data.lancamentos_removidos && Array.isArray(data.lancamentos_removidos)) {
-        setLancamentos((current) => (current || []).filter((l) => !data.lancamentos_removidos.includes(l.id)));
-      } else if (extrato.lancamento_id) {
-        setLancamentos((current) => (current || []).filter((l) => l.id !== extrato.lancamento_id));
-      }
-
-      if (data.faturas && Array.isArray(data.faturas)) {
-        setFaturas((current) =>
-          (current || []).map((f) => {
-            const updated = data.faturas.find((u: Fatura) => u.id === f.id);
-            return updated ? { ...f, ...updated } : f;
-          })
-        );
-      }
-
-      if (data.movimentos && Array.isArray(data.movimentos)) {
-        setMovimentos((current) =>
-          (current || []).map((m) => {
-            const updated = data.movimentos.find((u: Movimento) => u.id === m.id);
-            return updated ? { ...m, ...updated } : m;
-          })
-        );
-      }
-
-      if (data.extrato?.id) {
-        setConciliacoes((current) => (current || []).filter((c) => c.extrato_id !== data.extrato.id));
-      }
+      await response.json();
 
       toast.success('Movimento desconciliado com sucesso');
+      refreshFinanceiroData();
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Erro ao desconciliar movimento';
       toast.error(message);
@@ -1107,7 +1090,7 @@ export function BancoTab({
   };
 
   const handleDeleteExtrato = async (extrato: ExtratoBancario) => {
-    if (extrato.conciliado) {
+    if (getStatementStatus(extrato) !== 'unreconciled') {
       toast.error('Nao e possivel apagar um movimento conciliado. Desconcilie primeiro.');
       return;
     }
@@ -1143,11 +1126,11 @@ export function BancoTab({
   };
 
   const totalConciliado = useMemo(() => {
-    return (extratos || []).filter((e) => e.conciliado).reduce((sum, e) => sum + toNumber(e.valor), 0);
+    return (extratos || []).reduce((sum, extrato) => sum + getStatementReconciledAmount(extrato), 0);
   }, [extratos]);
 
   const totalNaoConciliado = useMemo(() => {
-    return (extratos || []).filter((e) => !e.conciliado).reduce((sum, e) => sum + toNumber(e.valor), 0);
+    return (extratos || []).reduce((sum, extrato) => sum + getStatementRemainingAmount(extrato), 0);
   }, [extratos]);
 
   const saldoConta = useMemo(() => {
@@ -1493,7 +1476,13 @@ export function BancoTab({
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-        <div className="flex w-full gap-2 items-center md:w-auto">
+        <div className="flex w-full flex-col gap-2 md:w-auto md:flex-row md:items-center">
+          <Input
+            value={extratoSearchTerm}
+            onChange={(event) => setExtratoSearchTerm(event.target.value)}
+            placeholder="Pesquisar descricao, referencia, conta ou centro de custo"
+            className="w-full md:w-[320px]"
+          />
           <Select value={conciliadoFilter} onValueChange={setConciliadoFilter}>
             <SelectTrigger className="w-full md:w-[200px]">
               <SelectValue placeholder="Estado" />
@@ -1502,6 +1491,7 @@ export function BancoTab({
               <SelectItem value="all">Todos</SelectItem>
               <SelectItem value="conciliado">Conciliados</SelectItem>
               <SelectItem value="nao-conciliado">Nao Conciliados</SelectItem>
+              <SelectItem value="parcial">Parciais</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -1755,7 +1745,7 @@ export function BancoTab({
         <Card className="p-3 md:p-4">
           <div className="flex items-start justify-between">
             <div>
-              <p className="text-[10px] md:text-xs text-muted-foreground font-medium">Nao Conciliados</p>
+              <p className="text-[10px] md:text-xs text-muted-foreground font-medium">Por Conciliar</p>
               <p className="text-xl md:text-2xl font-bold text-orange-600 mt-1">€{toNumber(totalNaoConciliado).toFixed(2)}</p>
             </div>
             <div className="p-1.5 md:p-2 rounded-lg bg-orange-50">
@@ -1812,6 +1802,12 @@ export function BancoTab({
           ) : (
             extratosTabela.map((extrato) => (
               <Card key={extrato.id} className="p-3">
+                {(() => {
+                  const statementStatus = getStatementStatus(extrato);
+                  const reconciledAmount = getStatementReconciledAmount(extrato);
+                  const remainingAmount = getStatementRemainingAmount(extrato);
+
+                  return (
                 <div className="space-y-3">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
@@ -1832,6 +1828,10 @@ export function BancoTab({
                     <span className="text-right">€{toNumber(extrato.saldo).toFixed(2)}</span>
                     <span className="text-muted-foreground">Centro Custo</span>
                     <span className="text-right break-words">{getCentroCustoName(extrato.centro_custo_id)}</span>
+                    <span className="text-muted-foreground">Conciliado</span>
+                    <span className="text-right">€{reconciledAmount.toFixed(2)}</span>
+                    <span className="text-muted-foreground">Por conciliar</span>
+                    <span className="text-right">€{remainingAmount.toFixed(2)}</span>
                     <span className="text-muted-foreground">Melhor score</span>
                     <span className="text-right">{getBestScoreLabel(extrato.id)}</span>
                   </div>
@@ -1851,11 +1851,12 @@ export function BancoTab({
                       variant="ghost"
                       onClick={() => handleDeleteExtrato(extrato)}
                       className="h-8 px-2 text-destructive hover:text-destructive"
+                      disabled={statementStatus !== 'unreconciled'}
                     >
                       <Trash size={14} className="mr-1" />
                       Apagar
                     </Button>
-                    {extrato.conciliado ? (
+                    {statementStatus === 'reconciled' ? (
                       <Button
                         size="sm"
                         variant="outline"
@@ -1867,6 +1868,17 @@ export function BancoTab({
                       </Button>
                     ) : (
                       <>
+                        {statementStatus === 'partial' && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleDesconciliar(extrato)}
+                            className="h-8 px-2"
+                          >
+                            <X size={12} className="mr-1" />
+                            Desconciliar
+                          </Button>
+                        )}
                         <Button
                           size="sm"
                           variant="outline"
@@ -1904,6 +1916,7 @@ export function BancoTab({
                               fatura_id: '',
                               user_id: '',
                               movimento_id: '',
+                              financial_entry_id: '',
                             });
                             setDialogCatalogOpen(true);
                           }}
@@ -1916,6 +1929,8 @@ export function BancoTab({
                     )}
                   </div>
                 </div>
+                  );
+                })()}
               </Card>
             ))
           )}
@@ -1929,6 +1944,8 @@ export function BancoTab({
                   <TableHead className="sticky top-0 bg-card z-20 text-xs md:text-sm whitespace-nowrap">Descricao</TableHead>
                   <TableHead className="sticky top-0 bg-card z-20 text-xs md:text-sm whitespace-nowrap">Valor</TableHead>
                   <TableHead className="sticky top-0 bg-card z-20 text-xs md:text-sm whitespace-nowrap">Saldo</TableHead>
+                  <TableHead className="sticky top-0 bg-card z-20 text-xs md:text-sm whitespace-nowrap">Conciliado</TableHead>
+                  <TableHead className="sticky top-0 bg-card z-20 text-xs md:text-sm whitespace-nowrap">Por Conciliar</TableHead>
                   <TableHead className="sticky top-0 bg-card z-20 text-xs md:text-sm whitespace-nowrap">Centro Custo</TableHead>
                   <TableHead className="sticky top-0 bg-card z-20 text-xs md:text-sm whitespace-nowrap">Estado</TableHead>
                   <TableHead className="sticky top-0 bg-card z-20 text-xs md:text-sm whitespace-nowrap">Melhor score</TableHead>
@@ -1938,12 +1955,18 @@ export function BancoTab({
               <TableBody>
                 {extratosTabela.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={8} className="text-center text-muted-foreground py-8">
+                    <TableCell colSpan={10} className="text-center text-muted-foreground py-8">
                       Nenhum movimento encontrado
                     </TableCell>
                   </TableRow>
                 ) : (
                   extratosTabela.map((extrato) => (
+                    (() => {
+                      const statementStatus = getStatementStatus(extrato);
+                      const reconciledAmount = getStatementReconciledAmount(extrato);
+                      const remainingAmount = getStatementRemainingAmount(extrato);
+
+                      return (
                       <TableRow key={extrato.id}>
                         <TableCell className="text-xs md:text-sm whitespace-nowrap">
                           {format(new Date(extrato.data_movimento), 'dd/MM/yyyy')}
@@ -1954,6 +1977,12 @@ export function BancoTab({
                         </TableCell>
                         <TableCell className="text-xs md:text-sm whitespace-nowrap">
                           €{toNumber(extrato.saldo).toFixed(2)}
+                        </TableCell>
+                        <TableCell className="text-xs md:text-sm whitespace-nowrap">
+                          €{reconciledAmount.toFixed(2)}
+                        </TableCell>
+                        <TableCell className="text-xs md:text-sm whitespace-nowrap">
+                          €{remainingAmount.toFixed(2)}
                         </TableCell>
                         <TableCell className="text-xs md:text-sm max-w-[100px] md:max-w-none truncate">
                           {getCentroCustoName(extrato.centro_custo_id)}
@@ -1979,10 +2008,11 @@ export function BancoTab({
                               variant="ghost"
                               onClick={() => handleDeleteExtrato(extrato)}
                               className="h-7 w-7 md:h-8 md:w-8 p-0 text-destructive hover:text-destructive"
+                              disabled={statementStatus !== 'unreconciled'}
                             >
                               <Trash size={14} />
                             </Button>
-                            {extrato.conciliado ? (
+                            {statementStatus === 'reconciled' ? (
                               <Button
                                 size="sm"
                                 variant="outline"
@@ -1994,6 +2024,17 @@ export function BancoTab({
                               </Button>
                             ) : (
                               <>
+                                {statementStatus === 'partial' && (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => handleDesconciliar(extrato)}
+                                    className="text-[10px] md:text-xs h-7 md:h-8 px-2 md:px-3"
+                                  >
+                                    <X size={12} className="mr-0 md:mr-1" />
+                                    <span className="hidden md:inline">Desconciliar</span>
+                                  </Button>
+                                )}
                                 <Button
                                   size="sm"
                                   variant="outline"
@@ -2037,6 +2078,7 @@ export function BancoTab({
                                       fatura_id: '',
                                       user_id: '',
                                       movimento_id: '',
+                                      financial_entry_id: '',
                                     });
                                     setDialogCatalogOpen(true);
                                   }}
@@ -2050,7 +2092,9 @@ export function BancoTab({
                           </div>
                         </TableCell>
                       </TableRow>
-                    ))
+                      );
+                    })()
+                  ))
                 )}
               </TableBody>
             </table>
@@ -2113,12 +2157,14 @@ export function BancoTab({
                             fatura_id: sugestao.data.fatura.id,
                             user_id: sugestao.data.user.id,
                             centro_custo_id: sugestao.data.fatura.centro_custo_id || '',
+                              financial_entry_id: '',
                           });
                         } else {
                           setCatalogData({
                             ...catalogData,
                             user_id: sugestao.data.id,
                             centro_custo_id: sugestao.data.centro_custo?.[0] || '',
+                              financial_entry_id: '',
                           });
                         }
                       }}
@@ -2332,6 +2378,68 @@ export function BancoTab({
                                   min="0"
                                   value={conciliacaoItens.find((i) => i.tipo === 'movimento' && i.id === movimento.id)?.valor ?? 0}
                                   onChange={(e) => updateConciliacaoValor('movimento', movimento.id, parseFloat(e.target.value) || 0)}
+                                />
+                              ) : null}
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                  </TableBody>
+                </Table>
+              </Card>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Entradas Financeiras a Conciliar</Label>
+              <Card className="p-2 max-h-[220px] overflow-y-auto">
+                <Table>
+                  <TableBody>
+                    {(lancamentos || [])
+                      .filter((lancamento) => !lancamento.fatura_id)
+                      .filter((lancamento) => {
+                        const originType = String(lancamento.origem_tipo || '');
+                        if (originType === 'payment_allocation' || originType === 'account_credit') {
+                          return false;
+                        }
+
+                        return !(originType === 'movement' && Boolean(lancamento.origem_id));
+                      })
+                      .map((lancamento) => {
+                        const nomeDisplay = lancamento.user_id
+                          ? (users || []).find((u) => u.id === lancamento.user_id)?.nome_completo
+                          : lancamento.descricao;
+                        const lancamentoWithAmounts = lancamento as LancamentoFinanceiro & { valor_em_aberto?: number | null };
+                        const valorBase = Math.abs(toNumber(lancamentoWithAmounts.valor_em_aberto, Math.abs(toNumber(lancamento.valor))));
+                        const checked = conciliacaoItens.some((item) => item.tipo === 'financial_entry' && item.id === lancamento.id);
+                        const defaultValor = Math.min(valorBase, restanteConciliacao > 0 ? restanteConciliacao : valorBase);
+
+                        return (
+                          <TableRow key={lancamento.id}>
+                            <TableCell className="w-10">
+                              <Checkbox
+                                checked={checked}
+                                onCheckedChange={() => {
+                                  toggleConciliacaoItem('financial_entry', lancamento.id, defaultValor);
+                                  setCatalogData((current) => ({
+                                    ...current,
+                                    user_id: lancamento.user_id || current.user_id,
+                                    centro_custo_id: lancamento.centro_custo_id || current.centro_custo_id,
+                                    financial_entry_id: lancamento.id,
+                                  }));
+                                }}
+                              />
+                            </TableCell>
+                            <TableCell className="text-xs">
+                              {nomeDisplay || 'Entrada financeira'} - {lancamento.categoria || lancamento.tipo} - €{valorBase.toFixed(2)}
+                            </TableCell>
+                            <TableCell className="w-28">
+                              {checked ? (
+                                <Input
+                                  type="number"
+                                  step="0.01"
+                                  min="0"
+                                  value={conciliacaoItens.find((item) => item.tipo === 'financial_entry' && item.id === lancamento.id)?.valor ?? 0}
+                                  onChange={(e) => updateConciliacaoValor('financial_entry', lancamento.id, parseFloat(e.target.value) || 0)}
                                 />
                               ) : null}
                             </TableCell>
