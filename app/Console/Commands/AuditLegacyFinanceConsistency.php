@@ -21,9 +21,10 @@ class AuditLegacyFinanceConsistency extends Command
         $this->renderSummary($report['summary']);
         $this->renderInvoiceMismatchSection($report['invoice_state_mismatches']);
         $this->renderPaidInvoicesWithoutFiscalRequestSection($report['paid_invoices_without_active_fiscal_request']);
-        $this->renderPaymentsWithoutCreditSection($report['payments_without_account_credit']);
-        $this->renderPaymentsWithoutAllocationsSection($report['payments_without_confirmed_allocations']);
         $this->renderSoftDeletedFiscalRequestsSection($report['soft_deleted_fiscal_requests_with_confirmed_allocations']);
+        $this->renderOrphanReconciliationPaymentsSection($report['orphan_reconciliation_payments']);
+        $this->renderOrphanManualPaymentsSection($report['orphan_manual_payments']);
+        $this->renderAllocatedAmountMismatchSection($report['payments_with_allocated_amount_mismatch']);
 
         return self::SUCCESS;
     }
@@ -35,9 +36,10 @@ class AuditLegacyFinanceConsistency extends Command
             [
                 ['Invoices com allocations confirmadas e estado/valores incoerentes', $summary['invoice_state_mismatches']],
                 ['Invoices pagas por allocation sem fiscal request ativo', $summary['paid_invoices_without_active_fiscal_request']],
-                ['Payments confirmados com unallocated_amount sem account_credit', $summary['payments_without_account_credit']],
-                ['Payments com allocated_amount sem allocations confirmadas', $summary['payments_without_confirmed_allocations']],
                 ['Fiscal requests soft deleted com allocations confirmadas', $summary['soft_deleted_fiscal_requests_with_confirmed_allocations']],
+                ['Payments de reconciliacao orfaos', $summary['orphan_reconciliation_payments']],
+                ['Payments manuais orfaos', $summary['orphan_manual_payments']],
+                ['Payments com allocated_amount/unallocated_amount incoerente', $summary['payments_with_allocated_amount_mismatch']],
             ]
         );
     }
@@ -89,52 +91,6 @@ class AuditLegacyFinanceConsistency extends Command
         ], $rows));
     }
 
-    private function renderPaymentsWithoutCreditSection(array $rows): void
-    {
-        $this->newLine();
-        $this->line('Payments confirmados com unallocated_amount > 0 e sem account_credit correspondente');
-
-        if ($rows === []) {
-            $this->line('  Nenhum payment nesta situacao.');
-
-            return;
-        }
-
-        $this->table([
-            'Payment', 'Amount', 'Allocated', 'Unallocated', 'Data', 'Referencia',
-        ], array_map(fn (array $row) => [
-            $row['payment_id'],
-            number_format($row['amount'], 2, '.', ''),
-            number_format($row['allocated_amount'], 2, '.', ''),
-            number_format($row['unallocated_amount'], 2, '.', ''),
-            $row['payment_date'],
-            $row['reference'],
-        ], $rows));
-    }
-
-    private function renderPaymentsWithoutAllocationsSection(array $rows): void
-    {
-        $this->newLine();
-        $this->line('Payments com allocated_amount > 0 mas sem payment_allocations confirmadas');
-
-        if ($rows === []) {
-            $this->line('  Nenhum payment nesta situacao.');
-
-            return;
-        }
-
-        $this->table([
-            'Payment', 'Amount', 'Allocated', 'Unallocated', 'Data', 'Referencia',
-        ], array_map(fn (array $row) => [
-            $row['payment_id'],
-            number_format($row['amount'], 2, '.', ''),
-            number_format($row['allocated_amount'], 2, '.', ''),
-            number_format($row['unallocated_amount'], 2, '.', ''),
-            $row['payment_date'],
-            $row['reference'],
-        ], $rows));
-    }
-
     private function renderSoftDeletedFiscalRequestsSection(array $rows): void
     {
         $this->newLine();
@@ -154,6 +110,76 @@ class AuditLegacyFinanceConsistency extends Command
             $row['allocation_count'],
             $row['active_fiscal_request_id'],
             $row['soft_deleted_fiscal_requests_count'],
+        ], $rows));
+    }
+
+    private function renderOrphanReconciliationPaymentsSection(array $rows): void
+    {
+        $this->newLine();
+        $this->line('Payments de reconciliacao orfaos');
+
+        if ($rows === []) {
+            $this->line('  Nenhum payment nesta situacao.');
+
+            return;
+        }
+
+        $this->table([
+            'Payment', 'Source', 'Amount', 'Allocated', 'Unallocated', 'BankStatement', 'Status extrato',
+        ], array_map(fn (array $row) => [
+            $row['payment_id'],
+            $row['source'],
+            number_format($row['amount'], 2, '.', ''),
+            number_format($row['allocated_amount'], 2, '.', ''),
+            number_format($row['unallocated_amount'], 2, '.', ''),
+            $row['bank_statement_id'],
+            $row['bank_statement_status'] ?? ($row['bank_statement_conciliado'] ? 'reconciled' : 'unreconciled'),
+        ], $rows));
+    }
+
+    private function renderOrphanManualPaymentsSection(array $rows): void
+    {
+        $this->newLine();
+        $this->line('Payments manuais orfaos');
+
+        if ($rows === []) {
+            $this->line('  Nenhum payment nesta situacao.');
+
+            return;
+        }
+
+        $this->table([
+            'Payment', 'Amount', 'Allocated', 'Unallocated', 'Data', 'Referencia',
+        ], array_map(fn (array $row) => [
+            $row['payment_id'],
+            number_format($row['amount'], 2, '.', ''),
+            number_format($row['allocated_amount'], 2, '.', ''),
+            number_format($row['unallocated_amount'], 2, '.', ''),
+            $row['payment_date'],
+            $row['reference'],
+        ], $rows));
+    }
+
+    private function renderAllocatedAmountMismatchSection(array $rows): void
+    {
+        $this->newLine();
+        $this->line('Payments com allocated_amount/unallocated_amount incoerente');
+
+        if ($rows === []) {
+            $this->line('  Nenhum payment nesta situacao.');
+
+            return;
+        }
+
+        $this->table([
+            'Payment', 'Source', 'Allocated atual', 'Allocated esperado', 'Unallocated atual', 'Unallocated esperado',
+        ], array_map(fn (array $row) => [
+            $row['payment_id'],
+            $row['source'],
+            number_format($row['allocated_amount'], 2, '.', ''),
+            number_format($row['expected_allocated_amount'], 2, '.', ''),
+            number_format($row['unallocated_amount'], 2, '.', ''),
+            number_format($row['expected_unallocated_amount'], 2, '.', ''),
         ], $rows));
     }
 }
