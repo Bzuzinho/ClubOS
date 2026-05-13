@@ -245,6 +245,9 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::post('payments/allocate', [FinanceiroController::class, 'storePayment'])
             ->middleware('permission.access:financeiro.dashboard,edit')
             ->name('payments.allocate');
+        Route::post('mensalidades/{invoice}/estado', [FinanceiroController::class, 'updateMonthlyInvoiceStatus'])
+            ->middleware('permission.access:financeiro.dashboard,edit')
+            ->name('mensalidades.estado');
         Route::get('invoices/open', [FinanceiroController::class, 'openInvoices'])
             ->middleware('permission.access:financeiro.dashboard,view')
             ->name('invoices.open');
