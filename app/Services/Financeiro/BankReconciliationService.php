@@ -3,6 +3,7 @@
 namespace App\Services\Financeiro;
 
 use App\Models\AccountCredit;
+use App\Models\BankReconciliationSuggestion;
 use App\Models\BankStatement;
 use App\Models\FinancialEntry;
 use App\Models\FiscalDocumentRequest;
@@ -17,10 +18,13 @@ use Illuminate\Validation\ValidationException;
 
 class BankReconciliationService
 {
+    private const UNRECONCILE_FISCAL_BLOCK_MESSAGE = 'Existe documento fiscal emitido. E necessario anular/cancelar fiscalmente antes de desconciliar.';
+
     public function __construct(
         private readonly FinancialSettlementService $financialSettlementService,
         private readonly PaymentAllocationService $paymentAllocationService,
         private readonly FinancialBalanceService $financialBalanceService,
+        private readonly FiscalDocumentRequestService $fiscalDocumentRequestService,
     ) {
     }
 
@@ -231,6 +235,18 @@ class BankReconciliationService
                     $affectedEntryIds[$allocation->financial_entry_id] = $allocation->financial_entry_id;
                 }
 
+                if ($allocation->financialEntry?->origem_tipo === 'movement' && $allocation->financialEntry->id) {
+                    $affectedEntryIds[$allocation->financialEntry->id] = $allocation->financialEntry->id;
+                }
+            }
+
+            $this->ensureFiscalDocumentsCanBeUnreconciled(
+                array_values($affectedInvoiceIds),
+                array_values($affectedEntryIds),
+            );
+
+            foreach ($allocations as $allocation) {
+
                 MapaConciliacao::query()
                     ->where('payment_allocation_id', $allocation->id)
                     ->delete();
@@ -280,7 +296,13 @@ class BankReconciliationService
                     ]);
                     $invoice->save();
 
-                    return $this->paymentAllocationService->recalculateInvoicePaymentStatus($invoice->fresh());
+                    $invoice = $this->paymentAllocationService->recalculateInvoicePaymentStatus($invoice->fresh());
+
+                    if ($invoice->estado_pagamento !== 'pago') {
+                        $this->fiscalDocumentRequestService->deletePendingForInvoice($invoice);
+                    }
+
+                    return $invoice;
                 })
                 ->values();
 
@@ -308,6 +330,8 @@ class BankReconciliationService
             $bankStatement->forceFill([
                 'lancamento_id' => null,
             ])->save();
+
+            $this->rejectActiveSuggestionsForStatement($bankStatement, $options['created_by'] ?? null);
 
             return [
                 'bank_statement' => $bankStatement->fresh(),
@@ -337,6 +361,35 @@ class BankReconciliationService
         if ($hasUsedCredits) {
             throw ValidationException::withMessages([
                 'extrato' => 'Nao e possivel desconciliar um extrato com credito de conta corrente ja utilizado.',
+            ]);
+        }
+    }
+
+    private function ensureFiscalDocumentsCanBeUnreconciled(array $invoiceIds, array $financialEntryIds): void
+    {
+        $hasIssuedInvoiceDocument = $invoiceIds !== []
+            && FiscalDocumentRequest::query()
+                ->whereIn('invoice_id', $invoiceIds)
+                ->whereNotNull('external_document_number')
+                ->where('external_document_number', '!=', '')
+                ->exists();
+
+        if ($hasIssuedInvoiceDocument) {
+            throw ValidationException::withMessages([
+                'extrato' => self::UNRECONCILE_FISCAL_BLOCK_MESSAGE,
+            ]);
+        }
+
+        $hasIssuedEntryDocument = $financialEntryIds !== []
+            && FiscalDocumentRequest::query()
+                ->whereIn('financial_entry_id', $financialEntryIds)
+                ->whereNotNull('external_document_number')
+                ->where('external_document_number', '!=', '')
+                ->exists();
+
+        if ($hasIssuedEntryDocument) {
+            throw ValidationException::withMessages([
+                'extrato' => self::UNRECONCILE_FISCAL_BLOCK_MESSAGE,
             ]);
         }
     }
@@ -381,6 +434,19 @@ class BankReconciliationService
                     ->orWhere('external_document_number', '');
             })
             ->delete();
+    }
+
+    private function rejectActiveSuggestionsForStatement(BankStatement $bankStatement, ?string $userId = null): void
+    {
+        BankReconciliationSuggestion::query()
+            ->where('bank_statement_id', $bankStatement->id)
+            ->where('status', BankReconciliationSuggestion::STATUS_SUGGESTED)
+            ->update([
+                'status' => BankReconciliationSuggestion::STATUS_REJECTED,
+                'rejected_by' => $userId,
+                'rejected_at' => now(),
+                'rejection_reason' => 'Sugestao invalidada por desconciliacao manual do extrato.',
+            ]);
     }
 
     private function syncMovementFromFinancialEntry(FinancialEntry $financialEntry): ?Movement

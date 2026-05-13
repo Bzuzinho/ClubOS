@@ -3,8 +3,10 @@
 namespace Tests\Feature\Financeiro;
 
 use App\Models\AccountCredit;
+use App\Models\BankReconciliationSuggestion;
 use App\Models\BankStatement;
 use App\Models\CostCenter;
+use App\Models\Familia;
 use App\Models\FiscalDocumentRequest;
 use App\Models\FinancialEntry;
 use App\Models\Invoice;
@@ -13,6 +15,7 @@ use App\Models\MapaConciliacao;
 use App\Models\Movement;
 use App\Models\Payment;
 use App\Models\PaymentAllocation;
+use App\Models\Supplier;
 use App\Models\User;
 use App\Models\InvoiceType;
 use App\Services\Financeiro\FinancialSettlementService;
@@ -318,6 +321,35 @@ class PaymentAllocationFlowTest extends TestCase
             'regra_usada' => 'manual',
             'valor_conciliado' => 15062.16,
         ]);
+    }
+
+    public function test_reconciled_manual_bank_catalog_entry_is_exposed_as_paid_in_movimentos_payload(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $costCenter = $this->createCostCenter();
+        $statement = $this->createBankStatement(150.00);
+
+        $this->actingAs($admin)->postJson(route('financeiro.extratos.conciliar', $statement), [
+            'tipo' => 'receita',
+            'centro_custo_id' => $costCenter->id,
+            'user_id' => $admin->id,
+        ])->assertOk();
+
+        $statement->refresh();
+
+        $response = $this->actingAs($admin)->get(route('financeiro.index'));
+
+        $response->assertOk();
+
+        $row = collect($response->viewData('page')['props']['movimentosFinanceiros'] ?? [])
+            ->firstWhere('financial_entry_id', $statement->lancamento_id);
+
+        $this->assertNotNull($row);
+        $this->assertSame('financial_entry', $row['source_kind']);
+        $this->assertTrue((bool) $row['read_only']);
+        $this->assertSame('pago', $row['estado_pagamento']);
+        $this->assertSame(150.0, (float) $row['valor_pago']);
+        $this->assertSame(0.0, (float) $row['valor_em_aberto']);
     }
 
     public function test_partially_allocated_bank_statement_stays_partial_when_credit_is_not_created(): void
@@ -1215,6 +1247,199 @@ class PaymentAllocationFlowTest extends TestCase
         ]);
     }
 
+    public function test_unreconciling_bank_statement_with_multiple_invoices_restores_all_and_rejects_active_suggestions(): void
+    {
+        $admin = User::factory()->admin()->create();
+        [$invoiceA, $invoiceB] = $this->createInvoicesForUser([20.00, 30.00]);
+        $statement = $this->createBankStatement(50.00);
+
+        $this->actingAs($admin)->postJson(route('financeiro.payments.allocate'), [
+            'bank_statement_id' => $statement->id,
+            'allocations' => [
+                ['invoice_id' => $invoiceA->id, 'amount' => 20.00],
+                ['invoice_id' => $invoiceB->id, 'amount' => 30.00],
+            ],
+        ])->assertOk();
+
+        $requestA = FiscalDocumentRequest::query()->where('invoice_id', $invoiceA->id)->firstOrFail();
+        $requestB = FiscalDocumentRequest::query()->where('invoice_id', $invoiceB->id)->firstOrFail();
+        $suggestion = BankReconciliationSuggestion::query()->create([
+            'bank_statement_id' => $statement->id,
+            'status' => BankReconciliationSuggestion::STATUS_SUGGESTED,
+            'score' => 88,
+            'confidence_label' => BankReconciliationSuggestion::CONFIDENCE_HIGH,
+            'total_bank_amount' => 50,
+            'total_allocated_amount' => 50,
+            'unallocated_amount' => 0,
+            'suggested_allocations' => [],
+            'matched_rules' => [],
+            'explanation' => 'Sugestao a limpar apos desconciliacao.',
+        ]);
+
+        $response = $this->actingAs($admin)
+            ->postJson(route('financeiro.extratos.desconciliar', $statement));
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('extrato.conciliacao_status', 'unreconciled');
+
+        $invoiceA->refresh();
+        $invoiceB->refresh();
+        $statement->refresh();
+        $suggestion->refresh();
+
+        $this->assertSame($invoiceA->data_vencimento->isPast() ? 'vencido' : 'pendente', $invoiceA->estado_pagamento);
+        $this->assertSame($invoiceB->data_vencimento->isPast() ? 'vencido' : 'pendente', $invoiceB->estado_pagamento);
+        $this->assertSame('0.00', $invoiceA->valor_pago);
+        $this->assertSame('0.00', $invoiceB->valor_pago);
+        $this->assertSame('20.00', $invoiceA->valor_em_aberto);
+        $this->assertSame('30.00', $invoiceB->valor_em_aberto);
+        $this->assertSoftDeleted('fiscal_document_requests', ['id' => $requestA->id]);
+        $this->assertSoftDeleted('fiscal_document_requests', ['id' => $requestB->id]);
+        $this->assertSame(BankReconciliationSuggestion::STATUS_REJECTED, $suggestion->status);
+        $this->assertFalse($statement->conciliado);
+        $this->assertSame('unreconciled', $statement->conciliacao_status);
+    }
+
+    public function test_unreconciling_bank_statement_is_blocked_when_invoice_has_wintouch_document(): void
+    {
+        $admin = User::factory()->admin()->create();
+        [$invoice] = $this->createInvoicesForUser([30.00]);
+        $statement = $this->createBankStatement(30.00);
+
+        $this->actingAs($admin)->postJson(route('financeiro.payments.allocate'), [
+            'bank_statement_id' => $statement->id,
+            'allocations' => [
+                ['invoice_id' => $invoice->id, 'amount' => 30.00],
+            ],
+        ])->assertOk();
+
+        $request = FiscalDocumentRequest::query()->where('invoice_id', $invoice->id)->firstOrFail();
+        app(FiscalDocumentRequestService::class)->markIssued($request, [
+            'external_document_number' => 'RC 2026/99',
+            'issued_at' => '2026-05-05 10:00:00',
+        ]);
+
+        $payment = Payment::query()->where('bank_statement_id', $statement->id)->firstOrFail();
+        $allocation = PaymentAllocation::query()->where('payment_id', $payment->id)->firstOrFail();
+
+        $response = $this->actingAs($admin)
+            ->postJson(route('financeiro.extratos.desconciliar', $statement));
+
+        $response
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('extrato');
+
+        $invoice->refresh();
+        $statement->refresh();
+
+        $this->assertSame('pago', $invoice->estado_pagamento);
+        $this->assertTrue($statement->conciliado);
+        $this->assertTrue(PaymentAllocation::query()->whereKey($allocation->id)->where('status', PaymentAllocation::STATUS_CONFIRMED)->exists());
+    }
+
+    public function test_unreconciling_bank_statement_for_movement_soft_deletes_pending_fiscal_request(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $movement = $this->createMovement('receita', 45.00, true);
+        $statement = $this->createBankStatement(45.00);
+
+        $this->actingAs($admin)->postJson(route('financeiro.bank-statements.allocate', $statement), [
+            'movements' => [
+                ['movement_id' => $movement->id, 'amount' => 45.00, 'centro_custo_id' => $movement->centro_custo_id],
+            ],
+        ])->assertOk();
+
+        $entry = FinancialEntry::query()
+            ->where('origem_tipo', 'movement')
+            ->where('origem_id', $movement->id)
+            ->firstOrFail();
+        $request = FiscalDocumentRequest::query()->where('financial_entry_id', $entry->id)->firstOrFail();
+
+        $response = $this->actingAs($admin)
+            ->postJson(route('financeiro.extratos.desconciliar', $statement));
+
+        $response->assertOk();
+
+        $movement->refresh();
+        $entry->refresh();
+
+        $this->assertSame('pendente', $movement->estado_pagamento);
+        $this->assertSame('pendente', $entry->estado);
+        $this->assertSame('0.00', $entry->valor_pago);
+        $this->assertSame('45.00', $entry->valor_em_aberto);
+        $this->assertSoftDeleted('fiscal_document_requests', ['id' => $request->id]);
+    }
+
+    public function test_unreconciling_bank_statement_is_blocked_when_generated_credit_was_used(): void
+    {
+        $admin = User::factory()->admin()->create();
+        [$invoice] = $this->createInvoicesForUser([30.00]);
+        $statement = $this->createBankStatement(50.00);
+
+        $this->actingAs($admin)->postJson(route('financeiro.payments.allocate'), [
+            'bank_statement_id' => $statement->id,
+            'create_credit' => true,
+            'allocations' => [
+                ['invoice_id' => $invoice->id, 'amount' => 30.00],
+            ],
+        ])->assertOk();
+
+        $credit = AccountCredit::query()->where('payment_id', Payment::query()->where('bank_statement_id', $statement->id)->value('id'))->firstOrFail();
+        $credit->forceFill([
+            'status' => AccountCredit::STATUS_USED,
+            'remaining_amount' => 0,
+        ])->save();
+
+        $response = $this->actingAs($admin)
+            ->postJson(route('financeiro.extratos.desconciliar', $statement));
+
+        $response
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('extrato');
+
+        $statement->refresh();
+        $this->assertTrue($statement->conciliado);
+        $this->assertSame('reconciled', $statement->conciliacao_status);
+    }
+
+    public function test_unreconciling_partial_bank_statement_restores_invoice_and_statement_to_unreconciled(): void
+    {
+        $admin = User::factory()->admin()->create();
+        [$invoice] = $this->createInvoicesForUser([30.00]);
+        $statement = $this->createBankStatement(50.00);
+
+        $this->actingAs($admin)->postJson(route('financeiro.payments.allocate'), [
+            'bank_statement_id' => $statement->id,
+            'create_credit' => false,
+            'allocations' => [
+                ['invoice_id' => $invoice->id, 'amount' => 30.00],
+            ],
+        ])->assertOk();
+
+        $statement->refresh();
+        $this->assertSame('partial', $statement->conciliacao_status);
+        $this->assertFalse($statement->conciliado);
+
+        $response = $this->actingAs($admin)
+            ->postJson(route('financeiro.extratos.desconciliar', $statement));
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('extrato.conciliacao_status', 'unreconciled');
+
+        $invoice->refresh();
+        $statement->refresh();
+
+        $this->assertSame($invoice->data_vencimento->isPast() ? 'vencido' : 'pendente', $invoice->estado_pagamento);
+        $this->assertSame('0.00', $invoice->valor_pago);
+        $this->assertSame('30.00', $invoice->valor_em_aberto);
+        $this->assertFalse($statement->conciliado);
+        $this->assertSame('unreconciled', $statement->conciliacao_status);
+        $this->assertSame('0.00', $statement->valor_conciliado);
+        $this->assertSame('50.00', $statement->valor_por_conciliar);
+    }
+
     public function test_monthly_invoice_settlement_continues_to_delegate_to_payment_allocation_service(): void
     {
         [$invoice] = $this->createInvoicesForUser([100.00]);
@@ -1371,6 +1596,107 @@ class PaymentAllocationFlowTest extends TestCase
         $invoiceIds = collect($response->json('data') ?? [])->pluck('id')->all();
 
         $this->assertNotContains($invoice->id, $invoiceIds);
+    }
+
+    public function test_store_movimento_allows_manual_text_origin_reference_without_writing_invalid_uuid(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $costCenter = $this->createCostCenter();
+
+        $response = $this->actingAs($admin)->postJson(route('financeiro.movimentos.store'), [
+            'nome_manual' => 'Fornecedor Manual',
+            'nif_manual' => '516848160',
+            'classificacao' => 'despesa',
+            'data_emissao' => '2026-05-01',
+            'data_vencimento' => '2026-05-13',
+            'valor_total' => -1537.50,
+            'estado_pagamento' => 'pendente',
+            'centro_custo_id' => $costCenter->id,
+            'tipo' => 'servico',
+            'origem_tipo' => 'manual',
+            'origem_id' => 'FT 2026/8',
+            'observacoes' => 'Observacao teste',
+            'items' => [
+                [
+                    'descricao' => 'Assessoria Tecnica Abril',
+                    'quantidade' => 1,
+                    'valor_unitario' => 1250,
+                    'imposto_percentual' => 23,
+                    'total_linha' => 1537.50,
+                    'centro_custo_id' => $costCenter->id,
+                ],
+            ],
+        ]);
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('movimento.origem_tipo', 'manual')
+            ->assertJsonPath('movimento.origem_id', 'FT 2026/8')
+            ->assertJsonPath('movimento.observacoes', 'Observacao teste');
+
+        $movement = Movement::query()->latest('created_at')->firstOrFail();
+
+        $this->assertNull($movement->origem_id);
+        $this->assertSame(
+            "Observacao teste\n[ORIGEM_REF] FT 2026/8",
+            $movement->observacoes,
+        );
+        $this->assertDatabaseHas('movement_items', [
+            'movimento_id' => $movement->id,
+            'descricao' => 'Assessoria Tecnica Abril',
+            'total_linha' => 1537.50,
+        ]);
+    }
+
+    public function test_store_movimento_can_snapshot_existing_supplier_data(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $costCenter = $this->createCostCenter();
+        $supplier = Supplier::query()->create([
+            'nome' => 'Fornecedor Canonico',
+            'nif' => '504321987',
+            'morada' => 'Rua do Fornecedor 10',
+            'email' => 'fornecedor@example.test',
+            'ativo' => true,
+        ]);
+
+        $response = $this->actingAs($admin)->postJson(route('financeiro.movimentos.store'), [
+            'supplier_id' => $supplier->id,
+            'classificacao' => 'despesa',
+            'data_emissao' => '2026-05-01',
+            'data_vencimento' => '2026-05-13',
+            'valor_total' => -99.99,
+            'estado_pagamento' => 'pendente',
+            'centro_custo_id' => $costCenter->id,
+            'tipo' => 'servico',
+            'origem_tipo' => 'manual',
+            'observacoes' => 'Movimento com fornecedor existente',
+            'items' => [
+                [
+                    'descricao' => 'Servico teste',
+                    'quantidade' => 1,
+                    'valor_unitario' => 99.99,
+                    'imposto_percentual' => 0,
+                    'total_linha' => 99.99,
+                    'centro_custo_id' => $costCenter->id,
+                ],
+            ],
+        ]);
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('movimento.supplier_id', $supplier->id)
+            ->assertJsonPath('movimento.nome_manual', 'Fornecedor Canonico')
+            ->assertJsonPath('movimento.nif_manual', '504321987')
+            ->assertJsonPath('movimento.morada_manual', 'Rua do Fornecedor 10');
+
+        $this->assertDatabaseHas('movements', [
+            'supplier_id' => $supplier->id,
+            'user_id' => null,
+            'nome_manual' => 'Fornecedor Canonico',
+            'nif_manual' => '504321987',
+            'morada_manual' => 'Rua do Fornecedor 10',
+        ]);
     }
 
     public function test_bank_statement_allocate_endpoint_accepts_invoice_payload_and_preserves_origin_cost_centers(): void
@@ -1537,6 +1863,38 @@ class PaymentAllocationFlowTest extends TestCase
             ->assertJsonValidationErrors('create_credit');
     }
 
+    public function test_bank_statement_allocate_endpoint_rejects_multiple_credit_targets(): void
+    {
+        $admin = User::factory()->admin()->create();
+        [$invoice] = $this->createInvoicesForUser([30.00]);
+        $statement = $this->createBankStatement(50.00);
+        $family = Familia::create([
+            'nome' => 'Familia Credito Duplicado',
+            'responsavel_user_id' => $invoice->user_id,
+            'ativo' => true,
+        ]);
+        $family->members()->attach($invoice->user_id, [
+            'papel_na_familia' => 'responsavel',
+            'pode_editar' => true,
+            'pode_ver_financeiro' => true,
+            'pode_ver_desportivo' => true,
+            'pode_ver_documentos' => true,
+            'pode_ver_comunicacoes' => true,
+        ]);
+
+        $this->actingAs($admin)
+            ->postJson(route('financeiro.bank-statements.allocate', $statement), [
+                'invoices' => [
+                    ['invoice_id' => $invoice->id, 'amount' => 30.00],
+                ],
+                'create_credit' => true,
+                'credit_user_id' => $invoice->user_id,
+                'credit_family_id' => $family->id,
+            ])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('create_credit');
+    }
+
     public function test_open_movements_endpoint_is_paginated_searchable_and_returns_default_cost_center(): void
     {
         $admin = User::factory()->admin()->create();
@@ -1607,6 +1965,100 @@ class PaymentAllocationFlowTest extends TestCase
         $this->assertSame($defaultCostCenter->id, $row['default_centro_custo_id'] ?? null);
         $this->assertFalse((bool) ($row['requires_centro_custo'] ?? true));
         $this->assertLessThanOrEqual(10, count($response->json('data') ?? []));
+    }
+
+    public function test_open_movements_endpoint_accepts_family_filter(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $matchingUser = User::factory()->create();
+        $nonMatchingUser = User::factory()->create();
+        $family = Familia::create([
+            'nome' => 'Familia Filter',
+            'responsavel_user_id' => $matchingUser->id,
+            'ativo' => true,
+        ]);
+
+        $family->members()->attach($matchingUser->id, [
+            'papel_na_familia' => 'responsavel',
+            'pode_editar' => true,
+            'pode_ver_financeiro' => true,
+            'pode_ver_desportivo' => true,
+            'pode_ver_documentos' => true,
+            'pode_ver_comunicacoes' => true,
+        ]);
+
+        $matchingMovement = Movement::create([
+            'user_id' => $matchingUser->id,
+            'classificacao' => 'receita',
+            'data_emissao' => '2026-05-05',
+            'data_vencimento' => '2026-05-05',
+            'valor_total' => 25.00,
+            'estado_pagamento' => 'pendente',
+            'tipo' => 'servico',
+            'origem_tipo' => 'manual',
+            'origem_id' => null,
+            'observacoes' => 'Movimento familia certa',
+        ]);
+
+        Movement::create([
+            'user_id' => $nonMatchingUser->id,
+            'classificacao' => 'receita',
+            'data_emissao' => '2026-05-05',
+            'data_vencimento' => '2026-05-05',
+            'valor_total' => 35.00,
+            'estado_pagamento' => 'pendente',
+            'tipo' => 'servico',
+            'origem_tipo' => 'manual',
+            'origem_id' => null,
+            'observacoes' => 'Movimento familia errada',
+        ]);
+
+        $response = $this->actingAs($admin)
+            ->getJson(route('financeiro.movements.open', [
+                'family_id' => $family->id,
+            ]));
+
+        $response->assertOk();
+
+        $ids = collect($response->json('data') ?? [])->pluck('id');
+
+        $this->assertTrue($ids->contains($matchingMovement->id));
+        $this->assertCount(1, $ids);
+    }
+
+    public function test_open_movements_endpoint_keeps_pending_expense_without_financial_entry_visible(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $costCenter = $this->createCostCenter();
+
+        $movement = Movement::create([
+            'user_id' => null,
+            'nome_manual' => 'Fornecedor XPTO',
+            'classificacao' => 'despesa',
+            'data_emissao' => '2026-05-05',
+            'data_vencimento' => '2026-05-05',
+            'valor_total' => -1537.50,
+            'estado_pagamento' => 'pendente',
+            'centro_custo_id' => $costCenter->id,
+            'tipo' => 'servico',
+            'origem_tipo' => 'manual',
+            'origem_id' => null,
+            'observacoes' => 'Transferencia fornecedor XPTO',
+        ]);
+
+        $response = $this->actingAs($admin)
+            ->getJson(route('financeiro.movements.open', [
+                'per_page' => 25,
+            ]));
+
+        $response->assertOk();
+
+        $row = collect($response->json('data') ?? [])->firstWhere('id', $movement->id);
+
+        $this->assertNotNull($row);
+        $this->assertSame('despesa', $row['classificacao']);
+        $this->assertSame(1537.5, (float) $row['valor_em_aberto']);
+        $this->assertSame(0.0, (float) $row['valor_pago']);
     }
 
     /**

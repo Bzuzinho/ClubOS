@@ -195,6 +195,7 @@ export interface OpenMovementListItem {
 export interface Movimento {
   id: string;
   user_id?: string | null;
+  supplier_id?: string | null;
   nome_manual?: string | null;
   nif_manual?: string | null;
   morada_manual?: string | null;
@@ -224,6 +225,17 @@ export interface MovimentoFinanceiro extends Movimento {
   valor_em_aberto?: number | null;
   read_only?: boolean;
   descricao_financeira?: string | null;
+}
+
+export interface Supplier {
+  id: string;
+  nome: string;
+  nif?: string | null;
+  morada?: string | null;
+  email?: string | null;
+  telefone?: string | null;
+  categoria?: string | null;
+  ativo?: boolean;
 }
 
 export interface MovimentoItem {

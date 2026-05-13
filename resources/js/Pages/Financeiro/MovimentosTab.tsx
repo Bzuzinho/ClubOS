@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { router } from '@inertiajs/react';
-import { Movimento, MovimentoFinanceiro, MovimentoItem, User, CentroCusto, Product, LancamentoFinanceiro } from './types';
+import { Movimento, MovimentoFinanceiro, MovimentoItem, User, Supplier, CentroCusto, Product, LancamentoFinanceiro } from './types';
 import { useClubSettings } from '@/hooks/useClubSettings';
 import { Button } from '@/Components/ui/button';
 import { Card } from '@/Components/ui/card';
@@ -25,6 +25,7 @@ interface MovimentosTabProps {
   lancamentos: LancamentoFinanceiro[];
   setLancamentos: React.Dispatch<React.SetStateAction<LancamentoFinanceiro[]>>;
   users: User[];
+  suppliers: Supplier[];
   centrosCusto: CentroCusto[];
   products: Product[];
   setProducts: React.Dispatch<React.SetStateAction<Product[]>>;
@@ -39,6 +40,7 @@ export function MovimentosTab({
   lancamentos,
   setLancamentos,
   users,
+  suppliers,
   centrosCusto,
   products,
   setProducts,
@@ -189,10 +191,12 @@ export function MovimentosTab({
   const [comprovativoFile, setComprovativoFile] = useState<File | null>(null);
   const [editingMovimentoId, setEditingMovimentoId] = useState<string | null>(null);
   const [usarDadosUtilizador, setUsarDadosUtilizador] = useState(false);
+  const [usarDadosFornecedor, setUsarDadosFornecedor] = useState(false);
   const [documentoOriginalFile, setDocumentoOriginalFile] = useState<File | null>(null);
 
   const [formData, setFormData] = useState({
     user_id: '',
+    supplier_id: '',
     nome_manual: defaultFinancialEntityName,
     nif_manual: '',
     morada_manual: '',
@@ -439,6 +443,11 @@ export function MovimentosTab({
       return;
     }
 
+    if (usarDadosFornecedor && !formData.supplier_id) {
+      toast.error('Selecione um fornecedor');
+      return;
+    }
+
     if (!formData.centro_custo_id) {
       toast.error('Selecione um centro de custo');
       return;
@@ -458,6 +467,7 @@ export function MovimentosTab({
       const total = formData.classificacao === 'despesa' ? -Math.abs(totalAbsoluto) : Math.abs(totalAbsoluto);
       const payload = {
         user_id: usarDadosUtilizador ? formData.user_id : null,
+        supplier_id: usarDadosFornecedor ? formData.supplier_id : null,
         nome_manual: usarDadosUtilizador ? undefined : formData.nome_manual,
         nif_manual: usarDadosUtilizador ? undefined : formData.nif_manual,
         morada_manual: usarDadosUtilizador ? undefined : formData.morada_manual,
@@ -508,6 +518,7 @@ export function MovimentosTab({
       const total = formData.classificacao === 'despesa' ? -Math.abs(totalAbsoluto) : Math.abs(totalAbsoluto);
       const payload = {
         user_id: usarDadosUtilizador ? formData.user_id : null,
+        supplier_id: usarDadosFornecedor ? formData.supplier_id : null,
         nome_manual: usarDadosUtilizador ? undefined : formData.nome_manual,
         nif_manual: usarDadosUtilizador ? undefined : formData.nif_manual,
         morada_manual: usarDadosUtilizador ? undefined : formData.morada_manual,
@@ -553,6 +564,7 @@ export function MovimentosTab({
   const resetForm = () => {
     setFormData({
       user_id: '',
+      supplier_id: '',
       nome_manual: defaultFinancialEntityName,
       nif_manual: '',
       morada_manual: '',
@@ -569,6 +581,7 @@ export function MovimentosTab({
     setLinhas([{ descricao: '', valor_unitario: 0, quantidade: 1, imposto_percentual: 0 }]);
     setEditingMovimentoId(null);
     setUsarDadosUtilizador(false);
+    setUsarDadosFornecedor(false);
     setDocumentoOriginalFile(null);
   };
 
@@ -579,10 +592,13 @@ export function MovimentosTab({
     const itens = (movimentoItens || []).filter((item) => item.movimento_id === movimentoId);
 
     const utilizaUtilizador = !!movimento.user_id;
+    const utilizaFornecedor = !!movimento.supplier_id;
     setUsarDadosUtilizador(utilizaUtilizador);
+    setUsarDadosFornecedor(utilizaFornecedor);
 
     setFormData({
       user_id: movimento.user_id || '',
+      supplier_id: movimento.supplier_id || '',
       nome_manual: movimento.nome_manual || '',
       nif_manual: movimento.nif_manual || '',
       morada_manual: movimento.morada_manual || '',
@@ -637,6 +653,23 @@ export function MovimentosTab({
     }
   };
 
+  const handleSupplierChange = (supplierId: string) => {
+    setFormData({ ...formData, supplier_id: supplierId });
+
+    if (supplierId && usarDadosFornecedor) {
+      const supplier = (suppliers || []).find((item) => item.id === supplierId);
+      if (supplier) {
+        setFormData((prev) => ({
+          ...prev,
+          supplier_id: supplierId,
+          nome_manual: supplier.nome,
+          nif_manual: supplier.nif || '',
+          morada_manual: supplier.morada || '',
+        }));
+      }
+    }
+  };
+
   const addLinha = () => {
     setLinhas([...linhas, { descricao: '', valor_unitario: 0, quantidade: 1, imposto_percentual: 0 }]);
   };
@@ -655,6 +688,10 @@ export function MovimentosTab({
     if (movimento.user_id) {
       const user = (users || []).find((u) => u.id === movimento.user_id);
       return user ? user.nome_completo : 'Utilizador desconhecido';
+    }
+    if (movimento.supplier_id) {
+      const supplier = (suppliers || []).find((item) => item.id === movimento.supplier_id);
+      return supplier ? supplier.nome : (movimento.nome_manual || 'Fornecedor desconhecido');
     }
     return movimento.nome_manual || defaultFinancialEntityName;
   };
@@ -678,9 +715,7 @@ export function MovimentosTab({
         const movimento = (allMovimentos || []).find((m) => m.id === faturaId);
 
         if (movimento) {
-          const nomeDisplay = movimento.user_id
-            ? (users || []).find((u) => u.id === movimento.user_id)?.nome_completo
-            : movimento.nome_manual;
+          const nomeDisplay = getNomeDisplay(movimento);
           return `${movimento.tipo} - ${nomeDisplay || 'Cliente'}`;
         }
         return 'Associacao externa preservada';
@@ -774,10 +809,14 @@ export function MovimentosTab({
                     checked={usarDadosUtilizador}
                     onCheckedChange={(checked) => {
                       setUsarDadosUtilizador(checked === true);
+                      if (checked === true) {
+                        setUsarDadosFornecedor(false);
+                      }
                       if (!checked) {
                         setFormData((prev) => ({
                           ...prev,
                           user_id: '',
+                          supplier_id: '',
                           nome_manual: defaultFinancialEntityName,
                           nif_manual: '',
                           morada_manual: '',
@@ -785,6 +824,7 @@ export function MovimentosTab({
                       } else {
                         setFormData((prev) => ({
                           ...prev,
+                          supplier_id: '',
                           nome_manual: '',
                           nif_manual: '',
                           morada_manual: '',
@@ -794,6 +834,39 @@ export function MovimentosTab({
                   />
                   <Label htmlFor="usar-dados-utilizador" className="cursor-pointer text-sm">
                     Usar dados de utilizador existente
+                  </Label>
+                </div>
+
+                <div className="flex items-center space-x-2 p-2 bg-muted rounded-lg">
+                  <Checkbox
+                    id="usar-dados-fornecedor"
+                    checked={usarDadosFornecedor}
+                    onCheckedChange={(checked) => {
+                      setUsarDadosFornecedor(checked === true);
+                      if (checked === true) {
+                        setUsarDadosUtilizador(false);
+                      }
+                      if (!checked) {
+                        setFormData((prev) => ({
+                          ...prev,
+                          supplier_id: '',
+                          nome_manual: defaultFinancialEntityName,
+                          nif_manual: '',
+                          morada_manual: '',
+                        }));
+                      } else {
+                        setFormData((prev) => ({
+                          ...prev,
+                          user_id: '',
+                          nome_manual: '',
+                          nif_manual: '',
+                          morada_manual: '',
+                        }));
+                      }
+                    }}
+                  />
+                  <Label htmlFor="usar-dados-fornecedor" className="cursor-pointer text-sm">
+                    Usar dados de fornecedor existente
                   </Label>
                 </div>
 
@@ -809,6 +882,22 @@ export function MovimentosTab({
                           {(users || []).map((user) => (
                             <SelectItem key={user.id} value={user.id}>
                               {user.nome_completo} - {user.numero_socio}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  ) : usarDadosFornecedor ? (
+                    <div className="space-y-1 md:col-span-2 min-w-0">
+                      <Label className="text-sm">Fornecedor *</Label>
+                      <Select value={formData.supplier_id} onValueChange={handleSupplierChange}>
+                        <SelectTrigger className="h-8 text-sm">
+                          <SelectValue placeholder="Selecionar fornecedor" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {(suppliers || []).map((supplier) => (
+                            <SelectItem key={supplier.id} value={supplier.id}>
+                              {supplier.nome}{supplier.nif ? ` - ${supplier.nif}` : ''}
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -1086,9 +1175,7 @@ export function MovimentosTab({
                                     updateLinha(index, 'tipo_fatura', 'movimento');
                                     const movimento = (allMovimentos || []).find((m) => m.id === v);
                                     if (movimento) {
-                                      const nomeDisplay = movimento.user_id
-                                        ? (users || []).find((u) => u.id === movimento.user_id)?.nome_completo
-                                        : movimento.nome_manual;
+                                      const nomeDisplay = getNomeDisplay(movimento);
                                       updateLinha(
                                         index,
                                         'descricao',
@@ -1113,9 +1200,7 @@ export function MovimentosTab({
                                     .filter((m) => m.id !== editingMovimentoId && m.estado_pagamento !== 'cancelado')
                                     .sort((a, b) => new Date(b.data_emissao).getTime() - new Date(a.data_emissao).getTime())
                                     .map((movimento) => {
-                                      const nomeDisplay = movimento.user_id
-                                        ? (users || []).find((u) => u.id === movimento.user_id)?.nome_completo
-                                        : movimento.nome_manual;
+                                      const nomeDisplay = getNomeDisplay(movimento);
                                       return (
                                         <SelectItem key={movimento.id} value={movimento.id}>
                                           {nomeDisplay} - {movimento.tipo} - €{toNumber(movimento.valor_total).toFixed(2)} ({format(new Date(movimento.data_emissao), 'dd/MM/yyyy')})

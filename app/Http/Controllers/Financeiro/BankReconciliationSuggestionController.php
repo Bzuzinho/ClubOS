@@ -274,6 +274,12 @@ class BankReconciliationSuggestionController extends Controller
         $creditFamilyId = $data['credit_family_id'] ?? null;
         $creditTargetProvided = !empty($creditUserId) || !empty($creditFamilyId);
 
+        if (!empty($creditUserId) && !empty($creditFamilyId)) {
+            throw ValidationException::withMessages([
+                'create_credit' => 'Escolha apenas um destino explicito para o credito: utilizador ou familia.',
+            ]);
+        }
+
         if ($createCredit && !$creditTargetProvided && round($statementAvailableAmount - $requestedTotal, 2) > 0.009) {
             throw ValidationException::withMessages([
                 'create_credit' => 'O credito excedente exige user_id ou family_id explicito.',

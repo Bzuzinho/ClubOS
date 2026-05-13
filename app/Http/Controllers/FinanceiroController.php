@@ -19,6 +19,7 @@ use App\Models\MapaConciliacao;
 use App\Models\Payment;
 use App\Models\PaymentAllocation;
 use App\Models\Product;
+use App\Models\Supplier;
 use App\Models\User;
 use App\Services\Club\ClubSettingsService;
 use App\Services\Financeiro\BankReconciliationService;
@@ -39,10 +40,13 @@ use Inertia\Response;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 class FinanceiroController extends Controller
 {
+    private const MOVEMENT_ORIGIN_REFERENCE_PREFIX = '[ORIGEM_REF] ';
+
     public function __construct(
         private readonly PaymentAllocationService $paymentAllocationService,
         private readonly MonthlyFeeGenerationService $monthlyFeeGenerationService,
@@ -118,7 +122,8 @@ class FinanceiroController extends Controller
             $movimentos = Cache::remember('financeiro:movimentos', 60, fn () =>
                 Movement::orderBy('data_emissao', 'desc')->limit(1000)->get()->map(function ($movimento) {
                     $movimento->valor_total = (float) $movimento->valor_total;
-                    return $movimento;
+
+                    return $this->decorateMovementForResponse($movimento);
                 })
             );
         } catch (\Exception $e) {
@@ -137,7 +142,11 @@ class FinanceiroController extends Controller
 
         try {
             $lancamentos = Cache::remember('financeiro:lancamentos', 60, fn () =>
-                FinancialEntry::orderBy('data', 'desc')->limit(1000)->get()->map(function ($lancamento) {
+                FinancialEntry::with('bankStatement:id,conciliado,conciliacao_status')
+                    ->orderBy('data', 'desc')
+                    ->limit(1000)
+                    ->get()
+                    ->map(function ($lancamento) {
                     $lancamento->valor = (float) $lancamento->valor;
                     return $lancamento;
                 })
@@ -277,6 +286,16 @@ class FinanceiroController extends Controller
                         });
                 } catch (\Exception $e) {
                     \Log::error('FinanceiroController::index - Users query failed: ' . $e->getMessage());
+                    return [];
+                }
+            }),
+            'suppliers' => Cache::remember('financeiro:suppliers', 60, function () {
+                try {
+                    return Supplier::select('id', 'nome', 'nif', 'morada', 'email', 'telefone', 'categoria', 'ativo')
+                        ->orderBy('nome')
+                        ->get();
+                } catch (\Exception $e) {
+                    \Log::error('FinanceiroController::index - Suppliers query failed: ' . $e->getMessage());
                     return [];
                 }
             }),
@@ -852,11 +871,15 @@ class FinanceiroController extends Controller
     {
         $data = $request->validate([
             'search' => ['nullable', 'string'],
+            'user_id' => ['nullable', 'exists:users,id'],
+            'family_id' => ['nullable', 'exists:familias,id'],
             'per_page' => ['nullable', 'integer', 'min:1', 'max:200'],
         ]);
 
         $perPage = (int) ($data['per_page'] ?? 25);
         $search = trim((string) ($data['search'] ?? ''));
+        $userId = $data['user_id'] ?? null;
+        $familyId = $data['family_id'] ?? null;
         $operator = DB::connection()->getDriverName() === 'pgsql' ? 'ilike' : 'like';
 
         $query = Movement::query()
@@ -871,6 +894,16 @@ class FinanceiroController extends Controller
                     ->limit(1),
             ])
             ->whereIn('estado_pagamento', ['pendente', 'parcial']);
+
+        if ($userId) {
+            $query->where('user_id', $userId);
+        }
+
+        if ($familyId) {
+            $query->whereHas('user.families', function ($familyQuery) use ($familyId): void {
+                $familyQuery->where('familias.id', $familyId);
+            });
+        }
 
         if ($search !== '') {
             $tokens = collect(preg_split('/\s+/', $search) ?: [])
@@ -911,7 +944,7 @@ class FinanceiroController extends Controller
                 /** @var FinancialEntry|null $financialEntry */
                 $financialEntry = $movement->financialEntries->first();
                 $entryOpenAmount = $financialEntry ? max((float) ($financialEntry->valor_em_aberto ?? 0), 0) : null;
-                $movementOpenAmount = round(max((float) $movement->valor_total - (float) ($financialEntry->valor_pago ?? 0), 0), 2);
+                $movementOpenAmount = round(max(abs((float) $movement->valor_total) - (float) ($financialEntry->valor_pago ?? 0), 0), 2);
                 $openAmount = $entryOpenAmount !== null ? round($entryOpenAmount, 2) : $movementOpenAmount;
                 $defaultCostCenterId = $movement->centro_custo_id
                     ?: $movement->user?->centrosCusto?->sortByDesc(fn ($center) => (float) ($center->pivot->peso ?? 1))->first()?->id;
@@ -1051,12 +1084,14 @@ class FinanceiroController extends Controller
     {
         $classificacao = $entry->tipo === 'despesa' ? 'despesa' : 'receita';
         $totalAmount = abs((float) ($entry->valor ?? 0));
+        $bankStatementReconciled = (bool) ($entry->bankStatement?->conciliado)
+            || (($entry->bankStatement?->conciliacao_status ?? null) === 'reconciled');
         $paidAmount = $entry->valor_pago !== null
             ? abs((float) $entry->valor_pago)
-            : ($entry->estado === 'pago' ? $totalAmount : null);
+            : ($bankStatementReconciled || $entry->estado === 'pago' ? $totalAmount : null);
         $openAmount = $entry->valor_em_aberto !== null
             ? abs((float) $entry->valor_em_aberto)
-            : ($entry->estado === 'pago' ? 0.0 : $totalAmount);
+            : ($bankStatementReconciled || $entry->estado === 'pago' ? 0.0 : $totalAmount);
         $emissionDate = $movement?->data_emissao
             ? Carbon::parse($movement->data_emissao)
             : ($entry->data ? Carbon::parse($entry->data) : null);
@@ -1080,7 +1115,11 @@ class FinanceiroController extends Controller
             'valor_total' => $classificacao === 'despesa' ? -$totalAmount : $totalAmount,
             'valor_pago' => $paidAmount,
             'valor_em_aberto' => $openAmount,
-            'estado_pagamento' => $this->resolveFinancialMovementState($entry->estado ?? 'pendente', $dueDate, $openAmount),
+            'estado_pagamento' => $this->resolveFinancialMovementState(
+                $bankStatementReconciled && $movement === null ? 'pago' : ($entry->estado ?? 'pendente'),
+                $dueDate,
+                $openAmount,
+            ),
             'numero_recibo' => $movement?->numero_recibo ?? $entry->documento_ref,
             'referencia_pagamento' => $movement?->referencia_pagamento ?? $entry->documento_ref,
             'metodo_pagamento' => $movement?->metodo_pagamento ?? $entry->metodo_pagamento,
@@ -1110,6 +1149,8 @@ class FinanceiroController extends Controller
             'pendente', 'vencido' => $totalAmount,
             default => null,
         };
+        $displayOriginId = $this->resolveMovementOriginDisplayId($movement->origem_id, $movement->observacoes);
+        $cleanObservacoes = $this->stripMovementOriginReference($movement->observacoes);
         $emissionDate = $movement->data_emissao ? Carbon::parse($movement->data_emissao) : null;
         $dueDate = $movement->data_vencimento ? Carbon::parse($movement->data_vencimento) : $emissionDate;
 
@@ -1138,12 +1179,127 @@ class FinanceiroController extends Controller
             'centro_custo_id' => $movement->centro_custo_id,
             'tipo' => $movement->tipo,
             'origem_tipo' => $movement->origem_tipo,
-            'origem_id' => $movement->origem_id,
-            'observacoes' => $movement->observacoes,
+            'origem_id' => $displayOriginId,
+            'observacoes' => $cleanObservacoes,
             'created_at' => optional($movement->created_at)?->toISOString(),
-            'descricao_financeira' => $movement->observacoes,
+            'descricao_financeira' => $cleanObservacoes,
             'sort_date' => ($emissionDate ?? now())->toDateString(),
         ];
+    }
+
+    private function decorateMovementForResponse(Movement $movement): Movement
+    {
+        $movement->origem_id = $this->resolveMovementOriginDisplayId($movement->origem_id, $movement->observacoes);
+        $movement->observacoes = $this->stripMovementOriginReference($movement->observacoes);
+
+        return $movement;
+    }
+
+    /**
+     * @param array<string, mixed> $data
+     * @return array<string, mixed>
+     */
+    private function sanitizeMovementOriginData(array $data): array
+    {
+        $originId = isset($data['origem_id']) && is_string($data['origem_id'])
+            ? trim($data['origem_id'])
+            : null;
+
+        $cleanObservacoes = $this->stripMovementOriginReference($data['observacoes'] ?? null);
+
+        if (!$originId) {
+            $data['origem_id'] = null;
+            $data['observacoes'] = $cleanObservacoes;
+
+            return $data;
+        }
+
+        if (Str::isUuid($originId)) {
+            $data['origem_id'] = $originId;
+            $data['observacoes'] = $cleanObservacoes;
+
+            return $data;
+        }
+
+        $data['origem_id'] = null;
+        $data['observacoes'] = $this->mergeMovementOriginReference($cleanObservacoes, $originId);
+
+        return $data;
+    }
+
+    /**
+     * @param array<string, mixed> $data
+     * @return array<string, mixed>
+     */
+    private function hydrateMovementCounterpartyData(array $data): array
+    {
+        if (!empty($data['user_id'])) {
+            $data['supplier_id'] = null;
+
+            return $data;
+        }
+
+        if (empty($data['supplier_id'])) {
+            return $data;
+        }
+
+        $supplier = Supplier::query()->findOrFail($data['supplier_id']);
+
+        $data['user_id'] = null;
+        $data['nome_manual'] = $supplier->nome;
+        $data['nif_manual'] = $supplier->nif;
+        $data['morada_manual'] = $supplier->morada;
+
+        return $data;
+    }
+
+    private function resolveMovementOriginDisplayId(?string $originId, ?string $observacoes): ?string
+    {
+        if (!empty($originId)) {
+            return $originId;
+        }
+
+        return $this->extractMovementOriginReference($observacoes);
+    }
+
+    private function extractMovementOriginReference(?string $observacoes): ?string
+    {
+        if (!$observacoes) {
+            return null;
+        }
+
+        foreach (preg_split('/\r\n|\r|\n/', $observacoes) ?: [] as $line) {
+            if (str_starts_with($line, self::MOVEMENT_ORIGIN_REFERENCE_PREFIX)) {
+                $reference = trim(substr($line, strlen(self::MOVEMENT_ORIGIN_REFERENCE_PREFIX)));
+
+                return $reference !== '' ? $reference : null;
+            }
+        }
+
+        return null;
+    }
+
+    private function stripMovementOriginReference(?string $observacoes): ?string
+    {
+        if (!$observacoes) {
+            return null;
+        }
+
+        $lines = preg_split('/\r\n|\r|\n/', $observacoes) ?: [];
+        $filtered = array_values(array_filter($lines, fn (string $line): bool => !str_starts_with($line, self::MOVEMENT_ORIGIN_REFERENCE_PREFIX)));
+        $clean = trim(implode("\n", $filtered));
+
+        return $clean !== '' ? $clean : null;
+    }
+
+    private function mergeMovementOriginReference(?string $observacoes, string $reference): string
+    {
+        $parts = array_filter([
+            $this->stripMovementOriginReference($observacoes),
+            self::MOVEMENT_ORIGIN_REFERENCE_PREFIX . trim($reference),
+        ]);
+
+        return implode("\n", $parts);
     }
 
     private function resolveFinancialMovementTypeFromEntry(FinancialEntry $entry): string
@@ -1316,6 +1472,7 @@ class FinanceiroController extends Controller
         }
         $data = $request->validate([
             'user_id' => ['nullable', 'exists:users,id'],
+            'supplier_id' => ['nullable', 'exists:suppliers,id'],
             'nome_manual' => ['nullable', 'string', 'max:255'],
             'nif_manual' => ['nullable', 'string', 'max:50'],
             'morada_manual' => ['nullable', 'string'],
@@ -1350,9 +1507,19 @@ class FinanceiroController extends Controller
             ]);
         }
 
-        if (!$data['user_id'] && empty($data['nome_manual'])) {
+        if (!empty($data['user_id']) && !empty($data['supplier_id'])) {
+            throw ValidationException::withMessages([
+                'supplier_id' => 'Selecione apenas um utilizador ou um fornecedor.',
+            ]);
+        }
+
+        $data = $this->hydrateMovementCounterpartyData($data);
+
+        if (empty($data['user_id']) && empty($data['nome_manual'])) {
             $data['nome_manual'] = app(ClubSettingsService::class)->defaultFinancialEntityName($data['classificacao'] ?? null);
         }
+
+        $data = $this->sanitizeMovementOriginData($data);
 
         if ($request->hasFile('documento_original')) {
             $data['documento_original'] = $request->file('documento_original')->store('financeiro/movimentos', 'public');
@@ -1360,6 +1527,7 @@ class FinanceiroController extends Controller
 
         $movimento = Movement::create([
             'user_id' => $data['user_id'] ?? null,
+            'supplier_id' => $data['supplier_id'] ?? null,
             'nome_manual' => $data['nome_manual'] ?? null,
             'nif_manual' => $data['nif_manual'] ?? null,
             'morada_manual' => $data['morada_manual'] ?? null,
@@ -1402,6 +1570,9 @@ class FinanceiroController extends Controller
 
         $this->invalidateFinanceiroCaches();
 
+        $movimento->refresh();
+        $movimento = $this->decorateMovementForResponse($movimento);
+
         return response()->json([
             'movimento' => $movimento,
             'items' => $createdItems,
@@ -1418,6 +1589,7 @@ class FinanceiroController extends Controller
         }
         $data = $request->validate([
             'user_id' => ['nullable', 'exists:users,id'],
+            'supplier_id' => ['nullable', 'exists:suppliers,id'],
             'nome_manual' => ['nullable', 'string', 'max:255'],
             'nif_manual' => ['nullable', 'string', 'max:50'],
             'morada_manual' => ['nullable', 'string'],
@@ -1455,9 +1627,19 @@ class FinanceiroController extends Controller
             ]);
         }
 
-        if (!$data['user_id'] && empty($data['nome_manual'])) {
+        if (!empty($data['user_id']) && !empty($data['supplier_id'])) {
+            throw ValidationException::withMessages([
+                'supplier_id' => 'Selecione apenas um utilizador ou um fornecedor.',
+            ]);
+        }
+
+        $data = $this->hydrateMovementCounterpartyData($data);
+
+        if (empty($data['user_id']) && empty($data['nome_manual'])) {
             $data['nome_manual'] = app(ClubSettingsService::class)->defaultFinancialEntityName($data['classificacao'] ?? null);
         }
+
+        $data = $this->sanitizeMovementOriginData($data);
 
         if ($request->hasFile('documento_original')) {
             if ($movimento->documento_original) {
@@ -1468,6 +1650,7 @@ class FinanceiroController extends Controller
 
         $movimento->update([
             'user_id' => $data['user_id'] ?? null,
+            'supplier_id' => $data['supplier_id'] ?? null,
             'nome_manual' => $data['nome_manual'] ?? null,
             'nif_manual' => $data['nif_manual'] ?? null,
             'morada_manual' => $data['morada_manual'] ?? null,
@@ -1535,6 +1718,9 @@ class FinanceiroController extends Controller
         }
 
         $this->invalidateFinanceiroCaches();
+
+        $movimento->refresh();
+        $movimento = $this->decorateMovementForResponse($movimento);
 
         return response()->json([
             'movimento' => $movimento,
@@ -1866,6 +2052,7 @@ class FinanceiroController extends Controller
         Cache::forget('financeiro:conciliacoes');
         Cache::forget('financeiro:centros_custo');
         Cache::forget('financeiro:users');
+        Cache::forget('financeiro:suppliers');
         Cache::forget('financeiro:products');
         Cache::forget('financeiro:mensalidades');
         Cache::forget('financeiro:invoice_types');

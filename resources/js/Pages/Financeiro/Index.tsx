@@ -15,6 +15,7 @@ import {
   ConciliacaoMapa,
   CentroCusto,
   User,
+  Supplier,
   Product,
   MonthlyFee,
   AgeGroup,
@@ -46,6 +47,7 @@ interface Props {
   conciliacoes: ConciliacaoMapa[];
   centrosCusto: CentroCusto[];
   users: User[];
+  suppliers: Supplier[];
   products: Product[];
   mensalidades: MonthlyFee[];
   ageGroups: AgeGroup[];
@@ -66,6 +68,7 @@ export default function FinanceiroIndex({
   conciliacoes,
   centrosCusto,
   users,
+  suppliers,
   products,
   mensalidades,
   ageGroups,
@@ -227,6 +230,7 @@ export default function FinanceiroIndex({
                   lancamentos={lancamentosState}
                   setLancamentos={setLancamentos}
                   users={users || []}
+                  suppliers={suppliers || []}
                   centrosCusto={centrosCusto || []}
                   products={productsState}
                   setProducts={setProducts}

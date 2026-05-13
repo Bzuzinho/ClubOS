@@ -49,6 +49,13 @@ const getStatementStatus = (statement: ExtratoBancario | null): 'unreconciled' |
 
 const formatCurrency = (value: number) => `€${value.toFixed(2)}`;
 
+const formatDateLabel = (value?: string | null) => {
+  if (!value) return '-';
+
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? value : format(parsed, 'dd/MM/yyyy');
+};
+
 export function BankStatementReconciliationDialog({
   open,
   statement,
@@ -78,12 +85,7 @@ export function BankStatementReconciliationDialog({
       return;
     }
 
-    const initialSearch = [statement.descricao, statement.referencia]
-      .filter((value): value is string => typeof value === 'string' && value.trim() !== '')
-      .join(' ')
-      .trim();
-
-    setSearchTerm(initialSearch);
+    setSearchTerm('');
     setOpenInvoices([]);
     setOpenMovements([]);
     setInvoiceAllocations({});
@@ -121,6 +123,10 @@ export function BankStatementReconciliationDialog({
   const allocatedTotal = invoiceAllocatedTotal + movementAllocatedTotal;
   const remainingAmount = Math.max(statementAvailableAmount - allocatedTotal, 0);
   const status = getStatementStatus(statement);
+  const visibleInvoiceCount = openInvoices.length;
+  const visibleMovementCount = openMovements.length;
+  const hasMoreInvoices = invoiceTotal > visibleInvoiceCount;
+  const hasMoreMovements = movementTotal > visibleMovementCount;
 
   const creditTargets = useMemo<CreditTarget[]>(() => {
     const mapped = new Map<string, CreditTarget>();
@@ -334,7 +340,7 @@ export function BankStatementReconciliationDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-5xl max-h-[92vh] overflow-y-auto">
+      <DialogContent className="max-w-[96vw] xl:max-w-7xl 2xl:max-w-[1500px] max-h-[92vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Conciliacao Manual</DialogTitle>
           <DialogDescription>
@@ -386,57 +392,81 @@ export function BankStatementReconciliationDialog({
                 placeholder="Pesquisar por nome, NIF, numero de socio ou familia"
               />
               <div className="text-xs text-muted-foreground">
-                Pesquisa com debounce e resultados paginados. Mostra as primeiras 25 faturas e 25 movimentos compatíveis.
+                Pesquisa opcional com debounce e resultados paginados. Sem filtro, o dialogo carrega ate 25 faturas e 25 movimentos em aberto.
               </div>
             </div>
 
-            <div className="grid gap-4 xl:grid-cols-2">
+            <div className="space-y-4">
               <Card className="p-4 space-y-3">
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <h3 className="font-semibold">Mensalidades / Faturas em aberto</h3>
-                    <p className="text-xs text-muted-foreground">{invoiceTotal} resultado(s) compatíveis</p>
+                    <p className="text-xs text-muted-foreground">
+                      {visibleInvoiceCount} de {invoiceTotal} resultado(s) carregados
+                    </p>
                   </div>
                   <Badge variant="outline">Backend: valor_em_aberto</Badge>
                 </div>
+
+                {hasMoreInvoices ? (
+                  <div className="rounded-md border border-dashed px-3 py-2 text-xs text-muted-foreground">
+                    Existem mais faturas compatíveis no backend. Refine a pesquisa para reduzir a lista antes de conciliar.
+                  </div>
+                ) : null}
 
                 {loadingInvoices ? (
                   <div className="py-8 text-center text-sm text-muted-foreground">A carregar faturas em aberto...</div>
                 ) : openInvoices.length === 0 ? (
                   <div className="py-8 text-center text-sm text-muted-foreground">Nao foram encontradas faturas em aberto para esta pesquisa.</div>
                 ) : (
-                  <div className="space-y-3 max-h-[360px] overflow-y-auto pr-1">
-                    {openInvoices.map((invoice) => (
-                      <div key={invoice.id} className="rounded-lg border p-3 space-y-2">
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <div className="font-medium text-sm">{invoice.user_name || 'Utilizador'}</div>
-                            <div className="text-xs text-muted-foreground break-words">
-                              {[invoice.family_name, invoice.tipo, invoice.mes].filter(Boolean).join(' · ') || 'Fatura aberta'}
-                            </div>
-                          </div>
-                          <Badge variant="outline">{formatCurrency(toNumber(invoice.valor_em_aberto, 0))}</Badge>
-                        </div>
-
-                        <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_140px] md:items-end">
-                          <div className="text-xs text-muted-foreground">
-                            Vencimento {invoice.vencimento ? format(new Date(invoice.vencimento), 'dd/MM/yyyy') : '-'}
-                            {invoice.centro_custo_name ? ` · ${invoice.centro_custo_name}` : ''}
-                          </div>
-                          <div className="space-y-1">
-                            <Label className="text-xs">Valor a alocar</Label>
-                            <Input
-                              type="number"
-                              min="0"
-                              step="0.01"
-                              max={toNumber(invoice.valor_em_aberto, 0).toFixed(2)}
-                              value={invoiceAllocations[invoice.id] ?? ''}
-                              onChange={(event) => setInvoiceAllocations((current) => ({ ...current, [invoice.id]: event.target.value }))}
-                            />
-                          </div>
-                        </div>
-                      </div>
-                    ))}
+                  <div className="max-h-[420px] overflow-auto rounded-lg border">
+                    <table className="w-full min-w-[1100px] text-sm">
+                      <thead className="bg-muted/50 text-xs uppercase tracking-wide text-muted-foreground">
+                        <tr>
+                          <th className="px-3 py-2 text-left font-medium">Utilizador</th>
+                          <th className="px-3 py-2 text-left font-medium">Familia</th>
+                          <th className="px-3 py-2 text-left font-medium">Mes / Periodo</th>
+                          <th className="px-3 py-2 text-left font-medium">Vencimento</th>
+                          <th className="px-3 py-2 text-left font-medium">Centro de custo</th>
+                          <th className="px-3 py-2 text-right font-medium">Valor total</th>
+                          <th className="px-3 py-2 text-right font-medium">Valor pago</th>
+                          <th className="px-3 py-2 text-right font-medium">Valor em aberto</th>
+                          <th className="px-3 py-2 text-left font-medium">Valor a alocar</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {openInvoices.map((invoice) => (
+                          <tr key={invoice.id} className="border-t align-top">
+                            <td className="px-3 py-3">
+                              <div className="font-medium">{invoice.user_name || 'Utilizador'}</div>
+                              <div className="text-xs text-muted-foreground">{invoice.tipo || 'Fatura'}</div>
+                            </td>
+                            <td className="px-3 py-3 text-muted-foreground">{invoice.family_name || '-'}</td>
+                            <td className="px-3 py-3 text-muted-foreground">{invoice.mes || formatDateLabel(invoice.data_fatura)}</td>
+                            <td className="px-3 py-3 text-muted-foreground">{formatDateLabel(invoice.vencimento)}</td>
+                            <td className="px-3 py-3 text-muted-foreground">{invoice.centro_custo_name || '-'}</td>
+                            <td className="px-3 py-3 text-right font-medium">{formatCurrency(toNumber(invoice.valor_total, 0))}</td>
+                            <td className="px-3 py-3 text-right text-muted-foreground">{formatCurrency(toNumber(invoice.valor_pago, 0))}</td>
+                            <td className="px-3 py-3 text-right">
+                              <Badge variant="outline">{formatCurrency(toNumber(invoice.valor_em_aberto, 0))}</Badge>
+                            </td>
+                            <td className="px-3 py-3 min-w-[170px]">
+                              <div className="space-y-1">
+                                <Label className="text-xs">Valor a alocar</Label>
+                                <Input
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  max={toNumber(invoice.valor_em_aberto, 0).toFixed(2)}
+                                  value={invoiceAllocations[invoice.id] ?? ''}
+                                  onChange={(event) => setInvoiceAllocations((current) => ({ ...current, [invoice.id]: event.target.value }))}
+                                />
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
                 )}
               </Card>
@@ -445,76 +475,101 @@ export function BankStatementReconciliationDialog({
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <h3 className="font-semibold">Movimentos financeiros em aberto</h3>
-                    <p className="text-xs text-muted-foreground">{movementTotal} resultado(s) compatíveis</p>
+                    <p className="text-xs text-muted-foreground">
+                      {visibleMovementCount} de {movementTotal} resultado(s) carregados
+                    </p>
                   </div>
                   <Badge variant="outline">Fluxo canonico</Badge>
                 </div>
+
+                {hasMoreMovements ? (
+                  <div className="rounded-md border border-dashed px-3 py-2 text-xs text-muted-foreground">
+                    Existem mais movimentos compatíveis no backend. Refine a pesquisa para trabalhar apenas com o subconjunto certo.
+                  </div>
+                ) : null}
 
                 {loadingMovements ? (
                   <div className="py-8 text-center text-sm text-muted-foreground">A carregar movimentos em aberto...</div>
                 ) : openMovements.length === 0 ? (
                   <div className="py-8 text-center text-sm text-muted-foreground">Nao foram encontrados movimentos em aberto para esta pesquisa.</div>
                 ) : (
-                  <div className="space-y-3 max-h-[360px] overflow-y-auto pr-1">
-                    {openMovements.map((movement) => {
-                      const resolvedCostCenterId = movementCostCenters[movement.id] || movement.default_centro_custo_id || '';
+                  <div className="max-h-[420px] overflow-auto rounded-lg border">
+                    <table className="w-full min-w-[1280px] text-sm">
+                      <thead className="bg-muted/50 text-xs uppercase tracking-wide text-muted-foreground">
+                        <tr>
+                          <th className="px-3 py-2 text-left font-medium">Descricao</th>
+                          <th className="px-3 py-2 text-left font-medium">Utilizador / Familia</th>
+                          <th className="px-3 py-2 text-left font-medium">Tipo</th>
+                          <th className="px-3 py-2 text-left font-medium">Data</th>
+                          <th className="px-3 py-2 text-left font-medium">Centro de custo</th>
+                          <th className="px-3 py-2 text-right font-medium">Valor total</th>
+                          <th className="px-3 py-2 text-right font-medium">Valor pago</th>
+                          <th className="px-3 py-2 text-right font-medium">Valor em aberto</th>
+                          <th className="px-3 py-2 text-left font-medium">Valor a alocar</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {openMovements.map((movement) => {
+                          const resolvedCostCenterId = movementCostCenters[movement.id] || movement.default_centro_custo_id || '';
 
-                      return (
-                        <div key={movement.id} className="rounded-lg border p-3 space-y-2">
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="min-w-0">
-                              <div className="font-medium text-sm break-words">{movement.descricao}</div>
-                              <div className="text-xs text-muted-foreground break-words">
-                                {[movement.user_name, movement.family_name, movement.tipo].filter(Boolean).join(' · ') || 'Movimento aberto'}
-                              </div>
-                            </div>
-                            <Badge variant="outline">{formatCurrency(toNumber(movement.valor_em_aberto, 0))}</Badge>
-                          </div>
-
-                          <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_140px] md:items-end">
-                            <div className="space-y-2 text-xs text-muted-foreground">
-                              <div>
-                                Emissao {movement.data_emissao ? format(new Date(movement.data_emissao), 'dd/MM/yyyy') : '-'}
-                                {movement.centro_custo_name ? ` · ${movement.centro_custo_name}` : ''}
-                              </div>
-
-                              {movement.requires_centro_custo ? (
+                          return (
+                            <tr key={movement.id} className="border-t align-top">
+                              <td className="px-3 py-3">
+                                <div className="font-medium break-words">{movement.descricao}</div>
+                                <div className="text-xs text-muted-foreground">{movement.classificacao}</div>
+                              </td>
+                              <td className="px-3 py-3 text-muted-foreground">
+                                {[movement.user_name, movement.family_name].filter(Boolean).join(' · ') || '-'}
+                              </td>
+                              <td className="px-3 py-3 text-muted-foreground">{movement.tipo || '-'}</td>
+                              <td className="px-3 py-3 text-muted-foreground">{formatDateLabel(movement.data_emissao || movement.data_vencimento)}</td>
+                              <td className="px-3 py-3 min-w-[240px]">
+                                {movement.requires_centro_custo ? (
+                                  <div className="space-y-1">
+                                    <Label className="text-xs">Centro de custo obrigatorio</Label>
+                                    <Select
+                                      value={resolvedCostCenterId}
+                                      onValueChange={(value) => setMovementCostCenters((current) => ({ ...current, [movement.id]: value }))}
+                                    >
+                                      <SelectTrigger>
+                                        <SelectValue placeholder="Selecionar centro de custo" />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        {centrosCusto.filter((item) => item.ativo).map((centroCusto) => (
+                                          <SelectItem key={centroCusto.id} value={centroCusto.id}>
+                                            {centroCusto.nome}
+                                          </SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                  </div>
+                                ) : (
+                                  <span className="text-muted-foreground">{movement.centro_custo_name || '-'}</span>
+                                )}
+                              </td>
+                              <td className="px-3 py-3 text-right font-medium">{formatCurrency(toNumber(movement.valor_total, 0))}</td>
+                              <td className="px-3 py-3 text-right text-muted-foreground">{formatCurrency(toNumber(movement.valor_pago, 0))}</td>
+                              <td className="px-3 py-3 text-right">
+                                <Badge variant="outline">{formatCurrency(toNumber(movement.valor_em_aberto, 0))}</Badge>
+                              </td>
+                              <td className="px-3 py-3 min-w-[170px]">
                                 <div className="space-y-1">
-                                  <Label className="text-xs">Centro de custo obrigatorio para esta linha</Label>
-                                  <Select
-                                    value={resolvedCostCenterId}
-                                    onValueChange={(value) => setMovementCostCenters((current) => ({ ...current, [movement.id]: value }))}
-                                  >
-                                    <SelectTrigger>
-                                      <SelectValue placeholder="Selecionar centro de custo" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                      {centrosCusto.filter((item) => item.ativo).map((centroCusto) => (
-                                        <SelectItem key={centroCusto.id} value={centroCusto.id}>
-                                          {centroCusto.nome}
-                                        </SelectItem>
-                                      ))}
-                                    </SelectContent>
-                                  </Select>
+                                  <Label className="text-xs">Valor a alocar</Label>
+                                  <Input
+                                    type="number"
+                                    min="0"
+                                    step="0.01"
+                                    max={toNumber(movement.valor_em_aberto, 0).toFixed(2)}
+                                    value={movementAllocations[movement.id] ?? ''}
+                                    onChange={(event) => setMovementAllocations((current) => ({ ...current, [movement.id]: event.target.value }))}
+                                  />
                                 </div>
-                              ) : null}
-                            </div>
-
-                            <div className="space-y-1">
-                              <Label className="text-xs">Valor a alocar</Label>
-                              <Input
-                                type="number"
-                                min="0"
-                                step="0.01"
-                                max={toNumber(movement.valor_em_aberto, 0).toFixed(2)}
-                                value={movementAllocations[movement.id] ?? ''}
-                                onChange={(event) => setMovementAllocations((current) => ({ ...current, [movement.id]: event.target.value }))}
-                              />
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
                   </div>
                 )}
               </Card>

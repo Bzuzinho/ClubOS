@@ -41,6 +41,12 @@ use App\Support\Communication\AlertCategoryRegistry;
 
 class ConfiguracoesController extends Controller
 {
+    private function forgetLogisticaCaches(): void
+    {
+        Cache::forget('configuracoes:logistica');
+        Cache::forget('configuracoes:index:eager');
+    }
+
     public function index(Request $request): Response
     {
         $useDefaultCache = ! $this->shouldBypassIndexCache($request);
@@ -568,6 +574,7 @@ class ConfiguracoesController extends Controller
         $data['stock_minimo'] = $data['stock_minimo'] ?? 0;
 
         Product::create($data);
+        $this->forgetLogisticaCaches();
 
         return redirect()->route('configuracoes')
             ->with('success', 'Artigo criado com sucesso!');
@@ -594,6 +601,7 @@ class ConfiguracoesController extends Controller
         unset($data['imagem_file']);
 
         $product->update($data);
+        $this->forgetLogisticaCaches();
 
         return redirect()->route('configuracoes')
             ->with('success', 'Artigo atualizado com sucesso!');
@@ -602,6 +610,7 @@ class ConfiguracoesController extends Controller
     public function destroyProduct(Product $product): RedirectResponse
     {
         $product->delete();
+        $this->forgetLogisticaCaches();
 
         return redirect()->route('configuracoes')
             ->with('success', 'Artigo eliminado com sucesso!');
@@ -617,6 +626,7 @@ class ConfiguracoesController extends Controller
         }
 
         Sponsor::create($data);
+        $this->forgetLogisticaCaches();
 
         return redirect()->route('configuracoes')
             ->with('success', 'Patrocinador criado com sucesso!');
@@ -632,6 +642,7 @@ class ConfiguracoesController extends Controller
         }
 
         $sponsor->update($data);
+        $this->forgetLogisticaCaches();
 
         return redirect()->route('configuracoes')
             ->with('success', 'Patrocinador atualizado com sucesso!');
@@ -640,6 +651,7 @@ class ConfiguracoesController extends Controller
     public function destroySponsor(Sponsor $sponsor): RedirectResponse
     {
         $sponsor->delete();
+        $this->forgetLogisticaCaches();
 
         return redirect()->route('configuracoes')
             ->with('success', 'Patrocinador eliminado com sucesso!');
@@ -658,6 +670,7 @@ class ConfiguracoesController extends Controller
         ]);
 
         Supplier::create($data);
+        $this->forgetLogisticaCaches();
 
         return redirect()->route('configuracoes')
             ->with('success', 'Fornecedor criado com sucesso!');
@@ -676,6 +689,7 @@ class ConfiguracoesController extends Controller
         ]);
 
         $supplier->update($data);
+        $this->forgetLogisticaCaches();
 
         return redirect()->route('configuracoes')
             ->with('success', 'Fornecedor atualizado com sucesso!');
@@ -684,6 +698,7 @@ class ConfiguracoesController extends Controller
     public function destroySupplier(Supplier $supplier): RedirectResponse
     {
         $supplier->delete();
+        $this->forgetLogisticaCaches();
 
         return redirect()->route('configuracoes')
             ->with('success', 'Fornecedor eliminado com sucesso!');
@@ -738,6 +753,7 @@ class ConfiguracoesController extends Controller
         ]);
 
         ItemCategory::create($data);
+        $this->forgetLogisticaCaches();
 
         return redirect()->route('configuracoes')
             ->with('success', 'Categoria criada com sucesso!');
@@ -752,6 +768,7 @@ class ConfiguracoesController extends Controller
         ]);
 
         $itemCategory->update($data);
+        $this->forgetLogisticaCaches();
 
         return redirect()->route('configuracoes')
             ->with('success', 'Categoria atualizada com sucesso!');
@@ -760,6 +777,7 @@ class ConfiguracoesController extends Controller
     public function destroyItemCategory(ItemCategory $itemCategory): RedirectResponse
     {
         $itemCategory->delete();
+        $this->forgetLogisticaCaches();
 
         return redirect()->route('configuracoes')
             ->with('success', 'Categoria eliminada com sucesso!');

@@ -14,6 +14,7 @@ class Movement extends Model
 
     protected $fillable = [
         'user_id',
+        'supplier_id',
         'nome_manual',
         'nif_manual',
         'morada_manual',
@@ -43,6 +44,11 @@ class Movement extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class, 'user_id');
+    }
+
+    public function supplier(): BelongsTo
+    {
+        return $this->belongsTo(Supplier::class, 'supplier_id');
     }
 
     public function centroCusto(): BelongsTo

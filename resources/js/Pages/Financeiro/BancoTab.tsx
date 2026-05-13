@@ -118,6 +118,16 @@ export function BancoTab({
       ? 0
       : Math.abs(toNumber(extrato.valor, 0));
   };
+  const isStatementFullyReconciled = (extrato: ExtratoBancario) => {
+    return getStatementStatus(extrato) === 'reconciled'
+      || getStatementRemainingAmount(extrato) <= 0.009
+      || extrato.conciliado === true;
+  };
+  const hasStatementReconciliation = (extrato: ExtratoBancario) => {
+    return isStatementFullyReconciled(extrato)
+      || getStatementStatus(extrato) === 'partial'
+      || getStatementReconciledAmount(extrato) > 0.009;
+  };
   const formatSuggestionInvoicePeriod = (invoice?: Fatura | null) => {
     if (!invoice) return null;
 
@@ -509,8 +519,6 @@ export function BancoTab({
     const response = await fetch(buildRouteUrl('financeiro.bank-statements.generate-suggestions', extrato.id), {
       method: 'POST',
       headers: buildJsonHeaders(),
-      credentials: 'same-origin',
-      signal: options?.signal,
       body: JSON.stringify({
         force_regeneration: options?.forceRegeneration === true,
       }),
@@ -959,6 +967,14 @@ export function BancoTab({
   };
 
   const handleDesconciliar = async (extrato: ExtratoBancario) => {
+    const confirmed = window.confirm(
+      'Esta operacao vai desfazer a conciliacao bancaria, reabrir mensalidades/movimentos associados e remover pedidos fiscais ainda nao emitidos. Pretende continuar?'
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
     try {
       const response = await fetch(route('financeiro.extratos.desconciliar', extrato.id), {
         method: 'POST',
@@ -971,7 +987,13 @@ export function BancoTab({
       });
 
       if (!response.ok) {
-        throw new Error('Erro ao desconciliar movimento');
+        const payload = await response.json().catch(() => null);
+        const message = payload?.errors?.extrato?.[0]
+          || payload?.errors?.estado_pagamento?.[0]
+          || payload?.message
+          || 'Erro ao desconciliar movimento';
+
+        throw new Error(message);
       }
 
       await response.json();
@@ -1014,11 +1036,11 @@ export function BancoTab({
     }
   };
 
-  const getCentroCustoName = (id?: string) => {
+  function getCentroCustoName(id?: string) {
     if (!id) return '-';
     const cc = (centrosCusto || []).find((c) => c.id === id);
     return cc ? cc.nome : '-';
-  };
+  }
 
   const totalConciliado = useMemo(() => {
     return (extratos || []).reduce((sum, extrato) => sum + getStatementReconciledAmount(extrato), 0);
@@ -1701,6 +1723,8 @@ export function BancoTab({
                   const statementStatus = getStatementStatus(extrato);
                   const reconciledAmount = getStatementReconciledAmount(extrato);
                   const remainingAmount = getStatementRemainingAmount(extrato);
+                  const fullyReconciled = isStatementFullyReconciled(extrato);
+                  const canUnreconcile = hasStatementReconciliation(extrato);
 
                   return (
                 <div className="space-y-3">
@@ -1732,32 +1756,46 @@ export function BancoTab({
                   </div>
 
                   <div className="flex flex-wrap gap-2 pt-1">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => void handleGenerateSuggestions(extrato)}
-                      className="h-8 px-2"
-                      disabled={statementStatus === 'reconciled' || suggestionActionId === extrato.id}
-                    >
-                      Gerar sugestoes
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => void handleOpenSuggestions(extrato)}
-                      className="h-8 px-2"
-                    >
-                      Ver sugestoes
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => openReconciliationDialog(extrato)}
-                      className="h-8 px-2"
-                      disabled={statementStatus === 'reconciled'}
-                    >
-                      Conciliar
-                    </Button>
+                    {!fullyReconciled ? (
+                      <>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => void handleGenerateSuggestions(extrato)}
+                          className="h-8 px-2"
+                          disabled={suggestionActionId === extrato.id}
+                        >
+                          Gerar sugestoes
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => void handleOpenSuggestions(extrato)}
+                          className="h-8 px-2"
+                        >
+                          Ver sugestoes
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => openReconciliationDialog(extrato)}
+                          className="h-8 px-2"
+                          title="Abrir conciliacao"
+                        >
+                          Conciliar
+                        </Button>
+                      </>
+                    ) : null}
+                    {canUnreconcile ? (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => void handleDesconciliar(extrato)}
+                        className="h-8 px-2"
+                      >
+                        Desconciliar
+                      </Button>
+                    ) : null}
                     <Button
                       size="sm"
                       variant="ghost"
@@ -1817,6 +1855,8 @@ export function BancoTab({
                       const statementStatus = getStatementStatus(extrato);
                       const reconciledAmount = getStatementReconciledAmount(extrato);
                       const remainingAmount = getStatementRemainingAmount(extrato);
+                      const fullyReconciled = isStatementFullyReconciled(extrato);
+                      const canUnreconcile = hasStatementReconciliation(extrato);
 
                       return (
                       <TableRow key={extrato.id}>
@@ -1847,36 +1887,51 @@ export function BancoTab({
                         </TableCell>
                         <TableCell className="text-right">
                           <div className="flex flex-wrap gap-1 md:gap-2 justify-end whitespace-nowrap">
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => void handleGenerateSuggestions(extrato)}
-                              className="h-8 w-8 p-0"
-                              disabled={statementStatus === 'reconciled' || suggestionActionId === extrato.id}
-                              title="Gerar sugestoes de conciliacao"
-                              aria-label="Gerar sugestoes de conciliacao"
-                            >
-                              <Sparkles size={14} />
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => void handleOpenSuggestions(extrato)}
-                              className="h-8 w-8 p-0"
-                              title="Ver sugestoes de conciliacao"
-                              aria-label="Ver sugestoes de conciliacao"
-                            >
-                              <Eye size={14} />
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => openReconciliationDialog(extrato)}
-                              className="text-[10px] md:text-xs h-7 md:h-8 px-2 md:px-3"
-                              disabled={statementStatus === 'reconciled'}
-                            >
-                              Conciliar
-                            </Button>
+                            {!fullyReconciled ? (
+                              <>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => void handleGenerateSuggestions(extrato)}
+                                  className="h-8 w-8 p-0"
+                                  disabled={suggestionActionId === extrato.id}
+                                  title="Gerar sugestoes de conciliacao"
+                                  aria-label="Gerar sugestoes de conciliacao"
+                                >
+                                  <Sparkles size={14} />
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => void handleOpenSuggestions(extrato)}
+                                  className="h-8 w-8 p-0"
+                                  title="Ver sugestoes de conciliacao"
+                                  aria-label="Ver sugestoes de conciliacao"
+                                >
+                                  <Eye size={14} />
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => openReconciliationDialog(extrato)}
+                                  className="text-[10px] md:text-xs h-7 md:h-8 px-2 md:px-3"
+                                  title="Abrir conciliacao"
+                                >
+                                  Conciliar
+                                </Button>
+                              </>
+                            ) : null}
+                            {canUnreconcile ? (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => void handleDesconciliar(extrato)}
+                                className="text-[10px] md:text-xs h-7 md:h-8 px-2 md:px-3"
+                                title="Desconciliar extrato"
+                              >
+                                Desconciliar
+                              </Button>
+                            ) : null}
                             <Button
                               size="sm"
                               variant="ghost"
