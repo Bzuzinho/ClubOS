@@ -25,6 +25,7 @@ use App\Services\Financeiro\BankReconciliationService;
 use App\Services\Financeiro\FinanceDashboardService;
 use App\Services\Financeiro\FinancialSettlementService;
 use App\Services\Financeiro\FiscalDocumentRequestService;
+use App\Services\Financeiro\MonthlyInvoiceStatusService;
 use App\Services\Financeiro\MonthlyFeeGenerationService;
 use App\Services\Financeiro\PaymentAllocationService;
 use App\Services\Financeiro\ReconciliationAliasService;
@@ -48,6 +49,7 @@ class FinanceiroController extends Controller
         private readonly FinancialSettlementService $financialSettlementService,
         private readonly BankReconciliationService $bankReconciliationService,
         private readonly FinanceDashboardService $financeDashboardService,
+        private readonly MonthlyInvoiceStatusService $monthlyInvoiceStatusService,
     ) {
     }
 
@@ -428,6 +430,25 @@ class FinanceiroController extends Controller
         $data = $request->validated();
 
         $requestedStatus = $data['estado_pagamento'] ?? $financeiro->estado_pagamento;
+        $isMonthlyFinancialTransition = $financeiro->tipo === 'mensalidade'
+            && (
+                (
+                    in_array($requestedStatus, ['pago', 'parcial'], true)
+                    && ! in_array($financeiro->estado_pagamento, ['pago', 'parcial'], true)
+                )
+                || (
+                    in_array($financeiro->estado_pagamento, ['pago', 'parcial'], true)
+                    && ! in_array($requestedStatus, ['pago', 'parcial'], true)
+                )
+                || ($financeiro->estado_pagamento === 'parcial' && $requestedStatus === 'pago')
+            );
+
+        if ($isMonthlyFinancialTransition) {
+            throw ValidationException::withMessages([
+                'estado_pagamento' => 'A alteracao de estado financeiro da mensalidade tem de ser efetuada pelo fluxo canonico da mensalidade.',
+            ]);
+        }
+
         if (
             in_array($requestedStatus, ['pago', 'parcial'], true)
             && !in_array($financeiro->estado_pagamento, ['pago', 'parcial'], true)
@@ -437,7 +458,8 @@ class FinanceiroController extends Controller
             ]);
         }
 
-        $isManualPaymentReversal = in_array($financeiro->estado_pagamento, ['pago', 'parcial'], true)
+        $isManualPaymentReversal = $financeiro->tipo !== 'mensalidade'
+            && in_array($financeiro->estado_pagamento, ['pago', 'parcial'], true)
             && !in_array($requestedStatus, ['pago', 'parcial'], true);
 
         if ($isManualPaymentReversal) {
@@ -518,6 +540,36 @@ class FinanceiroController extends Controller
 
         return redirect()->route('financeiro.index')
             ->with('success', 'Fatura atualizada com sucesso!');
+    }
+
+    public function updateMonthlyInvoiceStatus(Request $request, Invoice $invoice): JsonResponse
+    {
+        $data = $request->validate([
+            'estado_pagamento' => ['required', 'in:pago,pendente,vencido'],
+            'bank_statement_id' => ['nullable', 'exists:bank_statements,id'],
+            'payment_date' => ['nullable', 'date'],
+            'method' => ['nullable', 'string', 'max:50'],
+            'reference' => ['nullable', 'string', 'max:255'],
+            'notes' => ['nullable', 'string'],
+        ]);
+
+        $updatedInvoice = $this->monthlyInvoiceStatusService->transition($invoice, $data['estado_pagamento'], [
+            'bank_statement_id' => $data['bank_statement_id'] ?? null,
+            'payment_date' => $data['payment_date'] ?? now()->toDateString(),
+            'method' => $data['method'] ?? null,
+            'reference' => $data['reference'] ?? null,
+            'notes' => $data['notes'] ?? null,
+            'created_by' => $request->user()?->id,
+        ]);
+
+        $this->invalidateFinanceiroCaches();
+
+        return response()->json([
+            'invoice' => $updatedInvoice->load(['items']),
+            'message' => $data['estado_pagamento'] === 'pago'
+                ? 'Mensalidade liquidada pelo fluxo canonico com sucesso.'
+                : 'Mensalidade reaberta pelo fluxo canonico com sucesso.',
+        ]);
     }
 
     public function generateMonthlyFees(Request $request): JsonResponse

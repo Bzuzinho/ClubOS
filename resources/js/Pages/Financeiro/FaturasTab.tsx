@@ -237,16 +237,16 @@ export function FaturasTab({
   const [dataInicioMensalidades, setDataInicioMensalidades] = useState('');
   const [dataFimMensalidades, setDataFimMensalidades] = useState('');
   const [editingFaturaId, setEditingFaturaId] = useState<string | null>(null);
+  const [statusTransitionInvoiceId, setStatusTransitionInvoiceId] = useState<string | null>(null);
   const [showFutureInvoices, setShowFutureInvoices] = useState(false);
-  const [creatingFiscalRequestId, setCreatingFiscalRequestId] = useState<string | null>(null);
   const getInvoiceTypeLabel = (tipo: string) => {
     const match = (invoiceTypes || []).find((type) => type.codigo === tipo);
     return match ? match.nome : tipo;
   };
 
-  const refreshInvoices = () => {
+  const reloadFinanceiroData = () => {
     router.reload({
-      only: ['faturas', 'mensalidadesFaturas', 'faturaItens', 'lancamentos'],
+      only: ['dashboardData', 'faturas', 'mensalidadesFaturas', 'faturaItens', 'movimentosFinanceiros', 'extratos', 'lancamentos', 'fiscalRequests', 'conciliacoes'],
       preserveScroll: true,
     });
   };
@@ -282,21 +282,6 @@ export function FaturasTab({
 
   const getInvoicePaidAmount = (invoice: Fatura) => Math.max(toNumber(invoice.valor_pago, 0), 0);
 
-  const sanitizeAdministrativeState = (
-    nextState: Fatura['estado_pagamento'],
-    currentState?: Fatura['estado_pagamento']
-  ): Fatura['estado_pagamento'] => {
-    if (nextState === 'pago' || nextState === 'parcial') {
-      if (currentState === 'pago' || currentState === 'parcial') {
-        return currentState;
-      }
-
-      return 'pendente';
-    }
-
-    return nextState;
-  };
-
   const resetPaymentDialog = () => {
     setDialogReciboOpen(false);
     setSelectedFaturaId(null);
@@ -309,6 +294,7 @@ export function FaturasTab({
     setPaymentAllocations({});
     setPaymentCreateCredit(false);
     setPaymentSubmitting(false);
+    setStatusTransitionInvoiceId(null);
   };
 
   const [formData, setFormData] = useState({
@@ -428,7 +414,7 @@ export function FaturasTab({
 
   const paymentDifference = totalAvailableAmount - totalAllocatedAmount;
 
-  const handleAbrirDialogoRecibo = (faturaId?: string) => {
+  const handleAbrirDialogoRecibo = (faturaId?: string, fromStatusTransition = false) => {
     const invoiceIds = faturaId ? [faturaId] : Array.from(selectedFaturas);
     const eligibleInvoices = invoiceIds
       .map((invoiceId) => (faturas || []).find((invoice) => invoice.id === invoiceId))
@@ -460,6 +446,7 @@ export function FaturasTab({
     setPaymentAllocations(defaultAllocations);
     setPaymentAmount(formatAmount(eligibleInvoices.reduce((sum, invoice) => sum + getInvoiceOutstandingAmount(invoice), 0)));
     setPaymentCreateCredit(false);
+    setStatusTransitionInvoiceId(fromStatusTransition && faturaId ? faturaId : null);
     setDialogReciboOpen(true);
   };
 
@@ -493,58 +480,74 @@ export function FaturasTab({
     setPaymentSubmitting(true);
 
     try {
-      const response = await axios.post(route('financeiro.payments.allocate'), {
-        bank_statement_id: selectedBankStatement?.id,
-        amount: selectedBankStatement ? undefined : totalAvailableAmount,
-        payment_date: selectedBankStatement ? undefined : paymentDate,
-        method: paymentMethod || undefined,
-        reference: paymentReference || undefined,
-        notes: paymentNotes || undefined,
-        create_credit: paymentCreateCredit,
-        allocations,
-      }, {
-        headers: {
-          Accept: 'application/json',
-          'Content-Type': 'application/json',
-          'X-Requested-With': 'XMLHttpRequest',
-          'X-CSRF-TOKEN': getCsrfToken(),
-        },
-        withCredentials: true,
-      });
+      if (statusTransitionInvoiceId) {
+        const result = await transitionMonthlyInvoiceStatus(statusTransitionInvoiceId, {
+          estado_pagamento: 'pago',
+          bank_statement_id: selectedBankStatement?.id,
+          payment_date: selectedBankStatement ? undefined : paymentDate,
+          method: paymentMethod || undefined,
+          reference: paymentReference || undefined,
+          notes: paymentNotes || undefined,
+        });
 
-      const updatedInvoices = Array.isArray(response.data?.invoices) ? response.data.invoices as Fatura[] : [];
-      const updatedStatement = response.data?.bank_statement as ExtratoBancario | undefined;
-      const summary = response.data?.summary as {
-        all_paid?: boolean;
-        has_partial_invoice?: boolean;
-        created_credit?: boolean;
-        bank_statement_reconciled?: boolean;
-      } | undefined;
-
-      if (updatedInvoices.length > 0) {
-        const updatedById = new Map(updatedInvoices.map((invoice) => [invoice.id, invoice]));
-        setFaturas((current) => (current || []).map((invoice) => updatedById.get(invoice.id) || invoice));
-      }
-
-      if (updatedStatement?.id) {
-        setExtratos((current) => (current || []).map((statement) => (
-          statement.id === updatedStatement.id ? { ...statement, ...updatedStatement } : statement
+        setFaturas((current) => (current || []).map((invoice) => (
+          invoice.id === statusTransitionInvoiceId ? result.invoice : invoice
         )));
-      }
-
-      if (summary?.created_credit) {
-        toast.success('Pagamento registado e excedente guardado em conta corrente.');
-      } else if (summary?.bank_statement_reconciled) {
-        toast.success('Pagamento registado e linha bancaria conciliada.');
-      } else if (summary?.has_partial_invoice) {
-        toast.success('Pagamento parcial registado.');
-      } else if (summary?.all_paid) {
-        toast.success('Pagamento registado e pedido fiscal criado.');
+        toast.success(result.message || 'Pagamento registado e pedido fiscal criado.');
       } else {
-        toast.success('Pagamento registado com sucesso.');
+        const response = await axios.post(route('financeiro.payments.allocate'), {
+          bank_statement_id: selectedBankStatement?.id,
+          amount: selectedBankStatement ? undefined : totalAvailableAmount,
+          payment_date: selectedBankStatement ? undefined : paymentDate,
+          method: paymentMethod || undefined,
+          reference: paymentReference || undefined,
+          notes: paymentNotes || undefined,
+          create_credit: paymentCreateCredit,
+          allocations,
+        }, {
+          headers: {
+            Accept: 'application/json',
+            'Content-Type': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest',
+            'X-CSRF-TOKEN': getCsrfToken(),
+          },
+          withCredentials: true,
+        });
+
+        const updatedInvoices = Array.isArray(response.data?.invoices) ? response.data.invoices as Fatura[] : [];
+        const updatedStatement = response.data?.bank_statement as ExtratoBancario | undefined;
+        const summary = response.data?.summary as {
+          all_paid?: boolean;
+          has_partial_invoice?: boolean;
+          created_credit?: boolean;
+          bank_statement_reconciled?: boolean;
+        } | undefined;
+
+        if (updatedInvoices.length > 0) {
+          const updatedById = new Map(updatedInvoices.map((invoice) => [invoice.id, invoice]));
+          setFaturas((current) => (current || []).map((invoice) => updatedById.get(invoice.id) || invoice));
+        }
+
+        if (updatedStatement?.id) {
+          setExtratos((current) => (current || []).map((statement) => (
+            statement.id === updatedStatement.id ? { ...statement, ...updatedStatement } : statement
+          )));
+        }
+
+        if (summary?.created_credit) {
+          toast.success('Pagamento registado e excedente guardado em conta corrente.');
+        } else if (summary?.bank_statement_reconciled) {
+          toast.success('Pagamento registado e linha bancaria conciliada.');
+        } else if (summary?.has_partial_invoice) {
+          toast.success('Pagamento parcial registado.');
+        } else if (summary?.all_paid) {
+          toast.success('Pagamento registado e pedido fiscal criado.');
+        } else {
+          toast.success('Pagamento registado com sucesso.');
+        }
       }
 
-      refreshInvoices();
+      reloadFinanceiroData();
       resetPaymentDialog();
       setSelectedFaturas(new Set());
     } catch (error) {
@@ -609,7 +612,7 @@ export function FaturasTab({
       setLancamentos((current) => (current || []).filter((l) => !l.fatura_id || !faturasParaApagar.includes(l.fatura_id)));
 
       toast.success(`${faturasParaApagar.length} fatura(s) apagada(s) com sucesso`);
-      refreshInvoices();
+      reloadFinanceiroData();
       setDialogDeleteOpen(false);
       setSelectedFaturas(new Set());
     } catch (error) {
@@ -628,59 +631,57 @@ export function FaturasTab({
       setFaturaItens((current) => (current || []).filter((item) => item.fatura_id !== faturaId));
       setLancamentos((current) => (current || []).filter((l) => l.fatura_id !== faturaId));
       toast.success('Fatura apagada com sucesso');
-      refreshInvoices();
+      reloadFinanceiroData();
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Erro ao apagar fatura';
       toast.error(message);
     }
   };
 
-  const handleCreateFiscalDocumentRequest = async (faturaId: string) => {
-    setCreatingFiscalRequestId(faturaId);
+  const transitionMonthlyInvoiceStatus = async (invoiceId: string, payload: {
+    estado_pagamento: 'pago' | 'pendente' | 'vencido';
+    bank_statement_id?: string;
+    payment_date?: string;
+    method?: string;
+    reference?: string;
+    notes?: string;
+  }) => {
+    const response = await fetch(route('financeiro.mensalidades.estado', invoiceId), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        'X-Requested-With': 'XMLHttpRequest',
+        'X-CSRF-TOKEN': getCsrfToken(),
+      },
+      credentials: 'same-origin',
+      body: JSON.stringify(payload),
+    });
 
-    try {
-      const response = await fetch(route('financeiro.invoices.fiscal-document-request.store', faturaId), {
-        method: 'POST',
-        headers: {
-          Accept: 'application/json',
-          'X-Requested-With': 'XMLHttpRequest',
-          'X-CSRF-TOKEN': getCsrfToken(),
-        },
-        credentials: 'same-origin',
-      });
+    if (!response.ok) {
+      let message = 'Erro ao alterar estado da mensalidade';
 
-      let data: any = null;
       try {
-        data = await response.json();
+        const data = await response.json();
+        if (data?.message) message = data.message;
+        if (data?.errors) {
+          const errors = Object.values(data.errors).flat().join(' ');
+          if (errors) message = errors;
+        }
       } catch (error) {
-        data = null;
+        const fallback = await response.text();
+        if (fallback) message = fallback;
       }
 
-      const message = data?.message || 'Nao foi possivel criar o pedido fiscal.';
-
-      if (!response.ok) {
-        throw new Error(message);
-      }
-
-      if (response.status === 201) {
-        toast.success(`${message} Consulte a tab Emissao Fiscal.`);
-      } else {
-        toast.info(message);
-      }
-
-      refreshInvoices();
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Erro ao criar pedido fiscal';
-      toast.error(message);
-    } finally {
-      setCreatingFiscalRequestId(null);
+      throw new Error(message);
     }
-  };
 
-  const canShowCreateFiscalFallback = (fatura: Fatura) => {
-    return fatura.estado_pagamento === 'pago'
-      && !fatura.has_fiscal_document_request
-      && !fatura.has_registered_fiscal_document;
+    const data = await response.json();
+
+    return {
+      invoice: data.invoice as Fatura,
+      message: data.message as string | undefined,
+    };
   };
 
   const getDataInicioMensalidades = (user: User) => {
@@ -870,7 +871,7 @@ export function FaturasTab({
         );
       }
 
-      refreshInvoices();
+      reloadFinanceiroData();
       setDialogAutoOpen(false);
       setSelectedUserId('');
       setSelectedMonthlyFeeId('all');
@@ -908,7 +909,7 @@ export function FaturasTab({
         data_emissao: formData.data_emissao,
         data_vencimento: formData.data_vencimento,
         valor_total: total,
-        estado_pagamento: sanitizeAdministrativeState(formData.estado_pagamento, faturaOriginal?.estado_pagamento),
+        estado_pagamento: formData.estado_pagamento,
         centro_custo_id: formData.centro_custo_id || undefined,
         tipo: 'mensalidade',
         origem_tipo: formData.origem_tipo || null,
@@ -933,54 +934,27 @@ export function FaturasTab({
       });
 
       try {
-        if (faturaOriginal && faturaOriginal.estado_pagamento !== faturaAtualizada.estado_pagamento) {
-          const conciliacao = (conciliacoes || []).find((c) => c.fatura_id === editingFaturaId);
-          if (conciliacao) {
-            const confirmar = window.confirm(
-              'Esta fatura tem conciliacao. OK = desconciliar e mudar o estado. Cancelar = mudar apenas o estado.'
-            );
+        const originalStatus = faturaOriginal?.estado_pagamento;
+        const isTransitionToPaid = !!faturaOriginal
+          && faturaAtualizada.estado_pagamento === 'pago'
+          && originalStatus !== 'pago';
+        const isReopenTransition = !!faturaOriginal
+          && ['pago', 'parcial'].includes(originalStatus || '')
+          && ['pendente', 'vencido'].includes(faturaAtualizada.estado_pagamento);
 
-            if (confirmar) {
-              const response = await fetch(route('financeiro.extratos.desconciliar', conciliacao.extrato_id), {
-                method: 'POST',
-                headers: {
-                  Accept: 'application/json',
-                  'X-Requested-With': 'XMLHttpRequest',
-                  'X-CSRF-TOKEN': getCsrfToken(),
-                },
-                credentials: 'same-origin',
-              });
-              if (!response.ok) {
-                toast.error('Erro ao desconciliar fatura');
-                return;
-              }
-              if (response.ok) {
-                const data = await response.json();
-                if (data.lancamentos_removidos && Array.isArray(data.lancamentos_removidos)) {
-                  setLancamentos((current) => (current || []).filter((l) => !data.lancamentos_removidos.includes(l.id)));
-                } else if (conciliacao.lancamento_id) {
-                  setLancamentos((current) => (current || []).filter((l) => l.id !== conciliacao.lancamento_id));
-                }
-                if (data.faturas && Array.isArray(data.faturas)) {
-                  setFaturas((current) =>
-                    (current || []).map((f) => {
-                      const updated = data.faturas.find((u: Fatura) => u.id === f.id);
-                      return updated ? { ...f, ...updated } : f;
-                    })
-                  );
-                }
-                if (data.extrato?.id) {
-                  setExtratos((current) => (current || []).map((e) => (e.id === data.extrato.id ? data.extrato : e)));
-                }
-                if (data.extrato?.id) {
-                  setConciliacoes((current) => (current || []).filter((c) => c.extrato_id !== data.extrato.id));
-                }
-              }
-            } else {
-              toast.warning('Estado alterado. A conciliacao foi mantida; liquidacao deve ser feita manualmente.');
-            }
+        if (isReopenTransition) {
+          const confirmed = window.confirm(
+            'Esta operacao vai desfazer pagamento, conciliacao bancaria e pedido fiscal associado, se ainda nao existir documento Wintouch emitido.'
+          );
+
+          if (!confirmed) {
+            return;
           }
         }
+
+        const administrativeStatus = (isTransitionToPaid || isReopenTransition)
+          ? (originalStatus as Fatura['estado_pagamento'])
+          : faturaAtualizada.estado_pagamento;
 
         const updated = await persistInvoiceUpdate(editingFaturaId, {
           user_id: faturaAtualizada.user_id,
@@ -990,7 +964,7 @@ export function FaturasTab({
           mes: faturaAtualizada.mes || null,
           tipo: faturaAtualizada.tipo,
           valor_total: faturaAtualizada.valor_total,
-          estado_pagamento: faturaAtualizada.estado_pagamento,
+          estado_pagamento: administrativeStatus,
           numero_recibo: faturaAtualizada.numero_recibo || null,
           centro_custo_id: faturaAtualizada.centro_custo_id || undefined,
           observacoes: faturaAtualizada.observacoes || undefined,
@@ -1013,6 +987,30 @@ export function FaturasTab({
           const filtered = (current || []).filter((item) => item.fatura_id !== editingFaturaId);
           return [...filtered, ...(updated.items || [])];
         });
+
+        if (isTransitionToPaid) {
+          toast.info('Confirme agora a liquidacao da mensalidade pelo fluxo canonico.');
+          setDialogOpen(false);
+          setEditingFaturaId(null);
+          handleAbrirDialogoRecibo(editingFaturaId, true);
+          return;
+        }
+
+        if (isReopenTransition) {
+          const result = await transitionMonthlyInvoiceStatus(editingFaturaId, {
+            estado_pagamento: faturaAtualizada.estado_pagamento as 'pendente' | 'vencido',
+            notes: formData.observacoes || undefined,
+          });
+
+          setFaturas((current) => (current || []).map((f) => (f.id === editingFaturaId ? result.invoice : f)));
+          toast.success(result.message || 'Mensalidade reaberta com sucesso.');
+          reloadFinanceiroData();
+          setDialogOpen(false);
+          setEditingFaturaId(null);
+          resetForm();
+
+          return;
+        }
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Erro ao atualizar fatura';
         toast.error(message);
@@ -1043,7 +1041,7 @@ export function FaturasTab({
         return [...(current || []), novoLancamento];
       });
       toast.success('Fatura atualizada com sucesso');
-      refreshInvoices();
+      reloadFinanceiroData();
       setEditingFaturaId(null);
     } else {
       const faturaId = crypto.randomUUID();
@@ -1060,7 +1058,7 @@ export function FaturasTab({
         data_emissao: formData.data_emissao,
         data_vencimento: formData.data_vencimento,
         valor_total: total,
-        estado_pagamento: sanitizeAdministrativeState(formData.estado_pagamento),
+        estado_pagamento: formData.estado_pagamento === 'pago' ? 'pendente' : formData.estado_pagamento,
         centro_custo_id: formData.centro_custo_id || undefined,
         tipo: 'mensalidade',
         origem_tipo: formData.origem_tipo || null,
@@ -1146,7 +1144,7 @@ export function FaturasTab({
         ]);
 
         toast.success('Fatura criada com sucesso');
-        refreshInvoices();
+        reloadFinanceiroData();
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Erro ao gravar fatura na base de dados';
         toast.error(message);
@@ -1538,28 +1536,23 @@ export function FaturasTab({
 
                   <div className="space-y-2">
                     <Label className="text-sm">Estado de pagamento</Label>
-                    {editingFaturaId && ['pago', 'parcial'].includes(formData.estado_pagamento) ? (
-                      <div className="space-y-2 rounded-md border border-input bg-muted p-3">
-                        <div>{getEstadoBadge(formData.estado_pagamento)}</div>
-                        <p className="text-xs text-muted-foreground">
-                          Estados `pago` e `parcial` nao podem ser alterados por edicao. Use o modal de pagamento/liquidacao para registar movimentos financeiros.
-                        </p>
-                      </div>
-                    ) : (
-                      <Select
-                        value={sanitizeAdministrativeState(formData.estado_pagamento)}
-                        onValueChange={(v) => setFormData({ ...formData, estado_pagamento: v as Fatura['estado_pagamento'] })}
-                      >
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="pendente">Pendente</SelectItem>
-                          <SelectItem value="vencido">Vencido</SelectItem>
-                          <SelectItem value="cancelado">Cancelado</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    )}
+                    <Select
+                      value={formData.estado_pagamento}
+                      onValueChange={(v) => setFormData({ ...formData, estado_pagamento: v as Fatura['estado_pagamento'] })}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="pendente">Pendente</SelectItem>
+                        <SelectItem value="vencido">Vencido</SelectItem>
+                        {editingFaturaId && <SelectItem value="pago">Pago</SelectItem>}
+                        {editingFaturaId && <SelectItem value="parcial" disabled>Parcial (apenas via fluxo canonico)</SelectItem>}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      Alteracoes para `pago` abrem o fluxo canonico de liquidacao. Reabrir para `pendente` ou `vencido` desfaz pagamento, conciliacao e pedido fiscal ainda nao emitido.
+                    </p>
                   </div>
 
                   <div className="space-y-2 sm:col-span-2">
@@ -1778,18 +1771,6 @@ export function FaturasTab({
                           >
                             <PencilSimple size={14} />
                           </Button>
-                          {canShowCreateFiscalFallback(fatura) && (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-7 px-2 text-[11px]"
-                              onClick={() => handleCreateFiscalDocumentRequest(fatura.id)}
-                              disabled={creatingFiscalRequestId === fatura.id}
-                              title="Criar pedido fiscal em falta"
-                            >
-                              Criar pedido fiscal em falta
-                            </Button>
-                          )}
                           <button
                             type="button"
                             className="inline-flex h-7 w-7 items-center justify-center rounded-md hover:bg-accent"
@@ -1879,18 +1860,6 @@ export function FaturasTab({
                               {!['pago', 'cancelado'].includes(fatura.estado_pagamento) && (
                                 <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => handleAbrirDialogoRecibo(fatura.id)} title="Registar pagamento">
                                   <Check size={14} />
-                                </Button>
-                              )}
-                              {canShowCreateFiscalFallback(fatura) && (
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  className="h-7 px-2 text-[11px]"
-                                  onClick={() => handleCreateFiscalDocumentRequest(fatura.id)}
-                                  disabled={creatingFiscalRequestId === fatura.id}
-                                  title="Criar pedido fiscal em falta"
-                                >
-                                  Criar pedido fiscal em falta
                                 </Button>
                               )}
                               <button

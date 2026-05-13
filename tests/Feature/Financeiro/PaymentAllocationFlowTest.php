@@ -16,6 +16,7 @@ use App\Models\PaymentAllocation;
 use App\Models\User;
 use App\Models\InvoiceType;
 use App\Services\Financeiro\FinancialSettlementService;
+use App\Services\Financeiro\FiscalDocumentRequestService;
 use App\Services\Financeiro\FiscalEmissionQueueService;
 use App\Services\Financeiro\PaymentAllocationService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -410,6 +411,75 @@ class PaymentAllocationFlowTest extends TestCase
         $this->assertSame('0.00', $invoice->valor_em_aberto);
     }
 
+    public function test_monthly_status_endpoint_marks_invoice_as_paid_without_bank_statement(): void
+    {
+        $admin = User::factory()->admin()->create();
+        [$invoice] = $this->createInvoicesForUser([25.00]);
+
+        $response = $this->actingAs($admin)->postJson(route('financeiro.mensalidades.estado', $invoice), [
+            'estado_pagamento' => 'pago',
+            'payment_date' => '2026-05-05',
+            'method' => 'transferencia',
+            'reference' => 'TRX-MENSALIDADE-001',
+            'notes' => 'Liquidacao canonica da mensalidade.',
+        ]);
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('invoice.estado_pagamento', 'pago');
+
+        $invoice->refresh();
+
+        $this->assertSame('pago', $invoice->estado_pagamento);
+        $this->assertSame('25.00', $invoice->valor_pago);
+        $this->assertSame('0.00', $invoice->valor_em_aberto);
+        $this->assertDatabaseHas('payments', [
+            'reference' => 'TRX-MENSALIDADE-001',
+            'status' => Payment::STATUS_CONFIRMED,
+        ]);
+        $this->assertDatabaseHas('payment_allocations', [
+            'invoice_id' => $invoice->id,
+            'amount' => 25.00,
+            'status' => PaymentAllocation::STATUS_CONFIRMED,
+        ]);
+        $this->assertDatabaseHas('fiscal_document_requests', [
+            'invoice_id' => $invoice->id,
+            'status' => FiscalDocumentRequest::STATUS_PENDING,
+            'external_document_number' => null,
+        ]);
+    }
+
+    public function test_monthly_status_endpoint_marks_invoice_as_paid_with_bank_statement(): void
+    {
+        $admin = User::factory()->admin()->create();
+        [$invoice] = $this->createInvoicesForUser([25.00]);
+        $statement = $this->createBankStatement(25.00);
+
+        $response = $this->actingAs($admin)->postJson(route('financeiro.mensalidades.estado', $invoice), [
+            'estado_pagamento' => 'pago',
+            'bank_statement_id' => $statement->id,
+            'method' => 'transferencia',
+            'reference' => 'TRX-MENSALIDADE-EXTRATO-001',
+        ]);
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('invoice.estado_pagamento', 'pago');
+
+        $invoice->refresh();
+        $statement->refresh();
+
+        $this->assertSame('pago', $invoice->estado_pagamento);
+        $this->assertTrue($statement->conciliado);
+        $this->assertSame('reconciled', $statement->conciliacao_status);
+        $this->assertSame('25.00', $statement->valor_conciliado);
+        $this->assertDatabaseHas('payment_allocations', [
+            'invoice_id' => $invoice->id,
+            'amount' => 25.00,
+            'status' => PaymentAllocation::STATUS_CONFIRMED,
+        ]);
+    }
+
     public function test_it_reverses_manual_payment_tracking_when_invoice_is_changed_back_to_overdue(): void
     {
         $admin = User::factory()->admin()->create();
@@ -429,31 +499,8 @@ class PaymentAllocationFlowTest extends TestCase
         $payment = Payment::query()->where('reference', 'TRX-REVERSAO')->firstOrFail();
         $allocation = PaymentAllocation::query()->where('payment_id', $payment->id)->firstOrFail();
 
-        $response = $this->actingAs($admin)->putJson(route('financeiro.update', $invoice), [
-            'user_id' => $invoice->user_id,
-            'data_fatura' => optional($invoice->data_fatura)->toDateString(),
-            'data_emissao' => $invoice->data_emissao->toDateString(),
-            'data_vencimento' => $invoice->data_vencimento->toDateString(),
-            'mes' => $invoice->mes,
-            'tipo' => $invoice->tipo,
+        $response = $this->actingAs($admin)->postJson(route('financeiro.mensalidades.estado', $invoice), [
             'estado_pagamento' => 'vencido',
-            'valor_total' => (float) $invoice->valor_total,
-            'oculta' => false,
-            'centro_custo_id' => $invoice->centro_custo_id,
-            'numero_recibo' => $invoice->numero_recibo,
-            'referencia_pagamento' => $invoice->referencia_pagamento,
-            'origem_tipo' => $invoice->origem_tipo,
-            'origem_id' => $invoice->origem_id,
-            'observacoes' => $invoice->observacoes,
-            'items' => [[
-                'descricao' => 'Mensalidade 1',
-                'quantidade' => 1,
-                'valor_unitario' => 25.00,
-                'imposto_percentual' => 0,
-                'total_linha' => 25.00,
-                'produto_id' => null,
-                'centro_custo_id' => $invoice->centro_custo_id,
-            ]],
         ]);
 
         $response->assertOk();
@@ -485,6 +532,80 @@ class PaymentAllocationFlowTest extends TestCase
         $this->assertSame('pago', $invoice->estado_pagamento);
         $this->assertSame('25.00', $invoice->valor_pago);
         $this->assertSame('0.00', $invoice->valor_em_aberto);
+    }
+
+    public function test_monthly_status_endpoint_reopens_paid_invoice_to_pending_and_soft_deletes_pending_fiscal_request(): void
+    {
+        $admin = User::factory()->admin()->create();
+        [$invoice] = $this->createInvoicesForUser([25.00]);
+
+        $this->actingAs($admin)->postJson(route('financeiro.mensalidades.estado', $invoice), [
+            'estado_pagamento' => 'pago',
+            'payment_date' => '2026-05-05',
+            'method' => 'transferencia',
+            'reference' => 'TRX-MENSALIDADE-REABRIR-001',
+        ])->assertOk();
+
+        $payment = Payment::query()->where('reference', 'TRX-MENSALIDADE-REABRIR-001')->firstOrFail();
+        $allocation = PaymentAllocation::query()->where('payment_id', $payment->id)->firstOrFail();
+        $request = FiscalDocumentRequest::query()->where('invoice_id', $invoice->id)->firstOrFail();
+
+        $response = $this->actingAs($admin)->postJson(route('financeiro.mensalidades.estado', $invoice), [
+            'estado_pagamento' => 'pendente',
+        ]);
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('invoice.estado_pagamento', 'pendente');
+
+        $invoice->refresh();
+        $payment->refresh();
+
+        $this->assertSame('pendente', $invoice->estado_pagamento);
+        $this->assertSame('0.00', $invoice->valor_pago);
+        $this->assertSame('25.00', $invoice->valor_em_aberto);
+        $this->assertSame(Payment::STATUS_CANCELLED, $payment->status);
+        $this->assertFalse(PaymentAllocation::query()->whereKey($allocation->id)->exists());
+        $this->assertTrue(PaymentAllocation::withTrashed()->whereKey($allocation->id)->where('status', PaymentAllocation::STATUS_CANCELLED)->exists());
+        $this->assertSoftDeleted('fiscal_document_requests', [
+            'id' => $request->id,
+        ]);
+    }
+
+    public function test_monthly_status_endpoint_blocks_reopen_when_fiscal_document_has_external_number(): void
+    {
+        $admin = User::factory()->admin()->create();
+        [$invoice] = $this->createInvoicesForUser([25.00]);
+
+        $this->actingAs($admin)->postJson(route('financeiro.mensalidades.estado', $invoice), [
+            'estado_pagamento' => 'pago',
+            'payment_date' => '2026-05-05',
+            'method' => 'transferencia',
+            'reference' => 'TRX-MENSALIDADE-BLOQUEIO-001',
+        ])->assertOk();
+
+        $request = FiscalDocumentRequest::query()->where('invoice_id', $invoice->id)->firstOrFail();
+
+        app(FiscalDocumentRequestService::class)->markIssued($request, [
+            'external_document_number' => 'RC 2026/99',
+            'issued_at' => '2026-05-05 10:00:00',
+        ]);
+
+        $response = $this->actingAs($admin)->postJson(route('financeiro.mensalidades.estado', $invoice), [
+            'estado_pagamento' => 'vencido',
+        ]);
+
+        $response
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('estado_pagamento');
+
+        $invoice->refresh();
+
+        $this->assertSame('pago', $invoice->estado_pagamento);
+        $this->assertDatabaseHas('fiscal_document_requests', [
+            'id' => $request->id,
+            'external_document_number' => 'RC 2026/99',
+        ]);
     }
 
     public function test_it_rejects_marking_an_invoice_as_paid_directly_via_update(): void
@@ -521,7 +642,8 @@ class PaymentAllocationFlowTest extends TestCase
 
         $response
             ->assertStatus(422)
-            ->assertJsonValidationErrors('estado_pagamento');
+            ->assertJsonValidationErrors('estado_pagamento')
+            ->assertJsonPath('errors.estado_pagamento.0', 'A alteracao de estado financeiro da mensalidade tem de ser efetuada pelo fluxo canonico da mensalidade.');
 
         $invoice->refresh();
 
