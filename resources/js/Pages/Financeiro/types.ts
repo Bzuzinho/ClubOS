@@ -156,6 +156,8 @@ export interface OpenInvoiceListItem {
   id: string;
   user_id: string;
   user_name?: string | null;
+  family_id?: string | null;
+  family_name?: string | null;
   valor_total: number;
   valor_pago: number;
   valor_em_aberto: number;
@@ -164,6 +166,30 @@ export interface OpenInvoiceListItem {
   vencimento?: string | null;
   mes?: string | null;
   tipo: string;
+  centro_custo_id?: string | null;
+  centro_custo_name?: string | null;
+}
+
+export interface OpenMovementListItem {
+  id: string;
+  user_id?: string | null;
+  user_name?: string | null;
+  family_id?: string | null;
+  family_name?: string | null;
+  financial_entry_id?: string | null;
+  descricao: string;
+  tipo: Movimento['tipo'];
+  classificacao: Movimento['classificacao'];
+  valor_total: number;
+  valor_pago: number;
+  valor_em_aberto: number;
+  estado_pagamento: Movimento['estado_pagamento'];
+  data_emissao?: string | null;
+  data_vencimento?: string | null;
+  centro_custo_id?: string | null;
+  centro_custo_name?: string | null;
+  default_centro_custo_id?: string | null;
+  requires_centro_custo: boolean;
 }
 
 export interface Movimento {

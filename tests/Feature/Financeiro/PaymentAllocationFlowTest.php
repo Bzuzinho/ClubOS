@@ -20,6 +20,7 @@ use App\Services\Financeiro\FiscalDocumentRequestService;
 use App\Services\Financeiro\FiscalEmissionQueueService;
 use App\Services\Financeiro\PaymentAllocationService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Str;
 use Tests\TestCase;
 
 class PaymentAllocationFlowTest extends TestCase
@@ -1370,6 +1371,242 @@ class PaymentAllocationFlowTest extends TestCase
         $invoiceIds = collect($response->json('data') ?? [])->pluck('id')->all();
 
         $this->assertNotContains($invoice->id, $invoiceIds);
+    }
+
+    public function test_bank_statement_allocate_endpoint_accepts_invoice_payload_and_preserves_origin_cost_centers(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $userA = User::factory()->create(['nome_completo' => 'User Centro A']);
+        $userB = User::factory()->create(['nome_completo' => 'User Centro B']);
+        $costCenterA = CostCenter::create([
+            'codigo' => 'CC-ORIGEM-A',
+            'nome' => 'Centro Origem A',
+            'tipo' => 'departamento',
+            'ativo' => true,
+        ]);
+        $costCenterB = CostCenter::create([
+            'codigo' => 'CC-ORIGEM-B',
+            'nome' => 'Centro Origem B',
+            'tipo' => 'departamento',
+            'ativo' => true,
+        ]);
+
+        $invoiceA = Invoice::create([
+            'user_id' => $userA->id,
+            'data_fatura' => '2026-05-01',
+            'data_emissao' => '2026-05-01',
+            'data_vencimento' => '2026-05-10',
+            'valor_total' => 25.00,
+            'estado_pagamento' => 'pendente',
+            'referencia_pagamento' => 'CC-A-REF',
+            'centro_custo_id' => $costCenterA->id,
+            'tipo' => 'mensalidade',
+        ]);
+        InvoiceItem::create([
+            'fatura_id' => $invoiceA->id,
+            'descricao' => 'Mensalidade A',
+            'quantidade' => 1,
+            'valor_unitario' => 25.00,
+            'imposto_percentual' => 0,
+            'total_linha' => 25.00,
+            'centro_custo_id' => $costCenterA->id,
+        ]);
+
+        $invoiceB = Invoice::create([
+            'user_id' => $userB->id,
+            'data_fatura' => '2026-05-01',
+            'data_emissao' => '2026-05-01',
+            'data_vencimento' => '2026-05-10',
+            'valor_total' => 30.00,
+            'estado_pagamento' => 'pendente',
+            'referencia_pagamento' => 'CC-B-REF',
+            'centro_custo_id' => $costCenterB->id,
+            'tipo' => 'mensalidade',
+        ]);
+        InvoiceItem::create([
+            'fatura_id' => $invoiceB->id,
+            'descricao' => 'Mensalidade B',
+            'quantidade' => 1,
+            'valor_unitario' => 30.00,
+            'imposto_percentual' => 0,
+            'total_linha' => 30.00,
+            'centro_custo_id' => $costCenterB->id,
+        ]);
+
+        $statement = $this->createBankStatement(55.00);
+
+        $this->actingAs($admin)
+            ->postJson(route('financeiro.bank-statements.allocate', $statement), [
+                'invoices' => [
+                    ['invoice_id' => $invoiceA->id, 'amount' => 25.00],
+                    ['invoice_id' => $invoiceB->id, 'amount' => 30.00],
+                ],
+            ])
+            ->assertOk()
+            ->assertJsonPath('summary.bank_statement_reconciled', true);
+
+        $invoiceA->refresh();
+        $invoiceB->refresh();
+        $statement->refresh();
+
+        $this->assertSame('pago', $invoiceA->estado_pagamento);
+        $this->assertSame('pago', $invoiceB->estado_pagamento);
+        $this->assertTrue($statement->conciliado);
+
+        $allocationA = PaymentAllocation::query()->where('invoice_id', $invoiceA->id)->latest('created_at')->firstOrFail();
+        $allocationB = PaymentAllocation::query()->where('invoice_id', $invoiceB->id)->latest('created_at')->firstOrFail();
+
+        $this->assertDatabaseHas('financial_entries', [
+            'origem_tipo' => 'payment_allocation',
+            'origem_id' => (string) $allocationA->id,
+            'centro_custo_id' => $costCenterA->id,
+        ]);
+        $this->assertDatabaseHas('financial_entries', [
+            'origem_tipo' => 'payment_allocation',
+            'origem_id' => (string) $allocationB->id,
+            'centro_custo_id' => $costCenterB->id,
+        ]);
+    }
+
+    public function test_bank_statement_allocate_endpoint_accepts_movement_payload_and_can_create_credit_with_explicit_target(): void
+    {
+        $admin = User::factory()->admin()->create();
+        [$invoice] = $this->createInvoicesForUser([30.00]);
+        $movement = $this->createMovement('receita', 40.00, true);
+        $statement = $this->createBankStatement(100.00);
+
+        $response = $this->actingAs($admin)
+            ->postJson(route('financeiro.bank-statements.allocate', $statement), [
+                'invoices' => [
+                    ['invoice_id' => $invoice->id, 'amount' => 30.00],
+                ],
+                'movements' => [
+                    ['movement_id' => $movement->id, 'amount' => 40.00],
+                ],
+                'create_credit' => true,
+                'credit_user_id' => $invoice->user_id,
+            ]);
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('summary.created_credit', true)
+            ->assertJsonPath('summary.bank_statement_reconciled', true);
+
+        $movement->refresh();
+        $statement->refresh();
+
+        $this->assertSame('pago', $movement->estado_pagamento);
+        $this->assertTrue($statement->conciliado);
+        $this->assertDatabaseHas('payment_allocations', [
+            'invoice_id' => $invoice->id,
+            'amount' => 30.00,
+        ]);
+
+        $movementEntryId = FinancialEntry::query()
+            ->where('origem_tipo', 'movement')
+            ->where('origem_id', $movement->id)
+            ->value('id');
+
+        $this->assertNotNull($movementEntryId);
+        $this->assertDatabaseHas('payment_allocations', [
+            'financial_entry_id' => $movementEntryId,
+            'invoice_id' => null,
+            'amount' => 40.00,
+        ]);
+        $this->assertDatabaseHas('account_credits', [
+            'user_id' => $invoice->user_id,
+            'amount' => 30.00,
+            'status' => AccountCredit::STATUS_AVAILABLE,
+        ]);
+    }
+
+    public function test_bank_statement_allocate_endpoint_rejects_credit_without_explicit_target(): void
+    {
+        $admin = User::factory()->admin()->create();
+        [$invoice] = $this->createInvoicesForUser([30.00]);
+        $statement = $this->createBankStatement(50.00);
+
+        $this->actingAs($admin)
+            ->postJson(route('financeiro.bank-statements.allocate', $statement), [
+                'invoices' => [
+                    ['invoice_id' => $invoice->id, 'amount' => 30.00],
+                ],
+                'create_credit' => true,
+            ])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('create_credit');
+    }
+
+    public function test_open_movements_endpoint_is_paginated_searchable_and_returns_default_cost_center(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $defaultCostCenter = CostCenter::create([
+            'codigo' => 'CC-DEFAULT-SEARCH',
+            'nome' => 'Centro Default Search',
+            'tipo' => 'departamento',
+            'ativo' => true,
+        ]);
+        $user = User::factory()->create([
+            'nome_completo' => 'Pesquisa Silva',
+            'numero_socio' => '7001',
+            'nif' => '999888777',
+        ]);
+        \DB::table('centro_custo_user')->insert([
+            'id' => (string) Str::uuid(),
+            'user_id' => $user->id,
+            'centro_custo_id' => $defaultCostCenter->id,
+            'peso' => 1,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $movement = Movement::create([
+            'user_id' => $user->id,
+            'classificacao' => 'receita',
+            'data_emissao' => '2026-05-05',
+            'data_vencimento' => '2026-05-05',
+            'valor_total' => 45.00,
+            'estado_pagamento' => 'pendente',
+            'centro_custo_id' => null,
+            'tipo' => 'servico',
+            'origem_tipo' => 'manual',
+            'origem_id' => null,
+            'observacoes' => 'Transferencia familia Silva socio 7001',
+        ]);
+
+        foreach (range(1, 12) as $index) {
+            Movement::create([
+                'user_id' => null,
+                'nome_manual' => 'Outro movimento ' . $index,
+                'classificacao' => 'receita',
+                'data_emissao' => '2026-05-05',
+                'data_vencimento' => '2026-05-05',
+                'valor_total' => 10.00 + $index,
+                'estado_pagamento' => 'pendente',
+                'centro_custo_id' => $defaultCostCenter->id,
+                'tipo' => 'servico',
+                'origem_tipo' => 'manual',
+                'origem_id' => null,
+                'observacoes' => 'Outro movimento aberto ' . $index,
+            ]);
+        }
+
+        $response = $this->actingAs($admin)
+            ->getJson(route('financeiro.movements.open', [
+                'per_page' => 10,
+                'search' => 'Silva 7001',
+            ]));
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('per_page', 10);
+
+        $row = collect($response->json('data') ?? [])->firstWhere('id', $movement->id);
+
+        $this->assertNotNull($row);
+        $this->assertSame($defaultCostCenter->id, $row['default_centro_custo_id'] ?? null);
+        $this->assertFalse((bool) ($row['requires_centro_custo'] ?? true));
+        $this->assertLessThanOrEqual(10, count($response->json('data') ?? []));
     }
 
     /**

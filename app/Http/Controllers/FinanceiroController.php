@@ -748,9 +748,10 @@ class FinanceiroController extends Controller
         $perPage = (int) ($data['per_page'] ?? 25);
         $search = trim((string) ($data['search'] ?? ''));
         $overdue = filter_var($data['overdue'] ?? false, FILTER_VALIDATE_BOOLEAN);
+        $operator = DB::connection()->getDriverName() === 'pgsql' ? 'ilike' : 'like';
 
         $query = Invoice::query()
-            ->with('user:id,nome_completo,name')
+            ->with(['user:id,nome_completo,name', 'user.families:id,nome', 'costCenter:id,nome'])
             ->whereIn('estado_pagamento', ['pendente', 'vencido', 'parcial']);
 
         $query = $this->applyInvoiceFinancialSnapshotColumns($query);
@@ -772,33 +773,34 @@ class FinanceiroController extends Controller
                 ->filter(fn (string $token) => strlen($token) >= 3)
                 ->values();
 
-            $query->where(function ($nestedQuery) use ($search, $tokens) {
+            $query->where(function ($nestedQuery) use ($search, $tokens, $operator) {
                 $nestedQuery
-                    ->where('tipo', 'ilike', "%{$search}%")
-                    ->orWhere('mes', 'ilike', "%{$search}%")
-                    ->orWhere('referencia_pagamento', 'ilike', "%{$search}%");
+                    ->where('tipo', $operator, "%{$search}%")
+                    ->orWhere('mes', $operator, "%{$search}%")
+                    ->orWhere('referencia_pagamento', $operator, "%{$search}%");
 
                 foreach ($tokens as $token) {
                     $like = "%{$token}%";
 
                     $nestedQuery
-                        ->orWhereHas('user', function ($userQuery) use ($like) {
+                        ->orWhereHas('user', function ($userQuery) use ($like, $operator) {
                             $userQuery
-                                ->where('nome_completo', 'ilike', $like)
-                                ->orWhere('name', 'ilike', $like)
-                                ->orWhere('numero_socio', 'ilike', $like)
-                                ->orWhereHas('families', function ($familyQuery) use ($like) {
-                                    $familyQuery->where('familias.nome', 'ilike', $like);
+                                ->where('nome_completo', $operator, $like)
+                                ->orWhere('name', $operator, $like)
+                                ->orWhere('numero_socio', $operator, $like)
+                                ->orWhere('nif', $operator, $like)
+                                ->orWhereHas('families', function ($familyQuery) use ($like, $operator) {
+                                    $familyQuery->where('familias.nome', $operator, $like);
                                 })
-                                ->orWhereHas('families.responsavel', function ($responsavelQuery) use ($like) {
+                                ->orWhereHas('families.responsavel', function ($responsavelQuery) use ($like, $operator) {
                                     $responsavelQuery
-                                        ->where('nome_completo', 'ilike', $like)
-                                        ->orWhere('name', 'ilike', $like);
+                                        ->where('nome_completo', $operator, $like)
+                                        ->orWhere('name', $operator, $like);
                                 })
-                                ->orWhereHas('encarregados', function ($guardianQuery) use ($like) {
+                                ->orWhereHas('encarregados', function ($guardianQuery) use ($like, $operator) {
                                     $guardianQuery
-                                        ->where('nome_completo', 'ilike', $like)
-                                        ->orWhere('name', 'ilike', $like);
+                                        ->where('nome_completo', $operator, $like)
+                                        ->orWhere('name', $operator, $like);
                                 });
                         });
                 }
@@ -816,11 +818,14 @@ class FinanceiroController extends Controller
                 $invoice = $this->normalizeInvoiceFinancialAmounts($invoice);
                 $paidAmount = (float) ($invoice->valor_pago ?? 0);
                 $outstandingAmount = (float) ($invoice->valor_em_aberto ?? 0);
+                $family = $invoice->user?->families?->first();
 
                 return [
                     'id' => $invoice->id,
                     'user_id' => $invoice->user_id,
                     'user_name' => $invoice->user?->nome_completo ?? $invoice->user?->name,
+                    'family_id' => $family?->id,
+                    'family_name' => $family?->nome,
                     'valor_total' => (float) $invoice->valor_total,
                     'valor_pago' => $paidAmount,
                     'valor_em_aberto' => $outstandingAmount,
@@ -829,11 +834,114 @@ class FinanceiroController extends Controller
                     'vencimento' => optional($invoice->data_vencimento)?->toDateString(),
                     'mes' => $invoice->mes,
                     'tipo' => $invoice->tipo,
+                    'centro_custo_id' => $invoice->centro_custo_id,
+                    'centro_custo_name' => $invoice->costCenter?->nome,
                 ];
             });
 
         $filteredCollection = $paginator->getCollection()
             ->filter(fn (array $invoice): bool => (float) ($invoice['valor_em_aberto'] ?? 0) > 0.009)
+            ->values();
+
+        $paginator->setCollection($filteredCollection);
+
+        return response()->json($paginator);
+    }
+
+    public function openMovements(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'search' => ['nullable', 'string'],
+            'per_page' => ['nullable', 'integer', 'min:1', 'max:200'],
+        ]);
+
+        $perPage = (int) ($data['per_page'] ?? 25);
+        $search = trim((string) ($data['search'] ?? ''));
+        $operator = DB::connection()->getDriverName() === 'pgsql' ? 'ilike' : 'like';
+
+        $query = Movement::query()
+            ->with([
+                'user:id,nome_completo,name,numero_socio,nif',
+                'user.families:id,nome',
+                'user.centrosCusto:id,nome',
+                'centroCusto:id,nome',
+                'financialEntries' => fn ($financialEntriesQuery) => $financialEntriesQuery
+                    ->select('id', 'origem_id', 'origem_tipo', 'valor_em_aberto', 'valor_pago', 'estado', 'centro_custo_id')
+                    ->latest('created_at')
+                    ->limit(1),
+            ])
+            ->whereIn('estado_pagamento', ['pendente', 'parcial']);
+
+        if ($search !== '') {
+            $tokens = collect(preg_split('/\s+/', $search) ?: [])
+                ->map(fn (string $token) => trim($token))
+                ->filter(fn (string $token) => strlen($token) >= 2)
+                ->values();
+
+            $query->where(function ($nestedQuery) use ($search, $tokens, $operator): void {
+                $nestedQuery
+                    ->where('observacoes', $operator, "%{$search}%")
+                    ->orWhere('nome_manual', $operator, "%{$search}%")
+                    ->orWhere('nif_manual', $operator, "%{$search}%")
+                    ->orWhere('numero_recibo', $operator, "%{$search}%")
+                    ->orWhere('referencia_pagamento', $operator, "%{$search}%");
+
+                foreach ($tokens as $token) {
+                    $like = "%{$token}%";
+
+                    $nestedQuery->orWhereHas('user', function ($userQuery) use ($like, $operator): void {
+                        $userQuery
+                            ->where('nome_completo', $operator, $like)
+                            ->orWhere('name', $operator, $like)
+                            ->orWhere('numero_socio', $operator, $like)
+                            ->orWhere('nif', $operator, $like)
+                            ->orWhereHas('families', function ($familyQuery) use ($like, $operator): void {
+                                $familyQuery->where('familias.nome', $operator, $like);
+                            });
+                    });
+                }
+            });
+        }
+
+        $paginator = $query
+            ->orderBy('data_vencimento')
+            ->orderBy('data_emissao')
+            ->paginate($perPage)
+            ->through(function (Movement $movement) {
+                /** @var FinancialEntry|null $financialEntry */
+                $financialEntry = $movement->financialEntries->first();
+                $entryOpenAmount = $financialEntry ? max((float) ($financialEntry->valor_em_aberto ?? 0), 0) : null;
+                $movementOpenAmount = round(max((float) $movement->valor_total - (float) ($financialEntry->valor_pago ?? 0), 0), 2);
+                $openAmount = $entryOpenAmount !== null ? round($entryOpenAmount, 2) : $movementOpenAmount;
+                $defaultCostCenterId = $movement->centro_custo_id
+                    ?: $movement->user?->centrosCusto?->sortByDesc(fn ($center) => (float) ($center->pivot->peso ?? 1))->first()?->id;
+                $family = $movement->user?->families?->first();
+
+                return [
+                    'id' => $movement->id,
+                    'user_id' => $movement->user_id,
+                    'user_name' => $movement->user?->nome_completo ?? $movement->user?->name ?? $movement->nome_manual,
+                    'family_id' => $family?->id,
+                    'family_name' => $family?->nome,
+                    'financial_entry_id' => $financialEntry?->id,
+                    'descricao' => $movement->observacoes ?: $movement->nome_manual ?: ('Movimento ' . $movement->tipo),
+                    'tipo' => $movement->tipo,
+                    'classificacao' => $movement->classificacao,
+                    'valor_total' => (float) $movement->valor_total,
+                    'valor_pago' => round(max((float) ($movement->valor_total ?? 0) - $openAmount, 0), 2),
+                    'valor_em_aberto' => $openAmount,
+                    'estado_pagamento' => $movement->estado_pagamento,
+                    'data_emissao' => optional($movement->data_emissao)?->toDateString(),
+                    'data_vencimento' => optional($movement->data_vencimento)?->toDateString(),
+                    'centro_custo_id' => $movement->centro_custo_id,
+                    'default_centro_custo_id' => $defaultCostCenterId,
+                    'requires_centro_custo' => empty($defaultCostCenterId),
+                    'centro_custo_name' => $movement->centroCusto?->nome,
+                ];
+            });
+
+        $filteredCollection = $paginator->getCollection()
+            ->filter(fn (array $movement): bool => (float) ($movement['valor_em_aberto'] ?? 0) > 0.009)
             ->values();
 
         $paginator->setCollection($filteredCollection);

@@ -251,6 +251,9 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::get('invoices/open', [FinanceiroController::class, 'openInvoices'])
             ->middleware('permission.access:financeiro.dashboard,view')
             ->name('invoices.open');
+        Route::get('movements/open', [FinanceiroController::class, 'openMovements'])
+            ->middleware('permission.access:financeiro.dashboard,view')
+            ->name('movements.open');
         Route::get('bank-statements/unreconciled', [FinanceiroController::class, 'unreconciledBankStatements'])
             ->middleware('permission.access:financeiro.dashboard,view')
             ->name('bank-statements.unreconciled');

@@ -6,12 +6,14 @@ use App\Http\Controllers\Controller;
 use App\Models\BankReconciliationSuggestion;
 use App\Models\BankStatement;
 use App\Models\Invoice;
+use App\Models\Movement;
 use App\Models\Payment;
 use App\Services\Financeiro\BankReconciliationSuggestionService;
 use App\Services\Financeiro\FinancialSettlementService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 class BankReconciliationSuggestionController extends Controller
 {
@@ -213,13 +215,24 @@ class BankReconciliationSuggestionController extends Controller
         $data = $request->validate([
             'create_credit' => ['nullable', 'boolean'],
             'notes' => ['nullable', 'string'],
-            'allocations' => ['required', 'array', 'min:1'],
-            'allocations.*.invoice_id' => ['required', 'exists:invoices,id'],
-            'allocations.*.amount' => ['required', 'numeric', 'gt:0'],
+            'credit_user_id' => ['nullable', 'exists:users,id'],
+            'credit_family_id' => ['nullable', 'exists:familias,id'],
+            'invoices' => ['nullable', 'array'],
+            'invoices.*.invoice_id' => ['required', 'exists:invoices,id'],
+            'invoices.*.amount' => ['required', 'numeric', 'gt:0'],
+            'invoices.*.notes' => ['nullable', 'string'],
+            'movements' => ['nullable', 'array'],
+            'movements.*.movement_id' => ['required', 'exists:movements,id'],
+            'movements.*.amount' => ['required', 'numeric', 'gt:0'],
+            'movements.*.centro_custo_id' => ['nullable', 'exists:cost_centers,id'],
+            'movements.*.notes' => ['nullable', 'string'],
+            'allocations' => ['nullable', 'array'],
+            'allocations.*.invoice_id' => ['required_with:allocations', 'exists:invoices,id'],
+            'allocations.*.amount' => ['required_with:allocations', 'numeric', 'gt:0'],
             'allocations.*.notes' => ['nullable', 'string'],
         ]);
 
-        $allocations = collect($data['allocations'])
+        $invoiceAllocations = collect($data['invoices'] ?? $data['allocations'] ?? [])
             ->map(fn (array $allocation) => [
                 'invoice_id' => $allocation['invoice_id'],
                 'amount' => round(abs((float) $allocation['amount']), 2),
@@ -228,28 +241,141 @@ class BankReconciliationSuggestionController extends Controller
             ->values()
             ->all();
 
-        $invoiceIds = collect($allocations)->pluck('invoice_id')->unique()->values();
+        $movementAllocations = collect($data['movements'] ?? [])
+            ->map(fn (array $allocation) => [
+                'movement_id' => $allocation['movement_id'],
+                'amount' => round(abs((float) $allocation['amount']), 2),
+                'centro_custo_id' => $allocation['centro_custo_id'] ?? null,
+                'notes' => $allocation['notes'] ?? null,
+            ])
+            ->values()
+            ->all();
+
+        if ($invoiceAllocations === [] && $movementAllocations === []) {
+            throw ValidationException::withMessages([
+                'allocations' => 'Indique pelo menos uma alocacao de fatura ou movimento.',
+            ]);
+        }
+
+        $statementAvailableAmount = round(max((float) ($bankStatement->valor_por_conciliar ?? abs((float) $bankStatement->valor)), 0), 2);
+        $requestedTotal = round(
+            collect($invoiceAllocations)->sum('amount') + collect($movementAllocations)->sum('amount'),
+            2,
+        );
+
+        if ($requestedTotal - $statementAvailableAmount > 0.009) {
+            throw ValidationException::withMessages([
+                'allocations' => 'As alocacoes excedem o valor disponivel da linha bancaria.',
+            ]);
+        }
+
+        $createCredit = (bool) ($data['create_credit'] ?? false);
+        $creditUserId = $data['credit_user_id'] ?? null;
+        $creditFamilyId = $data['credit_family_id'] ?? null;
+        $creditTargetProvided = !empty($creditUserId) || !empty($creditFamilyId);
+
+        if ($createCredit && !$creditTargetProvided && round($statementAvailableAmount - $requestedTotal, 2) > 0.009) {
+            throw ValidationException::withMessages([
+                'create_credit' => 'O credito excedente exige user_id ou family_id explicito.',
+            ]);
+        }
+
+        $invoiceIds = collect($invoiceAllocations)->pluck('invoice_id')->unique()->values();
         $fiscalRequestsBefore = DB::table('fiscal_document_requests')
             ->whereIn('invoice_id', $invoiceIds)
             ->count();
+        $hasInvoices = $invoiceAllocations !== [];
+        $hasMovements = $movementAllocations !== [];
 
-        $payment = $this->financialSettlementService->settleInvoices($allocations, [
-            'bank_statement_id' => $bankStatement->id,
-            'method' => 'transferencia',
-            'reference' => $bankStatement->referencia,
-            'description' => $bankStatement->descricao,
-            'notes' => $data['notes'] ?? null,
-            'create_credit' => (bool) ($data['create_credit'] ?? false),
-            'created_by' => $request->user()?->id,
-            'source' => Payment::SOURCE_RECONCILIATION,
-            'map_rule' => 'manual_bank_allocation',
-            'map_metadata' => [
-                'manual_allocation' => true,
-            ],
-        ]);
+        $payments = collect();
 
-        return $this->paymentResponse($payment, $invoiceIds->all(), $fiscalRequestsBefore, [
+        if ($hasInvoices) {
+            $payments->push($this->financialSettlementService->settleInvoices($invoiceAllocations, [
+                'bank_statement_id' => $bankStatement->id,
+                'method' => 'transferencia',
+                'reference' => $bankStatement->referencia,
+                'description' => $bankStatement->descricao,
+                'notes' => $data['notes'] ?? null,
+                'create_credit' => $createCredit && !$hasMovements,
+                'created_by' => $request->user()?->id,
+                'source' => Payment::SOURCE_RECONCILIATION,
+                'user_id' => $creditUserId,
+                'family_id' => $creditFamilyId,
+                'map_rule' => 'manual_bank_allocation',
+                'map_metadata' => [
+                    'manual_allocation' => true,
+                ],
+            ]));
+        }
+
+        if ($hasMovements) {
+            $entryAllocations = collect($movementAllocations)
+                ->map(function (array $allocation) {
+                    $movement = Movement::query()->with('user.centrosCusto')->findOrFail($allocation['movement_id']);
+                    $resolvedCostCenterId = $allocation['centro_custo_id']
+                        ?? $movement->centro_custo_id
+                        ?? $movement->user?->centrosCusto->sortByDesc(fn ($center) => (float) ($center->pivot->peso ?? 1))->first()?->id;
+
+                    if (!$resolvedCostCenterId) {
+                        throw ValidationException::withMessages([
+                            'movements' => 'Existe um movimento sem centro de custo. Indique centro de custo nessa linha.',
+                        ]);
+                    }
+
+                    if ($resolvedCostCenterId !== $movement->centro_custo_id) {
+                        $movement->forceFill(['centro_custo_id' => $resolvedCostCenterId])->save();
+                    }
+
+                    $entry = $this->financialSettlementService->findOrCreateFinancialEntryForMovement($movement->fresh(), [
+                        'categoria' => 'Movimento Financeiro',
+                        'method' => 'transferencia',
+                    ]);
+
+                    if (!$entry->centro_custo_id) {
+                        $entry->forceFill(['centro_custo_id' => $resolvedCostCenterId])->save();
+                        $entry = $entry->fresh();
+                    }
+
+                    return [
+                        'financial_entry_id' => $entry->id,
+                        'amount' => $allocation['amount'],
+                        'notes' => $allocation['notes'] ?? null,
+                        'metadata' => [
+                            'movement_id' => $movement->id,
+                        ],
+                    ];
+                })
+                ->values()
+                ->all();
+
+            $payments->push($this->financialSettlementService->settleFinancialEntries($entryAllocations, [
+                'bank_statement_id' => $bankStatement->id,
+                'method' => 'transferencia',
+                'reference' => $bankStatement->referencia,
+                'description' => $bankStatement->descricao,
+                'notes' => $data['notes'] ?? null,
+                'create_credit' => $createCredit,
+                'created_by' => $request->user()?->id,
+                'source' => Payment::SOURCE_RECONCILIATION,
+                'user_id' => $creditUserId,
+                'family_id' => $creditFamilyId,
+                'map_rule' => 'manual_bank_allocation',
+                'map_metadata' => [
+                    'manual_allocation' => true,
+                ],
+            ]));
+        }
+
+        $latestPayment = $payments->last();
+        if (!$latestPayment instanceof Payment) {
+            throw ValidationException::withMessages([
+                'allocations' => 'Nao foi possivel registar a conciliacao manual.',
+            ]);
+        }
+
+        return $this->paymentResponse($latestPayment->fresh(), $invoiceIds->all(), $fiscalRequestsBefore, [
             'manual_allocation' => true,
+            'affected_payment_count' => $payments->count(),
         ]);
     }
 
