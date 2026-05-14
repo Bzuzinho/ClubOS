@@ -35,7 +35,7 @@ return new class extends Migration
             $table->foreignUuid('user_id')->nullable()->constrained('users')->nullOnDelete();
             $table->foreignUuid('invoice_id')->nullable()->constrained('invoices')->nullOnDelete();
             $table->foreignUuid('bank_statement_id')->nullable()->constrained('bank_statements')->nullOnDelete();
-            $table->foreignUuid('duplicate_of_item_id')->nullable()->constrained('receipt_import_items')->nullOnDelete();
+            $table->uuid('duplicate_of_item_id')->nullable();
             $table->string('status', 30)->default('pending_review');
             $table->decimal('confidence_score', 5, 2)->default(0);
             $table->string('file_name');
@@ -62,7 +62,15 @@ return new class extends Migration
             $table->index('file_hash');
             $table->index(['batch_id', 'status']);
             $table->index(['user_id', 'invoice_id']);
+            $table->index('duplicate_of_item_id');
             $table->index('numero_recibo');
+        });
+
+        Schema::table('receipt_import_items', function (Blueprint $table) {
+            $table->foreign('duplicate_of_item_id')
+                ->references('id')
+                ->on('receipt_import_items')
+                ->nullOnDelete();
         });
 
         Schema::create('bank_transaction_allocations', function (Blueprint $table) {
