@@ -236,6 +236,7 @@ final class AccessControlCatalog
                     ['key' => 'financeiro.dashboard', 'label' => 'Dashboard', 'node_type' => 'submodule', 'module_key' => 'financeiro', 'children' => []],
                     ['key' => 'financeiro.faturas', 'label' => 'Faturas', 'node_type' => 'submodule', 'module_key' => 'financeiro', 'children' => []],
                     ['key' => 'financeiro.banco', 'label' => 'Banco', 'node_type' => 'submodule', 'module_key' => 'financeiro', 'children' => []],
+                    ['key' => 'financeiro.importacao_recibos', 'label' => 'Importação de Recibos', 'node_type' => 'submodule', 'module_key' => 'financeiro', 'children' => []],
                     ['key' => 'financeiro.relatorios', 'label' => 'Relatórios', 'node_type' => 'submodule', 'module_key' => 'financeiro', 'children' => []],
                 ],
             ],

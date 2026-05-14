@@ -5,6 +5,7 @@ namespace App\Services\Financeiro;
 use App\Models\Movement;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Schema;
 
 class FinanceDashboardService
 {
@@ -57,6 +58,21 @@ class FinanceDashboardService
 
     private function buildExpenseAlerts(Carbon $referenceDate): array
     {
+        if (!$this->supportsMovementDocumentAlerts()) {
+            return [
+                'paid_without_invoice' => 0,
+                'paid_without_receipt' => 0,
+                'missing_payment_proof' => 0,
+                'overdue_unpaid' => Movement::query()
+                    ->where('classificacao', 'despesa')
+                    ->whereIn('estado_pagamento', ['pendente', 'por_pagar'])
+                    ->whereDate('data_vencimento', '<', $referenceDate->toDateString())
+                    ->count(),
+                'amount_mismatch' => 0,
+                'stock_without_document' => 0,
+            ];
+        }
+
         $expenseMovements = Movement::query()->where('classificacao', 'despesa');
 
         return [
@@ -73,6 +89,14 @@ class FinanceDashboardService
                 ->whereIn('estado_documental', ['sem_documentos', 'falta_fatura', 'pendente_validacao'])
                 ->count(),
         ];
+    }
+
+    private function supportsMovementDocumentAlerts(): bool
+    {
+        return Schema::hasColumns('movements', [
+            'estado_documental',
+            'estado_conciliacao',
+        ]);
     }
 
     private function buildDistributionByType(array $filters = []): array

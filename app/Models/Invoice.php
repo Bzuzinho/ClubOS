@@ -26,6 +26,9 @@ class Invoice extends Model
         'estado_pagamento',
         'data_pagamento',
         'numero_recibo',
+        'recibo_emitido_em',
+        'recibo_pdf_path',
+        'receipt_import_item_id',
         'referencia_pagamento',
         'metodo_pagamento',
         'centro_custo_id',
@@ -41,6 +44,7 @@ class Invoice extends Model
         'data_emissao' => 'date',
         'data_vencimento' => 'date',
         'data_pagamento' => 'date',
+        'recibo_emitido_em' => 'date',
         'valor_total' => 'decimal:2',
         'valor_pago' => 'decimal:2',
         'valor_em_aberto' => 'decimal:2',
@@ -78,5 +82,15 @@ class Invoice extends Model
     public function fiscalDocumentRequests(): HasMany
     {
         return $this->hasMany(FiscalDocumentRequest::class, 'invoice_id');
+    }
+
+    public function receiptImportItem(): BelongsTo
+    {
+        return $this->belongsTo(ReceiptImportItem::class, 'receipt_import_item_id');
+    }
+
+    public function bankTransactionAllocations(): HasMany
+    {
+        return $this->hasMany(BankTransactionAllocation::class, 'invoice_id');
     }
 }

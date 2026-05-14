@@ -40,6 +40,7 @@ use App\Http\Controllers\EquipasController;
 use App\Http\Controllers\Financeiro\BankReconciliationAliasController;
 use App\Http\Controllers\Financeiro\BankReconciliationSuggestionController;
 use App\Http\Controllers\Financeiro\FiscalDocumentRequestController;
+use App\Http\Controllers\Financeiro\ReceiptImportController;
 use App\Http\Controllers\PortalTrainingController;
 use App\Http\Controllers\PortalEventController;
 use App\Http\Controllers\MembrosEquipaController;
@@ -267,6 +268,30 @@ Route::middleware(['auth', 'verified'])->group(function () {
         ->middleware('module.access:financeiro')
         ->middleware('permission.access:financeiro.dashboard,view')
         ->name('relatorios-financeiros.index');
+
+    Route::get('financeiro/receipt-imports', [ReceiptImportController::class, 'index'])
+        ->middleware('module.access:financeiro')
+        ->middleware('permission.access:financeiro.importacao_recibos,view')
+        ->name('financeiro.receipt-imports.index');
+    Route::post('financeiro/receipt-imports', [ReceiptImportController::class, 'store'])
+        ->middleware('module.access:financeiro')
+        ->middleware('permission.access:financeiro.importacao_recibos,edit')
+        ->name('financeiro.receipt-imports.store');
+    Route::patch('financeiro/receipt-import-items/{item}', [ReceiptImportController::class, 'updateItem'])
+        ->middleware('module.access:financeiro')
+        ->middleware('permission.access:financeiro.importacao_recibos,edit')
+        ->whereUuid('item')
+        ->name('financeiro.receipt-imports.items.update');
+    Route::post('financeiro/receipt-imports/{batch}/commit', [ReceiptImportController::class, 'commit'])
+        ->middleware('module.access:financeiro')
+        ->middleware('permission.access:financeiro.importacao_recibos,edit')
+        ->whereUuid('batch')
+        ->name('financeiro.receipt-imports.commit');
+    Route::get('financeiro/receipt-import-items/{item}/preview', [ReceiptImportController::class, 'preview'])
+        ->middleware('module.access:financeiro')
+        ->middleware('permission.access:financeiro.importacao_recibos,view')
+        ->whereUuid('item')
+        ->name('financeiro.receipt-imports.items.preview');
 
     Route::resource('financeiro', FinanceiroController::class)
         ->middleware('module.access:financeiro')

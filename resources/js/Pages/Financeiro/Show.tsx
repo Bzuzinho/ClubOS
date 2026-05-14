@@ -1,6 +1,7 @@
 import { Head, router } from '@inertiajs/react';
 import { useEffect, useMemo, useState } from 'react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
+import { MovementConciliationStatusBadge, MovementDocumentStatusBadge, MovementPaymentStatusBadge } from '@/Components/Financeiro/MovementStatusBadges';
 import { moduleScrollableContentClass, moduleTabbedContentClass, moduleTabsClass, moduleViewportClass } from '@/lib/module-layout';
 import { Button } from '@/Components/ui/button';
 import { Card } from '@/Components/ui/card';
@@ -157,67 +158,6 @@ const buildJsonHeaders = () => ({
     'X-Requested-With': 'XMLHttpRequest',
     'X-CSRF-TOKEN': getCsrfToken(),
 });
-
-function paymentBadge(status: MovementStatus) {
-    const variants: Record<MovementStatus, string> = {
-        pendente: 'bg-yellow-100 text-yellow-800',
-        por_pagar: 'bg-yellow-100 text-yellow-800',
-        pago: 'bg-green-100 text-green-800',
-        vencido: 'bg-red-100 text-red-800',
-        parcial: 'bg-blue-100 text-blue-800',
-        pago_parcial: 'bg-blue-100 text-blue-800',
-        cancelado: 'bg-slate-100 text-slate-800',
-    };
-    const labels: Record<MovementStatus, string> = {
-        pendente: 'Pendente',
-        por_pagar: 'Por pagar',
-        pago: 'Pago',
-        vencido: 'Vencido',
-        parcial: 'Parcial',
-        pago_parcial: 'Pago parcial',
-        cancelado: 'Cancelado',
-    };
-    return <Badge className={variants[status]}>{labels[status]}</Badge>;
-}
-
-function documentalBadge(status?: string | null) {
-    if (!status) return <Badge variant="outline">Sem estado</Badge>;
-    const variants: Record<string, string> = {
-        sem_documentos: 'bg-slate-100 text-slate-800',
-        falta_fatura: 'bg-amber-100 text-amber-800',
-        falta_recibo: 'bg-orange-100 text-orange-800',
-        falta_comprovativo_pagamento: 'bg-yellow-100 text-yellow-800',
-        pendente_validacao: 'bg-blue-100 text-blue-800',
-        completo: 'bg-green-100 text-green-800',
-        inconsistente: 'bg-red-100 text-red-800',
-    };
-    const labels: Record<string, string> = {
-        sem_documentos: 'Sem documentos',
-        falta_fatura: 'Falta fatura',
-        falta_recibo: 'Falta recibo',
-        falta_comprovativo_pagamento: 'Falta comprovativo',
-        pendente_validacao: 'Pendente validação',
-        completo: 'Completo',
-        inconsistente: 'Inconsistente',
-    };
-    return <Badge className={variants[status] || 'bg-slate-100 text-slate-800'}>{labels[status] || status}</Badge>;
-}
-
-function reconciliationBadge(status: ReconciliationStatus) {
-    const variants: Record<ReconciliationStatus, string> = {
-        nao_conciliado: 'bg-slate-100 text-slate-800',
-        sugerido: 'bg-blue-100 text-blue-800',
-        conciliado: 'bg-green-100 text-green-800',
-        divergente: 'bg-red-100 text-red-800',
-    };
-    const labels: Record<ReconciliationStatus, string> = {
-        nao_conciliado: 'Não conciliado',
-        sugerido: 'Sugerido',
-        conciliado: 'Conciliado',
-        divergente: 'Divergente',
-    };
-    return <Badge className={variants[status]}>{labels[status]}</Badge>;
-}
 
 function documentTypeLabel(type: DocumentType) {
     const labels: Record<DocumentType, string> = {
@@ -515,9 +455,9 @@ export default function FinanceiroShowPage({
                                             <ArrowLeft size={16} className="mr-1" />
                                             Voltar
                                         </Button>
-                                        {paymentBadge(movementState.estado_pagamento)}
-                                        {documentalBadge(movementState.estado_documental)}
-                                        {reconciliationBadge(movementState.estado_conciliacao)}
+                                        <MovementPaymentStatusBadge status={movementState.estado_pagamento} />
+                                        <MovementDocumentStatusBadge status={movementState.estado_documental as 'sem_documentos' | 'falta_fatura' | 'falta_recibo' | 'falta_comprovativo_pagamento' | 'pendente_validacao' | 'completo' | 'inconsistente' | null} />
+                                        <MovementConciliationStatusBadge status={movementState.estado_conciliacao} />
                                         <Badge variant="outline">{movementState.classificacao}</Badge>
                                     </div>
                                     <div>
@@ -587,15 +527,15 @@ export default function FinanceiroShowPage({
                                 <Card className="p-4 space-y-3">
                                     <div>
                                         <div className="text-xs text-muted-foreground">Estado de pagamento</div>
-                                        <div className="mt-1">{paymentBadge(movementState.estado_pagamento)}</div>
+                                        <div className="mt-1"><MovementPaymentStatusBadge status={movementState.estado_pagamento} /></div>
                                     </div>
                                     <div>
                                         <div className="text-xs text-muted-foreground">Estado documental</div>
-                                        <div className="mt-1">{documentalBadge(movementState.estado_documental)}</div>
+                                        <div className="mt-1"><MovementDocumentStatusBadge status={movementState.estado_documental as 'sem_documentos' | 'falta_fatura' | 'falta_recibo' | 'falta_comprovativo_pagamento' | 'pendente_validacao' | 'completo' | 'inconsistente' | null} /></div>
                                     </div>
                                     <div>
                                         <div className="text-xs text-muted-foreground">Estado de conciliação</div>
-                                        <div className="mt-1">{reconciliationBadge(movementState.estado_conciliacao)}</div>
+                                        <div className="mt-1"><MovementConciliationStatusBadge status={movementState.estado_conciliacao} /></div>
                                     </div>
                                     <div>
                                         <div className="text-xs text-muted-foreground">Observações</div>
@@ -728,7 +668,7 @@ export default function FinanceiroShowPage({
                                             <div className="text-sm font-semibold">Linha bancária associada</div>
                                             <div className="text-xs text-muted-foreground">Mapa e estado atual da conciliação.</div>
                                         </div>
-                                        {reconciliationBadge(movementState.estado_conciliacao)}
+                                        <MovementConciliationStatusBadge status={movementState.estado_conciliacao} />
                                     </div>
 
                                     {movementState.conciliation.bank_statement ? (

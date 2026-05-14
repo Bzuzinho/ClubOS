@@ -102,6 +102,8 @@ export interface ExtratoBancario {
   valor_por_conciliar?: number | null;
   conciliacao_status?: 'unreconciled' | 'partial' | 'reconciled' | null;
   lancamento_id?: string | null;
+  movement_id?: string | null;
+  movement_estado_documental?: 'sem_documentos' | 'falta_fatura' | 'falta_recibo' | 'falta_comprovativo_pagamento' | 'pendente_validacao' | 'completo' | 'inconsistente' | null;
   created_at?: string | null;
 }
 
@@ -150,6 +152,61 @@ export interface BankReconciliationSuggestion {
   created_at?: string | null;
   confirmed_at?: string | null;
   rejected_at?: string | null;
+}
+
+export interface ReceiptImportItemCandidate {
+  id: string;
+  score: number;
+  reason?: string | null;
+  label: string;
+}
+
+export interface ReceiptImportItem {
+  id: string;
+  batch_id: string;
+  user_id?: string | null;
+  invoice_id?: string | null;
+  bank_statement_id?: string | null;
+  status: 'pending_review' | 'matched' | 'needs_user' | 'needs_invoice' | 'duplicate' | 'failed' | 'imported';
+  display_status?: 'pending_review' | 'matched' | 'needs_user' | 'needs_invoice' | 'duplicate' | 'failed' | 'ready' | 'imported';
+  confidence_score: number;
+  file_name: string;
+  storage_path: string;
+  numero_recibo?: string | null;
+  recibo_emitido_em?: string | null;
+  valor?: number | null;
+  extracted_name?: string | null;
+  extracted_nif?: string | null;
+  extracted_member_number?: string | null;
+  extracted_email?: string | null;
+  extracted_period_label?: string | null;
+  match_candidates?: {
+    users?: ReceiptImportItemCandidate[];
+    invoices?: ReceiptImportItemCandidate[];
+  } | null;
+  failure_reason?: string | null;
+  is_ready?: boolean;
+  preview_url: string;
+  user?: Pick<User, 'id' | 'nome_completo' | 'numero_socio' | 'nif'> | null;
+  invoice?: Pick<Fatura, 'id' | 'tipo' | 'mes' | 'valor_total' | 'valor_em_aberto' | 'estado_pagamento' | 'numero_recibo'> | null;
+  bank_statement?: ExtratoBancario | null;
+}
+
+export interface ReceiptImportBatch {
+  id: string;
+  source_type: string;
+  source_name?: string | null;
+  source_path?: string | null;
+  status: 'pending_review' | 'processed' | 'committed' | 'failed';
+  items_count: number;
+  processed_count: number;
+  imported_count: number;
+  notes?: string | null;
+  created_at?: string | null;
+  committed_at?: string | null;
+  creator?: { id: string; nome_completo: string } | null;
+  committer?: { id: string; nome_completo: string } | null;
+  items: ReceiptImportItem[];
 }
 
 export interface OpenInvoiceListItem {

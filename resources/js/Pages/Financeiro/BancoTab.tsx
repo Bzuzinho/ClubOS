@@ -3,6 +3,7 @@ import { router } from '@inertiajs/react';
 import { ExtratoBancario, LancamentoFinanceiro, Fatura, CentroCusto, User, Movimento, ConciliacaoMapa, BankReconciliationSuggestion } from './types';
 import { Button } from '@/Components/ui/button';
 import { Card } from '@/Components/ui/card';
+import { MovementDocumentStatusBadge } from '@/Components/Financeiro/MovementStatusBadges';
 import { Input } from '@/Components/ui/input';
 import { Label } from '@/Components/ui/label';
 import { Popover, PopoverContent, PopoverTrigger } from '@/Components/ui/popover';
@@ -754,6 +755,35 @@ export function BancoTab({
     }
 
     return <Badge className="text-[10px] md:text-xs whitespace-nowrap bg-slate-100 text-slate-800">Sem sugestoes</Badge>;
+  };
+
+  const getAssociatedMovementId = (extrato: ExtratoBancario): string | null => {
+    if (extrato.movement_id) {
+      return extrato.movement_id;
+    }
+
+    if (extrato.lancamento_id) {
+      const lancamentoAssociado = (lancamentos || []).find((lancamento) => lancamento.id === extrato.lancamento_id);
+      if (lancamentoAssociado?.origem_tipo === 'movement' && lancamentoAssociado.origem_id) {
+        return lancamentoAssociado.origem_id;
+      }
+    }
+
+    const movementFromOrigin = (movimentos || []).find((movimento) => movimento.origem_tipo === 'bank_statement' && movimento.origem_id === extrato.id);
+    return movementFromOrigin?.id || null;
+  };
+
+  const getAssociatedMovement = (extrato: ExtratoBancario) => {
+    const movementId = getAssociatedMovementId(extrato);
+    if (!movementId) {
+      return null;
+    }
+
+    return (movimentos || []).find((movimento) => movimento.id === movementId) || null;
+  };
+
+  const openMovementDetail = (movementId: string) => {
+    router.visit(route('financeiro.movimentos.show', movementId));
   };
 
   const getBestScoreLabel = (extratoId: string) => {
@@ -1757,6 +1787,9 @@ export function BancoTab({
                   const remainingAmount = getStatementRemainingAmount(extrato);
                   const fullyReconciled = isStatementFullyReconciled(extrato);
                   const canUnreconcile = hasStatementReconciliation(extrato);
+                  const associatedMovement = getAssociatedMovement(extrato);
+                  const associatedMovementId = getAssociatedMovementId(extrato);
+                  const movementDocumentalState = extrato.movement_estado_documental || associatedMovement?.estado_documental;
 
                   return (
                 <div className="space-y-3">
@@ -1766,6 +1799,11 @@ export function BancoTab({
                         {format(new Date(extrato.data_movimento), 'dd/MM/yyyy')}
                       </div>
                       <div className="mt-1 break-words text-xs text-muted-foreground">{extrato.descricao}</div>
+                      {movementDocumentalState ? (
+                        <div className="mt-2 flex flex-wrap gap-1">
+                          <MovementDocumentStatusBadge status={movementDocumentalState} className="text-[10px] md:text-xs whitespace-nowrap" />
+                        </div>
+                      ) : null}
                     </div>
                     {getReconciliationBadge(extrato)}
                   </div>
@@ -1788,6 +1826,16 @@ export function BancoTab({
                   </div>
 
                   <div className="flex flex-wrap gap-2 pt-1">
+                    {associatedMovementId ? (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => openMovementDetail(associatedMovementId)}
+                        className="h-8 px-2"
+                      >
+                        Abrir movimento
+                      </Button>
+                    ) : null}
                     {!fullyReconciled ? (
                       <>
                         <Button
@@ -1816,14 +1864,16 @@ export function BancoTab({
                         >
                           Conciliar
                         </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => void handleCriarDespesaDoPagamento(extrato)}
-                          className="h-8 px-2"
-                        >
-                          Criar despesa
-                        </Button>
+                        {!associatedMovementId ? (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => void handleCriarDespesaDoPagamento(extrato)}
+                            className="h-8 px-2"
+                          >
+                            Criar despesa
+                          </Button>
+                        ) : null}
                       </>
                     ) : null}
                     {canUnreconcile ? (
@@ -1897,6 +1947,9 @@ export function BancoTab({
                       const remainingAmount = getStatementRemainingAmount(extrato);
                       const fullyReconciled = isStatementFullyReconciled(extrato);
                       const canUnreconcile = hasStatementReconciliation(extrato);
+                      const associatedMovement = getAssociatedMovement(extrato);
+                      const associatedMovementId = getAssociatedMovementId(extrato);
+                      const movementDocumentalState = extrato.movement_estado_documental || associatedMovement?.estado_documental;
 
                       return (
                       <TableRow key={extrato.id}>
@@ -1920,13 +1973,27 @@ export function BancoTab({
                           {getCentroCustoName(extrato.centro_custo_id)}
                         </TableCell>
                         <TableCell>
-                          {getReconciliationBadge(extrato)}
+                          <div className="flex flex-col gap-1">
+                            {getReconciliationBadge(extrato)}
+                            {movementDocumentalState ? <MovementDocumentStatusBadge status={movementDocumentalState} className="text-[10px] md:text-xs whitespace-nowrap" /> : null}
+                          </div>
                         </TableCell>
                         <TableCell className="text-xs md:text-sm whitespace-nowrap">
                           {getBestScoreLabel(extrato.id)}
                         </TableCell>
                         <TableCell className="text-right">
                           <div className="flex flex-wrap gap-1 md:gap-2 justify-end whitespace-nowrap">
+                            {associatedMovementId ? (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => openMovementDetail(associatedMovementId)}
+                                className="text-[10px] md:text-xs h-7 md:h-8 px-2 md:px-3"
+                                title="Abrir ficha do movimento"
+                              >
+                                Abrir movimento
+                              </Button>
+                            ) : null}
                             {!fullyReconciled ? (
                               <>
                                 <Button
@@ -1959,15 +2026,17 @@ export function BancoTab({
                                 >
                                   Conciliar
                                 </Button>
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => void handleCriarDespesaDoPagamento(extrato)}
-                                  className="text-[10px] md:text-xs h-7 md:h-8 px-2 md:px-3"
-                                  title="Criar despesa a partir deste pagamento"
-                                >
-                                  Criar despesa
-                                </Button>
+                                {!associatedMovementId ? (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => void handleCriarDespesaDoPagamento(extrato)}
+                                    className="text-[10px] md:text-xs h-7 md:h-8 px-2 md:px-3"
+                                    title="Criar despesa a partir deste pagamento"
+                                  >
+                                    Criar despesa
+                                  </Button>
+                                ) : null}
                               </>
                             ) : null}
                             {canUnreconcile ? (

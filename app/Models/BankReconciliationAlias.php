@@ -26,20 +26,29 @@ class BankReconciliationAlias extends Model
         'family_id',
         'type',
         'value',
+        'raw_description',
+        'extracted_after_de',
         'normalized_value',
+        'normalized_alias',
         'is_confirmed',
         'confidence',
+        'confidence_score',
         'source',
         'last_matched_at',
+        'last_used_at',
         'match_count',
+        'usage_count',
         'created_by',
     ];
 
     protected $casts = [
         'is_confirmed' => 'boolean',
         'confidence' => 'integer',
+        'confidence_score' => 'decimal:2',
         'match_count' => 'integer',
+        'usage_count' => 'integer',
         'last_matched_at' => 'datetime',
+        'last_used_at' => 'datetime',
     ];
 
     public function user(): BelongsTo

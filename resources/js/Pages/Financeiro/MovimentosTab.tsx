@@ -4,6 +4,7 @@ import { Movimento, MovimentoFinanceiro, MovimentoItem, User, Supplier, CentroCu
 import { useClubSettings } from '@/hooks/useClubSettings';
 import { Button } from '@/Components/ui/button';
 import { Card } from '@/Components/ui/card';
+import { MovementConciliationStatusBadge, MovementDocumentStatusBadge, MovementPaymentStatusBadge } from '@/Components/Financeiro/MovementStatusBadges';
 import { Input } from '@/Components/ui/input';
 import { Label } from '@/Components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/Components/ui/select';
@@ -744,66 +745,6 @@ export function MovimentosTab({
     return faturasAssociadas.length > 0 ? faturasAssociadas.join(', ') : null;
   };
 
-  const getEstadoBadge = (estado: Movimento['estado_pagamento']) => {
-    const variants = {
-      pendente: 'bg-yellow-100 text-yellow-800',
-      por_pagar: 'bg-yellow-100 text-yellow-800',
-      pago: 'bg-green-100 text-green-800',
-      vencido: 'bg-red-100 text-red-800',
-      parcial: 'bg-blue-100 text-blue-800',
-      pago_parcial: 'bg-blue-100 text-blue-800',
-      cancelado: 'bg-gray-100 text-gray-800',
-    };
-    const label = estado === 'por_pagar' ? 'POR PAGAR' : estado === 'pago_parcial' ? 'PAGO PARCIAL' : estado.toUpperCase();
-    return <Badge className={variants[estado]}>{label}</Badge>;
-  };
-
-  const getDocumentalBadge = (estado?: Movimento['estado_documental']) => {
-    if (!estado) return null;
-
-    const variants: Record<string, string> = {
-      sem_documentos: 'bg-slate-100 text-slate-800',
-      falta_fatura: 'bg-amber-100 text-amber-800',
-      falta_recibo: 'bg-orange-100 text-orange-800',
-      falta_comprovativo_pagamento: 'bg-yellow-100 text-yellow-800',
-      pendente_validacao: 'bg-blue-100 text-blue-800',
-      completo: 'bg-green-100 text-green-800',
-      inconsistente: 'bg-red-100 text-red-800',
-    };
-
-    const labels: Record<string, string> = {
-      sem_documentos: 'Sem documentos',
-      falta_fatura: 'Falta fatura',
-      falta_recibo: 'Falta recibo',
-      falta_comprovativo_pagamento: 'Falta comprovativo',
-      pendente_validacao: 'Pendente validacao',
-      completo: 'Completo',
-      inconsistente: 'Inconsistente',
-    };
-
-    return <Badge className={variants[estado]}>{labels[estado]}</Badge>;
-  };
-
-  const getConciliacaoBadge = (estado?: Movimento['estado_conciliacao']) => {
-    if (!estado) return null;
-
-    const variants: Record<string, string> = {
-      nao_conciliado: 'bg-slate-100 text-slate-800',
-      sugerido: 'bg-blue-100 text-blue-800',
-      conciliado: 'bg-green-100 text-green-800',
-      divergente: 'bg-red-100 text-red-800',
-    };
-
-    const labels: Record<string, string> = {
-      nao_conciliado: 'Nao conciliado',
-      sugerido: 'Sugerido',
-      conciliado: 'Conciliado',
-      divergente: 'Divergente',
-    };
-
-    return <Badge className={variants[estado]}>{labels[estado]}</Badge>;
-  };
-
   const getClassificacaoBadge = (classificacao: 'receita' | 'despesa') => {
     const variants = {
       receita: 'bg-green-100 text-green-800',
@@ -1408,9 +1349,9 @@ export function MovimentosTab({
                         <div className="mt-1 flex flex-wrap gap-1">
                           {getClassificacaoBadge(movimento.classificacao)}
                           <Badge variant="outline">{movimento.tipo}</Badge>
-                          {getEstadoBadge(movimento.estado_pagamento)}
-                          {getConciliacaoBadge(movimento.estado_conciliacao)}
-                          {getDocumentalBadge(movimento.estado_documental)}
+                          <MovementPaymentStatusBadge status={movimento.estado_pagamento} />
+                          <MovementConciliationStatusBadge status={movimento.estado_conciliacao} />
+                          <MovementDocumentStatusBadge status={movimento.estado_documental} />
                         </div>
                       </div>
                       <Checkbox
@@ -1562,11 +1503,11 @@ export function MovimentosTab({
                     <TableCell>{formatAmount(openAmount)}</TableCell>
                     <TableCell>
                       <div className="flex flex-wrap gap-1">
-                        {getEstadoBadge(movimento.estado_pagamento)}
-                        {getConciliacaoBadge(movimento.estado_conciliacao)}
+                        <MovementPaymentStatusBadge status={movimento.estado_pagamento} />
+                        <MovementConciliationStatusBadge status={movimento.estado_conciliacao} />
                       </div>
                     </TableCell>
-                    <TableCell>{getDocumentalBadge(movimento.estado_documental)}</TableCell>
+                    <TableCell><MovementDocumentStatusBadge status={movimento.estado_documental} /></TableCell>
                     <TableCell className="text-sm break-words">{getCentroCustoName(movimento.centro_custo_id || undefined)}</TableCell>
                     <TableCell className="text-sm text-muted-foreground break-words leading-snug">
                       {getFaturasAssociadas(actionId) || '-'}

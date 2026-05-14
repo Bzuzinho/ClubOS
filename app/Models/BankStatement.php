@@ -62,4 +62,9 @@ class BankStatement extends Model
     {
         return $this->hasMany(MapaConciliacao::class, 'extrato_id');
     }
+
+    public function bankTransactionAllocations(): HasMany
+    {
+        return $this->hasMany(BankTransactionAllocation::class, 'bank_statement_id');
+    }
 }

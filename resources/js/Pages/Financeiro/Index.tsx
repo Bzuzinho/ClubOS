@@ -1,9 +1,9 @@
-import { Head } from '@inertiajs/react';
+import { Head, usePage } from '@inertiajs/react';
 import { Suspense, lazy, useEffect, useState } from 'react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { moduleTabbedContentClass, moduleTabsClass, moduleViewportClass } from '@/lib/module-layout';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/Components/ui/tabs';
-import { ChartLineUp, Receipt, ArrowsDownUp, Bank, ChartBar, FileText } from '@phosphor-icons/react';
+import { ChartLineUp, Receipt, ArrowsDownUp, Bank, ChartBar, FileText, FileArrowUp } from '@phosphor-icons/react';
 import {
   Fatura,
   FaturaItem,
@@ -28,8 +28,20 @@ const DashboardTab = lazy(() => import('./DashboardTab').then((module) => ({ def
 const FaturasTab = lazy(() => import('./FaturasTab').then((module) => ({ default: module.FaturasTab })));
 const MovimentosTab = lazy(() => import('./MovimentosTab').then((module) => ({ default: module.MovimentosTab })));
 const BancoTab = lazy(() => import('./BancoTab').then((module) => ({ default: module.BancoTab })));
+const ReceiptImportsTab = lazy(() => import('./ReceiptImportsTab').then((module) => ({ default: module.ReceiptImportsTab })));
 const RelatoriosTab = lazy(() => import('./RelatoriosTab').then((module) => ({ default: module.RelatoriosTab })));
 const FiscalDocumentsTab = lazy(() => import('./FiscalDocumentsTab').then((module) => ({ default: module.FiscalDocumentsTab })));
+
+interface AccessPermission {
+  permission_node_id: string;
+  can_view: boolean;
+  can_edit: boolean;
+  can_delete: boolean;
+}
+
+interface AccessControlProps {
+  permissions?: AccessPermission[];
+}
 
 function TabFallback() {
   return <div className="py-8 text-sm text-muted-foreground">A carregar...</div>;
@@ -76,6 +88,7 @@ export default function FinanceiroIndex({
   dashboardData,
   fiscalRequests,
 }: Props) {
+  const page = usePage<{ accessControl?: AccessControlProps; auth: { user?: { perfil?: string | null } | null } }>();
   const [activeTab, setActiveTab] = useState('dashboard');
   const [faturasState, setFaturas] = useState<Fatura[]>(faturas || []);
   const [mensalidadesFaturasState, setMensalidadesFaturas] = useState<Fatura[]>(mensalidadesFaturas || []);
@@ -87,6 +100,11 @@ export default function FinanceiroIndex({
   const [extratosState, setExtratos] = useState<ExtratoBancario[]>(extratos || []);
   const [conciliacoesState, setConciliacoes] = useState<ConciliacaoMapa[]>(conciliacoes || []);
   const [productsState, setProducts] = useState<Product[]>(products || []);
+  const permissions = page.props.accessControl?.permissions ?? [];
+  const hasReceiptImportPermission = page.props.auth?.user?.perfil === 'admin'
+    || permissions.some((permission) => permission.permission_node_id === 'financeiro.importacao_recibos' && permission.can_view);
+  const canEditReceiptImports = page.props.auth?.user?.perfil === 'admin'
+    || permissions.some((permission) => permission.permission_node_id === 'financeiro.importacao_recibos' && permission.can_edit);
 
   useEffect(() => {
     setFaturas(faturas || []);
@@ -155,7 +173,7 @@ export default function FinanceiroIndex({
       <div className={moduleViewportClass}>
         <Tabs value={activeTab} onValueChange={setActiveTab} className={moduleTabsClass}>
           <div className="w-full">
-            <TabsList className="grid h-auto w-full shrink-0 grid-cols-2 gap-1 p-1 text-[11px] sm:h-9 sm:grid-cols-6 sm:text-xs">
+            <TabsList className={`grid h-auto w-full shrink-0 grid-cols-2 gap-1 p-1 text-[11px] sm:h-9 ${hasReceiptImportPermission ? 'sm:grid-cols-7' : 'sm:grid-cols-6'} sm:text-xs`}>
               <TabsTrigger value="dashboard" className="flex h-8 items-center justify-center gap-1 px-2 py-1 text-[11px] leading-none sm:h-7 sm:text-xs">
                 <ChartLineUp size={14} />
                 <span>Dashboard</span>
@@ -172,6 +190,12 @@ export default function FinanceiroIndex({
                 <Bank size={14} />
                 <span>Banco</span>
               </TabsTrigger>
+              {hasReceiptImportPermission ? (
+                <TabsTrigger value="importacao-recibos" className="flex h-8 items-center justify-center gap-1 px-2 py-1 text-[11px] leading-none sm:h-7 sm:text-xs">
+                  <FileArrowUp size={14} />
+                  <span>Importar Recibos</span>
+                </TabsTrigger>
+              ) : null}
               <TabsTrigger value="relatorios" className="flex h-8 items-center justify-center gap-1 px-2 py-1 text-[11px] leading-none sm:h-7 sm:text-xs">
                 <ChartBar size={14} />
                 <span>Relatorios</span>
@@ -258,6 +282,20 @@ export default function FinanceiroIndex({
               </Suspense>
             ) : null}
           </TabsContent>
+
+          {hasReceiptImportPermission ? (
+            <TabsContent value="importacao-recibos" className={moduleTabbedContentClass}>
+              {activeTab === 'importacao-recibos' ? (
+                <Suspense fallback={<TabFallback />}>
+                  <ReceiptImportsTab
+                    users={users || []}
+                    invoices={faturasState}
+                    canEdit={canEditReceiptImports}
+                  />
+                </Suspense>
+              ) : null}
+            </TabsContent>
+          ) : null}
 
           <TabsContent value="relatorios" className={moduleTabbedContentClass}>
             {activeTab === 'relatorios' ? (

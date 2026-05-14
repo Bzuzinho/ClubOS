@@ -11,33 +11,50 @@ class ReconciliationAliasService
 {
     public function __construct(
         private readonly BankAliasNormalizer $normalizer,
+        private readonly BankDescriptionParser $descriptionParser,
     ) {
     }
 
     public function createAlias(array $data): BankReconciliationAlias
     {
         $normalizedValue = $this->normalizer->normalize($data['normalized_value'] ?? $data['value'] ?? null);
+        $normalizedAlias = $data['normalized_alias'] ?? $this->descriptionParser->normalizeAlias($data['extracted_after_de'] ?? $data['value'] ?? null);
 
         $alias = BankReconciliationAlias::query()
             ->where('user_id', $data['user_id'] ?? null)
             ->where('family_id', $data['family_id'] ?? null)
             ->where('type', $data['type'])
-            ->where('normalized_value', $normalizedValue)
+            ->where(function ($query) use ($normalizedValue, $normalizedAlias): void {
+                $query->where('normalized_value', $normalizedValue);
+
+                if ($normalizedAlias !== '') {
+                    $query->orWhere('normalized_alias', $normalizedAlias);
+                }
+            })
             ->first();
 
         if ($alias) {
             $updates = [
                 'value' => $data['value'],
+                'raw_description' => $data['raw_description'] ?? $alias->raw_description,
+                'extracted_after_de' => $data['extracted_after_de'] ?? $alias->extracted_after_de,
                 'normalized_value' => $normalizedValue,
+                'normalized_alias' => $normalizedAlias !== '' ? $normalizedAlias : $alias->normalized_alias,
                 'is_confirmed' => $data['is_confirmed'] ?? $alias->is_confirmed,
                 'confidence' => $data['confidence'] ?? $alias->confidence,
+                'confidence_score' => $data['confidence_score'] ?? $alias->confidence_score,
                 'source' => $data['source'] ?? $alias->source,
                 'last_matched_at' => $data['last_matched_at'] ?? $alias->last_matched_at,
+                'last_used_at' => $data['last_used_at'] ?? $alias->last_used_at,
                 'created_by' => $data['created_by'] ?? $alias->created_by,
             ];
 
             if (array_key_exists('match_count', $data)) {
                 $updates['match_count'] = $data['match_count'];
+            }
+
+            if (array_key_exists('usage_count', $data)) {
+                $updates['usage_count'] = $data['usage_count'];
             }
 
             $alias->fill($updates);
@@ -51,12 +68,18 @@ class ReconciliationAliasService
             'family_id' => $data['family_id'] ?? null,
             'type' => $data['type'],
             'value' => $data['value'],
+            'raw_description' => $data['raw_description'] ?? null,
+            'extracted_after_de' => $data['extracted_after_de'] ?? null,
             'normalized_value' => $normalizedValue,
+            'normalized_alias' => $normalizedAlias,
             'is_confirmed' => $data['is_confirmed'] ?? false,
             'confidence' => $data['confidence'] ?? 50,
+            'confidence_score' => $data['confidence_score'] ?? ($data['confidence'] ?? 50),
             'source' => $data['source'] ?? 'manual',
             'last_matched_at' => $data['last_matched_at'] ?? null,
+            'last_used_at' => $data['last_used_at'] ?? null,
             'match_count' => $data['match_count'] ?? 0,
+            'usage_count' => $data['usage_count'] ?? 0,
             'created_by' => $data['created_by'] ?? null,
         ]);
     }
@@ -121,7 +144,9 @@ class ReconciliationAliasService
                 $alias->fill([
                     'value' => $value,
                     'last_matched_at' => now(),
+                    'last_used_at' => now(),
                     'match_count' => (int) $alias->match_count + 1,
+                    'usage_count' => (int) ($alias->usage_count ?? 0) + 1,
                 ]);
                 $alias->save();
                 $learned[] = $alias->refresh();
@@ -137,9 +162,12 @@ class ReconciliationAliasService
                 'normalized_value' => $normalizedValue,
                 'is_confirmed' => false,
                 'confidence' => 50,
+                'confidence_score' => 50,
                 'source' => 'learned_from_reconciliation',
                 'last_matched_at' => now(),
+                'last_used_at' => now(),
                 'match_count' => 1,
+                'usage_count' => 1,
                 'created_by' => $createdBy,
             ]);
         }
@@ -150,24 +178,38 @@ class ReconciliationAliasService
     public function findPossibleMatches(string $bankDescription, ?float $amount = null): Collection
     {
         $normalizedDescription = $this->normalizer->normalize($bankDescription);
+        $normalizedAlias = $this->descriptionParser->normalizeAlias(
+            $this->descriptionParser->extractAliasAfterDe($bankDescription)
+        );
 
-        if ($normalizedDescription === '') {
+        if ($normalizedDescription === '' && $normalizedAlias === '') {
             return new Collection();
         }
 
         return BankReconciliationAlias::query()
             ->with(['user', 'family'])
             ->get()
-            ->filter(function (BankReconciliationAlias $alias) use ($normalizedDescription) {
-                if ($alias->normalized_value === '') {
+            ->filter(function (BankReconciliationAlias $alias) use ($normalizedDescription, $normalizedAlias) {
+                $normalizedValue = trim((string) $alias->normalized_value);
+                $storedAlias = trim((string) ($alias->normalized_alias ?? ''));
+
+                if ($normalizedValue === '' && $storedAlias === '') {
                     return false;
                 }
 
-                return str_contains($normalizedDescription, $alias->normalized_value)
-                    || str_contains($alias->normalized_value, $normalizedDescription);
+                return ($normalizedValue !== '' && (
+                    str_contains($normalizedDescription, $normalizedValue)
+                    || str_contains($normalizedValue, $normalizedDescription)
+                ))
+                    || ($normalizedAlias !== '' && $storedAlias !== '' && (
+                        str_contains($normalizedAlias, $storedAlias)
+                        || str_contains($storedAlias, $normalizedAlias)
+                    ));
             })
             ->sortByDesc(function (BankReconciliationAlias $alias) {
-                return ($alias->is_confirmed ? 1000 : 0) + $alias->confidence + $alias->match_count;
+                return ($alias->is_confirmed ? 1000 : 0)
+                    + (int) round((float) ($alias->confidence_score ?? $alias->confidence ?? 0))
+                    + (int) ($alias->usage_count ?? $alias->match_count ?? 0);
             })
             ->values();
     }

@@ -167,13 +167,44 @@ class FinanceiroController extends Controller
         );
 
         try {
-            $extratos = Cache::remember('financeiro:extratos', 60, fn () =>
-                BankStatement::orderBy('data_movimento', 'desc')->limit(1000)->get()->map(function ($extrato) {
-                    $extrato->valor = (float) $extrato->valor;
-                    $extrato->saldo = $extrato->saldo !== null ? (float) $extrato->saldo : null;
-                    return $extrato;
-                })
-            );
+            $extratos = Cache::remember('financeiro:extratos', 60, function () {
+                $statements = BankStatement::query()
+                    ->with(['financialEntry:id,origem_tipo,origem_id'])
+                    ->orderBy('data_movimento', 'desc')
+                    ->limit(1000)
+                    ->get();
+
+                $statementIds = $statements->pluck('id')->filter()->values();
+
+                $movementIdsFromEntries = $statements
+                    ->filter(fn (BankStatement $statement) => $statement->financialEntry?->origem_tipo === 'movement' && !empty($statement->financialEntry?->origem_id))
+                    ->pluck('financialEntry.origem_id')
+                    ->filter()
+                    ->values();
+
+                $movementIdsByStatement = MapaConciliacao::query()
+                    ->whereIn('extrato_id', $statementIds)
+                    ->whereNotNull('movimento_id')
+                    ->orderByDesc('created_at')
+                    ->get(['extrato_id', 'movimento_id'])
+                    ->unique('extrato_id')
+                    ->mapWithKeys(fn (MapaConciliacao $map) => [(string) $map->extrato_id => (string) $map->movimento_id]);
+
+                $movementIds = $movementIdsFromEntries
+                    ->merge($movementIdsByStatement->values())
+                    ->filter()
+                    ->unique()
+                    ->values();
+
+                $movementMap = Movement::query()
+                    ->whereIn('id', $movementIds)
+                    ->get(['id', 'estado_documental'])
+                    ->keyBy(fn (Movement $movement) => (string) $movement->id);
+
+                return $statements->map(function (BankStatement $extrato) use ($movementIdsByStatement, $movementMap) {
+                    return $this->serializeBankStatementForResponse($extrato, $movementIdsByStatement, $movementMap);
+                });
+            });
         } catch (\Exception $e) {
             \Log::error('FinanceiroController::index - Extratos query failed: ' . $e->getMessage());
             $extratos = [];
@@ -1439,6 +1470,46 @@ class FinanceiroController extends Controller
     }
 
     /**
+     * @param Collection<string, string> $movementIdsByStatement
+     * @param Collection<string, Movement> $movementMap
+     * @return array<string, mixed>
+     */
+    private function serializeBankStatementForResponse(BankStatement $extrato, Collection $movementIdsByStatement, Collection $movementMap): array
+    {
+        $extrato->valor = (float) $extrato->valor;
+        $extrato->saldo = $extrato->saldo !== null ? (float) $extrato->saldo : null;
+
+        $movementId = null;
+
+        if ($extrato->financialEntry?->origem_tipo === 'movement' && !empty($extrato->financialEntry?->origem_id)) {
+            $movementId = (string) $extrato->financialEntry->origem_id;
+        } elseif ($movementIdsByStatement->has((string) $extrato->id)) {
+            $movementId = (string) $movementIdsByStatement->get((string) $extrato->id);
+        }
+
+        $movement = $movementId ? $movementMap->get($movementId) : null;
+
+        return [
+            'id' => (string) $extrato->id,
+            'data_movimento' => optional($extrato->data_movimento)?->toDateString(),
+            'descricao' => $extrato->descricao,
+            'valor' => (float) $extrato->valor,
+            'saldo' => $extrato->saldo !== null ? (float) $extrato->saldo : null,
+            'referencia' => $extrato->referencia,
+            'ficheiro_id' => $extrato->ficheiro_id,
+            'centro_custo_id' => $extrato->centro_custo_id,
+            'conciliado' => (bool) $extrato->conciliado,
+            'valor_conciliado' => $extrato->valor_conciliado !== null ? (float) $extrato->valor_conciliado : null,
+            'valor_por_conciliar' => $extrato->valor_por_conciliar !== null ? (float) $extrato->valor_por_conciliar : null,
+            'conciliacao_status' => $extrato->conciliacao_status,
+            'lancamento_id' => $extrato->lancamento_id,
+            'movement_id' => $movementId,
+            'movement_estado_documental' => $movement?->estado_documental,
+            'created_at' => optional($extrato->created_at)?->toISOString(),
+        ];
+    }
+
+    /**
      * @return array<string, mixed>
      */
     private function serializeMovementDetail(Movement $movement): array
@@ -2028,6 +2099,7 @@ class FinanceiroController extends Controller
         ]);
 
         $data = $this->normalizeManualMovementRequestData($request, $data);
+        $data = $this->sanitizeMovementOriginData($data);
 
         if ($data['classificacao'] === 'despesa') {
             $result = $this->manualExpenseService->createSimpleExpense($data, $request->user());
@@ -2059,8 +2131,6 @@ class FinanceiroController extends Controller
         if (empty($data['user_id']) && empty($data['nome_manual'])) {
             $data['nome_manual'] = app(ClubSettingsService::class)->defaultFinancialEntityName($data['classificacao'] ?? null);
         }
-
-        $data = $this->sanitizeMovementOriginData($data);
 
         if ($request->hasFile('documento_original')) {
             $data['documento_original'] = $request->file('documento_original')->store('financeiro/movimentos', 'public');
