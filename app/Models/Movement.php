@@ -19,10 +19,14 @@ class Movement extends Model
         'nif_manual',
         'morada_manual',
         'classificacao',
+        'categoria',
         'data_emissao',
         'data_vencimento',
         'valor_total',
         'estado_pagamento',
+        'estado_conciliacao',
+        'estado_documental',
+        'document_control_status',
         'numero_recibo',
         'referencia_pagamento',
         'metodo_pagamento',
@@ -65,5 +69,10 @@ class Movement extends Model
     public function items(): HasMany
     {
         return $this->hasMany(MovementItem::class, 'movimento_id');
+    }
+
+    public function documents(): HasMany
+    {
+        return $this->hasMany(MovementDocument::class, 'movement_id');
     }
 }

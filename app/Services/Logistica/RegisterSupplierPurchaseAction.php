@@ -4,19 +4,22 @@ namespace App\Services\Logistica;
 
 use App\Models\FinancialEntry;
 use App\Models\Movement;
+use App\Models\MovementDocument;
 use App\Models\MovementItem;
 use App\Models\Product;
 use App\Models\Supplier;
 use App\Models\SupplierPurchase;
 use App\Models\SupplierPurchaseItem;
 use App\Models\User;
+use App\Services\Financeiro\MovementDocumentControlService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 class RegisterSupplierPurchaseAction
 {
     public function __construct(
-        private RegisterStockMovementAction $registerStockMovementAction
+        private RegisterStockMovementAction $registerStockMovementAction,
+        private MovementDocumentControlService $movementDocumentControlService,
     ) {
     }
 
@@ -73,12 +76,16 @@ class RegisterSupplierPurchaseAction
             $purchase->update(['total_amount' => $total]);
 
             $movement = Movement::create([
+                'supplier_id' => $supplier->id,
                 'nome_manual' => $purchase->supplier_name_snapshot,
                 'classificacao' => 'despesa',
+                'categoria' => 'compras_stock',
                 'data_emissao' => $purchase->invoice_date,
-                'data_vencimento' => $purchase->invoice_date,
-                'valor_total' => $total,
-                'estado_pagamento' => 'pendente',
+                'data_vencimento' => $data['due_date'] ?? $purchase->invoice_date,
+                'valor_total' => -abs($total),
+                'estado_pagamento' => 'por_pagar',
+                'estado_conciliacao' => 'nao_conciliado',
+                'estado_documental' => 'sem_documentos',
                 'centro_custo_id' => $data['centro_custo_id'] ?? null,
                 'tipo' => 'fornecedor',
                 'origem_tipo' => 'stock',
@@ -118,6 +125,31 @@ class RegisterSupplierPurchaseAction
                 'financial_movement_id' => $movement->id,
                 'financial_entry_id' => $financialEntry->id,
             ]);
+
+            if (!empty($data['attachment'])) {
+                $attachment = $data['attachment'];
+
+                MovementDocument::query()->create([
+                    'movement_id' => $movement->id,
+                    'supplier_id' => $supplier->id,
+                    'document_type' => $data['document_type'] ?? 'invoice',
+                    'source_type' => 'logistics',
+                    'source_id' => $purchase->id,
+                    'original_filename' => $attachment->getClientOriginalName(),
+                    'stored_path' => $attachment->store('financeiro/movimentos/documentos', 'public'),
+                    'mime_type' => $attachment->getClientMimeType(),
+                    'sha256_hash' => hash_file('sha256', $attachment->getRealPath()),
+                    'document_number' => $purchase->invoice_reference,
+                    'issue_date' => $purchase->invoice_date,
+                    'due_date' => $data['due_date'] ?? $purchase->invoice_date,
+                    'amount' => $total,
+                    'vat_amount' => $data['vat_amount'] ?? null,
+                    'status' => 'pending_validation',
+                    'notes' => $data['notes'] ?? null,
+                ]);
+            }
+
+            $this->movementDocumentControlService->refresh($movement->fresh());
 
             return $purchase->fresh(['items', 'supplier', 'financialMovement', 'financialEntry']);
         });

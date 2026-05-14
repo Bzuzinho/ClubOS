@@ -880,6 +880,38 @@ export function BancoTab({
     }
   };
 
+  const handleCriarDespesaDoPagamento = async (extrato: ExtratoBancario) => {
+    if (!extrato.centro_custo_id) {
+      toast.error('A linha bancaria precisa de centro de custo antes de criar a despesa.');
+      return;
+    }
+
+    try {
+      const response = await fetch(route('financeiro.extratos.criar-despesa', extrato.id), {
+        method: 'POST',
+        headers: buildJsonHeaders(),
+        credentials: 'same-origin',
+        body: JSON.stringify({
+          centro_custo_id: extrato.centro_custo_id,
+          categoria: 'pagamento_bancario',
+          tipo: 'servico',
+          notes: extrato.descricao,
+        }),
+      });
+
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.message || 'Erro ao criar despesa a partir do pagamento');
+      }
+
+      toast.success('Despesa criada a partir do pagamento bancario.');
+      refreshFinanceiroData();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Erro ao criar despesa a partir do pagamento';
+      toast.error(message);
+    }
+  };
+
   const resetForm = () => {
     setFormData({
       data_movimento: format(new Date(), 'yyyy-MM-dd'),
@@ -1784,6 +1816,14 @@ export function BancoTab({
                         >
                           Conciliar
                         </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => void handleCriarDespesaDoPagamento(extrato)}
+                          className="h-8 px-2"
+                        >
+                          Criar despesa
+                        </Button>
                       </>
                     ) : null}
                     {canUnreconcile ? (
@@ -1918,6 +1958,15 @@ export function BancoTab({
                                   title="Abrir conciliacao"
                                 >
                                   Conciliar
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => void handleCriarDespesaDoPagamento(extrato)}
+                                  className="text-[10px] md:text-xs h-7 md:h-8 px-2 md:px-3"
+                                  title="Criar despesa a partir deste pagamento"
+                                >
+                                  Criar despesa
                                 </Button>
                               </>
                             ) : null}

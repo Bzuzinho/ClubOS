@@ -216,7 +216,7 @@ class FinancialSettlementService
             'valor' => abs((float) $movement->valor_total),
             'valor_pago' => $financialEntry->exists ? $financialEntry->valor_pago : 0,
             'valor_em_aberto' => $financialEntry->exists ? $financialEntry->valor_em_aberto : abs((float) $movement->valor_total),
-            'estado' => $financialEntry->exists ? $financialEntry->estado : 'pendente',
+            'estado' => $financialEntry->exists ? $financialEntry->estado : $this->normalizeFinancialEntryState($movement->estado_pagamento),
             'centro_custo_id' => $movement->centro_custo_id,
             'user_id' => $movement->user_id,
             'entidade_nome' => $movement->nome_manual ?: ($movement->classificacao === 'receita' ? 'BSCN Receita' : 'BSCN Despesa'),
@@ -389,11 +389,34 @@ class FinancialSettlementService
         }
 
         $movement->fill([
-            'estado_pagamento' => $financialEntry->estado,
+            'estado_pagamento' => $this->normalizeMovementState($financialEntry->estado),
+            'estado_conciliacao' => !empty($options['bank_statement_id']) ? 'conciliado' : ($movement->estado_conciliacao ?: 'nao_conciliado'),
             'numero_recibo' => $options['numero_recibo'] ?? $movement->numero_recibo,
             'metodo_pagamento' => $financialEntry->metodo_pagamento,
             'comprovativo' => $options['comprovativo'] ?? $movement->comprovativo,
         ]);
         $movement->save();
+
+        app(MovementDocumentControlService::class)->refresh($movement->fresh());
+    }
+
+    private function normalizeFinancialEntryState(?string $movementState): string
+    {
+        return match ($movementState) {
+            'pago' => 'pago',
+            'pago_parcial', 'parcial' => 'parcial',
+            'cancelado' => 'cancelado',
+            default => 'pendente',
+        };
+    }
+
+    private function normalizeMovementState(?string $entryState): string
+    {
+        return match ($entryState) {
+            'pago' => 'pago',
+            'parcial' => 'pago_parcial',
+            'cancelado' => 'cancelado',
+            default => 'por_pagar',
+        };
     }
 }

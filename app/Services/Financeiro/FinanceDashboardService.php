@@ -2,6 +2,7 @@
 
 namespace App\Services\Financeiro;
 
+use App\Models\Movement;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 
@@ -47,9 +48,30 @@ class FinanceDashboardService
             'despesas_mes' => $despesasMes,
             'mensalidades_vencidas' => round((float) $this->queryService->overdueMonthlyInvoices($filters)->sum('valor_em_aberto'), 2),
             'movimentos_pendentes' => $movimentosPendentes,
+            'alerts' => $this->buildExpenseAlerts($now),
             'distribuicao_por_tipo' => $this->buildDistributionByType($filters),
             'evolucao_mensal_ultimos_6_meses' => $this->buildMonthlyEvolution($now, $filters),
             'receitas_despesas_por_centro_custo' => $this->buildCostCenterSummary($filters),
+        ];
+    }
+
+    private function buildExpenseAlerts(Carbon $referenceDate): array
+    {
+        $expenseMovements = Movement::query()->where('classificacao', 'despesa');
+
+        return [
+            'paid_without_invoice' => (clone $expenseMovements)->where('estado_pagamento', 'pago')->where('estado_documental', 'falta_fatura')->count(),
+            'paid_without_receipt' => (clone $expenseMovements)->where('estado_pagamento', 'pago')->where('estado_documental', 'falta_recibo')->count(),
+            'missing_payment_proof' => (clone $expenseMovements)->where('estado_documental', 'falta_comprovativo_pagamento')->count(),
+            'overdue_unpaid' => (clone $expenseMovements)
+                ->whereIn('estado_pagamento', ['pendente', 'por_pagar'])
+                ->whereDate('data_vencimento', '<', $referenceDate->toDateString())
+                ->count(),
+            'amount_mismatch' => (clone $expenseMovements)->where('estado_documental', 'inconsistente')->count(),
+            'stock_without_document' => (clone $expenseMovements)
+                ->where('origem_tipo', 'stock')
+                ->whereIn('estado_documental', ['sem_documentos', 'falta_fatura', 'pendente_validacao'])
+                ->count(),
         ];
     }
 

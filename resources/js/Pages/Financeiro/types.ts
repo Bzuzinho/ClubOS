@@ -200,10 +200,14 @@ export interface Movimento {
   nif_manual?: string | null;
   morada_manual?: string | null;
   classificacao: 'receita' | 'despesa';
+  categoria?: string | null;
   data_emissao: string;
   data_vencimento: string;
   valor_total: number;
-  estado_pagamento: 'pendente' | 'pago' | 'vencido' | 'parcial' | 'cancelado';
+  estado_pagamento: 'pendente' | 'por_pagar' | 'pago' | 'vencido' | 'parcial' | 'pago_parcial' | 'cancelado';
+  estado_conciliacao?: 'nao_conciliado' | 'sugerido' | 'conciliado' | 'divergente' | null;
+  estado_documental?: 'sem_documentos' | 'falta_fatura' | 'falta_recibo' | 'falta_comprovativo_pagamento' | 'pendente_validacao' | 'completo' | 'inconsistente' | null;
+  document_control_status?: 'not_required' | 'pending_documents' | 'pending_invoice' | 'pending_receipt' | 'pending_payment_proof' | 'complete' | 'inconsistent' | null;
   numero_recibo?: string | null;
   referencia_pagamento?: string | null;
   metodo_pagamento?: string | null;
@@ -211,7 +215,7 @@ export interface Movimento {
   documento_original?: string | null;
   centro_custo_id?: string | null;
   tipo: 'inscricao' | 'material' | 'servico' | 'patrocinio' | 'outro';
-  origem_tipo?: 'evento' | 'stock' | 'patrocinio' | 'manual' | null;
+  origem_tipo?: 'evento' | 'stock' | 'patrocinio' | 'manual' | 'bank_statement' | null;
   origem_id?: string | null;
   observacoes?: string | null;
   created_at?: string | null;
@@ -285,6 +289,14 @@ export interface FinanceDashboardData {
   despesas_mes: number;
   mensalidades_vencidas: number;
   movimentos_pendentes: number;
+  alerts?: {
+    paid_without_invoice: number;
+    paid_without_receipt: number;
+    missing_payment_proof: number;
+    overdue_unpaid: number;
+    amount_mismatch: number;
+    stock_without_document: number;
+  };
   distribuicao_por_tipo: FinanceDashboardPoint[];
   evolucao_mensal_ultimos_6_meses: FinanceDashboardPoint[];
   receitas_despesas_por_centro_custo: FinanceDashboardPoint[];

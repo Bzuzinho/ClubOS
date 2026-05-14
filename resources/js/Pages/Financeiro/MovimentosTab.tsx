@@ -12,7 +12,7 @@ import { Badge } from '@/Components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/Components/ui/table';
 import { Textarea } from '@/Components/ui/textarea';
 import { Checkbox } from '@/Components/ui/checkbox';
-import { Plus, X, Check, Trash, PencilSimple } from '@phosphor-icons/react';
+import { Plus, X, Check, Trash, PencilSimple, Files } from '@phosphor-icons/react';
 import { format, addMonths, isBefore } from 'date-fns';
 import { toast } from 'sonner';
 
@@ -181,6 +181,8 @@ export function MovimentosTab({
 
   const [estadoFilter, setEstadoFilter] = useState<string>('all');
   const [classificacaoFilter, setClassificacaoFilter] = useState<string>('all');
+  const [documentalFilter, setDocumentalFilter] = useState<string>('all');
+  const [conciliacaoFilter, setConciliacaoFilter] = useState<string>('all');
   const [dialogOpen, setDialogOpen] = useState(false);
   const [dialogReciboOpen, setDialogReciboOpen] = useState(false);
   const [dialogDeleteOpen, setDialogDeleteOpen] = useState(false);
@@ -201,6 +203,8 @@ export function MovimentosTab({
     nif_manual: '',
     morada_manual: '',
     classificacao: 'receita' as 'receita' | 'despesa',
+    categoria: '',
+    estado_pagamento: 'por_pagar' as Movimento['estado_pagamento'],
     tipo: 'outro' as Movimento['tipo'],
     valor_total: 0,
     data_emissao: format(new Date(), 'yyyy-MM-dd'),
@@ -266,11 +270,19 @@ export function MovimentosTab({
           estadoFilter === 'all' ||
           movimento.estado_pagamento === estadoFilter;
 
+        const documentalMatch =
+          documentalFilter === 'all' ||
+          movimento.estado_documental === documentalFilter;
+
+        const conciliacaoMatch =
+          conciliacaoFilter === 'all' ||
+          movimento.estado_conciliacao === conciliacaoFilter;
+
         const classificacaoMatch = classificacaoFilter === 'all' || movimento.classificacao === classificacaoFilter;
 
-        return estadoMatch && classificacaoMatch;
+        return estadoMatch && classificacaoMatch && documentalMatch && conciliacaoMatch;
       });
-  }, [displayedMovimentos, estadoFilter, classificacaoFilter]);
+  }, [displayedMovimentos, estadoFilter, classificacaoFilter, documentalFilter, conciliacaoFilter]);
 
   const sortedMovimentos = useMemo(() => {
     return [...filteredMovimentos].sort(
@@ -472,9 +484,11 @@ export function MovimentosTab({
         nif_manual: usarDadosUtilizador ? undefined : formData.nif_manual,
         morada_manual: usarDadosUtilizador ? undefined : formData.morada_manual,
         classificacao: formData.classificacao,
+        categoria: formData.categoria || undefined,
         data_emissao: formData.data_emissao,
         data_vencimento: formData.data_vencimento,
         valor_total: total,
+        estado_pagamento: formData.estado_pagamento,
         centro_custo_id: formData.centro_custo_id,
         tipo: formData.tipo,
         origem_tipo: formData.origem_tipo || null,
@@ -523,10 +537,11 @@ export function MovimentosTab({
         nif_manual: usarDadosUtilizador ? undefined : formData.nif_manual,
         morada_manual: usarDadosUtilizador ? undefined : formData.morada_manual,
         classificacao: formData.classificacao,
+        categoria: formData.categoria || undefined,
         data_emissao: formData.data_emissao,
         data_vencimento: formData.data_vencimento,
         valor_total: total,
-        estado_pagamento: 'pendente',
+        estado_pagamento: formData.classificacao === 'despesa' ? formData.estado_pagamento : 'pendente',
         centro_custo_id: formData.centro_custo_id,
         tipo: formData.tipo,
         origem_tipo: formData.origem_tipo || null,
@@ -569,6 +584,8 @@ export function MovimentosTab({
       nif_manual: '',
       morada_manual: '',
       classificacao: 'receita',
+      categoria: '',
+      estado_pagamento: 'por_pagar',
       tipo: 'outro',
       valor_total: 0,
       data_emissao: format(new Date(), 'yyyy-MM-dd'),
@@ -603,6 +620,8 @@ export function MovimentosTab({
       nif_manual: movimento.nif_manual || '',
       morada_manual: movimento.morada_manual || '',
       classificacao: movimento.classificacao,
+      categoria: movimento.categoria || '',
+      estado_pagamento: movimento.estado_pagamento,
       tipo: movimento.tipo,
       valor_total: movimento.valor_total,
       data_emissao: toDateInputValue(movimento.data_emissao),
@@ -728,12 +747,61 @@ export function MovimentosTab({
   const getEstadoBadge = (estado: Movimento['estado_pagamento']) => {
     const variants = {
       pendente: 'bg-yellow-100 text-yellow-800',
+      por_pagar: 'bg-yellow-100 text-yellow-800',
       pago: 'bg-green-100 text-green-800',
       vencido: 'bg-red-100 text-red-800',
       parcial: 'bg-blue-100 text-blue-800',
+      pago_parcial: 'bg-blue-100 text-blue-800',
       cancelado: 'bg-gray-100 text-gray-800',
     };
-    return <Badge className={variants[estado]}>{estado.toUpperCase()}</Badge>;
+    const label = estado === 'por_pagar' ? 'POR PAGAR' : estado === 'pago_parcial' ? 'PAGO PARCIAL' : estado.toUpperCase();
+    return <Badge className={variants[estado]}>{label}</Badge>;
+  };
+
+  const getDocumentalBadge = (estado?: Movimento['estado_documental']) => {
+    if (!estado) return null;
+
+    const variants: Record<string, string> = {
+      sem_documentos: 'bg-slate-100 text-slate-800',
+      falta_fatura: 'bg-amber-100 text-amber-800',
+      falta_recibo: 'bg-orange-100 text-orange-800',
+      falta_comprovativo_pagamento: 'bg-yellow-100 text-yellow-800',
+      pendente_validacao: 'bg-blue-100 text-blue-800',
+      completo: 'bg-green-100 text-green-800',
+      inconsistente: 'bg-red-100 text-red-800',
+    };
+
+    const labels: Record<string, string> = {
+      sem_documentos: 'Sem documentos',
+      falta_fatura: 'Falta fatura',
+      falta_recibo: 'Falta recibo',
+      falta_comprovativo_pagamento: 'Falta comprovativo',
+      pendente_validacao: 'Pendente validacao',
+      completo: 'Completo',
+      inconsistente: 'Inconsistente',
+    };
+
+    return <Badge className={variants[estado]}>{labels[estado]}</Badge>;
+  };
+
+  const getConciliacaoBadge = (estado?: Movimento['estado_conciliacao']) => {
+    if (!estado) return null;
+
+    const variants: Record<string, string> = {
+      nao_conciliado: 'bg-slate-100 text-slate-800',
+      sugerido: 'bg-blue-100 text-blue-800',
+      conciliado: 'bg-green-100 text-green-800',
+      divergente: 'bg-red-100 text-red-800',
+    };
+
+    const labels: Record<string, string> = {
+      nao_conciliado: 'Nao conciliado',
+      sugerido: 'Sugerido',
+      conciliado: 'Conciliado',
+      divergente: 'Divergente',
+    };
+
+    return <Badge className={variants[estado]}>{labels[estado]}</Badge>;
   };
 
   const getClassificacaoBadge = (classificacao: 'receita' | 'despesa') => {
@@ -766,10 +834,40 @@ export function MovimentosTab({
             <SelectContent>
               <SelectItem value="all">Todos os Estados</SelectItem>
               <SelectItem value="pendente">Pendente</SelectItem>
+              <SelectItem value="por_pagar">Por pagar</SelectItem>
               <SelectItem value="pago">Pago</SelectItem>
               <SelectItem value="vencido">Vencido</SelectItem>
               <SelectItem value="parcial">Parcial</SelectItem>
+              <SelectItem value="pago_parcial">Pago parcial</SelectItem>
               <SelectItem value="cancelado">Cancelado</SelectItem>
+            </SelectContent>
+          </Select>
+
+          <Select value={documentalFilter} onValueChange={setDocumentalFilter}>
+            <SelectTrigger className="w-[220px]">
+              <SelectValue placeholder="Estado documental" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todos os documentos</SelectItem>
+              <SelectItem value="falta_fatura">Falta fatura</SelectItem>
+              <SelectItem value="falta_recibo">Falta recibo</SelectItem>
+              <SelectItem value="falta_comprovativo_pagamento">Falta comprovativo</SelectItem>
+              <SelectItem value="pendente_validacao">Pendente validacao</SelectItem>
+              <SelectItem value="completo">Completo</SelectItem>
+              <SelectItem value="inconsistente">Inconsistente</SelectItem>
+            </SelectContent>
+          </Select>
+
+          <Select value={conciliacaoFilter} onValueChange={setConciliacaoFilter}>
+            <SelectTrigger className="w-[220px]">
+              <SelectValue placeholder="Conciliacao" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Toda a conciliacao</SelectItem>
+              <SelectItem value="nao_conciliado">Nao conciliado</SelectItem>
+              <SelectItem value="sugerido">Sugerido</SelectItem>
+              <SelectItem value="conciliado">Conciliado</SelectItem>
+              <SelectItem value="divergente">Divergente</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -792,14 +890,17 @@ export function MovimentosTab({
             <DialogTrigger asChild>
               <Button onClick={resetForm}>
                 <Plus className="mr-2" />
-                Movimento
+                Nova despesa
               </Button>
             </DialogTrigger>
+            <Button variant="outline" onClick={() => router.visit(route('logistica.index', { tab: 'fornecedores' }))}>
+              Nova compra de material/stock
+            </Button>
             <DialogContent className="w-[calc(100vw-1rem)] sm:w-[calc(100vw-2rem)] sm:max-w-6xl max-h-[90vh] overflow-y-auto overflow-x-hidden p-3 sm:p-6">
               <DialogHeader>
-                <DialogTitle>{editingMovimentoId ? 'Editar Movimento' : 'Criar Movimento'}</DialogTitle>
+                <DialogTitle>{editingMovimentoId ? 'Editar despesa' : 'Nova despesa'}</DialogTitle>
                 <DialogDescription>
-                  {editingMovimentoId ? 'Altere os dados do movimento financeiro' : 'Registe uma nova receita ou despesa'}
+                  {editingMovimentoId ? 'Altere os dados da despesa' : 'Registe uma nova despesa manual'}
                 </DialogDescription>
               </DialogHeader>
               <div className="space-y-3 overflow-x-hidden">
@@ -952,6 +1053,15 @@ export function MovimentosTab({
                   </div>
 
                   <div className="space-y-2 min-w-0">
+                    <Label>Categoria</Label>
+                    <Input
+                      value={formData.categoria}
+                      onChange={(e) => setFormData({ ...formData, categoria: e.target.value })}
+                      placeholder="agua, luz, seguros, transportes..."
+                    />
+                  </div>
+
+                  <div className="space-y-2 min-w-0">
                     <Label>Tipo *</Label>
                     <Select
                       value={formData.tipo}
@@ -984,6 +1094,26 @@ export function MovimentosTab({
                       </SelectContent>
                     </Select>
                   </div>
+
+                  {formData.classificacao === 'despesa' && (
+                    <div className="space-y-2 min-w-0">
+                      <Label>Estado pagamento</Label>
+                      <Select
+                        value={formData.estado_pagamento}
+                        onValueChange={(v) => setFormData({ ...formData, estado_pagamento: v as Movimento['estado_pagamento'] })}
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="por_pagar">Por pagar</SelectItem>
+                          <SelectItem value="pago">Pago</SelectItem>
+                          <SelectItem value="pago_parcial">Pago parcial</SelectItem>
+                          <SelectItem value="cancelado">Cancelado</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
 
                   <div className="space-y-2 min-w-0">
                     <Label>Origem</Label>
@@ -1279,6 +1409,8 @@ export function MovimentosTab({
                           {getClassificacaoBadge(movimento.classificacao)}
                           <Badge variant="outline">{movimento.tipo}</Badge>
                           {getEstadoBadge(movimento.estado_pagamento)}
+                          {getConciliacaoBadge(movimento.estado_conciliacao)}
+                          {getDocumentalBadge(movimento.estado_documental)}
                         </div>
                       </div>
                       <Checkbox
@@ -1319,11 +1451,15 @@ export function MovimentosTab({
                     <div className="flex flex-wrap gap-2 pt-1">
                       {actionId && (
                         <>
+                          <Button size="sm" variant="outline" onClick={() => router.visit(route('financeiro.movimentos.show', actionId))}>
+                            <Files size={16} className="mr-1" />
+                            Detalhe
+                          </Button>
                           <Button size="sm" variant="ghost" onClick={() => handleEditarMovimento(actionId)}>
                             <PencilSimple size={16} className="mr-1" />
                             Editar
                           </Button>
-                          {(movimento.estado_pagamento === 'pendente' || movimento.estado_pagamento === 'vencido') && (
+                          {(movimento.estado_pagamento === 'pendente' || movimento.estado_pagamento === 'por_pagar' || movimento.estado_pagamento === 'vencido') && (
                             <Button size="sm" variant="outline" onClick={() => handleAbrirDialogoRecibo(actionId)}>
                               <Check size={16} className="mr-1" />
                               Liquidar
@@ -1377,6 +1513,7 @@ export function MovimentosTab({
               <TableHead className="w-[8%]">Pago</TableHead>
               <TableHead className="w-[8%]">Em Aberto</TableHead>
               <TableHead className="w-[8%]">Estado</TableHead>
+              <TableHead className="w-[10%]">Documentos</TableHead>
               <TableHead className="w-[10%]">Centro Custo</TableHead>
               <TableHead className="w-[12%]">Associacoes</TableHead>
               <TableHead className="w-[11%] text-right">Acoes</TableHead>
@@ -1385,7 +1522,7 @@ export function MovimentosTab({
           <TableBody>
             {sortedMovimentos.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={13} className="text-center text-muted-foreground py-8">
+                <TableCell colSpan={14} className="text-center text-muted-foreground py-8">
                   Nenhum movimento encontrado
                 </TableCell>
               </TableRow>
@@ -1423,7 +1560,13 @@ export function MovimentosTab({
                     </TableCell>
                     <TableCell>{formatAmount(paidAmount)}</TableCell>
                     <TableCell>{formatAmount(openAmount)}</TableCell>
-                    <TableCell>{getEstadoBadge(movimento.estado_pagamento)}</TableCell>
+                    <TableCell>
+                      <div className="flex flex-wrap gap-1">
+                        {getEstadoBadge(movimento.estado_pagamento)}
+                        {getConciliacaoBadge(movimento.estado_conciliacao)}
+                      </div>
+                    </TableCell>
+                    <TableCell>{getDocumentalBadge(movimento.estado_documental)}</TableCell>
                     <TableCell className="text-sm break-words">{getCentroCustoName(movimento.centro_custo_id || undefined)}</TableCell>
                     <TableCell className="text-sm text-muted-foreground break-words leading-snug">
                       {getFaturasAssociadas(actionId) || '-'}
@@ -1432,10 +1575,13 @@ export function MovimentosTab({
                       <div className="flex flex-wrap items-center justify-end gap-2">
                         {actionId && (
                           <>
+                            <Button size="sm" variant="outline" onClick={() => router.visit(route('financeiro.movimentos.show', actionId))} title="Abrir ficha do movimento">
+                              <Files size={16} />
+                            </Button>
                             <Button size="sm" variant="ghost" onClick={() => handleEditarMovimento(actionId)} title="Editar movimento">
                               <PencilSimple size={16} />
                             </Button>
-                            {(movimento.estado_pagamento === 'pendente' || movimento.estado_pagamento === 'vencido') && (
+                            {(movimento.estado_pagamento === 'pendente' || movimento.estado_pagamento === 'por_pagar' || movimento.estado_pagamento === 'vencido') && (
                               <Button size="sm" variant="outline" onClick={() => handleAbrirDialogoRecibo(actionId)}>
                                 <Check size={16} className="mr-1" />
                                 Liquidar

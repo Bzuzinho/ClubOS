@@ -540,10 +540,18 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::put('/categorias/{category}', [CategoriasFinanceirasController::class, 'update'])->name('categorias-financeiras.update');
         Route::delete('/categorias/{category}', [CategoriasFinanceirasController::class, 'destroy'])->name('categorias-financeiras.destroy');
         
+        Route::get('/movimentos/{movimento}', [FinanceiroController::class, 'showMovimento'])->name('financeiro.movimentos.show');
         Route::post('/movimentos', [FinanceiroController::class, 'storeMovimento'])->name('financeiro.movimentos.store');
         Route::put('/movimentos/{movimento}', [FinanceiroController::class, 'updateMovimento'])->name('financeiro.movimentos.update');
         Route::delete('/movimentos/{movimento}', [FinanceiroController::class, 'destroyMovimento'])->name('financeiro.movimentos.destroy');
         Route::post('/movimentos/{movimento}/liquidar', [FinanceiroController::class, 'liquidarMovimento'])->name('financeiro.movimentos.liquidar');
+        Route::post('/movimentos/{movimento}/documents', [FinanceiroController::class, 'storeMovementDocument'])->name('financeiro.movimentos.documents.store');
+        Route::patch('/movimentos/{movimento}/documents/{document}/validate', [FinanceiroController::class, 'validateMovementDocument'])->name('financeiro.movimentos.documents.validate');
+        Route::patch('/movimentos/{movimento}/documents/{document}/reject', [FinanceiroController::class, 'rejectMovementDocument'])->name('financeiro.movimentos.documents.reject');
+        Route::patch('/movimentos/{movimento}/documents/{document}/duplicate', [FinanceiroController::class, 'markMovementDocumentDuplicate'])->name('financeiro.movimentos.documents.duplicate');
+        Route::patch('/movimentos/{movimento}/recalculate-document-status', [FinanceiroController::class, 'recalculateMovementDocumentStatus'])->name('financeiro.movimentos.recalculate-document-status');
+        Route::patch('/movimentos/{movimento}/mark-divergent', [FinanceiroController::class, 'markMovementConciliationDivergent'])->name('financeiro.movimentos.mark-divergent');
+        Route::patch('/movimentos/{movimento}/notes', [FinanceiroController::class, 'updateMovementNotes'])->name('financeiro.movimentos.notes.update');
 
         Route::post('/extratos', [FinanceiroController::class, 'storeExtrato'])->name('financeiro.extratos.store');
         Route::post('/extratos/bulk', [FinanceiroController::class, 'storeExtratosBulk'])->name('financeiro.extratos.bulk');
@@ -551,6 +559,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::delete('/extratos/{extrato}', [FinanceiroController::class, 'destroyExtrato'])->name('financeiro.extratos.destroy');
         Route::post('/extratos/{extrato}/conciliar', [FinanceiroController::class, 'conciliarExtrato'])->name('financeiro.extratos.conciliar');
         Route::post('/extratos/{extrato}/desconciliar', [FinanceiroController::class, 'desconciliarExtrato'])->name('financeiro.extratos.desconciliar');
+        Route::post('/extratos/{extrato}/criar-despesa', [FinanceiroController::class, 'createExpenseFromBankStatement'])->name('financeiro.extratos.criar-despesa');
 
         Route::post('/invoices/{invoice}/fiscal-document-request', [FiscalDocumentRequestController::class, 'createFromInvoice'])
             ->middleware('permission.access:financeiro.dashboard,edit')

@@ -7,6 +7,7 @@ use App\Models\FinancialEntry;
 use App\Models\Invoice;
 use App\Models\LogisticsRequest;
 use App\Models\Movement;
+use Illuminate\Http\UploadedFile;
 use App\Models\Product;
 use App\Models\Supplier;
 use App\Models\SupplierPurchase;
@@ -123,11 +124,15 @@ class LogisticaFlowsTest extends TestCase
             'ativo' => true,
         ]);
 
+        $attachment = UploadedFile::fake()->create('fornecedor.pdf', 20, 'application/pdf');
+
         $this->actingAs($admin)
             ->post(route('logistica.fornecedores.compras.store'), [
                 'supplier_id' => $supplier->id,
                 'invoice_reference' => 'FAC-2026-009',
                 'invoice_date' => now()->toDateString(),
+                'document_type' => 'invoice',
+                'attachment' => $attachment,
                 'items' => [
                     [
                         'article_id' => $product->id,
@@ -152,8 +157,14 @@ class LogisticaFlowsTest extends TestCase
         $this->assertNotNull($entry);
         $this->assertSame('despesa', $movement->classificacao);
         $this->assertSame('stock', $movement->origem_tipo);
+        $this->assertSame('por_pagar', $movement->estado_pagamento);
         $this->assertSame('despesa', $entry->tipo);
         $this->assertSame('stock', $entry->origem_tipo);
+        $this->assertDatabaseHas('movement_documents', [
+            'movement_id' => $movement->id,
+            'document_type' => 'invoice',
+            'source_type' => 'logistics',
+        ]);
         $this->assertDatabaseHas('stock_movements', [
             'article_id' => $product->id,
             'movement_type' => 'entry',

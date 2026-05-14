@@ -4,17 +4,24 @@ namespace App\Services\Logistica;
 
 use App\Models\FinancialEntry;
 use App\Models\Movement;
+use App\Models\MovementDocument;
 use App\Models\MovementItem;
 use App\Models\Product;
 use App\Models\Supplier;
 use App\Models\SupplierPurchase;
 use App\Models\SupplierPurchaseItem;
 use App\Models\User;
+use App\Services\Financeiro\MovementDocumentControlService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 class UpdateSupplierPurchaseAction
 {
+    public function __construct(
+        private readonly MovementDocumentControlService $movementDocumentControlService,
+    ) {
+    }
+
     public function execute(SupplierPurchase $purchase, array $data, ?User $actor = null): SupplierPurchase
     {
         return DB::transaction(function () use ($purchase, $data, $actor) {
@@ -86,10 +93,12 @@ class UpdateSupplierPurchaseAction
                 $movement = Movement::query()->find($purchase->financial_movement_id);
                 if ($movement) {
                     $movement->update([
+                        'supplier_id' => $supplier->id,
                         'nome_manual' => $supplier->nome,
+                        'categoria' => 'compras_stock',
                         'data_emissao' => $purchase->invoice_date,
-                        'data_vencimento' => $purchase->invoice_date,
-                        'valor_total' => $total,
+                        'data_vencimento' => $data['due_date'] ?? $purchase->invoice_date,
+                        'valor_total' => -abs($total),
                         'centro_custo_id' => $data['centro_custo_id'] ?? $movement->centro_custo_id,
                         'referencia_pagamento' => $purchase->invoice_reference,
                         'observacoes' => 'Despesa atualizada pela compra de fornecedor na logística.',
@@ -124,6 +133,42 @@ class UpdateSupplierPurchaseAction
                         'metodo_pagamento' => $data['metodo_pagamento'] ?? $entry->metodo_pagamento,
                         'user_id' => $actor?->id ?? $entry->user_id,
                     ]);
+                }
+            }
+
+            if ($purchase->financial_movement_id) {
+                $movement = Movement::query()->find($purchase->financial_movement_id);
+                if ($movement && !empty($data['attachment'])) {
+                    $attachment = $data['attachment'];
+
+                    $document = MovementDocument::query()
+                        ->where('movement_id', $movement->id)
+                        ->where('source_type', 'logistics')
+                        ->latest('created_at')
+                        ->first();
+
+                    $document ??= new MovementDocument();
+                    $document->fill([
+                        'movement_id' => $movement->id,
+                        'supplier_id' => $supplier->id,
+                        'document_type' => $data['document_type'] ?? 'invoice',
+                        'source_type' => 'logistics',
+                        'source_id' => $purchase->id,
+                        'original_filename' => $attachment->getClientOriginalName(),
+                        'stored_path' => $attachment->store('financeiro/movimentos/documentos', 'public'),
+                        'mime_type' => $attachment->getClientMimeType(),
+                        'sha256_hash' => hash_file('sha256', $attachment->getRealPath()),
+                        'document_number' => $purchase->invoice_reference,
+                        'issue_date' => $purchase->invoice_date,
+                        'due_date' => $data['due_date'] ?? $purchase->invoice_date,
+                        'amount' => $total,
+                        'vat_amount' => $data['vat_amount'] ?? null,
+                        'status' => 'pending_validation',
+                        'notes' => $data['notes'] ?? null,
+                    ]);
+                    $document->save();
+
+                    $this->movementDocumentControlService->refresh($movement->fresh());
                 }
             }
 

@@ -32,6 +32,14 @@ export function DashboardTab({ dashboardData }: DashboardTabProps) {
     despesasMes: Number(dashboardData?.despesas_mes ?? 0),
     mensalidadesVencidas: Number(dashboardData?.mensalidades_vencidas ?? 0),
     movimentosPendentes: Number(dashboardData?.movimentos_pendentes ?? 0),
+    alerts: {
+      paidWithoutInvoice: Number(dashboardData?.alerts?.paid_without_invoice ?? 0),
+      paidWithoutReceipt: Number(dashboardData?.alerts?.paid_without_receipt ?? 0),
+      missingPaymentProof: Number(dashboardData?.alerts?.missing_payment_proof ?? 0),
+      overdueUnpaid: Number(dashboardData?.alerts?.overdue_unpaid ?? 0),
+      amountMismatch: Number(dashboardData?.alerts?.amount_mismatch ?? 0),
+      stockWithoutDocument: Number(dashboardData?.alerts?.stock_without_document ?? 0),
+    },
     distribuicaoPorTipo: (dashboardData?.distribuicao_por_tipo ?? [])
       .map((row) => ({
         name: row.label ?? '-',
@@ -165,7 +173,17 @@ export function DashboardTab({ dashboardData }: DashboardTabProps) {
         </Card>
 
         <Card className="p-4 text-xs text-muted-foreground">
-          {showCharts ? 'A carregar visualizações financeiras...' : 'A preparar visualizações financeiras...'}
+          <div className="space-y-2">
+            <div className="text-sm font-semibold text-foreground">Alertas documentais</div>
+            <div className="grid gap-2 text-xs">
+              <div className="flex items-center justify-between rounded-lg border p-2"><span>Pagos sem fatura</span><span className="font-semibold">{normalizedDashboard.alerts.paidWithoutInvoice}</span></div>
+              <div className="flex items-center justify-between rounded-lg border p-2"><span>Pagos sem recibo</span><span className="font-semibold">{normalizedDashboard.alerts.paidWithoutReceipt}</span></div>
+              <div className="flex items-center justify-between rounded-lg border p-2"><span>Sem comprovativo</span><span className="font-semibold">{normalizedDashboard.alerts.missingPaymentProof}</span></div>
+              <div className="flex items-center justify-between rounded-lg border p-2"><span>Vencidas por pagar</span><span className="font-semibold">{normalizedDashboard.alerts.overdueUnpaid}</span></div>
+              <div className="flex items-center justify-between rounded-lg border p-2"><span>Valor divergente</span><span className="font-semibold">{normalizedDashboard.alerts.amountMismatch}</span></div>
+              <div className="flex items-center justify-between rounded-lg border p-2"><span>Compras stock sem documento</span><span className="font-semibold">{normalizedDashboard.alerts.stockWithoutDocument}</span></div>
+            </div>
+          </div>
         </Card>
       </div>
 

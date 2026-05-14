@@ -14,6 +14,7 @@ use App\Models\InvoiceItem;
 use App\Models\InvoiceType;
 use App\Models\MonthlyFee;
 use App\Models\Movement;
+use App\Models\MovementDocument;
 use App\Models\MovementItem;
 use App\Models\MapaConciliacao;
 use App\Models\Payment;
@@ -26,6 +27,8 @@ use App\Services\Financeiro\BankReconciliationService;
 use App\Services\Financeiro\FinanceDashboardService;
 use App\Services\Financeiro\FinancialSettlementService;
 use App\Services\Financeiro\FiscalDocumentRequestService;
+use App\Services\Financeiro\ManualExpenseService;
+use App\Services\Financeiro\MovementDocumentControlService;
 use App\Services\Financeiro\MonthlyInvoiceStatusService;
 use App\Services\Financeiro\MonthlyFeeGenerationService;
 use App\Services\Financeiro\PaymentAllocationService;
@@ -54,6 +57,8 @@ class FinanceiroController extends Controller
         private readonly BankReconciliationService $bankReconciliationService,
         private readonly FinanceDashboardService $financeDashboardService,
         private readonly MonthlyInvoiceStatusService $monthlyInvoiceStatusService,
+        private readonly ManualExpenseService $manualExpenseService,
+        private readonly MovementDocumentControlService $movementDocumentControlService,
     ) {
     }
 
@@ -433,6 +438,244 @@ class FinanceiroController extends Controller
     {
         return Inertia::render('Financeiro/Show', [
             'invoice' => $financeiro->load(['user', 'items']),
+        ]);
+    }
+
+    public function showMovimento(Request $request, Movement $movimento): Response|JsonResponse
+    {
+        $movimento->load([
+            'supplier:id,nome,nif,morada',
+            'centroCusto:id,nome',
+            'items.centroCusto:id,nome',
+            'documents.supplier:id,nome',
+            'documents.validator:id,name,nome_completo',
+            'financialEntries.bankStatement:id,data_movimento,descricao,valor,referencia,conciliado,conciliacao_status,valor_conciliado,valor_por_conciliar,lancamento_id',
+            'financialEntries.reconciliationMap:id,lancamento_id,extrato_id,descricao,created_at',
+        ]);
+
+        $payload = [
+            'movement' => $this->serializeMovementDetail($movimento),
+            'suppliers' => Supplier::query()->orderBy('nome')->get(['id', 'nome']),
+            'availableBankStatements' => $this->serializeAvailableBankStatementsForMovement($movimento),
+            'canManageDocuments' => $this->canManageMovementDocuments($request->user()),
+        ];
+
+        if ($request->expectsJson()) {
+            return response()->json($payload);
+        }
+
+        return Inertia::render('Financeiro/Show', $payload);
+    }
+
+    public function storeMovementDocument(Request $request, Movement $movimento): JsonResponse
+    {
+        $this->ensureCanManageMovementDocuments($request->user());
+
+        $data = $request->validate([
+            'document_type' => ['required', 'in:invoice,receipt,invoice_receipt,payment_proof,bank_statement_line,credit_note,other'],
+            'document_number' => ['nullable', 'string', 'max:255'],
+            'issue_date' => ['nullable', 'date'],
+            'due_date' => ['nullable', 'date'],
+            'amount' => ['nullable', 'numeric'],
+            'vat_amount' => ['nullable', 'numeric'],
+            'supplier_id' => ['nullable', 'exists:suppliers,id'],
+            'file' => ['nullable', 'file'],
+            'notes' => ['nullable', 'string'],
+        ]);
+
+        $document = new MovementDocument([
+            'supplier_id' => $data['supplier_id'] ?? $movimento->supplier_id,
+            'document_type' => $data['document_type'],
+            'source_type' => 'manual_upload',
+            'document_number' => $data['document_number'] ?? null,
+            'issue_date' => $data['issue_date'] ?? $movimento->data_emissao,
+            'due_date' => $data['due_date'] ?? $movimento->data_vencimento,
+            'amount' => $data['amount'] ?? abs((float) $movimento->valor_total),
+            'vat_amount' => $data['vat_amount'] ?? null,
+            'status' => 'pending_validation',
+            'notes' => $data['notes'] ?? null,
+        ]);
+
+        if ($request->hasFile('file')) {
+            $file = $request->file('file');
+            $document->original_filename = $file->getClientOriginalName();
+            $document->stored_path = $file->store('financeiro/movimentos/documentos', 'public');
+            $document->mime_type = $file->getClientMimeType();
+            $document->sha256_hash = hash_file('sha256', $file->getRealPath());
+        }
+
+        $this->movementDocumentControlService->attachDocumentToMovement($document, $movimento);
+        $this->invalidateFinanceiroCaches();
+
+        return response()->json([
+            'document' => $this->serializeMovementDocument($document->fresh(['supplier', 'validator'])),
+            'movement' => $this->serializeMovementDetail($movimento->fresh([
+                'supplier:id,nome,nif,morada',
+                'centroCusto:id,nome',
+                'items.centroCusto:id,nome',
+                'documents.supplier:id,nome',
+                'documents.validator:id,name,nome_completo',
+                'financialEntries.bankStatement:id,data_movimento,descricao,valor,referencia,conciliado,conciliacao_status,valor_conciliado,valor_por_conciliar,lancamento_id',
+                'financialEntries.reconciliationMap:id,lancamento_id,extrato_id,descricao,created_at',
+            ])),
+        ]);
+    }
+
+    public function validateMovementDocument(Request $request, Movement $movimento, MovementDocument $document): JsonResponse
+    {
+        $this->ensureCanManageMovementDocuments($request->user());
+        $this->ensureDocumentBelongsToMovement($movimento, $document);
+
+        $document->forceFill([
+            'status' => 'valid',
+            'validated_at' => now(),
+            'validated_by' => $request->user()?->id,
+            'notes' => $request->input('notes', $document->notes),
+        ])->save();
+
+        $this->movementDocumentControlService->refresh($movimento->fresh());
+        $this->invalidateFinanceiroCaches();
+
+        return response()->json([
+            'document' => $this->serializeMovementDocument($document->fresh(['supplier', 'validator'])),
+            'movement' => $this->serializeMovementDetail($movimento->fresh([
+                'supplier:id,nome,nif,morada',
+                'centroCusto:id,nome',
+                'items.centroCusto:id,nome',
+                'documents.supplier:id,nome',
+                'documents.validator:id,name,nome_completo',
+                'financialEntries.bankStatement:id,data_movimento,descricao,valor,referencia,conciliado,conciliacao_status,valor_conciliado,valor_por_conciliar,lancamento_id',
+                'financialEntries.reconciliationMap:id,lancamento_id,extrato_id,descricao,created_at',
+            ])),
+        ]);
+    }
+
+    public function rejectMovementDocument(Request $request, Movement $movimento, MovementDocument $document): JsonResponse
+    {
+        $this->ensureCanManageMovementDocuments($request->user());
+        $this->ensureDocumentBelongsToMovement($movimento, $document);
+
+        $document->forceFill([
+            'status' => 'rejected',
+            'validated_at' => now(),
+            'validated_by' => $request->user()?->id,
+            'notes' => $request->input('notes', $document->notes),
+        ])->save();
+
+        $this->movementDocumentControlService->refresh($movimento->fresh());
+        $this->invalidateFinanceiroCaches();
+
+        return response()->json([
+            'document' => $this->serializeMovementDocument($document->fresh(['supplier', 'validator'])),
+            'movement' => $this->serializeMovementDetail($movimento->fresh([
+                'supplier:id,nome,nif,morada',
+                'centroCusto:id,nome',
+                'items.centroCusto:id,nome',
+                'documents.supplier:id,nome',
+                'documents.validator:id,name,nome_completo',
+                'financialEntries.bankStatement:id,data_movimento,descricao,valor,referencia,conciliado,conciliacao_status,valor_conciliado,valor_por_conciliar,lancamento_id',
+                'financialEntries.reconciliationMap:id,lancamento_id,extrato_id,descricao,created_at',
+            ])),
+        ]);
+    }
+
+    public function markMovementDocumentDuplicate(Request $request, Movement $movimento, MovementDocument $document): JsonResponse
+    {
+        $this->ensureCanManageMovementDocuments($request->user());
+        $this->ensureDocumentBelongsToMovement($movimento, $document);
+
+        $document->forceFill([
+            'status' => 'duplicate',
+            'validated_at' => now(),
+            'validated_by' => $request->user()?->id,
+            'notes' => $request->input('notes', $document->notes),
+        ])->save();
+
+        $this->movementDocumentControlService->refresh($movimento->fresh());
+        $this->invalidateFinanceiroCaches();
+
+        return response()->json([
+            'document' => $this->serializeMovementDocument($document->fresh(['supplier', 'validator'])),
+            'movement' => $this->serializeMovementDetail($movimento->fresh([
+                'supplier:id,nome,nif,morada',
+                'centroCusto:id,nome',
+                'items.centroCusto:id,nome',
+                'documents.supplier:id,nome',
+                'documents.validator:id,name,nome_completo',
+                'financialEntries.bankStatement:id,data_movimento,descricao,valor,referencia,conciliado,conciliacao_status,valor_conciliado,valor_por_conciliar,lancamento_id',
+                'financialEntries.reconciliationMap:id,lancamento_id,extrato_id,descricao,created_at',
+            ])),
+        ]);
+    }
+
+    public function recalculateMovementDocumentStatus(Request $request, Movement $movimento): JsonResponse
+    {
+        $this->ensureCanManageMovementDocuments($request->user());
+
+        $this->movementDocumentControlService->refresh($movimento->fresh());
+        $this->invalidateFinanceiroCaches();
+
+        return response()->json([
+            'movement' => $this->serializeMovementDetail($movimento->fresh([
+                'supplier:id,nome,nif,morada',
+                'centroCusto:id,nome',
+                'items.centroCusto:id,nome',
+                'documents.supplier:id,nome',
+                'documents.validator:id,name,nome_completo',
+                'financialEntries.bankStatement:id,data_movimento,descricao,valor,referencia,conciliado,conciliacao_status,valor_conciliado,valor_por_conciliar,lancamento_id',
+                'financialEntries.reconciliationMap:id,lancamento_id,extrato_id,descricao,created_at',
+            ])),
+        ]);
+    }
+
+    public function markMovementConciliationDivergent(Request $request, Movement $movimento): JsonResponse
+    {
+        $this->ensureCanManageMovementDocuments($request->user());
+
+        $movimento->forceFill([
+            'estado_conciliacao' => 'divergente',
+        ])->save();
+
+        $this->movementDocumentControlService->refresh($movimento->fresh());
+        $this->invalidateFinanceiroCaches();
+
+        return response()->json([
+            'movement' => $this->serializeMovementDetail($movimento->fresh([
+                'supplier:id,nome,nif,morada',
+                'centroCusto:id,nome',
+                'items.centroCusto:id,nome',
+                'documents.supplier:id,nome',
+                'documents.validator:id,name,nome_completo',
+                'financialEntries.bankStatement:id,data_movimento,descricao,valor,referencia,conciliado,conciliacao_status,valor_conciliado,valor_por_conciliar,lancamento_id',
+                'financialEntries.reconciliationMap:id,lancamento_id,extrato_id,descricao,created_at',
+            ])),
+        ]);
+    }
+
+    public function updateMovementNotes(Request $request, Movement $movimento): JsonResponse
+    {
+        $this->ensureCanManageMovementDocuments($request->user());
+
+        $data = $request->validate([
+            'observacoes' => ['nullable', 'string'],
+        ]);
+
+        $movimento->forceFill([
+            'observacoes' => $data['observacoes'] ?? null,
+        ])->save();
+
+        $this->invalidateFinanceiroCaches();
+
+        return response()->json([
+            'movement' => $this->serializeMovementDetail($movimento->fresh([
+                'supplier:id,nome,nif,morada',
+                'centroCusto:id,nome',
+                'items.centroCusto:id,nome',
+                'documents.supplier:id,nome',
+                'documents.validator:id,name,nome_completo',
+                'financialEntries.bankStatement:id,data_movimento,descricao,valor,referencia,conciliado,conciliacao_status,valor_conciliado,valor_por_conciliar,lancamento_id',
+                'financialEntries.reconciliationMap:id,lancamento_id,extrato_id,descricao,created_at',
+            ])),
         ]);
     }
 
@@ -1196,6 +1439,240 @@ class FinanceiroController extends Controller
     }
 
     /**
+     * @return array<string, mixed>
+     */
+    private function serializeMovementDetail(Movement $movement): array
+    {
+        $movement = $this->decorateMovementForResponse($movement);
+        $evaluation = $this->movementDocumentControlService->evaluate($movement);
+        $mainEntry = $movement->financialEntries->first();
+        $bankStatement = $mainEntry?->bankStatement;
+        $reconciliationMap = $mainEntry?->reconciliationMap;
+
+        return [
+            'id' => (string) $movement->id,
+            'descricao' => $this->resolveMovementDetailDescription($movement),
+            'nome_manual' => $movement->nome_manual,
+            'supplier' => $movement->supplier ? [
+                'id' => (string) $movement->supplier->id,
+                'nome' => $movement->supplier->nome,
+                'nif' => $movement->supplier->nif,
+                'morada' => $movement->supplier->morada,
+            ] : null,
+            'classificacao' => $movement->classificacao,
+            'categoria' => $movement->categoria,
+            'tipo' => $movement->tipo,
+            'centro_custo' => $movement->centroCusto ? [
+                'id' => (string) $movement->centroCusto->id,
+                'nome' => $movement->centroCusto->nome,
+            ] : null,
+            'valor_total' => (float) $movement->valor_total,
+            'data_emissao' => optional($movement->data_emissao)?->toDateString(),
+            'data_vencimento' => optional($movement->data_vencimento)?->toDateString(),
+            'estado_pagamento' => $movement->estado_pagamento,
+            'estado_documental' => $movement->estado_documental,
+            'estado_conciliacao' => $movement->estado_conciliacao,
+            'origem_tipo' => $movement->origem_tipo,
+            'origem_id' => $movement->origem_id,
+            'metodo_pagamento' => $movement->metodo_pagamento,
+            'numero_recibo' => $movement->numero_recibo,
+            'referencia_pagamento' => $movement->referencia_pagamento,
+            'observacoes' => $movement->observacoes,
+            'document_control_status' => $movement->document_control_status,
+            'missing_documents' => $evaluation['missing_documents'],
+            'document_requirement' => $evaluation['requirement'],
+            'items' => $movement->items->map(fn (MovementItem $item): array => [
+                'id' => (string) $item->id,
+                'descricao' => $item->descricao,
+                'quantidade' => (int) $item->quantidade,
+                'valor_unitario' => (float) $item->valor_unitario,
+                'imposto_percentual' => (float) ($item->imposto_percentual ?? 0),
+                'total_linha' => (float) $item->total_linha,
+                'centro_custo' => $item->centroCusto ? [
+                    'id' => (string) $item->centroCusto->id,
+                    'nome' => $item->centroCusto->nome,
+                ] : null,
+            ])->values()->all(),
+            'documents' => $movement->documents->sortByDesc('created_at')->values()->map(fn (MovementDocument $document): array => $this->serializeMovementDocument($document))->all(),
+            'conciliation' => [
+                'bank_statement' => $bankStatement ? [
+                    'id' => (string) $bankStatement->id,
+                    'data_movimento' => optional($bankStatement->data_movimento)?->toDateString(),
+                    'descricao' => $bankStatement->descricao,
+                    'valor' => (float) $bankStatement->valor,
+                    'referencia' => $bankStatement->referencia,
+                    'conciliado' => (bool) $bankStatement->conciliado,
+                    'conciliacao_status' => $bankStatement->conciliacao_status,
+                    'valor_conciliado' => (float) ($bankStatement->valor_conciliado ?? 0),
+                    'valor_por_conciliar' => $bankStatement->valor_por_conciliar !== null ? (float) $bankStatement->valor_por_conciliar : null,
+                ] : null,
+                'reconciliation_map' => $reconciliationMap ? [
+                    'id' => (string) $reconciliationMap->id,
+                    'descricao' => $reconciliationMap->descricao,
+                    'created_at' => optional($reconciliationMap->created_at)?->toISOString(),
+                ] : null,
+                'estado_conciliacao' => $movement->estado_conciliacao,
+            ],
+            'history' => $this->buildMovementHistory($movement),
+            'created_at' => optional($movement->created_at)?->toISOString(),
+            'updated_at' => optional($movement->updated_at)?->toISOString(),
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function serializeMovementDocument(MovementDocument $document): array
+    {
+        return [
+            'id' => (string) $document->id,
+            'document_type' => $document->document_type,
+            'source_type' => $document->source_type,
+            'source_id' => $document->source_id,
+            'document_number' => $document->document_number,
+            'issue_date' => optional($document->issue_date)?->toDateString(),
+            'due_date' => optional($document->due_date)?->toDateString(),
+            'amount' => $document->amount !== null ? (float) $document->amount : null,
+            'vat_amount' => $document->vat_amount !== null ? (float) $document->vat_amount : null,
+            'status' => $document->status,
+            'original_filename' => $document->original_filename,
+            'stored_path' => $document->stored_path,
+            'file_url' => $document->stored_path ? Storage::disk('public')->url($document->stored_path) : null,
+            'validated_at' => optional($document->validated_at)?->toISOString(),
+            'validator' => $document->validator ? [
+                'id' => (string) $document->validator->id,
+                'name' => $document->validator->nome_completo ?: $document->validator->name,
+            ] : null,
+            'supplier' => $document->supplier ? [
+                'id' => (string) $document->supplier->id,
+                'nome' => $document->supplier->nome,
+            ] : null,
+            'notes' => $document->notes,
+            'created_at' => optional($document->created_at)?->toISOString(),
+            'updated_at' => optional($document->updated_at)?->toISOString(),
+        ];
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function serializeAvailableBankStatementsForMovement(Movement $movement): array
+    {
+        return BankStatement::query()
+            ->where('centro_custo_id', $movement->centro_custo_id)
+            ->where(function ($query): void {
+                $query->where('conciliado', false)
+                    ->orWhereIn('conciliacao_status', ['unreconciled', 'partial'])
+                    ->orWhereNull('conciliacao_status');
+            })
+            ->orderByDesc('data_movimento')
+            ->limit(25)
+            ->get()
+            ->map(fn (BankStatement $statement): array => [
+                'id' => (string) $statement->id,
+                'data_movimento' => optional($statement->data_movimento)?->toDateString(),
+                'descricao' => $statement->descricao,
+                'referencia' => $statement->referencia,
+                'valor' => (float) $statement->valor,
+                'conciliado' => (bool) $statement->conciliado,
+                'conciliacao_status' => $statement->conciliacao_status,
+                'valor_por_conciliar' => $statement->valor_por_conciliar !== null ? (float) $statement->valor_por_conciliar : null,
+            ])
+            ->values()
+            ->all();
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function buildMovementHistory(Movement $movement): array
+    {
+        $events = collect([
+            [
+                'type' => 'movement_created',
+                'label' => 'Movimento criado',
+                'at' => optional($movement->created_at)?->toISOString(),
+                'details' => $movement->origem_tipo ? 'Origem: ' . $movement->origem_tipo : 'Criado manualmente no módulo Financeiro.',
+            ],
+            [
+                'type' => 'current_state',
+                'label' => 'Estado atual',
+                'at' => optional($movement->updated_at ?? $movement->created_at)?->toISOString(),
+                'details' => sprintf(
+                    'Pagamento: %s. Documental: %s. Conciliação: %s.',
+                    (string) $movement->estado_pagamento,
+                    (string) $movement->estado_documental,
+                    (string) $movement->estado_conciliacao,
+                ),
+            ],
+        ]);
+
+        foreach ($movement->documents as $document) {
+            $events->push([
+                'type' => 'document_attached',
+                'label' => 'Documento anexado',
+                'at' => optional($document->created_at)?->toISOString(),
+                'details' => trim(($document->document_type ?? 'documento') . ' ' . ($document->document_number ?? '')),
+            ]);
+
+            if (in_array($document->status, ['valid', 'rejected', 'duplicate'], true)) {
+                $events->push([
+                    'type' => 'document_status',
+                    'label' => 'Documento ' . $document->status,
+                    'at' => optional($document->validated_at ?? $document->updated_at)?->toISOString(),
+                    'details' => $document->validator?->nome_completo ?: $document->validator?->name,
+                ]);
+            }
+        }
+
+        $entry = $movement->financialEntries->first();
+        if ($entry?->bankStatement) {
+            $events->push([
+                'type' => 'bank_reconciliation',
+                'label' => 'Conciliação bancária',
+                'at' => optional($entry->bankStatement->data_movimento)?->toDateString(),
+                'details' => $entry->bankStatement->descricao,
+            ]);
+        }
+
+        return $events
+            ->filter(fn (array $event): bool => !empty($event['at']))
+            ->sortByDesc('at')
+            ->values()
+            ->all();
+    }
+
+    private function resolveMovementDetailDescription(Movement $movement): string
+    {
+        $firstItemDescription = $movement->items->first()?->descricao;
+
+        return (string) ($movement->referencia_pagamento
+            ?? $firstItemDescription
+            ?? $movement->categoria
+            ?? $movement->nome_manual
+            ?? 'Movimento financeiro');
+    }
+
+    private function canManageMovementDocuments(?User $user): bool
+    {
+        if (!$user) {
+            return false;
+        }
+
+        return in_array((string) $user->perfil, ['admin', 'administrador', 'gestor', 'financeiro'], true);
+    }
+
+    private function ensureCanManageMovementDocuments(?User $user): void
+    {
+        abort_unless($this->canManageMovementDocuments($user), 403);
+    }
+
+    private function ensureDocumentBelongsToMovement(Movement $movement, MovementDocument $document): void
+    {
+        abort_unless((string) $document->movement_id === (string) $movement->id, 404);
+    }
+
+    /**
      * @param array<string, mixed> $data
      * @return array<string, mixed>
      */
@@ -1307,13 +1784,14 @@ class FinanceiroController extends Controller
         return match ($entry->origem_tipo) {
             'stock' => 'material',
             'patrocinio' => 'patrocinio',
+            'bank_statement' => 'servico',
             default => 'outro',
         };
     }
 
     private function resolveFinancialMovementOriginType(?string $originType): ?string
     {
-        return in_array($originType, ['evento', 'stock', 'patrocinio', 'manual'], true)
+        return in_array($originType, ['evento', 'stock', 'patrocinio', 'manual', 'bank_statement'], true)
             ? $originType
             : null;
     }
@@ -1328,8 +1806,12 @@ class FinanceiroController extends Controller
             return 'pago';
         }
 
-        if ($state === 'parcial') {
-            return 'parcial';
+        if (in_array($state, ['parcial', 'pago_parcial'], true)) {
+            return 'pago_parcial';
+        }
+
+        if ($state === 'por_pagar') {
+            return 'por_pagar';
         }
 
         if (
@@ -1340,7 +1822,40 @@ class FinanceiroController extends Controller
             return 'vencido';
         }
 
-        return 'pendente';
+        return 'por_pagar';
+    }
+
+    /**
+     * @param array<string, mixed> $data
+     * @return array<string, mixed>
+     */
+    private function normalizeManualMovementRequestData(Request $request, array $data): array
+    {
+        if ($request->hasFile('attachment') && !$request->hasFile('documento_original')) {
+            $data['attachment'] = $request->file('attachment');
+        }
+
+        $data['categoria'] = $data['categoria'] ?? null;
+        $data['document_date'] = $data['document_date'] ?? ($data['data_emissao'] ?? null);
+        $data['due_date'] = $data['due_date'] ?? ($data['data_vencimento'] ?? null);
+        $data['metodo_pagamento'] = $data['payment_method'] ?? ($data['metodo_pagamento'] ?? null);
+        $data['observacoes'] = $data['notes'] ?? ($data['observacoes'] ?? null);
+
+        if (!empty($data['document_date'])) {
+            $data['data_emissao'] = $data['document_date'];
+        }
+
+        if (!empty($data['due_date'])) {
+            $data['data_vencimento'] = $data['due_date'];
+        }
+
+        $data['estado_pagamento'] = match ($data['estado_pagamento'] ?? null) {
+            'pendente', null => 'por_pagar',
+            'parcial' => 'pago_parcial',
+            default => $data['estado_pagamento'],
+        };
+
+        return $data;
     }
 
     private function invoiceFinancialSnapshotQuery()
@@ -1477,19 +1992,30 @@ class FinanceiroController extends Controller
             'nif_manual' => ['nullable', 'string', 'max:50'],
             'morada_manual' => ['nullable', 'string'],
             'classificacao' => ['required', 'in:receita,despesa'],
-            'data_emissao' => ['required', 'date'],
-            'data_vencimento' => ['required', 'date'],
+            'categoria' => ['nullable', 'string', 'max:255'],
+            'data_emissao' => ['nullable', 'date', 'required_without:document_date'],
+            'data_vencimento' => ['nullable', 'date', 'required_without:due_date'],
             'valor_total' => ['required', 'numeric'],
-            'estado_pagamento' => ['nullable', 'in:pendente,pago,vencido,parcial,cancelado'],
+            'estado_pagamento' => ['nullable', 'in:pendente,por_pagar,pago,vencido,parcial,pago_parcial,cancelado'],
+            'estado_conciliacao' => ['nullable', 'in:nao_conciliado,sugerido,conciliado,divergente'],
             'numero_recibo' => ['nullable', 'string', 'max:255'],
             'referencia_pagamento' => ['nullable', 'string', 'max:255'],
             'metodo_pagamento' => ['nullable', 'string', 'max:50'],
             'centro_custo_id' => ['required', 'exists:cost_centers,id'],
             'tipo' => ['required', 'string', 'max:30'],
-            'origem_tipo' => ['nullable', 'in:evento,stock,patrocinio,manual'],
+            'origem_tipo' => ['nullable', 'in:evento,stock,patrocinio,manual,bank_statement'],
             'origem_id' => ['nullable', 'string', 'max:255'],
             'observacoes' => ['nullable', 'string'],
             'documento_original' => ['nullable', 'file'],
+            'attachment' => ['nullable', 'file'],
+            'document_type' => ['nullable', 'in:invoice,receipt,invoice_receipt,payment_proof,credit_note,other'],
+            'document_number' => ['nullable', 'string', 'max:255'],
+            'document_date' => ['nullable', 'date'],
+            'due_date' => ['nullable', 'date'],
+            'vat_amount' => ['nullable', 'numeric'],
+            'payment_method' => ['nullable', 'string', 'max:50'],
+            'paid_at' => ['nullable', 'date'],
+            'notes' => ['nullable', 'string'],
             'items' => ['required', 'array', 'min:1'],
             'items.*.descricao' => ['required', 'string', 'max:255'],
             'items.*.quantidade' => ['required', 'integer', 'min:1'],
@@ -1500,6 +2026,21 @@ class FinanceiroController extends Controller
             'items.*.centro_custo_id' => ['nullable', 'exists:cost_centers,id'],
             'items.*.fatura_id' => ['nullable', 'string', 'max:255'],
         ]);
+
+        $data = $this->normalizeManualMovementRequestData($request, $data);
+
+        if ($data['classificacao'] === 'despesa') {
+            $result = $this->manualExpenseService->createSimpleExpense($data, $request->user());
+
+            $this->invalidateFinanceiroCaches();
+
+            return response()->json([
+                'movimento' => $this->decorateMovementForResponse($result['movement']),
+                'items' => $result['items'],
+                'lancamento' => $result['financial_entry'],
+                'documento' => $result['document'],
+            ]);
+        }
 
         if (in_array($data['estado_pagamento'] ?? 'pendente', ['pago', 'parcial'], true)) {
             throw ValidationException::withMessages([
@@ -1594,16 +2135,17 @@ class FinanceiroController extends Controller
             'nif_manual' => ['nullable', 'string', 'max:50'],
             'morada_manual' => ['nullable', 'string'],
             'classificacao' => ['required', 'in:receita,despesa'],
-            'data_emissao' => ['required', 'date'],
-            'data_vencimento' => ['required', 'date'],
+            'categoria' => ['nullable', 'string', 'max:255'],
+            'data_emissao' => ['nullable', 'date'],
+            'data_vencimento' => ['nullable', 'date'],
             'valor_total' => ['required', 'numeric'],
-            'estado_pagamento' => ['nullable', 'in:pendente,pago,vencido,parcial,cancelado'],
+            'estado_pagamento' => ['nullable', 'in:pendente,por_pagar,pago,vencido,parcial,pago_parcial,cancelado'],
             'numero_recibo' => ['nullable', 'string', 'max:255'],
             'referencia_pagamento' => ['nullable', 'string', 'max:255'],
             'metodo_pagamento' => ['nullable', 'string', 'max:50'],
             'centro_custo_id' => ['required', 'exists:cost_centers,id'],
             'tipo' => ['required', 'string', 'max:30'],
-            'origem_tipo' => ['nullable', 'in:evento,stock,patrocinio,manual'],
+            'origem_tipo' => ['nullable', 'in:evento,stock,patrocinio,manual,bank_statement'],
             'origem_id' => ['nullable', 'string', 'max:255'],
             'observacoes' => ['nullable', 'string'],
             'documento_original' => ['nullable', 'file'],
@@ -1655,6 +2197,7 @@ class FinanceiroController extends Controller
             'nif_manual' => $data['nif_manual'] ?? null,
             'morada_manual' => $data['morada_manual'] ?? null,
             'classificacao' => $data['classificacao'],
+            'categoria' => $data['categoria'] ?? $movimento->categoria,
             'data_emissao' => $data['data_emissao'],
             'data_vencimento' => $data['data_vencimento'],
             'valor_total' => $data['valor_total'],
@@ -1787,6 +2330,51 @@ class FinanceiroController extends Controller
             'movimento' => $movimento->fresh(),
             'lancamento' => $result['financial_entry'],
             'payment' => $result['payment'],
+        ]);
+    }
+
+    public function createExpenseFromBankStatement(Request $request, BankStatement $extrato): JsonResponse
+    {
+        $data = $request->validate([
+            'supplier_id' => ['nullable', 'exists:suppliers,id'],
+            'nome_manual' => ['nullable', 'string', 'max:255'],
+            'categoria' => ['nullable', 'string', 'max:255'],
+            'centro_custo_id' => ['required', 'exists:cost_centers,id'],
+            'tipo' => ['nullable', 'string', 'max:30'],
+            'document_type' => ['nullable', 'in:bank_statement_line,payment_proof,invoice,receipt,invoice_receipt,other'],
+            'document_number' => ['nullable', 'string', 'max:255'],
+            'document_date' => ['nullable', 'date'],
+            'due_date' => ['nullable', 'date'],
+            'vat_amount' => ['nullable', 'numeric'],
+            'payment_method' => ['nullable', 'string', 'max:50'],
+            'paid_at' => ['nullable', 'date'],
+            'notes' => ['nullable', 'string'],
+            'attachment' => ['nullable', 'file'],
+        ]);
+
+        $data = $this->normalizeManualMovementRequestData($request, array_merge($data, [
+            'items' => [[
+                'descricao' => $data['notes'] ?? $extrato->descricao,
+                'quantidade' => 1,
+                'valor_unitario' => abs((float) $extrato->valor),
+                'imposto_percentual' => 0,
+                'total_linha' => abs((float) $extrato->valor),
+                'centro_custo_id' => $data['centro_custo_id'],
+            ]],
+            'valor_total' => abs((float) $extrato->valor),
+            'metodo_pagamento' => $data['payment_method'] ?? 'transferencia',
+            'notes' => $data['notes'] ?? $extrato->descricao,
+        ]));
+
+        $result = $this->manualExpenseService->createExpenseFromBankStatement($extrato, $data, $request->user());
+
+        $this->invalidateFinanceiroCaches();
+
+        return response()->json([
+            'movimento' => $this->decorateMovementForResponse($result['movement']),
+            'lancamento' => $result['financial_entry'],
+            'payment' => $result['payment'],
+            'extrato' => $result['bank_statement'],
         ]);
     }
 
