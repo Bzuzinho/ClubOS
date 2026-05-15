@@ -95,12 +95,28 @@ const formatDateForInput = (value?: any): string => {
     return raw;
 };
 
+const stringifyId = (value: unknown): string | null => {
+    if (typeof value === 'string') {
+        return value;
+    }
+
+    if (typeof value === 'number' && Number.isFinite(value)) {
+        return String(value);
+    }
+
+    return null;
+};
+
 const normalizeMember = (member: User): User => {
     const guardiansFromRelation = Array.isArray((member as any).encarregados) && (member as any).encarregados.length > 0
-        ? (member as any).encarregados.map((g: any) => g.id)
+        ? (member as any).encarregados
+            .map((g: any) => stringifyId(g.id))
+            .filter((id: string | null): id is string => id !== null)
         : (member.encarregado_educacao || []);
     const educandosFromRelation = Array.isArray((member as any).educandos) && (member as any).educandos.length > 0
-        ? (member as any).educandos.map((e: any) => e.id)
+        ? (member as any).educandos
+            .map((e: any) => stringifyId(e.id))
+            .filter((id: string | null): id is string => id !== null)
         : (member.educandos || []);
 
     const normalizedBirthDate = formatDateForInput(
@@ -125,10 +141,15 @@ const normalizeRelationIds = (value: unknown): string[] => {
 
     return value
         .map((entry) => {
-            if (typeof entry === 'string') return entry;
-            if (entry && typeof entry === 'object' && 'id' in entry && typeof entry.id === 'string') {
-                return entry.id;
+            const directId = stringifyId(entry);
+            if (directId !== null) {
+                return directId;
             }
+
+            if (entry && typeof entry === 'object' && 'id' in entry) {
+                return stringifyId(entry.id);
+            }
+
             return null;
         })
         .filter((entry): entry is string => Boolean(entry));
@@ -196,6 +217,19 @@ export default function Show({ member, allUsers, internalCommunications, userTyp
     useEffect(() => {
         setUser(normalizeMember(member));
         setHasChanges(false);
+
+        if (import.meta.env.DEV) {
+            console.debug('[Membros/Show] loaded member props', {
+                memberId: member.id,
+                educandos: Array.isArray((member as any).educandos)
+                    ? (member as any).educandos.map((entry: any) => entry?.id ?? entry)
+                    : member.educandos,
+                encarregado_educacao: Array.isArray((member as any).encarregado_educacao)
+                    ? (member as any).encarregado_educacao.map((entry: any) => entry?.id ?? entry)
+                    : member.encarregado_educacao,
+                path: typeof window !== 'undefined' ? window.location.pathname : null,
+            });
+        }
     }, [
         member.id,
         member.updated_at,
@@ -210,10 +244,29 @@ export default function Show({ member, allUsers, internalCommunications, userTyp
 
     const handleSave: FormEventHandler = (e) => {
         e.preventDefault();
-        router.put(route('membros.update', user.id), buildMemberUpdatePayload(user), {
+        const payload = buildMemberUpdatePayload(user);
+
+        if (import.meta.env.DEV) {
+            console.debug('[Membros/Show] saving member payload', {
+                memberId: user.id,
+                educandos: payload.educandos,
+                encarregado_educacao: payload.encarregado_educacao,
+                sync_educandos: payload.sync_educandos,
+                sync_encarregado_educacao: payload.sync_encarregado_educacao,
+            });
+        }
+
+        router.put(route('membros.update', user.id), payload, {
             onSuccess: () => {
                 setHasChanges(false);
                 toast.success('Membro atualizado com sucesso!');
+
+                if (import.meta.env.DEV) {
+                    console.debug('[Membros/Show] update request succeeded', {
+                        memberId: user.id,
+                    });
+                }
+
                 router.visit(route('membros.show', user.id), {
                     preserveScroll: true,
                     preserveState: false,
@@ -222,6 +275,14 @@ export default function Show({ member, allUsers, internalCommunications, userTyp
             },
             onError: (errors) => {
                 console.error('Erro ao atualizar membro:', errors);
+
+                if (import.meta.env.DEV) {
+                    console.debug('[Membros/Show] update request returned validation errors', {
+                        memberId: user.id,
+                        errors,
+                    });
+                }
+
                 toast.error('Erro ao atualizar membro');
             }
         });
