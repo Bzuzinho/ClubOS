@@ -10,91 +10,98 @@ return new class extends Migration
 
     public function up(): void
     {
-        Schema::create('receipt_import_batches', function (Blueprint $table) {
-            $table->uuid('id')->primary();
-            $table->string('source_type', 30);
-            $table->string('source_name')->nullable();
-            $table->string('source_path')->nullable();
-            $table->string('status', 30)->default('pending_review');
-            $table->unsignedInteger('items_count')->default(0);
-            $table->unsignedInteger('processed_count')->default(0);
-            $table->unsignedInteger('imported_count')->default(0);
-            $table->text('notes')->nullable();
-            $table->json('metadata')->nullable();
-            $table->foreignUuid('created_by')->nullable()->constrained('users')->nullOnDelete();
-            $table->foreignUuid('committed_by')->nullable()->constrained('users')->nullOnDelete();
-            $table->timestamp('committed_at')->nullable();
-            $table->timestamps();
+        if (!Schema::hasTable('receipt_import_batches')) {
+            Schema::create('receipt_import_batches', function (Blueprint $table) {
+                $table->uuid('id')->primary();
+                $table->string('source_type', 30);
+                $table->string('source_name')->nullable();
+                $table->string('source_path')->nullable();
+                $table->string('status', 30)->default('pending_review');
+                $table->unsignedInteger('items_count')->default(0);
+                $table->unsignedInteger('processed_count')->default(0);
+                $table->unsignedInteger('imported_count')->default(0);
+                $table->text('notes')->nullable();
+                $table->json('metadata')->nullable();
+                $table->foreignUuid('created_by')->nullable()->constrained('users')->nullOnDelete();
+                $table->foreignUuid('committed_by')->nullable()->constrained('users')->nullOnDelete();
+                $table->timestamp('committed_at')->nullable();
+                $table->timestamps();
 
-            $table->index(['status', 'created_at']);
-        });
+                $table->index(['status', 'created_at']);
+            });
+        }
 
-        Schema::create('receipt_import_items', function (Blueprint $table) {
-            $table->uuid('id')->primary();
-            $table->foreignUuid('batch_id')->constrained('receipt_import_batches')->cascadeOnDelete();
-            $table->foreignUuid('user_id')->nullable()->constrained('users')->nullOnDelete();
-            $table->foreignUuid('invoice_id')->nullable()->constrained('invoices')->nullOnDelete();
-            $table->foreignUuid('bank_statement_id')->nullable()->constrained('bank_statements')->nullOnDelete();
-            $table->uuid('duplicate_of_item_id')->nullable();
-            $table->string('status', 30)->default('pending_review');
-            $table->decimal('confidence_score', 5, 2)->default(0);
-            $table->string('file_name');
-            $table->string('storage_path');
-            $table->string('file_hash', 64);
-            $table->string('numero_recibo')->nullable();
-            $table->date('recibo_emitido_em')->nullable();
-            $table->decimal('valor', 10, 2)->nullable();
-            $table->string('extracted_name')->nullable();
-            $table->string('extracted_nif', 32)->nullable();
-            $table->string('extracted_member_number', 64)->nullable();
-            $table->string('extracted_email')->nullable();
-            $table->string('extracted_period_label')->nullable();
-            $table->date('extracted_period_start')->nullable();
-            $table->date('extracted_period_end')->nullable();
-            $table->longText('extracted_text')->nullable();
-            $table->json('extraction_payload')->nullable();
-            $table->json('match_candidates')->nullable();
-            $table->json('metadata')->nullable();
-            $table->text('failure_reason')->nullable();
-            $table->timestamp('committed_at')->nullable();
-            $table->timestamps();
+        $this->ensureReceiptImportBatchConstraints();
 
-            $table->index('file_hash');
-            $table->index(['batch_id', 'status']);
-            $table->index(['user_id', 'invoice_id']);
-            $table->index('duplicate_of_item_id');
-            $table->index('numero_recibo');
-        });
+        if (!Schema::hasTable('receipt_import_items')) {
+            Schema::create('receipt_import_items', function (Blueprint $table) {
+                $table->uuid('id')->primary();
+                $table->foreignUuid('batch_id')->constrained('receipt_import_batches')->cascadeOnDelete();
+                $table->foreignUuid('user_id')->nullable()->constrained('users')->nullOnDelete();
+                $table->foreignUuid('invoice_id')->nullable()->constrained('invoices')->nullOnDelete();
+                $table->foreignUuid('bank_statement_id')->nullable()->constrained('bank_statements')->nullOnDelete();
+                $table->uuid('duplicate_of_item_id')->nullable();
+                $table->string('status', 30)->default('pending_review');
+                $table->decimal('confidence_score', 5, 2)->default(0);
+                $table->string('file_name');
+                $table->string('storage_path');
+                $table->string('file_hash', 64);
+                $table->string('numero_recibo')->nullable();
+                $table->date('recibo_emitido_em')->nullable();
+                $table->decimal('valor', 10, 2)->nullable();
+                $table->string('extracted_name')->nullable();
+                $table->string('extracted_nif', 32)->nullable();
+                $table->string('extracted_member_number', 64)->nullable();
+                $table->string('extracted_email')->nullable();
+                $table->string('extracted_period_label')->nullable();
+                $table->date('extracted_period_start')->nullable();
+                $table->date('extracted_period_end')->nullable();
+                $table->longText('extracted_text')->nullable();
+                $table->json('extraction_payload')->nullable();
+                $table->json('match_candidates')->nullable();
+                $table->json('metadata')->nullable();
+                $table->text('failure_reason')->nullable();
+                $table->timestamp('committed_at')->nullable();
+                $table->timestamps();
 
-        Schema::table('receipt_import_items', function (Blueprint $table) {
-            $table->foreign('duplicate_of_item_id')
-                ->references('id')
-                ->on('receipt_import_items')
-                ->nullOnDelete();
-        });
+                $table->index('file_hash');
+                $table->index(['batch_id', 'status']);
+                $table->index(['user_id', 'invoice_id']);
+                $table->index('duplicate_of_item_id');
+                $table->index('numero_recibo');
+            });
+        } elseif (!Schema::hasColumn('receipt_import_items', 'duplicate_of_item_id')) {
+            Schema::table('receipt_import_items', function (Blueprint $table) {
+                $table->uuid('duplicate_of_item_id')->nullable()->after('bank_statement_id');
+            });
+        }
 
-        Schema::create('bank_transaction_allocations', function (Blueprint $table) {
-            $table->uuid('id')->primary();
-            $table->foreignUuid('bank_statement_id')->constrained('bank_statements')->cascadeOnDelete();
-            $table->foreignUuid('invoice_id')->constrained('invoices')->cascadeOnDelete();
-            $table->foreignUuid('user_id')->nullable()->constrained('users')->nullOnDelete();
-            $table->foreignUuid('payment_id')->nullable()->constrained('payments')->nullOnDelete();
-            $table->foreignUuid('payment_allocation_id')->nullable()->constrained('payment_allocations')->nullOnDelete();
-            $table->foreignUuid('receipt_import_item_id')->nullable()->constrained('receipt_import_items')->nullOnDelete();
-            $table->foreignUuid('mapa_conciliacao_id')->nullable()->constrained('mapa_conciliacao')->nullOnDelete();
-            $table->decimal('valor_alocado', 10, 2);
-            $table->string('status', 30)->default('confirmed');
-            $table->string('origem', 50)->default('importacao_recibos');
-            $table->json('metadata')->nullable();
-            $table->foreignUuid('created_by')->nullable()->constrained('users')->nullOnDelete();
-            $table->foreignUuid('committed_by')->nullable()->constrained('users')->nullOnDelete();
-            $table->timestamp('committed_at')->nullable();
-            $table->timestamps();
+        $this->ensureReceiptImportItemConstraints();
 
-            $table->index(['bank_statement_id', 'status']);
-            $table->index(['invoice_id', 'status']);
-            $table->index(['user_id', 'origem']);
-        });
+        if (!Schema::hasTable('bank_transaction_allocations')) {
+            Schema::create('bank_transaction_allocations', function (Blueprint $table) {
+                $table->uuid('id')->primary();
+                $table->foreignUuid('bank_statement_id')->constrained('bank_statements')->cascadeOnDelete();
+                $table->foreignUuid('invoice_id')->constrained('invoices')->cascadeOnDelete();
+                $table->foreignUuid('user_id')->nullable()->constrained('users')->nullOnDelete();
+                $table->foreignUuid('payment_id')->nullable()->constrained('payments')->nullOnDelete();
+                $table->foreignUuid('payment_allocation_id')->nullable()->constrained('payment_allocations')->nullOnDelete();
+                $table->foreignUuid('receipt_import_item_id')->nullable()->constrained('receipt_import_items')->nullOnDelete();
+                $table->foreignUuid('mapa_conciliacao_id')->nullable()->constrained('mapa_conciliacao')->nullOnDelete();
+                $table->decimal('valor_alocado', 10, 2);
+                $table->string('status', 30)->default('confirmed');
+                $table->string('origem', 50)->default('importacao_recibos');
+                $table->json('metadata')->nullable();
+                $table->foreignUuid('created_by')->nullable()->constrained('users')->nullOnDelete();
+                $table->foreignUuid('committed_by')->nullable()->constrained('users')->nullOnDelete();
+                $table->timestamp('committed_at')->nullable();
+                $table->timestamps();
+
+                $table->index(['bank_statement_id', 'status']);
+                $table->index(['invoice_id', 'status']);
+                $table->index(['user_id', 'origem']);
+            });
+        }
 
         Schema::table('invoices', function (Blueprint $table) {
             if (!Schema::hasColumn('invoices', 'numero_recibo')) {
@@ -189,5 +196,83 @@ return new class extends Migration
         Schema::dropIfExists('bank_transaction_allocations');
         Schema::dropIfExists('receipt_import_items');
         Schema::dropIfExists('receipt_import_batches');
+    }
+
+    private function ensureReceiptImportBatchConstraints(): void
+    {
+        if (!Schema::hasTable('receipt_import_batches')) {
+            return;
+        }
+
+        Schema::table('receipt_import_batches', function (Blueprint $table) {
+            if (!Schema::hasIndex('receipt_import_batches', 'receipt_import_batches_status_created_at_index')) {
+                $table->index(['status', 'created_at']);
+            }
+
+            if (!$this->hasForeignKey('receipt_import_batches', 'receipt_import_batches_created_by_foreign')) {
+                $table->foreign('created_by', 'receipt_import_batches_created_by_foreign')
+                    ->references('id')
+                    ->on('users')
+                    ->nullOnDelete();
+            }
+
+            if (!$this->hasForeignKey('receipt_import_batches', 'receipt_import_batches_committed_by_foreign')) {
+                $table->foreign('committed_by', 'receipt_import_batches_committed_by_foreign')
+                    ->references('id')
+                    ->on('users')
+                    ->nullOnDelete();
+            }
+        });
+    }
+
+    private function ensureReceiptImportItemConstraints(): void
+    {
+        if (!Schema::hasTable('receipt_import_items')) {
+            return;
+        }
+
+        Schema::table('receipt_import_items', function (Blueprint $table) {
+            if (!Schema::hasIndex('receipt_import_items', 'receipt_import_items_pkey', 'primary')) {
+                $table->primary('id', 'receipt_import_items_pkey');
+            }
+
+            if (!Schema::hasIndex('receipt_import_items', 'receipt_import_items_file_hash_index')) {
+                $table->index('file_hash');
+            }
+
+            if (!Schema::hasIndex('receipt_import_items', 'receipt_import_items_batch_id_status_index')) {
+                $table->index(['batch_id', 'status']);
+            }
+
+            if (!Schema::hasIndex('receipt_import_items', 'receipt_import_items_user_id_invoice_id_index')) {
+                $table->index(['user_id', 'invoice_id']);
+            }
+
+            if (!Schema::hasIndex('receipt_import_items', 'receipt_import_items_duplicate_of_item_id_index')) {
+                $table->index('duplicate_of_item_id');
+            }
+
+            if (!Schema::hasIndex('receipt_import_items', 'receipt_import_items_numero_recibo_index')) {
+                $table->index('numero_recibo');
+            }
+
+            if (!$this->hasForeignKey('receipt_import_items', 'receipt_import_items_duplicate_of_item_id_foreign')) {
+                $table->foreign('duplicate_of_item_id', 'receipt_import_items_duplicate_of_item_id_foreign')
+                    ->references('id')
+                    ->on('receipt_import_items')
+                    ->nullOnDelete();
+            }
+        });
+    }
+
+    private function hasForeignKey(string $table, string $foreignKeyName): bool
+    {
+        foreach (Schema::getForeignKeys($table) as $foreignKey) {
+            if (($foreignKey['name'] ?? null) === $foreignKeyName) {
+                return true;
+            }
+        }
+
+        return false;
     }
 };
