@@ -684,6 +684,144 @@ class PaymentAllocationFlowTest extends TestCase
         $this->assertDatabaseCount('payments', 0);
     }
 
+    public function test_it_rejects_creating_an_invoice_as_paid_directly(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $this->createInvoiceType();
+        $user = User::factory()->create([
+            'nome_completo' => 'Fatura Direta Bloqueada',
+            'email' => 'fatura-direta@example.test',
+        ]);
+        $costCenter = $this->createCostCenter();
+
+        $response = $this->actingAs($admin)->postJson(route('financeiro.store'), [
+            'user_id' => $user->id,
+            'data_fatura' => '2026-05-01',
+            'data_emissao' => '2026-05-01',
+            'data_vencimento' => '2026-05-10',
+            'mes' => '2026-05',
+            'tipo' => 'mensalidade',
+            'estado_pagamento' => 'pago',
+            'valor_total' => 30.00,
+            'oculta' => false,
+            'centro_custo_id' => $costCenter->id,
+            'items' => [[
+                'descricao' => 'Mensalidade maio 2026',
+                'quantidade' => 1,
+                'valor_unitario' => 30.00,
+                'imposto_percentual' => 0,
+                'total_linha' => 30.00,
+                'centro_custo_id' => $costCenter->id,
+            ]],
+        ]);
+
+        $response
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('estado_pagamento')
+            ->assertJsonPath('errors.estado_pagamento.0', 'A liquidacao da fatura tem de ser efetuada pelo fluxo canonico de pagamento.');
+
+        $this->assertDatabaseCount('invoices', 0);
+        $this->assertDatabaseCount('payments', 0);
+        $this->assertDatabaseCount('payment_allocations', 0);
+    }
+
+    public function test_it_rejects_marking_a_movement_as_paid_directly_via_update(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $movement = $this->createMovement('receita', 45.00, true);
+
+        $response = $this->actingAs($admin)->putJson(route('financeiro.movimentos.update', $movement), [
+            'user_id' => $movement->user_id,
+            'supplier_id' => null,
+            'nome_manual' => $movement->nome_manual,
+            'nif_manual' => $movement->nif_manual,
+            'morada_manual' => $movement->morada_manual,
+            'classificacao' => $movement->classificacao,
+            'categoria' => $movement->categoria,
+            'data_emissao' => optional($movement->data_emissao)->toDateString(),
+            'data_vencimento' => optional($movement->data_vencimento)->toDateString(),
+            'valor_total' => abs((float) $movement->valor_total),
+            'estado_pagamento' => 'pago',
+            'numero_recibo' => 'MOV-DIRETO-001',
+            'referencia_pagamento' => $movement->referencia_pagamento,
+            'metodo_pagamento' => 'transferencia',
+            'centro_custo_id' => $movement->centro_custo_id,
+            'tipo' => $movement->tipo,
+            'origem_tipo' => $movement->origem_tipo,
+            'origem_id' => $movement->origem_id,
+            'observacoes' => $movement->observacoes,
+            'items' => [[
+                'descricao' => 'Movimento receita',
+                'quantidade' => 1,
+                'valor_unitario' => 45.00,
+                'imposto_percentual' => 0,
+                'total_linha' => 45.00,
+                'centro_custo_id' => $movement->centro_custo_id,
+            ]],
+        ]);
+
+        $response
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('estado_pagamento')
+            ->assertJsonPath('errors.estado_pagamento.0', 'A liquidacao ou reabertura do movimento tem de ser efetuada pelo fluxo canonico de pagamento.');
+
+        $movement->refresh();
+
+        $this->assertSame('pendente', $movement->estado_pagamento);
+        $this->assertDatabaseCount('payments', 0);
+        $this->assertDatabaseCount('payment_allocations', 0);
+    }
+
+    public function test_it_rejects_marking_a_movement_as_reconciled_directly_via_update(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $movement = $this->createMovement('receita', 55.00, true);
+        $movement->forceFill([
+            'estado_conciliacao' => 'nao_conciliado',
+        ])->save();
+
+        $response = $this->actingAs($admin)->putJson(route('financeiro.movimentos.update', $movement), [
+            'user_id' => $movement->user_id,
+            'supplier_id' => null,
+            'nome_manual' => $movement->nome_manual,
+            'nif_manual' => $movement->nif_manual,
+            'morada_manual' => $movement->morada_manual,
+            'classificacao' => $movement->classificacao,
+            'categoria' => $movement->categoria,
+            'data_emissao' => optional($movement->data_emissao)->toDateString(),
+            'data_vencimento' => optional($movement->data_vencimento)->toDateString(),
+            'valor_total' => abs((float) $movement->valor_total),
+            'estado_pagamento' => 'pendente',
+            'estado_conciliacao' => 'conciliado',
+            'numero_recibo' => $movement->numero_recibo,
+            'referencia_pagamento' => $movement->referencia_pagamento,
+            'metodo_pagamento' => $movement->metodo_pagamento,
+            'centro_custo_id' => $movement->centro_custo_id,
+            'tipo' => $movement->tipo,
+            'origem_tipo' => $movement->origem_tipo,
+            'origem_id' => $movement->origem_id,
+            'observacoes' => $movement->observacoes,
+            'items' => [[
+                'descricao' => 'Movimento receita conciliacao',
+                'quantidade' => 1,
+                'valor_unitario' => 55.00,
+                'imposto_percentual' => 0,
+                'total_linha' => 55.00,
+                'centro_custo_id' => $movement->centro_custo_id,
+            ]],
+        ]);
+
+        $response
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('estado_conciliacao')
+            ->assertJsonPath('errors.estado_conciliacao.0', 'A alteracao do estado de conciliacao tem de ser efetuada pelo fluxo canonico de conciliacao.');
+
+        $movement->refresh();
+
+        $this->assertSame('nao_conciliado', $movement->estado_conciliacao);
+        $this->assertDatabaseCount('mapa_conciliacao', 0);
+    }
+
     public function test_payment_endpoint_uses_financial_settlement_service(): void
     {
         $admin = User::factory()->admin()->create();

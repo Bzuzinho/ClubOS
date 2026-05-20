@@ -128,6 +128,8 @@ Se algum comando não for executado, isso deve ser indicado no resumo final da s
 
 ## Sprint F1 — Verdade financeira canónica
 
+> Estado: tecnicamente concluída em 2026-05-20. Validações automáticas passaram. Validação manual do utilizador ainda pendente.
+
 ### Objetivo
 
 Garantir que pagamentos, liquidações, conciliações e alterações de estado financeiro passam pelos serviços canónicos:

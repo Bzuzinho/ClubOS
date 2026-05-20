@@ -77,9 +77,9 @@ A aplicação já tem bastante estrutura, migrations, models, controllers, servi
 | Treinos e presenças | Criar, agendar, editar, duplicar, apagar treino; atletas; presenças; cais; métricas | Eventos, atletas, portal | 70% | Núcleo forte; confirmar sincronização com eventos e ficha de atleta. |
 | Competições / resultados | Competições, inscrições, resultados, splits, provas, resultados por equipa | Eventos, Desportivo, Relatórios | 60% | Estrutura existe; maturidade funcional a confirmar. |
 | Eventos | CRUD, participantes, estados, estatísticas, portal de eventos | Membros, Comunicação, Desportivo, Financeiro | 65% | Falta validar fluxo completo de convocatórias/resultados/pagamentos. |
-| Financeiro geral | Faturas, mensalidades, movimentos, extratos, banco, conciliação, relatórios, pedidos fiscais | Membros, Banco, Loja, Logística, Fiscal, Centros de custo | 70% | Área crítica. Precisa de fecho canónico para evitar duplicação de verdade financeira. |
+| Financeiro geral | Faturas, mensalidades, movimentos, extratos, banco, conciliação, relatórios, pedidos fiscais | Membros, Banco, Loja, Logística, Fiscal, Centros de custo | 72% | Sprint F1 fechou guardas contra escritas financeiras diretas perigosas; validação manual ainda pendente. |
 | Faturas / mensalidades | Geração de mensalidades, faturas abertas, estados, itens, tipos de fatura | Membros, Dados financeiros, centros de custo, pagamentos | 70% | Boa base; confirmar regras de vencimento, conta corrente e estados. |
-| Pagamentos e alocação canónica | `PaymentAllocationService`, criação de pagamentos, alocação a faturas, recalculo de estados, créditos, pedido fiscal automático | Faturas, banco, mapa de conciliação, pedidos fiscais | 75% | Deve passar a ser o único caminho oficial de liquidação. |
+| Pagamentos e alocação canónica | `PaymentAllocationService`, criação de pagamentos, alocação a faturas, recalculo de estados, créditos, pedido fiscal automático | Faturas, banco, mapa de conciliação, pedidos fiscais | 78% | Sprint F1 reforçou bloqueios contra liquidação direta fora dos serviços canónicos. |
 | Conciliação bancária assistida | Sugestões, confirmação, rejeição, alocação de extrato, aliases bancários | Banco, faturas, pagamentos, mapa de conciliação | 70% | Bom avanço; precisa de remover/neutralizar fluxos antigos concorrentes. |
 | Importação de recibos antigos | Batches, ZIP/diretoria pendente, matching, edição manual, commit, preview PDF | Faturas, banco, recibos PDF, utilizadores | 55% | Muito relevante; precisa de testes com PDFs reais. |
 | Emissão fiscal / Wintouch | Pedidos fiscais, estados operacionais, emitido, cancelado, erro de dados | Financeiro, faturas, recibos fiscais | 40% | Existe fila/estrutura, mas não há evidência de integração real fechada com Wintouch. |
@@ -224,6 +224,7 @@ Relatórios prioritários:
 | Data | Módulo | Desenvolvimento / análise | Evidência | Percentagem antes | Percentagem depois | Pendências |
 |---|---|---|---|---:|---:|---|
 | 2026-05-19 | Global | Criação do ficheiro vivo de estado de desenvolvimento | Análise estática do repositório GitHub online | — | 60%–65% global | Executar validações runtime e atualizar por commit/PR. |
+| 2026-05-20 | Financeiro | Sprint F1 — verdade financeira canónica tecnicamente concluída. Foram bloqueadas escritas diretas perigosas em faturas/mensalidades e movimentos; fluxos de liquidação/conciliação passam pelos serviços canónicos. | `FinanceiroController.php`, `ManualExpenseService.php`, `PaymentAllocationFlowTest.php` | 70% | 72% | Validação manual no browser ainda pendente. F2 deve corrigir bugs técnicos críticos e reforçar guardas fora da superfície HTTP principal. |
 
 ---
 

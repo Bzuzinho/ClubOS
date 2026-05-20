@@ -416,6 +416,12 @@ class FinanceiroController extends Controller
     {
         $data = $request->validated();
 
+        if (in_array($data['estado_pagamento'] ?? 'pendente', ['pago', 'parcial'], true)) {
+            throw ValidationException::withMessages([
+                'estado_pagamento' => 'A liquidacao da fatura tem de ser efetuada pelo fluxo canonico de pagamento.',
+            ]);
+        }
+
         $invoice = Invoice::create([
             'user_id' => $data['user_id'],
             'data_fatura' => $data['data_fatura'] ?? $data['data_emissao'],
@@ -2101,6 +2107,12 @@ class FinanceiroController extends Controller
         $data = $this->normalizeManualMovementRequestData($request, $data);
         $data = $this->sanitizeMovementOriginData($data);
 
+        if (($data['estado_conciliacao'] ?? 'nao_conciliado') === 'conciliado') {
+            throw ValidationException::withMessages([
+                'estado_conciliacao' => 'A conciliacao do movimento tem de ser efetuada pelo fluxo canonico de conciliacao/alocacao.',
+            ]);
+        }
+
         if ($data['classificacao'] === 'despesa') {
             $result = $this->manualExpenseService->createSimpleExpense($data, $request->user());
 
@@ -2210,6 +2222,7 @@ class FinanceiroController extends Controller
             'data_vencimento' => ['nullable', 'date'],
             'valor_total' => ['required', 'numeric'],
             'estado_pagamento' => ['nullable', 'in:pendente,por_pagar,pago,vencido,parcial,pago_parcial,cancelado'],
+            'estado_conciliacao' => ['nullable', 'in:nao_conciliado,sugerido,conciliado,divergente'],
             'numero_recibo' => ['nullable', 'string', 'max:255'],
             'referencia_pagamento' => ['nullable', 'string', 'max:255'],
             'metodo_pagamento' => ['nullable', 'string', 'max:50'],
@@ -2230,8 +2243,38 @@ class FinanceiroController extends Controller
             'items.*.fatura_id' => ['nullable', 'string', 'max:255'],
         ]);
 
+        $requestedPaymentState = $data['estado_pagamento'] ?? $movimento->estado_pagamento;
+        $requestedReconciliationState = $data['estado_conciliacao'] ?? $movimento->estado_conciliacao;
+
+        $paymentStateChanged = $requestedPaymentState !== $movimento->estado_pagamento;
+        $reconciliationStateChanged = $requestedReconciliationState !== $movimento->estado_conciliacao;
+
         if (
-            in_array($data['estado_pagamento'] ?? $movimento->estado_pagamento, ['pago', 'parcial'], true)
+            $paymentStateChanged
+            && (
+                in_array($requestedPaymentState, ['pago', 'parcial', 'pago_parcial'], true)
+                || in_array($movimento->estado_pagamento, ['pago', 'parcial', 'pago_parcial'], true)
+            )
+        ) {
+            throw ValidationException::withMessages([
+                'estado_pagamento' => 'A liquidacao ou reabertura do movimento tem de ser efetuada pelo fluxo canonico de pagamento.',
+            ]);
+        }
+
+        if (
+            $reconciliationStateChanged
+            && (
+                $requestedReconciliationState === 'conciliado'
+                || $movimento->estado_conciliacao === 'conciliado'
+            )
+        ) {
+            throw ValidationException::withMessages([
+                'estado_conciliacao' => 'A alteracao do estado de conciliacao tem de ser efetuada pelo fluxo canonico de conciliacao.',
+            ]);
+        }
+
+        if (
+            in_array($requestedPaymentState, ['pago', 'parcial'], true)
             && !in_array($movimento->estado_pagamento, ['pago', 'parcial'], true)
         ) {
             throw ValidationException::withMessages([
@@ -2271,7 +2314,7 @@ class FinanceiroController extends Controller
             'data_emissao' => $data['data_emissao'],
             'data_vencimento' => $data['data_vencimento'],
             'valor_total' => $data['valor_total'],
-            'estado_pagamento' => $data['estado_pagamento'] ?? $movimento->estado_pagamento,
+            'estado_pagamento' => $requestedPaymentState,
             'numero_recibo' => $data['numero_recibo'] ?? null,
             'referencia_pagamento' => $data['referencia_pagamento'] ?? null,
             'metodo_pagamento' => $data['metodo_pagamento'] ?? null,

@@ -139,11 +139,6 @@ class ManualExpenseService
                 'notes' => $bankStatement->descricao,
             ]);
 
-            $movement->forceFill([
-                'estado_pagamento' => 'pago',
-                'estado_conciliacao' => 'conciliado',
-            ])->saveQuietly();
-
             $this->movementDocumentControlService->refresh($movement->fresh());
 
             return array_merge($result, [
