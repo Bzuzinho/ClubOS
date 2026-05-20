@@ -19,6 +19,7 @@ use App\Models\CommunicationDynamicSource;
 use App\Models\CostCenter;
 use App\Models\InvoiceType;
 use App\Models\MonthlyFee;
+use App\Models\PaymentMethod;
 use App\Models\ItemCategory;
 use App\Models\Product;
 use App\Models\Sponsor;
@@ -47,6 +48,17 @@ class ConfiguracoesController extends Controller
         Cache::forget('configuracoes:index:eager');
     }
 
+    private function forgetFinanceiroCaches(): void
+    {
+        Cache::forget('configuracoes:financeiro');
+        Cache::forget('configuracoes:index:eager');
+        Cache::forget('financeiro:index');
+        Cache::forget('financeiro:mensalidades');
+        Cache::forget('financeiro:invoice_types');
+        Cache::forget('financeiro:centros_custo');
+        Cache::forget('financeiro:payment_methods');
+    }
+
     public function index(Request $request): Response
     {
         $useDefaultCache = ! $this->shouldBypassIndexCache($request);
@@ -56,6 +68,7 @@ class ConfiguracoesController extends Controller
             'monthlyFees' => Inertia::lazy(fn () => $this->buildFinanceiroPayload($useDefaultCache)['monthlyFees']),
             'invoiceTypes' => Inertia::lazy(fn () => $this->buildFinanceiroPayload($useDefaultCache)['invoiceTypes']),
             'costCenters' => Inertia::lazy(fn () => $this->buildFinanceiroPayload($useDefaultCache)['costCenters']),
+            'paymentMethods' => Inertia::lazy(fn () => $this->buildFinanceiroPayload($useDefaultCache)['paymentMethods']),
             'products' => Inertia::lazy(fn () => $this->buildLogisticaPayload($useDefaultCache)['products']),
             'sponsors' => Inertia::lazy(fn () => $this->buildLogisticaPayload($useDefaultCache)['sponsors']),
             'suppliers' => Inertia::lazy(fn () => $this->buildLogisticaPayload($useDefaultCache)['suppliers']),
@@ -121,6 +134,7 @@ class ConfiguracoesController extends Controller
             'monthlyFees' => MonthlyFee::all(),
             'invoiceTypes' => InvoiceType::orderBy('nome')->get(),
             'costCenters' => CostCenter::all(),
+            'paymentMethods' => PaymentMethod::query()->ordenado()->get(),
         ];
     }
 
@@ -433,6 +447,8 @@ class ConfiguracoesController extends Controller
 
         CostCenter::create($data);
 
+        $this->forgetFinanceiroCaches();
+
         return redirect()->route('configuracoes')
             ->with('success', 'Centro de custos criado com sucesso!');
     }
@@ -451,6 +467,8 @@ class ConfiguracoesController extends Controller
         }
 
         InvoiceType::create($data);
+
+        $this->forgetFinanceiroCaches();
 
         return redirect()->route('configuracoes')
             ->with('success', 'Tipo de fatura criado com sucesso!');
@@ -471,6 +489,8 @@ class ConfiguracoesController extends Controller
 
         $invoiceType->update($data);
 
+        $this->forgetFinanceiroCaches();
+
         return redirect()->route('configuracoes')
             ->with('success', 'Tipo de fatura atualizado com sucesso!');
     }
@@ -478,6 +498,8 @@ class ConfiguracoesController extends Controller
     public function destroyInvoiceType(InvoiceType $invoiceType): RedirectResponse
     {
         $invoiceType->delete();
+
+        $this->forgetFinanceiroCaches();
 
         return redirect()->route('configuracoes')
             ->with('success', 'Tipo de fatura eliminado com sucesso!');
@@ -500,6 +522,8 @@ class ConfiguracoesController extends Controller
 
         $costCenter->update($data);
 
+        $this->forgetFinanceiroCaches();
+
         return redirect()->route('configuracoes')
             ->with('success', 'Centro de custos atualizado com sucesso!');
     }
@@ -507,6 +531,8 @@ class ConfiguracoesController extends Controller
     public function destroyCostCenter(CostCenter $costCenter): RedirectResponse
     {
         $costCenter->delete();
+
+        $this->forgetFinanceiroCaches();
 
         return redirect()->route('configuracoes')
             ->with('success', 'Centro de custos eliminado com sucesso!');
@@ -523,6 +549,8 @@ class ConfiguracoesController extends Controller
 
         MonthlyFee::create($data);
 
+        $this->forgetFinanceiroCaches();
+
         return redirect()->route('configuracoes')
             ->with('success', 'Mensalidade criada com sucesso!');
     }
@@ -538,6 +566,8 @@ class ConfiguracoesController extends Controller
 
         $monthlyFee->update($data);
 
+        $this->forgetFinanceiroCaches();
+
         return redirect()->route('configuracoes')
             ->with('success', 'Mensalidade atualizada com sucesso!');
     }
@@ -546,8 +576,59 @@ class ConfiguracoesController extends Controller
     {
         $monthlyFee->delete();
 
+        $this->forgetFinanceiroCaches();
+
         return redirect()->route('configuracoes')
             ->with('success', 'Mensalidade eliminada com sucesso!');
+    }
+
+    public function storePaymentMethod(Request $request): RedirectResponse
+    {
+        $data = $this->validatePaymentMethod($request);
+
+        PaymentMethod::create($data);
+
+        $this->forgetFinanceiroCaches();
+
+        return redirect()->route('configuracoes')
+            ->with('success', 'Metodo de pagamento criado com sucesso!');
+    }
+
+    public function updatePaymentMethod(Request $request, PaymentMethod $paymentMethod): RedirectResponse
+    {
+        $data = $this->validatePaymentMethod($request, $paymentMethod);
+
+        $paymentMethod->update($data);
+
+        $this->forgetFinanceiroCaches();
+
+        return redirect()->route('configuracoes')
+            ->with('success', 'Metodo de pagamento atualizado com sucesso!');
+    }
+
+    public function destroyPaymentMethod(PaymentMethod $paymentMethod): RedirectResponse
+    {
+        $paymentMethod->delete();
+
+        $this->forgetFinanceiroCaches();
+
+        return redirect()->route('configuracoes')
+            ->with('success', 'Metodo de pagamento eliminado com sucesso!');
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function validatePaymentMethod(Request $request, ?PaymentMethod $paymentMethod = null): array
+    {
+        return $request->validate([
+            'codigo' => 'required|string|max:50|unique:payment_methods,codigo,' . ($paymentMethod?->id ?? 'NULL') . ',id',
+            'nome' => 'required|string|max:255',
+            'descricao' => 'nullable|string',
+            'requer_linha_bancaria' => 'boolean',
+            'ativo' => 'boolean',
+            'ordem' => 'nullable|integer|min:0|max:999',
+        ]);
     }
 
     public function storeProduct(Request $request): RedirectResponse

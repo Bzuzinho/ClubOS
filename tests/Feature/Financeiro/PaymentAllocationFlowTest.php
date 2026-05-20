@@ -15,6 +15,7 @@ use App\Models\MapaConciliacao;
 use App\Models\Movement;
 use App\Models\Payment;
 use App\Models\PaymentAllocation;
+use App\Models\PaymentMethod;
 use App\Models\Supplier;
 use App\Models\User;
 use App\Models\InvoiceType;
@@ -38,7 +39,7 @@ class PaymentAllocationFlowTest extends TestCase
         $response = $this->actingAs($admin)->postJson(route('financeiro.payments.allocate'), [
             'amount' => 100.00,
             'payment_date' => '2026-05-05',
-            'method' => 'transferencia',
+            'method' => 'dinheiro',
             'reference' => 'TRX-100',
             'notes' => 'Pagamento integral sem recibo fiscal.',
             'allocations' => [
@@ -83,7 +84,7 @@ class PaymentAllocationFlowTest extends TestCase
         $response = $this->actingAs($admin)->postJson(route('financeiro.payments.allocate'), [
             'amount' => 40.00,
             'payment_date' => '2026-05-05',
-            'method' => 'transferencia',
+            'method' => 'dinheiro',
             'allocations' => [
                 ['invoice_id' => $invoice->id, 'amount' => 40.00],
             ],
@@ -155,6 +156,103 @@ class PaymentAllocationFlowTest extends TestCase
         $this->assertSame('reconciled', $statement->conciliacao_status);
         $this->assertSame('50.00', $statement->valor_conciliado);
         $this->assertDatabaseCount('payment_allocations', 2);
+        $this->assertDatabaseHas('payments', [
+            'bank_statement_id' => $statement->id,
+            'method' => 'transferencia',
+        ]);
+    }
+
+    public function test_it_rejects_bank_required_method_without_bank_statement(): void
+    {
+        $admin = User::factory()->admin()->create();
+        [$invoice] = $this->createInvoicesForUser([45.00]);
+
+        $response = $this->actingAs($admin)->postJson(route('financeiro.payments.allocate'), [
+            'amount' => 45.00,
+            'payment_date' => '2026-05-20',
+            'method' => 'transferencia',
+            'allocations' => [
+                ['invoice_id' => $invoice->id, 'amount' => 45.00],
+            ],
+        ]);
+
+        $response
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['method']);
+    }
+
+    public function test_it_allows_manual_cash_payment_without_bank_statement_and_creates_payment_and_allocation(): void
+    {
+        $admin = User::factory()->admin()->create();
+        [$invoice] = $this->createInvoicesForUser([45.00]);
+
+        $response = $this->actingAs($admin)->postJson(route('financeiro.payments.allocate'), [
+            'amount' => 45.00,
+            'payment_date' => '2026-05-20',
+            'method' => 'dinheiro',
+            'reference' => 'CX-45',
+            'allocations' => [
+                ['invoice_id' => $invoice->id, 'amount' => 45.00],
+            ],
+        ]);
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('summary.all_paid', true);
+
+        $this->assertDatabaseHas('payments', [
+            'reference' => 'CX-45',
+            'method' => 'dinheiro',
+        ]);
+        $this->assertDatabaseHas('payment_allocations', [
+            'invoice_id' => $invoice->id,
+            'amount' => 45.00,
+            'status' => PaymentAllocation::STATUS_CONFIRMED,
+        ]);
+        $this->assertDatabaseHas('fiscal_document_requests', [
+            'invoice_id' => $invoice->id,
+            'status' => FiscalDocumentRequest::STATUS_PENDING,
+        ]);
+    }
+
+    public function test_it_rejects_inactive_payment_method(): void
+    {
+        $admin = User::factory()->admin()->create();
+        [$invoice] = $this->createInvoicesForUser([30.00]);
+
+        PaymentMethod::query()->where('codigo', 'dinheiro')->update(['ativo' => false]);
+
+        $response = $this->actingAs($admin)->postJson(route('financeiro.payments.allocate'), [
+            'amount' => 30.00,
+            'payment_date' => '2026-05-20',
+            'method' => 'dinheiro',
+            'allocations' => [
+                ['invoice_id' => $invoice->id, 'amount' => 30.00],
+            ],
+        ]);
+
+        $response
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['method']);
+    }
+
+    public function test_it_rejects_nonexistent_payment_method(): void
+    {
+        $admin = User::factory()->admin()->create();
+        [$invoice] = $this->createInvoicesForUser([30.00]);
+
+        $response = $this->actingAs($admin)->postJson(route('financeiro.payments.allocate'), [
+            'amount' => 30.00,
+            'payment_date' => '2026-05-20',
+            'method' => 'metodo-inventado',
+            'allocations' => [
+                ['invoice_id' => $invoice->id, 'amount' => 30.00],
+            ],
+        ]);
+
+        $response
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['method']);
     }
 
     public function test_one_bank_statement_can_generate_account_credit_from_overpayment(): void
@@ -452,7 +550,7 @@ class PaymentAllocationFlowTest extends TestCase
         $response = $this->actingAs($admin)->postJson(route('financeiro.mensalidades.estado', $invoice), [
             'estado_pagamento' => 'pago',
             'payment_date' => '2026-05-05',
-            'method' => 'transferencia',
+            'method' => 'dinheiro',
             'reference' => 'TRX-MENSALIDADE-001',
             'notes' => 'Liquidacao canonica da mensalidade.',
         ]);
@@ -522,7 +620,7 @@ class PaymentAllocationFlowTest extends TestCase
         $this->actingAs($admin)->postJson(route('financeiro.payments.allocate'), [
             'amount' => 25.00,
             'payment_date' => '2026-05-05',
-            'method' => 'transferencia',
+            'method' => 'dinheiro',
             'reference' => 'TRX-REVERSAO',
             'allocations' => [
                 ['invoice_id' => $invoice->id, 'amount' => 25.00],
@@ -553,7 +651,7 @@ class PaymentAllocationFlowTest extends TestCase
         $this->actingAs($admin)->postJson(route('financeiro.payments.allocate'), [
             'amount' => 25.00,
             'payment_date' => '2026-05-06',
-            'method' => 'transferencia',
+            'method' => 'dinheiro',
             'reference' => 'TRX-CORRIGIDO',
             'allocations' => [
                 ['invoice_id' => $invoice->id, 'amount' => 25.00],
@@ -575,7 +673,7 @@ class PaymentAllocationFlowTest extends TestCase
         $this->actingAs($admin)->postJson(route('financeiro.mensalidades.estado', $invoice), [
             'estado_pagamento' => 'pago',
             'payment_date' => '2026-05-05',
-            'method' => 'transferencia',
+            'method' => 'dinheiro',
             'reference' => 'TRX-MENSALIDADE-REABRIR-001',
         ])->assertOk();
 
@@ -613,7 +711,7 @@ class PaymentAllocationFlowTest extends TestCase
         $this->actingAs($admin)->postJson(route('financeiro.mensalidades.estado', $invoice), [
             'estado_pagamento' => 'pago',
             'payment_date' => '2026-05-05',
-            'method' => 'transferencia',
+            'method' => 'dinheiro',
             'reference' => 'TRX-MENSALIDADE-BLOQUEIO-001',
         ])->assertOk();
 
@@ -841,7 +939,7 @@ class PaymentAllocationFlowTest extends TestCase
         $response = $this->actingAs($admin)->postJson(route('financeiro.payments.allocate'), [
             'amount' => 100.00,
             'payment_date' => '2026-05-05',
-            'method' => 'transferencia',
+            'method' => 'dinheiro',
             'reference' => 'TRX-SERVICE-001',
             'allocations' => [
                 ['invoice_id' => $invoice->id, 'amount' => 100.00],
@@ -867,7 +965,7 @@ class PaymentAllocationFlowTest extends TestCase
         $this->actingAs($admin)->postJson(route('financeiro.payments.allocate'), [
             'amount' => 25.00,
             'payment_date' => '2026-05-05',
-            'method' => 'transferencia',
+            'method' => 'dinheiro',
             'reference' => 'TRX-STUCK-OLD',
             'allocations' => [
                 ['invoice_id' => $invoice->id, 'amount' => 25.00],
@@ -886,7 +984,7 @@ class PaymentAllocationFlowTest extends TestCase
         $response = $this->actingAs($admin)->postJson(route('financeiro.payments.allocate'), [
             'amount' => 25.00,
             'payment_date' => '2026-05-06',
-            'method' => 'transferencia',
+            'method' => 'dinheiro',
             'reference' => 'TRX-STUCK-NEW',
             'allocations' => [
                 ['invoice_id' => $invoice->id, 'amount' => 25.00],
@@ -960,7 +1058,7 @@ class PaymentAllocationFlowTest extends TestCase
 
         $result = app(FinancialSettlementService::class)->settleFinancialEntry($entry, [
             'payment_date' => '2026-05-05',
-            'method' => 'transferencia',
+            'method' => 'dinheiro',
             'reference' => 'REC-MOV-001',
             'created_by' => User::factory()->admin()->create()->id,
         ]);
@@ -1003,7 +1101,7 @@ class PaymentAllocationFlowTest extends TestCase
 
         $response = $this->actingAs($admin)->postJson(route('financeiro.movimentos.liquidar', $movement), [
             'numero_recibo' => 'MOV-LIQ-001',
-            'metodo_pagamento' => 'transferencia',
+            'metodo_pagamento' => 'dinheiro',
         ]);
 
         $response->assertOk();
@@ -1024,7 +1122,7 @@ class PaymentAllocationFlowTest extends TestCase
 
         $result = app(FinancialSettlementService::class)->settleFinancialEntry($entry, [
             'payment_date' => '2026-05-05',
-            'method' => 'transferencia',
+            'method' => 'dinheiro',
             'reference' => 'REC-MOV-002',
             'created_by' => User::factory()->admin()->create()->id,
         ]);
@@ -1105,7 +1203,7 @@ class PaymentAllocationFlowTest extends TestCase
             'amount' => 40.00,
             'payment_amount' => 40.00,
             'payment_date' => '2026-05-05',
-            'method' => 'transferencia',
+            'method' => 'dinheiro',
             'reference' => 'PARTIAL-ENTRY-001',
             'created_by' => $adminId,
         ]);
@@ -1119,7 +1217,7 @@ class PaymentAllocationFlowTest extends TestCase
             'amount' => 60.00,
             'payment_amount' => 60.00,
             'payment_date' => '2026-05-06',
-            'method' => 'transferencia',
+            'method' => 'dinheiro',
             'reference' => 'PARTIAL-ENTRY-002',
             'created_by' => $adminId,
         ]);
@@ -1331,7 +1429,7 @@ class PaymentAllocationFlowTest extends TestCase
         $this->actingAs($admin)->postJson(route('financeiro.payments.allocate'), [
             'amount' => 40.00,
             'payment_date' => '2026-05-04',
-            'method' => 'transferencia',
+            'method' => 'dinheiro',
             'reference' => 'TRX-MANUAL-40',
             'allocations' => [
                 ['invoice_id' => $invoice->id, 'amount' => 40.00],

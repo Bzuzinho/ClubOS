@@ -56,6 +56,16 @@ export interface InvoiceType {
   ativo: boolean;
 }
 
+export interface PaymentMethod {
+  id: string;
+  codigo: string;
+  nome: string;
+  descricao?: string | null;
+  requer_linha_bancaria: boolean;
+  ativo: boolean;
+  ordem: number;
+}
+
 export interface FaturaItem {
   id: string;
   fatura_id: string;

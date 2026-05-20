@@ -20,6 +20,7 @@ import {
   MonthlyFee,
   AgeGroup,
   InvoiceType,
+  PaymentMethod,
   FinanceDashboardData,
   FiscalDocumentRequest,
 } from './types';
@@ -64,6 +65,7 @@ interface Props {
   mensalidades: MonthlyFee[];
   ageGroups: AgeGroup[];
   invoiceTypes: InvoiceType[];
+  paymentMethods: PaymentMethod[];
   dashboardData: FinanceDashboardData;
   fiscalRequests: FiscalDocumentRequest[];
 }
@@ -85,6 +87,7 @@ export default function FinanceiroIndex({
   mensalidades,
   ageGroups,
   invoiceTypes,
+  paymentMethods,
   dashboardData,
   fiscalRequests,
 }: Props) {
@@ -237,6 +240,7 @@ export default function FinanceiroIndex({
                   products={productsState}
                   setProducts={setProducts}
                   invoiceTypes={invoiceTypes || []}
+                  paymentMethods={paymentMethods || []}
                 />
               </Suspense>
             ) : null}

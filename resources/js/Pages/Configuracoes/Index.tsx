@@ -116,6 +116,16 @@ interface CostCenter {
     ativo: boolean;
 }
 
+interface PaymentMethod {
+    id: string;
+    codigo: string;
+    nome: string;
+    descricao?: string | null;
+    requer_linha_bancaria: boolean;
+    ativo: boolean;
+    ordem: number;
+}
+
 interface Product {
     id: string;
     codigo: string;
@@ -546,6 +556,7 @@ interface Props {
     monthlyFees?: MonthlyFee[];
     invoiceTypes?: InvoiceType[];
     costCenters?: CostCenter[];
+    paymentMethods?: PaymentMethod[];
     products?: Product[];
     sponsors?: Sponsor[];
     suppliers?: Supplier[];
@@ -573,6 +584,7 @@ export default function SettingsIndex({
     monthlyFees = [],
     invoiceTypes = [],
     costCenters = [],
+    paymentMethods = [],
     products = [],
     sponsors = [],
     suppliers = [],
@@ -707,6 +719,7 @@ export default function SettingsIndex({
     const hasMonthlyFees = Object.prototype.hasOwnProperty.call(page.props, 'monthlyFees');
     const hasInvoiceTypes = Object.prototype.hasOwnProperty.call(page.props, 'invoiceTypes');
     const hasCostCenters = Object.prototype.hasOwnProperty.call(page.props, 'costCenters');
+    const hasPaymentMethods = Object.prototype.hasOwnProperty.call(page.props, 'paymentMethods');
     const hasProducts = Object.prototype.hasOwnProperty.call(page.props, 'products');
     const hasSponsors = Object.prototype.hasOwnProperty.call(page.props, 'sponsors');
     const hasSuppliers = Object.prototype.hasOwnProperty.call(page.props, 'suppliers');
@@ -786,7 +799,7 @@ export default function SettingsIndex({
 
     useEffect(() => {
         const pendingByTab: Record<string, { ready: boolean; props: string[] }> = {
-            financeiro: { ready: hasMonthlyFees && hasInvoiceTypes && hasCostCenters, props: ['monthlyFees', 'invoiceTypes', 'costCenters'] },
+            financeiro: { ready: hasMonthlyFees && hasInvoiceTypes && hasCostCenters && hasPaymentMethods, props: ['monthlyFees', 'invoiceTypes', 'costCenters', 'paymentMethods'] },
             logistica: { ready: hasProducts && hasSponsors && hasSuppliers && hasItemCategories, props: ['products', 'sponsors', 'suppliers', 'itemCategories'] },
             notificacoes: { ready: hasNotificationPrefs && hasCommunicationDynamicSources && hasCommunicationAlertCategories, props: ['notificationPrefs', 'communicationDynamicSources', 'communicationAlertCategories'] },
             'base-dados': { ready: hasUsers, props: ['users'] },
@@ -816,6 +829,7 @@ export default function SettingsIndex({
         hasInjuryReasons,
         hasItemCategories,
         hasMonthlyFees,
+        hasPaymentMethods,
         hasNotificationPrefs,
         hasPoolTypes,
         hasProducts,
@@ -856,6 +870,16 @@ export default function SettingsIndex({
                 descricao: '',
                 orcamento: '',
                 ativo: true,
+            });
+        }
+        if (type === 'payment-method') {
+            setData({
+                codigo: '',
+                nome: '',
+                descricao: '',
+                requer_linha_bancaria: false,
+                ativo: true,
+                ordem: paymentMethods.length + 1,
             });
         }
         setEditingItem({ type });
@@ -912,6 +936,9 @@ export default function SettingsIndex({
             'cost-center': isEditing
                 ? route('configuracoes.centros-custo.update', editingItem.id)
                 : route('configuracoes.centros-custo.store'),
+            'payment-method': isEditing
+                ? route('configuracoes.metodos-pagamento.update', editingItem.id)
+                : route('configuracoes.metodos-pagamento.store'),
             'product': isEditing
                 ? route('configuracoes.artigos.update', editingItem.id)
                 : route('configuracoes.artigos.store'),
@@ -971,6 +998,7 @@ export default function SettingsIndex({
             'monthly-fee': route('configuracoes.mensalidades.destroy', id),
             'invoice-type': route('configuracoes.tipos-fatura.destroy', id),
             'cost-center': route('configuracoes.centros-custo.destroy', id),
+            'payment-method': route('configuracoes.metodos-pagamento.destroy', id),
             'product': route('configuracoes.artigos.destroy', id),
             'sponsor': route('configuracoes.patrocinadores.destroy', id),
             'item-category': route('configuracoes.categorias-itens.destroy', id),
@@ -1703,7 +1731,7 @@ export default function SettingsIndex({
                     {/* Tab: Financeiro */}
                     <TabsContent value="financeiro" className="mt-0 min-h-0 flex-1 overflow-hidden">
                         {currentTab === 'financeiro' ? (
-                        !hasMonthlyFees || !hasInvoiceTypes || !hasCostCenters || loadingRootTab === 'financeiro' ? (
+                        !hasMonthlyFees || !hasInvoiceTypes || !hasCostCenters || !hasPaymentMethods || loadingRootTab === 'financeiro' ? (
                         <TabFallback />
                         ) : (
                         <Tabs value={currentFinanceiroTab} onValueChange={setCurrentFinanceiroTab} className={sectionTabsClass}>
@@ -1711,6 +1739,7 @@ export default function SettingsIndex({
                                 <TabsTrigger value="financeiro-mensalidades">Mensalidades</TabsTrigger>
                                 <TabsTrigger value="financeiro-tipos-fatura">Itens de Fatura</TabsTrigger>
                                 <TabsTrigger value="financeiro-centros-custos">Centros de Custos</TabsTrigger>
+                                <TabsTrigger value="financeiro-metodos-pagamento">Métodos de Pagamento</TabsTrigger>
                                 <TabsTrigger value="financeiro-ciclo">Ciclo Financeiro</TabsTrigger>
                             </TabsList>
 
@@ -1834,6 +1863,76 @@ export default function SettingsIndex({
                                                                 variant="ghost"
                                                                 size="sm"
                                                                 onClick={() => handleDelete(type.id, 'invoice-type')}
+                                                            >
+                                                                <Trash size={16} />
+                                                            </Button>
+                                                        </div>
+                                                    </TableCell>
+                                                </TableRow>
+                                            ))
+                                        )}
+                                    </TableBody>
+                                </Table>
+                            </CardContent>
+                        </Card>
+                        ) : null}
+                        </TabsContent>
+
+                        <TabsContent value="financeiro-metodos-pagamento" className={nestedScrollableTabContentClass}>
+                        {currentFinanceiroTab === 'financeiro-metodos-pagamento' ? (
+                        <Card>
+                            <CardHeader className="pb-3">
+                                <CardTitle className="text-lg">Métodos de Pagamento</CardTitle>
+                                <CardDescription className="text-sm">
+                                    Definir os métodos ativos, a ordem e se exigem linha bancária para liquidação canónica.
+                                </CardDescription>
+                            </CardHeader>
+                            <CardContent>
+                                <div className="flex justify-end mb-3">
+                                    <Button onClick={() => openAddDialog('payment-method')} size="sm">
+                                        <Plus className="mr-2" size={16} />
+                                        Adicionar Método
+                                    </Button>
+                                </div>
+                                <Table>
+                                    <TableHeader>
+                                        <TableRow>
+                                            <TableHead>Ordem</TableHead>
+                                            <TableHead>Nome</TableHead>
+                                            <TableHead>Código</TableHead>
+                                            <TableHead>Linha Bancária</TableHead>
+                                            <TableHead>Ativo</TableHead>
+                                            <TableHead className="text-right">Ações</TableHead>
+                                        </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                        {paymentMethods.length === 0 ? (
+                                            <TableRow>
+                                                <TableCell colSpan={6} className="text-center text-muted-foreground">
+                                                    Nenhum método de pagamento cadastrado
+                                                </TableCell>
+                                            </TableRow>
+                                        ) : (
+                                            paymentMethods.map((method) => (
+                                                <TableRow key={method.id}>
+                                                    <TableCell>{method.ordem}</TableCell>
+                                                    <TableCell className="font-medium">{method.nome}</TableCell>
+                                                    <TableCell>{method.codigo}</TableCell>
+                                                    <TableCell>{method.requer_linha_bancaria ? 'Sim' : 'Não'}</TableCell>
+                                                    <TableCell>{method.ativo ? 'Sim' : 'Não'}</TableCell>
+                                                    <TableCell className="text-right">
+                                                        <div className="flex justify-end gap-2">
+                                                            <Button
+                                                                variant="ghost"
+                                                                size="sm"
+                                                                onClick={() => openEditDialog(method, 'payment-method')}
+                                                            >
+                                                                <PencilSimple size={16} />
+                                                            </Button>
+                                                            <Button
+                                                                variant="ghost"
+                                                                size="sm"
+                                                                onClick={() => handleDelete(method.id, 'payment-method')}
                                                             >
                                                                 <Trash size={16} />
                                                             </Button>
@@ -2882,6 +2981,7 @@ export default function SettingsIndex({
                             {editingItem?.type === 'monthly-fee' && 'Mensalidade'}
                             {editingItem?.type === 'invoice-type' && 'Tipo de Fatura'}
                             {editingItem?.type === 'cost-center' && 'Centro de Custos'}
+                            {editingItem?.type === 'payment-method' && 'Método de Pagamento'}
                             {editingItem?.type === 'product' && 'Artigo'}
                             {editingItem?.type === 'sponsor' && 'Patrocinador'}
                             {editingItem?.type === 'item-category' && 'Categoria de Item'}
@@ -3453,6 +3553,64 @@ export default function SettingsIndex({
                                         <Label htmlFor="ativo">Ativo</Label>
                                     </div>
                                     {errors.ativo && <p className="text-sm text-red-600">{errors.ativo}</p>}
+                                </>
+                            )}
+
+                            {editingItem?.type === 'payment-method' && (
+                                <>
+                                    <div className="space-y-2">
+                                        <Label htmlFor="nome">Nome *</Label>
+                                        <Input
+                                            id="nome"
+                                            value={data.nome || ''}
+                                            onChange={e => setData('nome', e.target.value)}
+                                            required
+                                        />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label htmlFor="codigo">Código *</Label>
+                                        <Input
+                                            id="codigo"
+                                            value={data.codigo || ''}
+                                            onChange={e => setData('codigo', e.target.value)}
+                                            placeholder="transferencia"
+                                            required
+                                        />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label htmlFor="descricao">Descrição</Label>
+                                        <Textarea
+                                            id="descricao"
+                                            value={data.descricao || ''}
+                                            onChange={e => setData('descricao', e.target.value)}
+                                        />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label htmlFor="ordem">Ordem</Label>
+                                        <Input
+                                            id="ordem"
+                                            type="number"
+                                            min="0"
+                                            value={data.ordem ?? 0}
+                                            onChange={e => setData('ordem', e.target.value ? parseInt(e.target.value, 10) : 0)}
+                                        />
+                                    </div>
+                                    <div className="flex items-center space-x-2">
+                                        <Switch
+                                            id="requer_linha_bancaria"
+                                            checked={data.requer_linha_bancaria ?? false}
+                                            onCheckedChange={checked => setData('requer_linha_bancaria', checked)}
+                                        />
+                                        <Label htmlFor="requer_linha_bancaria">Requer linha bancária</Label>
+                                    </div>
+                                    <div className="flex items-center space-x-2">
+                                        <Switch
+                                            id="ativo"
+                                            checked={data.ativo ?? true}
+                                            onCheckedChange={checked => setData('ativo', checked)}
+                                        />
+                                        <Label htmlFor="ativo">Ativo</Label>
+                                    </div>
                                 </>
                             )}
 

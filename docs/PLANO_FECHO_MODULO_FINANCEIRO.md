@@ -130,6 +130,8 @@ Se algum comando não for executado, isso deve ser indicado no resumo final da s
 
 > Estado: tecnicamente concluída em 2026-05-20. Validações automáticas passaram. Validação manual do utilizador ainda pendente.
 
+> Atualização F1.1: a liquidação manual continua permitida, mas apenas pelo fluxo canónico e com método de pagamento ativo/configurável. Métodos marcados com `requer_linha_bancaria` só podem ser usados com linha de extrato selecionada.
+
 ### Objetivo
 
 Garantir que pagamentos, liquidações, conciliações e alterações de estado financeiro passam pelos serviços canónicos:
@@ -167,6 +169,50 @@ Criar testes para validar:
 ### Resultado esperado
 
 A interface pode permitir iniciar o pagamento, mas nunca deve simplesmente mudar estado sem criar o rasto financeiro canónico.
+
+---
+
+## Sprint F1.1 — Liquidação manual canónica e métodos de pagamento configuráveis
+
+> Estado: tecnicamente concluída em 2026-05-20. Validações automáticas focadas passaram. Validação manual do utilizador ainda pendente.
+
+### Objetivo
+
+Permitir liquidação manual no Financeiro sem reabrir fluxos paralelos, usando sempre o motor canónico e uma lista configurável de métodos de pagamento.
+
+### Regras fechadas nesta sprint
+
+- `PaymentAllocationService` valida que o método existe e está ativo;
+- métodos com `requer_linha_bancaria` obrigam a selecionar linha de extrato;
+- métodos manuais continuam a permitir liquidação sem linha bancária;
+- o Financeiro consome a lista de métodos ativos do backend;
+- Configurações > Financeiro passa a gerir métodos, ativação, ordem e exigência de linha bancária.
+
+### Testes automáticos mínimos
+
+Criar testes para validar:
+
+- transferência sem linha bancária falha;
+- transferência com linha bancária continua a funcionar;
+- dinheiro sem linha bancária cria `Payment` e `PaymentAllocation`;
+- pagamento total continua a criar pedido fiscal;
+- método inexistente ou inativo é rejeitado;
+- o payload do Financeiro expõe apenas métodos ativos;
+- CRUD de métodos em Configurações funciona.
+
+### Testes manuais para o utilizador
+
+1. Entrar em Configurações > Financeiro > Métodos de Pagamento.
+2. Confirmar que existem pelo menos Transferência, Dinheiro, Multibanco, TPA e Cheque.
+3. Marcar um método manual como inativo e confirmar que desaparece do modal de pagamento no Financeiro.
+4. Entrar em Financeiro > Mensalidades e abrir o modal de pagamento.
+5. Escolher Transferência sem linha bancária e confirmar que o botão fica bloqueado ou a mensagem indica a obrigação da linha.
+6. Selecionar uma linha de extrato e confirmar que o valor/manual fica bloqueado pelo montante da linha.
+7. Repetir com Dinheiro sem linha bancária e confirmar que a liquidação avança com sucesso.
+
+### Resultado esperado
+
+A liquidação manual continua disponível, mas apenas com métodos configurados e respeitando a regra bancária definida para cada método.
 
 ---
 

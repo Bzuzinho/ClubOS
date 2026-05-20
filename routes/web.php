@@ -510,6 +510,10 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::put('/configuracoes/mensalidades/{monthlyFee}', [ConfiguracoesController::class, 'updateMonthlyFee'])->name('configuracoes.mensalidades.update');
     Route::delete('/configuracoes/mensalidades/{monthlyFee}', [ConfiguracoesController::class, 'destroyMonthlyFee'])->name('configuracoes.mensalidades.destroy');
 
+    Route::post('/configuracoes/metodos-pagamento', [ConfiguracoesController::class, 'storePaymentMethod'])->name('configuracoes.metodos-pagamento.store');
+    Route::put('/configuracoes/metodos-pagamento/{paymentMethod}', [ConfiguracoesController::class, 'updatePaymentMethod'])->name('configuracoes.metodos-pagamento.update');
+    Route::delete('/configuracoes/metodos-pagamento/{paymentMethod}', [ConfiguracoesController::class, 'destroyPaymentMethod'])->name('configuracoes.metodos-pagamento.destroy');
+
     Route::post('/configuracoes/artigos', [ConfiguracoesController::class, 'storeProduct'])->name('configuracoes.artigos.store');
     Route::put('/configuracoes/artigos/{product}', [ConfiguracoesController::class, 'updateProduct'])->name('configuracoes.artigos.update');
     Route::post('/configuracoes/artigos/{product}', [ConfiguracoesController::class, 'updateProduct']);

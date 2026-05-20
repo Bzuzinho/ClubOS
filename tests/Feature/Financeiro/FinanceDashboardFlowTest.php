@@ -8,6 +8,7 @@ use App\Models\FiscalDocumentRequest;
 use App\Models\FinancialEntry;
 use App\Models\Invoice;
 use App\Models\Movement;
+use App\Models\PaymentMethod;
 use App\Models\User;
 use App\Services\Financeiro\FinanceDashboardService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -302,6 +303,36 @@ class FinanceDashboardFlowTest extends TestCase
         $response->assertSee('dashboardData', false);
         $response->assertSee('receitas_mes', false);
         $response->assertSee('mensalidades_vencidas', false);
+    }
+
+    public function test_financeiro_index_exposes_only_active_payment_methods(): void
+    {
+        $admin = User::query()->where('email', 'admin@test.com')->firstOrFail();
+
+        PaymentMethod::query()->create([
+            'codigo' => 'teste-ativo',
+            'nome' => 'Teste Ativo',
+            'requer_linha_bancaria' => false,
+            'ativo' => true,
+            'ordem' => 99,
+        ]);
+
+        PaymentMethod::query()->create([
+            'codigo' => 'teste-inativo',
+            'nome' => 'Teste Inativo',
+            'requer_linha_bancaria' => false,
+            'ativo' => false,
+            'ordem' => 100,
+        ]);
+
+        Cache::flush();
+
+        $response = $this->inertiaGetAs($admin, route('financeiro.index', ['fresh' => 1]));
+        $methods = collect($response->json('props.paymentMethods'));
+
+        $response->assertOk();
+        $this->assertTrue($methods->contains(fn (array $item): bool => ($item['codigo'] ?? null) === 'teste-ativo'));
+        $this->assertFalse($methods->contains(fn (array $item): bool => ($item['codigo'] ?? null) === 'teste-inativo'));
     }
 
     public function test_financeiro_index_exposes_only_monthly_invoices_in_mensalidades_payload(): void

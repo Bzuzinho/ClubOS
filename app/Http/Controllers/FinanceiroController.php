@@ -19,6 +19,7 @@ use App\Models\MovementItem;
 use App\Models\MapaConciliacao;
 use App\Models\Payment;
 use App\Models\PaymentAllocation;
+use App\Models\PaymentMethod;
 use App\Models\Product;
 use App\Models\Supplier;
 use App\Models\User;
@@ -367,6 +368,14 @@ class FinanceiroController extends Controller
                     return InvoiceType::orderBy('nome')->get();
                 } catch (\Exception $e) {
                     \Log::error('FinanceiroController::index - InvoiceType query failed: ' . $e->getMessage());
+                    return [];
+                }
+            }),
+            'paymentMethods' => Cache::remember('financeiro:payment_methods', 300, function () {
+                try {
+                    return PaymentMethod::query()->ativo()->ordenado()->get();
+                } catch (\Exception $e) {
+                    \Log::error('FinanceiroController::index - PaymentMethod query failed: ' . $e->getMessage());
                     return [];
                 }
             }),
@@ -2757,6 +2766,7 @@ class FinanceiroController extends Controller
         Cache::forget('financeiro:products');
         Cache::forget('financeiro:mensalidades');
         Cache::forget('financeiro:invoice_types');
+        Cache::forget('financeiro:payment_methods');
         Cache::forget('financeiro:age_groups');
         Cache::forget('dashboard:stats');
     }

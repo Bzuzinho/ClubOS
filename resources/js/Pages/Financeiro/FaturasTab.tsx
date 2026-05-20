@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { router } from '@inertiajs/react';
 import axios from 'axios';
-import { Fatura, FaturaItem, User, CentroCusto, Product, LancamentoFinanceiro, MonthlyFee, InvoiceType, ConciliacaoMapa, ExtratoBancario } from './types';
+import { Fatura, FaturaItem, User, CentroCusto, Product, LancamentoFinanceiro, MonthlyFee, InvoiceType, ConciliacaoMapa, ExtratoBancario, PaymentMethod } from './types';
 import { Button } from '@/Components/ui/button';
 import { Card } from '@/Components/ui/card';
 import { Input } from '@/Components/ui/input';
@@ -33,6 +33,7 @@ interface FaturasTabProps {
   products: Product[];
   setProducts: React.Dispatch<React.SetStateAction<Product[]>>;
   invoiceTypes: InvoiceType[];
+  paymentMethods: PaymentMethod[];
 }
 
 export function FaturasTab({
@@ -52,6 +53,7 @@ export function FaturasTab({
   products,
   setProducts,
   invoiceTypes,
+  paymentMethods,
 }: FaturasTabProps) {
   const [estadoFilter, setEstadoFilter] = useState<string>('all');
   const [viewMode, setViewMode] = useState<'card' | 'table'>('table');
@@ -225,7 +227,7 @@ export function FaturasTab({
   const [selectedFaturas, setSelectedFaturas] = useState<Set<string>>(new Set());
   const [selectedBankStatementId, setSelectedBankStatementId] = useState<string>('none');
   const [paymentDate, setPaymentDate] = useState<string>(format(new Date(), 'yyyy-MM-dd'));
-  const [paymentMethod, setPaymentMethod] = useState<string>('transferencia');
+  const [paymentMethod, setPaymentMethod] = useState<string>('');
   const [paymentReference, setPaymentReference] = useState<string>('');
   const [paymentNotes, setPaymentNotes] = useState<string>('');
   const [paymentAmount, setPaymentAmount] = useState<string>('0.00');
@@ -243,6 +245,16 @@ export function FaturasTab({
     const match = (invoiceTypes || []).find((type) => type.codigo === tipo);
     return match ? match.nome : tipo;
   };
+
+  const defaultManualPaymentMethod = useMemo(() => {
+    const manualMethod = (paymentMethods || []).find((method) => !method.requer_linha_bancaria);
+    return manualMethod?.codigo || paymentMethods?.[0]?.codigo || 'dinheiro';
+  }, [paymentMethods]);
+
+  const defaultBankPaymentMethod = useMemo(() => {
+    const bankMethod = (paymentMethods || []).find((method) => method.requer_linha_bancaria);
+    return bankMethod?.codigo || paymentMethods?.[0]?.codigo || 'transferencia';
+  }, [paymentMethods]);
 
   const reloadFinanceiroData = () => {
     router.reload({
@@ -287,7 +299,7 @@ export function FaturasTab({
     setSelectedFaturaId(null);
     setSelectedBankStatementId('none');
     setPaymentDate(format(new Date(), 'yyyy-MM-dd'));
-    setPaymentMethod('transferencia');
+    setPaymentMethod(defaultManualPaymentMethod);
     setPaymentReference('');
     setPaymentNotes('');
     setPaymentAmount('0.00');
@@ -387,6 +399,12 @@ export function FaturasTab({
     return availableBankStatements.find((statement) => statement.id === selectedBankStatementId) || null;
   }, [availableBankStatements, selectedBankStatementId]);
 
+  const selectedPaymentMethod = useMemo(() => {
+    return (paymentMethods || []).find((method) => method.codigo === paymentMethod) || null;
+  }, [paymentMethod, paymentMethods]);
+
+  const paymentMethodRequiresBankStatement = Boolean(selectedPaymentMethod?.requer_linha_bancaria);
+
   const editingInvoice = useMemo(() => {
     if (!editingFaturaId) {
       return null;
@@ -440,7 +458,7 @@ export function FaturasTab({
     }
     setSelectedBankStatementId('none');
     setPaymentDate(format(new Date(), 'yyyy-MM-dd'));
-    setPaymentMethod('transferencia');
+    setPaymentMethod(defaultManualPaymentMethod);
     setPaymentReference('');
     setPaymentNotes('');
     setPaymentAllocations(defaultAllocations);
@@ -464,6 +482,16 @@ export function FaturasTab({
 
     if (allocations.length === 0) {
       toast.error('Indique pelo menos uma alocacao com valor superior a zero');
+      return;
+    }
+
+    if (!paymentMethod) {
+      toast.error('Selecione um metodo de pagamento configurado');
+      return;
+    }
+
+    if (paymentMethodRequiresBankStatement && !selectedBankStatement) {
+      toast.error('O metodo selecionado requer uma linha de extrato bancario');
       return;
     }
 
@@ -1912,14 +1940,14 @@ export function FaturasTab({
                     }
 
                     setPaymentDate(statement.data_movimento);
-                    setPaymentMethod('transferencia');
+                    setPaymentMethod(defaultBankPaymentMethod);
                     setPaymentReference(statement.referencia || '');
                   }}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Sem associar linha bancaria" />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="max-h-72 overflow-y-auto">
                     <SelectItem value="none">Sem associar linha bancaria</SelectItem>
                     {availableBankStatements.map((statement) => {
                       const remaining = statement.valor_por_conciliar !== null && statement.valor_por_conciliar !== undefined
@@ -1949,7 +1977,9 @@ export function FaturasTab({
                 <p className="text-xs text-muted-foreground">
                   {selectedBankStatement
                     ? 'Quando existe linha bancaria, o valor vem do montante por conciliar dessa linha.'
-                    : 'Use este valor para pagamentos manuais totais ou parciais.'}
+                    : paymentMethodRequiresBankStatement
+                      ? 'Este metodo exige linha bancaria. Selecione uma linha do extrato para definir o valor.'
+                      : 'Use este valor para pagamentos manuais totais ou parciais.'}
                 </p>
               </div>
 
@@ -1965,7 +1995,25 @@ export function FaturasTab({
 
               <div className="space-y-2">
                 <Label className="text-sm">Metodo</Label>
-                <Input value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value)} placeholder="transferencia, multibanco, numerario..." />
+                <Select value={paymentMethod} onValueChange={setPaymentMethod}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecionar metodo de pagamento" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(paymentMethods || []).map((method) => (
+                      <SelectItem key={method.id} value={method.codigo}>
+                        {method.nome}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  {selectedPaymentMethod
+                    ? selectedPaymentMethod.requer_linha_bancaria
+                      ? 'Este metodo so pode ser usado com uma linha de extrato bancario selecionada.'
+                      : 'Este metodo permite liquidacao manual sem linha bancaria.'
+                    : 'Selecione um metodo ativo definido em Configuracoes > Financeiro.'}
+                </p>
               </div>
 
               <div className="space-y-2 md:col-span-2">
@@ -2083,7 +2131,7 @@ export function FaturasTab({
             >
               Cancelar
             </Button>
-            <Button onClick={handleConfirmarLiquidacao} className="w-full sm:w-auto" disabled={paymentSubmitting || paymentInvoices.length === 0 || totalAllocatedAmount <= 0 || paymentDifference < -0.009}>
+            <Button onClick={handleConfirmarLiquidacao} className="w-full sm:w-auto" disabled={paymentSubmitting || paymentInvoices.length === 0 || totalAllocatedAmount <= 0 || paymentDifference < -0.009 || !paymentMethod || (paymentMethodRequiresBankStatement && !selectedBankStatement)}>
               <Check className="mr-2" size={16} />
               Confirmar Pagamento
             </Button>

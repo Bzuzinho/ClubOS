@@ -11,9 +11,11 @@ use App\Models\Invoice;
 use App\Models\MapaConciliacao;
 use App\Models\Payment;
 use App\Models\PaymentAllocation;
+use App\Models\PaymentMethod;
 use App\Models\User;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 class PaymentAllocationService
@@ -39,6 +41,14 @@ class PaymentAllocationService
             $data['family_id'] ?? null,
         );
 
+        $paymentMethod = $this->resolvePaymentMethod($data['method'] ?? null);
+
+        if ($paymentMethod && $paymentMethod->requer_linha_bancaria && empty($data['bank_statement_id'])) {
+            throw ValidationException::withMessages([
+                'method' => 'O metodo de pagamento selecionado requer uma linha de extrato bancario.',
+            ]);
+        }
+
         return Payment::create([
             'user_id' => $data['user_id'] ?? null,
             'family_id' => $familyId,
@@ -47,7 +57,7 @@ class PaymentAllocationService
             'allocated_amount' => 0,
             'unallocated_amount' => $amount,
             'payment_date' => $data['payment_date'] ?? null,
-            'method' => $data['method'] ?? null,
+            'method' => $paymentMethod?->codigo,
             'reference' => $data['reference'] ?? null,
             'description' => $data['description'] ?? null,
             'source' => $data['source'] ?? Payment::SOURCE_MANUAL,
@@ -58,6 +68,45 @@ class PaymentAllocationService
             'notes' => $data['notes'] ?? null,
             'metadata' => $data['metadata'] ?? null,
         ]);
+    }
+
+    private function resolvePaymentMethod(?string $rawMethod): ?PaymentMethod
+    {
+        if (!is_string($rawMethod) || trim($rawMethod) === '') {
+            return null;
+        }
+
+        $normalizedInput = $this->normalizePaymentMethodValue($rawMethod);
+
+        $matched = PaymentMethod::query()
+            ->get()
+            ->first(function (PaymentMethod $paymentMethod) use ($normalizedInput): bool {
+                return $this->normalizePaymentMethodValue($paymentMethod->codigo) === $normalizedInput
+                    || $this->normalizePaymentMethodValue($paymentMethod->nome) === $normalizedInput;
+            });
+
+        if (!$matched) {
+            throw ValidationException::withMessages([
+                'method' => 'O metodo de pagamento selecionado nao existe.',
+            ]);
+        }
+
+        if (!$matched->ativo) {
+            throw ValidationException::withMessages([
+                'method' => 'O metodo de pagamento selecionado esta inativo.',
+            ]);
+        }
+
+        return $matched;
+    }
+
+    private function normalizePaymentMethodValue(string $value): string
+    {
+        return (string) Str::of($value)
+            ->ascii()
+            ->lower()
+            ->trim()
+            ->replaceMatches('/[^a-z0-9]+/', '-');
     }
 
     public function allocatePayment(Payment $payment, array $allocations, array $options = []): Payment
