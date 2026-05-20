@@ -176,6 +176,8 @@ A interface pode permitir iniciar o pagamento, mas nunca deve simplesmente mudar
 
 > Estado: tecnicamente concluída em 2026-05-20. Validações automáticas focadas passaram. Validação manual do utilizador ainda pendente.
 
+> Atualização F1.2: F1.2 corrigiu validação manual do modal, bloqueios de UX, robustez CSRF/419 e manteve a liquidação manual canónica.
+
 ### Objetivo
 
 Permitir liquidação manual no Financeiro sem reabrir fluxos paralelos, usando sempre o motor canónico e uma lista configurável de métodos de pagamento.
@@ -213,6 +215,15 @@ Criar testes para validar:
 ### Resultado esperado
 
 A liquidação manual continua disponível, mas apenas com métodos configurados e respeitando a regra bancária definida para cada método.
+
+### Fecho operacional F1.2
+
+- o botão de confirmação do modal deve ficar bloqueado quando falta método, falta alocação válida, o valor disponível é inválido ou um método bancário está sem linha de extrato;
+- transferência sem linha de extrato deve falhar visualmente no modal e tecnicamente com `422` claro no backend;
+- transferência com linha de extrato deve continuar a criar `Payment`, `PaymentAllocation` e atualizar `BankStatement`;
+- métodos manuais, como Dinheiro, devem continuar a liquidar sem `bank_statement_id`;
+- o update direto de `estado_pagamento` para `pago/parcial` continua proibido fora do fluxo canónico;
+- não avançar para F2 antes de repetir os testes manuais F1.2 em browser e após deploy/cache.
 
 ---
 

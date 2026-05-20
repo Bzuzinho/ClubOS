@@ -160,6 +160,16 @@ class PaymentAllocationFlowTest extends TestCase
             'bank_statement_id' => $statement->id,
             'method' => 'transferencia',
         ]);
+        $this->assertDatabaseHas('payment_allocations', [
+            'invoice_id' => $invoiceA->id,
+            'amount' => 30.00,
+            'status' => PaymentAllocation::STATUS_CONFIRMED,
+        ]);
+        $this->assertDatabaseHas('payment_allocations', [
+            'invoice_id' => $invoiceB->id,
+            'amount' => 20.00,
+            'status' => PaymentAllocation::STATUS_CONFIRMED,
+        ]);
     }
 
     public function test_it_rejects_bank_required_method_without_bank_statement(): void
@@ -178,7 +188,11 @@ class PaymentAllocationFlowTest extends TestCase
 
         $response
             ->assertStatus(422)
-            ->assertJsonValidationErrors(['method']);
+            ->assertJsonValidationErrors(['bank_statement_id', 'method'])
+            ->assertJsonPath('errors.bank_statement_id.0', 'O metodo de pagamento selecionado requer uma linha de extrato bancario.');
+
+        $this->assertDatabaseCount('payments', 0);
+        $this->assertDatabaseCount('payment_allocations', 0);
     }
 
     public function test_it_allows_manual_cash_payment_without_bank_statement_and_creates_payment_and_allocation(): void
@@ -566,6 +580,8 @@ class PaymentAllocationFlowTest extends TestCase
         $this->assertSame('0.00', $invoice->valor_em_aberto);
         $this->assertDatabaseHas('payments', [
             'reference' => 'TRX-MENSALIDADE-001',
+            'method' => 'dinheiro',
+            'source' => Payment::SOURCE_MANUAL,
             'status' => Payment::STATUS_CONFIRMED,
         ]);
         $this->assertDatabaseHas('payment_allocations', [
@@ -762,6 +778,49 @@ class PaymentAllocationFlowTest extends TestCase
             'observacoes' => $invoice->observacoes,
             'items' => [[
                 'descricao' => 'Mensalidade 1',
+                'quantidade' => 1,
+                'valor_unitario' => 25.00,
+                'imposto_percentual' => 0,
+                'total_linha' => 25.00,
+                'produto_id' => null,
+                'centro_custo_id' => $invoice->centro_custo_id,
+            ]],
+        ]);
+
+        $response
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('estado_pagamento')
+            ->assertJsonPath('errors.estado_pagamento.0', 'A alteracao de estado financeiro da mensalidade tem de ser efetuada pelo fluxo canonico da mensalidade.');
+
+        $invoice->refresh();
+
+        $this->assertSame('pendente', $invoice->estado_pagamento);
+        $this->assertDatabaseCount('payments', 0);
+    }
+
+    public function test_it_rejects_marking_an_invoice_as_partially_paid_directly_via_update(): void
+    {
+        $admin = User::factory()->admin()->create();
+        [$invoice] = $this->createInvoicesForUser([25.00]);
+
+        $response = $this->actingAs($admin)->putJson(route('financeiro.update', $invoice), [
+            'user_id' => $invoice->user_id,
+            'data_fatura' => optional($invoice->data_fatura)->toDateString(),
+            'data_emissao' => $invoice->data_emissao->toDateString(),
+            'data_vencimento' => $invoice->data_vencimento->toDateString(),
+            'mes' => $invoice->mes,
+            'tipo' => $invoice->tipo,
+            'estado_pagamento' => 'parcial',
+            'valor_total' => (float) $invoice->valor_total,
+            'oculta' => false,
+            'centro_custo_id' => $invoice->centro_custo_id,
+            'numero_recibo' => 'REC-DIRETO-PARCIAL-001',
+            'referencia_pagamento' => $invoice->referencia_pagamento,
+            'origem_tipo' => $invoice->origem_tipo,
+            'origem_id' => $invoice->origem_id,
+            'observacoes' => $invoice->observacoes,
+            'items' => [[
+                'descricao' => 'Mensalidade parcial 1',
                 'quantidade' => 1,
                 'valor_unitario' => 25.00,
                 'imposto_percentual' => 0,

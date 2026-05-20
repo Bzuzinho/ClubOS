@@ -69,6 +69,38 @@ export function FaturasTab({
     const token = document.querySelector('meta[name="csrf-token"]') as HTMLMetaElement | null;
     return token?.content || '';
   };
+  const getApiHeaders = () => {
+    const csrfToken = getCsrfToken();
+
+    return {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      'X-Requested-With': 'XMLHttpRequest',
+      ...(csrfToken ? { 'X-CSRF-TOKEN': csrfToken } : {}),
+    };
+  };
+  const getAxiosJsonConfig = () => ({
+    headers: getApiHeaders(),
+    withCredentials: true,
+  });
+  const getRequestErrorMessage = (error: unknown, fallbackMessage: string) => {
+    if (axios.isAxiosError(error)) {
+      if (error.response?.status === 419) {
+        return 'Sessao expirada. Atualize a pagina e tente novamente.';
+      }
+
+      const responseMessage = error.response?.data?.message;
+      const validationErrors = Object.values(error.response?.data?.errors || {}).flat().join(' ');
+
+      return responseMessage || validationErrors || fallbackMessage;
+    }
+
+    if (error instanceof Error) {
+      return error.message;
+    }
+
+    return fallbackMessage;
+  };
   const persistInvoice = async (payload: {
     user_id: string;
     data_emissao: string;
@@ -95,12 +127,7 @@ export function FaturasTab({
   }) => {
     const response = await fetch(route('financeiro.store'), {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-        'X-Requested-With': 'XMLHttpRequest',
-        'X-CSRF-TOKEN': getCsrfToken(),
-      },
+      headers: getApiHeaders(),
       credentials: 'same-origin',
       body: JSON.stringify(payload),
     });
@@ -151,12 +178,7 @@ export function FaturasTab({
   }) => {
     const response = await fetch(route('financeiro.update', invoiceId), {
       method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-        'X-Requested-With': 'XMLHttpRequest',
-        'X-CSRF-TOKEN': getCsrfToken(),
-      },
+      headers: getApiHeaders(),
       credentials: 'same-origin',
       body: JSON.stringify(payload),
     });
@@ -182,12 +204,7 @@ export function FaturasTab({
   };
 
   const deleteInvoice = async (invoiceId: string) => {
-    await axios.post(route('financeiro.destroy.post', invoiceId), {}, {
-      headers: {
-        'X-Requested-With': 'XMLHttpRequest',
-      },
-      withCredentials: true,
-    });
+    await axios.post(route('financeiro.destroy.post', invoiceId), {}, getAxiosJsonConfig());
   };
   const getStartOfToday = () => {
     const today = new Date();
@@ -403,7 +420,7 @@ export function FaturasTab({
     return (paymentMethods || []).find((method) => method.codigo === paymentMethod) || null;
   }, [paymentMethod, paymentMethods]);
 
-  const paymentMethodRequiresBankStatement = Boolean(selectedPaymentMethod?.requer_linha_bancaria);
+  const paymentRequiresBankStatement = Boolean(selectedPaymentMethod?.requer_linha_bancaria);
 
   const editingInvoice = useMemo(() => {
     if (!editingFaturaId) {
@@ -431,6 +448,43 @@ export function FaturasTab({
     : toNumber(paymentAmount, 0);
 
   const paymentDifference = totalAvailableAmount - totalAllocatedAmount;
+  const hasValidPaymentAllocations = paymentInvoices.length > 0 && totalAllocatedAmount > 0;
+  const paymentValidationMessage = useMemo(() => {
+    if (paymentSubmitting) {
+      return 'A registar o pagamento. Aguarde.';
+    }
+
+    if (!paymentMethod) {
+      return 'Selecione um metodo de pagamento configurado.';
+    }
+
+    if (paymentRequiresBankStatement && !selectedBankStatement) {
+      return 'Este metodo de pagamento exige selecao de uma linha de extrato bancario.';
+    }
+
+    if (!hasValidPaymentAllocations) {
+      return 'Indique pelo menos uma alocacao valida com valor superior a zero.';
+    }
+
+    if (totalAvailableAmount <= 0) {
+      return 'Indique um valor de pagamento valido.';
+    }
+
+    if (totalAllocatedAmount - totalAvailableAmount > 0.009) {
+      return 'As alocacoes excedem o valor disponivel para pagamento.';
+    }
+
+    return null;
+  }, [
+    hasValidPaymentAllocations,
+    paymentMethod,
+    paymentRequiresBankStatement,
+    paymentSubmitting,
+    selectedBankStatement,
+    totalAllocatedAmount,
+    totalAvailableAmount,
+  ]);
+  const canConfirmPayment = !paymentValidationMessage;
 
   const handleAbrirDialogoRecibo = (faturaId?: string, fromStatusTransition = false) => {
     const invoiceIds = faturaId ? [faturaId] : Array.from(selectedFaturas);
@@ -490,18 +544,8 @@ export function FaturasTab({
       return;
     }
 
-    if (paymentMethodRequiresBankStatement && !selectedBankStatement) {
-      toast.error('O metodo selecionado requer uma linha de extrato bancario');
-      return;
-    }
-
-    if (totalAvailableAmount <= 0) {
-      toast.error('Indique um valor de pagamento valido');
-      return;
-    }
-
-    if (paymentDifference < -0.009) {
-      toast.error('As alocacoes excedem o valor disponivel para pagamento');
+    if (paymentValidationMessage) {
+      toast.error(paymentValidationMessage);
       return;
     }
 
@@ -532,15 +576,7 @@ export function FaturasTab({
           notes: paymentNotes || undefined,
           create_credit: paymentCreateCredit,
           allocations,
-        }, {
-          headers: {
-            Accept: 'application/json',
-            'Content-Type': 'application/json',
-            'X-Requested-With': 'XMLHttpRequest',
-            'X-CSRF-TOKEN': getCsrfToken(),
-          },
-          withCredentials: true,
-        });
+        }, getAxiosJsonConfig());
 
         const updatedInvoices = Array.isArray(response.data?.invoices) ? response.data.invoices as Fatura[] : [];
         const updatedStatement = response.data?.bank_statement as ExtratoBancario | undefined;
@@ -579,11 +615,7 @@ export function FaturasTab({
       resetPaymentDialog();
       setSelectedFaturas(new Set());
     } catch (error) {
-      const message = axios.isAxiosError(error)
-        ? (error.response?.data?.message || Object.values(error.response?.data?.errors || {}).flat().join(' ') || 'Erro ao registar pagamento')
-        : error instanceof Error
-          ? error.message
-          : 'Erro ao registar pagamento';
+      const message = getRequestErrorMessage(error, 'Erro ao registar pagamento');
       toast.error(message);
     } finally {
       setPaymentSubmitting(false);
@@ -674,42 +706,17 @@ export function FaturasTab({
     reference?: string;
     notes?: string;
   }) => {
-    const response = await fetch(route('financeiro.mensalidades.estado', invoiceId), {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-        'X-Requested-With': 'XMLHttpRequest',
-        'X-CSRF-TOKEN': getCsrfToken(),
-      },
-      credentials: 'same-origin',
-      body: JSON.stringify(payload),
-    });
+    try {
+      const response = await axios.post(route('financeiro.mensalidades.estado', invoiceId), payload, getAxiosJsonConfig());
+      const data = response.data;
 
-    if (!response.ok) {
-      let message = 'Erro ao alterar estado da mensalidade';
-
-      try {
-        const data = await response.json();
-        if (data?.message) message = data.message;
-        if (data?.errors) {
-          const errors = Object.values(data.errors).flat().join(' ');
-          if (errors) message = errors;
-        }
-      } catch (error) {
-        const fallback = await response.text();
-        if (fallback) message = fallback;
-      }
-
-      throw new Error(message);
+      return {
+        invoice: data.invoice as Fatura,
+        message: data.message as string | undefined,
+      };
+    } catch (error) {
+      throw new Error(getRequestErrorMessage(error, 'Erro ao alterar estado da mensalidade'));
     }
-
-    const data = await response.json();
-
-    return {
-      invoice: data.invoice as Fatura,
-      message: data.message as string | undefined,
-    };
   };
 
   const getDataInicioMensalidades = (user: User) => {
@@ -1977,7 +1984,7 @@ export function FaturasTab({
                 <p className="text-xs text-muted-foreground">
                   {selectedBankStatement
                     ? 'Quando existe linha bancaria, o valor vem do montante por conciliar dessa linha.'
-                    : paymentMethodRequiresBankStatement
+                    : paymentRequiresBankStatement
                       ? 'Este metodo exige linha bancaria. Selecione uma linha do extrato para definir o valor.'
                       : 'Use este valor para pagamentos manuais totais ou parciais.'}
                 </p>
@@ -1995,7 +2002,16 @@ export function FaturasTab({
 
               <div className="space-y-2">
                 <Label className="text-sm">Metodo</Label>
-                <Select value={paymentMethod} onValueChange={setPaymentMethod}>
+                <Select value={paymentMethod} onValueChange={(value) => {
+                  const nextMethod = (paymentMethods || []).find((method) => method.codigo === value) || null;
+
+                  setPaymentMethod(value);
+
+                  if (!nextMethod?.requer_linha_bancaria && selectedBankStatementId !== 'none') {
+                    setSelectedBankStatementId('none');
+                    setPaymentDate(format(new Date(), 'yyyy-MM-dd'));
+                  }
+                }}>
                   <SelectTrigger>
                     <SelectValue placeholder="Selecionar metodo de pagamento" />
                   </SelectTrigger>
@@ -2104,6 +2120,18 @@ export function FaturasTab({
                 </div>
               ) : null}
 
+              {paymentRequiresBankStatement && !selectedBankStatement ? (
+                <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                  Este metodo de pagamento exige selecao de uma linha de extrato bancario.
+                </div>
+              ) : null}
+
+              {paymentValidationMessage && !(paymentRequiresBankStatement && !selectedBankStatement) ? (
+                <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+                  {paymentValidationMessage}
+                </div>
+              ) : null}
+
               {paymentDifference > 0.009 ? (
                 <div className="mt-4 flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3">
                   <Checkbox
@@ -2131,7 +2159,7 @@ export function FaturasTab({
             >
               Cancelar
             </Button>
-            <Button onClick={handleConfirmarLiquidacao} className="w-full sm:w-auto" disabled={paymentSubmitting || paymentInvoices.length === 0 || totalAllocatedAmount <= 0 || paymentDifference < -0.009 || !paymentMethod || (paymentMethodRequiresBankStatement && !selectedBankStatement)}>
+            <Button onClick={handleConfirmarLiquidacao} className="w-full sm:w-auto" disabled={!canConfirmPayment}>
               <Check className="mr-2" size={16} />
               Confirmar Pagamento
             </Button>

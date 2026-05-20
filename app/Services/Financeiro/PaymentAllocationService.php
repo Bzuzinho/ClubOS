@@ -45,6 +45,7 @@ class PaymentAllocationService
 
         if ($paymentMethod && $paymentMethod->requer_linha_bancaria && empty($data['bank_statement_id'])) {
             throw ValidationException::withMessages([
+                'bank_statement_id' => 'O metodo de pagamento selecionado requer uma linha de extrato bancario.',
                 'method' => 'O metodo de pagamento selecionado requer uma linha de extrato bancario.',
             ]);
         }
