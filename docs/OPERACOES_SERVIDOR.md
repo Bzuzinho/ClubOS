@@ -74,6 +74,8 @@ npm ci
 npm run build
 ```
 
+Se o build falhar por falta de memória no Node/Vite, usar a alternativa da secção 3.1.
+
 Aplicar migrations em produção:
 
 ```bash
@@ -125,6 +127,36 @@ Se o servidor não compila frontend e recebe `public/build` já gerado por outro
 
 ---
 
+## 3.1. Build frontend em servidor com pouca memória
+
+Em servidores pequenos, o `npm run build` pode falhar com:
+
+```txt
+FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory
+```
+
+Primeira tentativa:
+
+```bash
+NODE_OPTIONS=--max-old-space-size=2048 npm run build
+```
+
+Se voltar a falhar, criar swap temporária antes do build:
+
+```bash
+sudo fallocate -l 2G /swapfile-build
+sudo chmod 600 /swapfile-build
+sudo mkswap /swapfile-build
+sudo swapon /swapfile-build
+NODE_OPTIONS=--max-old-space-size=2048 npm run build
+sudo swapoff /swapfile-build
+sudo rm /swapfile-build
+```
+
+Não correr `npm audit fix` diretamente no servidor de produção sem rever alterações em `package-lock.json` e sem validar o build/testes.
+
+---
+
 ## 4. Caso específico: Sprint F1.1
 
 A Sprint F1.1 criou a tabela:
@@ -153,7 +185,7 @@ Se o servidor também compila assets frontend:
 
 ```bash
 npm ci
-npm run build
+NODE_OPTIONS=--max-old-space-size=2048 npm run build
 ```
 
 Depois validar:
