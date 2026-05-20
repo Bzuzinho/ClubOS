@@ -942,7 +942,7 @@ class BankReconciliationSuggestionService
         }
 
         $compactDigits = preg_replace('/\D+/', '', $normalizedText) ?? '';
-        $operator = DB::connection()->getDriverName() === 'pgsql' ? 'ilike' : 'like';
+        $operator = $this->searchOperator();
         $tokens = collect(explode(' ', $normalizedText))
             ->map(fn (string $token) => trim($token))
             ->filter(fn (string $token) => strlen($token) >= 3 && !$this->isIgnoredIdentityToken($token))
@@ -1033,7 +1033,7 @@ class BankReconciliationSuggestionService
             return [];
         }
 
-        $operator = DB::connection()->getDriverName() === 'pgsql' ? 'ilike' : 'like';
+        $operator = $this->searchOperator();
         $tokens = collect(explode(' ', $normalizedText))
             ->map(fn (string $token) => trim($token))
             ->filter(fn (string $token) => strlen($token) >= 3 && !$this->isIgnoredIdentityToken($token))
@@ -1090,7 +1090,7 @@ class BankReconciliationSuggestionService
             return [];
         }
 
-        $operator = DB::connection()->getDriverName() === 'pgsql' ? 'ilike' : 'like';
+        $operator = $this->searchOperator();
         $tokens = collect(explode(' ', $normalizedText))
             ->map(fn (string $token) => trim($token))
             ->filter(fn (string $token) => strlen($token) >= 3 && !$this->isIgnoredIdentityToken($token))
@@ -1141,6 +1141,11 @@ class BankReconciliationSuggestionService
                     ];
                 });
         })->values()->all();
+    }
+
+    private function searchOperator(): string
+    {
+        return DB::connection()->getDriverName() === 'pgsql' ? 'ilike' : 'like';
     }
 
     private function getGuardianStudents(User $user): Collection

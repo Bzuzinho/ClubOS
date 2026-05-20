@@ -229,6 +229,8 @@ A liquidação manual continua disponível, mas apenas com métodos configurados
 
 ## Sprint F2 — Correção de bugs técnicos críticos
 
+> Estado: tecnicamente concluída em 2026-05-20. Validações automáticas obrigatórias passaram. Validação manual do utilizador ainda pendente.
+
 ### Objetivo
 
 Corrigir falhas técnicas já identificadas:
@@ -266,6 +268,30 @@ Criar testes para validar:
 ### Resultado esperado
 
 Operações perigosas bloqueadas e erros técnicos eliminados.
+
+### Fecho técnico F2
+
+- pesquisa de extratos e sugestões bancárias já não depende de `ilike` hardcoded;
+- closures de pesquisa em sugestões bancárias capturam corretamente o operador SQL;
+- importação de recibos valida ausência de ZIP quando a diretoria pendente não é usada;
+- delete de faturas com rasto financeiro/fiscal foi bloqueado com mensagem explícita;
+- faturas manuais respeitam o tipo selecionado e já não forçam `mensalidade` fora dos fluxos próprios;
+- frontend deixou de inventar `LancamentoFinanceiro` e stock local antes de persistência confirmada;
+- `openMovements` deixou de usar eager loading perigoso com `limit(1)` e mantém a entry correta por movimento;
+- rota GET de sugestões bancárias foi movida para evitar shadowing pelo resource `financeiro`.
+
+### Validação automática executada
+
+- `composer dump-autoload`
+- `php artisan migrate --pretend`
+- `php artisan test --filter=Financeiro`
+- `php artisan test --filter=ReceiptImport`
+- `php artisan test --filter=PaymentMethod`
+- `npm run build`
+
+### Estado para avanço
+
+F2 fica fechada tecnicamente, mas continua pendente de validação manual orientada. Não avançar para F3 antes de recolher esse feedback.
 
 ---
 

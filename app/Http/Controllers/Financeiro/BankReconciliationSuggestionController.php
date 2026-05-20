@@ -36,7 +36,7 @@ class BankReconciliationSuggestionController extends Controller
 
         $perPage = (int) ($data['per_page'] ?? 25);
         $search = trim((string) ($data['search'] ?? ''));
-        $operator = DB::connection()->getDriverName() === 'pgsql' ? 'ilike' : 'like';
+        $operator = $this->searchOperator();
 
         $paginator = BankReconciliationSuggestion::query()
             ->with([
@@ -51,7 +51,7 @@ class BankReconciliationSuggestionController extends Controller
             ->when(!empty($data['family_id']), fn ($query) => $query->where('family_id', $data['family_id']))
             ->when(!empty($data['status']), fn ($query) => $query->where('status', $data['status']))
             ->when($search !== '', function ($query) use ($search, $operator) {
-                $query->where(function ($nestedQuery) use ($search): void {
+                $query->where(function ($nestedQuery) use ($search, $operator): void {
                     $nestedQuery
                         ->where('explanation', $operator, "%{$search}%")
                         ->orWhereHas('bankStatement', function ($statementQuery) use ($search, $operator): void {
@@ -72,6 +72,11 @@ class BankReconciliationSuggestionController extends Controller
             ->paginate($perPage);
 
         return response()->json($paginator);
+    }
+
+    private function searchOperator(): string
+    {
+        return DB::connection()->getDriverName() === 'pgsql' ? 'ilike' : 'like';
     }
 
     public function generateForBankStatement(Request $request, BankStatement $bankStatement): JsonResponse

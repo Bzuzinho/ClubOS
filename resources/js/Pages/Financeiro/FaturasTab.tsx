@@ -263,6 +263,12 @@ export function FaturasTab({
     return match ? match.nome : tipo;
   };
 
+  const getDefaultManualInvoiceType = (): Fatura['tipo'] => {
+    return (invoiceTypes || []).find((type) => type.codigo !== 'mensalidade')?.codigo
+      || invoiceTypes?.[0]?.codigo
+      || 'mensalidade';
+  };
+
   const defaultManualPaymentMethod = useMemo(() => {
     const manualMethod = (paymentMethods || []).find((method) => !method.requer_linha_bancaria);
     return manualMethod?.codigo || paymentMethods?.[0]?.codigo || 'dinheiro';
@@ -275,7 +281,7 @@ export function FaturasTab({
 
   const reloadFinanceiroData = () => {
     router.reload({
-      only: ['dashboardData', 'faturas', 'mensalidadesFaturas', 'faturaItens', 'movimentosFinanceiros', 'extratos', 'lancamentos', 'fiscalRequests', 'conciliacoes'],
+      only: ['dashboardData', 'faturas', 'mensalidadesFaturas', 'faturaItens', 'movimentosFinanceiros', 'extratos', 'lancamentos', 'fiscalRequests', 'conciliacoes', 'products'],
       preserveScroll: true,
     });
   };
@@ -328,7 +334,7 @@ export function FaturasTab({
 
   const [formData, setFormData] = useState({
     user_id: '',
-    tipo: 'mensalidade' as Fatura['tipo'],
+    tipo: getDefaultManualInvoiceType(),
     valor_total: 0,
     data_emissao: format(new Date(), 'yyyy-MM-dd'),
     data_vencimento: format(addMonths(new Date(), 0), 'yyyy-MM-dd'),
@@ -946,7 +952,7 @@ export function FaturasTab({
         valor_total: total,
         estado_pagamento: formData.estado_pagamento,
         centro_custo_id: formData.centro_custo_id || undefined,
-        tipo: 'mensalidade',
+        tipo: formData.tipo,
         origem_tipo: formData.origem_tipo || null,
         origem_id: formData.origem_id || null,
         observacoes: formData.observacoes || undefined,
@@ -970,6 +976,7 @@ export function FaturasTab({
 
       try {
         const originalStatus = faturaOriginal?.estado_pagamento;
+        const isMonthlyInvoice = faturaOriginal?.tipo === 'mensalidade';
         const isTransitionToPaid = !!faturaOriginal
           && faturaAtualizada.estado_pagamento === 'pago'
           && originalStatus !== 'pago';
@@ -987,7 +994,7 @@ export function FaturasTab({
           }
         }
 
-        const administrativeStatus = (isTransitionToPaid || isReopenTransition)
+        const administrativeStatus = (isTransitionToPaid || (isMonthlyInvoice && isReopenTransition))
           ? (originalStatus as Fatura['estado_pagamento'])
           : faturaAtualizada.estado_pagamento;
 
@@ -1024,14 +1031,18 @@ export function FaturasTab({
         });
 
         if (isTransitionToPaid) {
-          toast.info('Confirme agora a liquidacao da mensalidade pelo fluxo canonico.');
+          toast.info(
+            isMonthlyInvoice
+              ? 'Confirme agora a liquidacao da mensalidade pelo fluxo canonico.'
+              : 'Confirme agora a liquidacao da fatura pelo fluxo canonico.'
+          );
           setDialogOpen(false);
           setEditingFaturaId(null);
-          handleAbrirDialogoRecibo(editingFaturaId, true);
+          handleAbrirDialogoRecibo(editingFaturaId, isMonthlyInvoice);
           return;
         }
 
-        if (isReopenTransition) {
+        if (isMonthlyInvoice && isReopenTransition) {
           const result = await transitionMonthlyInvoiceStatus(editingFaturaId, {
             estado_pagamento: faturaAtualizada.estado_pagamento as 'pendente' | 'vencido',
             notes: formData.observacoes || undefined,
@@ -1051,30 +1062,6 @@ export function FaturasTab({
         toast.error(message);
         return;
       }
-
-      setLancamentos((current) => {
-        const existing = (current || []).find((l) => l.fatura_id === editingFaturaId);
-        const novoLancamento: LancamentoFinanceiro = {
-          id: existing?.id || crypto.randomUUID(),
-          data: formData.data_emissao,
-          tipo: 'receita' as const,
-          categoria: 'Fatura manual',
-          descricao: `Fatura manual ${formData.tipo} - ${getUserName(formData.user_id)}`,
-          valor: total,
-          centro_custo_id: formData.centro_custo_id || undefined,
-          user_id: formData.user_id,
-          fatura_id: editingFaturaId,
-          origem_tipo: formData.origem_tipo || 'manual',
-          origem_id: formData.origem_id || undefined,
-          metodo_pagamento: existing?.metodo_pagamento || 'manual',
-          created_at: existing?.created_at || new Date().toISOString(),
-        };
-
-        if (existing) {
-          return (current || []).map((l) => (l.id === existing.id ? novoLancamento : l));
-        }
-        return [...(current || []), novoLancamento];
-      });
       toast.success('Fatura atualizada com sucesso');
       reloadFinanceiroData();
       setEditingFaturaId(null);
@@ -1095,7 +1082,7 @@ export function FaturasTab({
         valor_total: total,
         estado_pagamento: formData.estado_pagamento === 'pago' ? 'pendente' : formData.estado_pagamento,
         centro_custo_id: formData.centro_custo_id || undefined,
-        tipo: 'mensalidade',
+        tipo: formData.tipo,
         origem_tipo: formData.origem_tipo || null,
         origem_id: formData.origem_id || null,
         observacoes: formData.observacoes || undefined,
@@ -1104,17 +1091,6 @@ export function FaturasTab({
 
       const novosItens: FaturaItem[] = linhasValidas.map((linha) => {
         const totalLinha = linha.valor_unitario * linha.quantidade * (1 + linha.imposto_percentual / 100);
-
-        if (linha.produto_id) {
-          const product = (products || []).find((p) => p.id === linha.produto_id);
-          if (product) {
-            const novoStock = product.stock - linha.quantidade;
-            const updatedProducts = (products || []).map((p) =>
-              p.id === linha.produto_id ? { ...p, stock: novoStock } : p
-            );
-            setProducts(updatedProducts);
-          }
-        }
 
         return {
           id: crypto.randomUUID(),
@@ -1159,24 +1135,6 @@ export function FaturasTab({
         if (created.items) {
           setFaturaItens((current) => [...(current || []), ...created.items!]);
         }
-        setLancamentos((current) => [
-          ...(current || []),
-          {
-            id: crypto.randomUUID(),
-            data: formData.data_emissao,
-            tipo: 'receita' as const,
-            categoria: 'Fatura manual',
-            descricao: `Fatura manual ${formData.tipo} - ${getUserName(formData.user_id)}`,
-            valor: total,
-            centro_custo_id: formData.centro_custo_id || undefined,
-            user_id: formData.user_id,
-            fatura_id: created.id,
-            origem_tipo: formData.origem_tipo || 'manual',
-            origem_id: formData.origem_id || undefined,
-            metodo_pagamento: 'manual',
-            created_at: new Date().toISOString(),
-          },
-        ]);
 
         toast.success('Fatura criada com sucesso');
         reloadFinanceiroData();
@@ -1194,7 +1152,7 @@ export function FaturasTab({
   const resetForm = () => {
     setFormData({
       user_id: '',
-      tipo: 'mensalidade',
+      tipo: getDefaultManualInvoiceType(),
       valor_total: 0,
       data_emissao: format(new Date(), 'yyyy-MM-dd'),
       data_vencimento: format(addMonths(new Date(), 0), 'yyyy-MM-dd'),

@@ -949,6 +949,19 @@ class FinanceiroController extends Controller
 
     public function destroy(Invoice $financeiro): RedirectResponse|JsonResponse
     {
+        if ($this->invoiceHasFinancialTrail($financeiro)) {
+            $message = 'A fatura tem rasto financeiro ou fiscal. Deve ser cancelada/anulada, nao apagada.';
+
+            if (request()->expectsJson()) {
+                throw ValidationException::withMessages([
+                    'invoice' => $message,
+                ]);
+            }
+
+            return redirect()->route('financeiro.index')
+                ->with('error', $message);
+        }
+
         $financeiro->delete();
 
         $this->invalidateFinanceiroCaches();
@@ -1056,7 +1069,7 @@ class FinanceiroController extends Controller
         $perPage = (int) ($data['per_page'] ?? 25);
         $search = trim((string) ($data['search'] ?? ''));
         $overdue = filter_var($data['overdue'] ?? false, FILTER_VALIDATE_BOOLEAN);
-        $operator = DB::connection()->getDriverName() === 'pgsql' ? 'ilike' : 'like';
+        $operator = $this->searchOperator();
 
         $query = Invoice::query()
             ->with(['user:id,nome_completo,name', 'user.families:id,nome', 'costCenter:id,nome'])
@@ -1169,7 +1182,7 @@ class FinanceiroController extends Controller
         $search = trim((string) ($data['search'] ?? ''));
         $userId = $data['user_id'] ?? null;
         $familyId = $data['family_id'] ?? null;
-        $operator = DB::connection()->getDriverName() === 'pgsql' ? 'ilike' : 'like';
+        $operator = $this->searchOperator();
 
         $query = Movement::query()
             ->with([
@@ -1178,9 +1191,9 @@ class FinanceiroController extends Controller
                 'user.centrosCusto:id,nome',
                 'centroCusto:id,nome',
                 'financialEntries' => fn ($financialEntriesQuery) => $financialEntriesQuery
-                    ->select('id', 'origem_id', 'origem_tipo', 'valor_em_aberto', 'valor_pago', 'estado', 'centro_custo_id')
-                    ->latest('created_at')
-                    ->limit(1),
+                    ->select('id', 'origem_id', 'origem_tipo', 'valor_em_aberto', 'valor_pago', 'estado', 'centro_custo_id', 'created_at')
+                    ->orderBy('origem_id')
+                    ->orderByDesc('created_at'),
             ])
             ->whereIn('estado_pagamento', ['pendente', 'parcial']);
 
@@ -2005,11 +2018,13 @@ class FinanceiroController extends Controller
             });
 
         if ($search !== '') {
-            $query->where(function ($nestedQuery) use ($search) {
+            $operator = $this->searchOperator();
+
+            $query->where(function ($nestedQuery) use ($search, $operator) {
                 $nestedQuery
-                    ->where('descricao', 'ilike', "%{$search}%")
-                    ->orWhere('referencia', 'ilike', "%{$search}%")
-                    ->orWhere('conta', 'ilike', "%{$search}%");
+                    ->where('descricao', $operator, "%{$search}%")
+                    ->orWhere('referencia', $operator, "%{$search}%")
+                    ->orWhere('conta', $operator, "%{$search}%");
             });
         }
 
@@ -2061,6 +2076,43 @@ class FinanceiroController extends Controller
             });
 
         return response()->json($paginator);
+    }
+
+    private function searchOperator(): string
+    {
+        return DB::connection()->getDriverName() === 'pgsql' ? 'ilike' : 'like';
+    }
+
+    private function invoiceHasFinancialTrail(Invoice $invoice): bool
+    {
+        $invoice = $invoice->fresh();
+
+        $hasFiscalRequest = FiscalDocumentRequest::withTrashed()
+            ->where('invoice_id', $invoice->id)
+            ->exists();
+
+        $hasExternalFiscalDocument = FiscalDocumentRequest::withTrashed()
+            ->where('invoice_id', $invoice->id)
+            ->where(function ($query): void {
+                $query
+                    ->whereNotNull('external_document_number')
+                    ->where('external_document_number', '!=', '')
+                    ->orWhere(function ($providerQuery): void {
+                        $providerQuery
+                            ->where('provider', FiscalDocumentRequest::PROVIDER_WINTOUCH)
+                            ->whereNotNull('external_document_id');
+                    });
+            })
+            ->exists();
+
+        return in_array($invoice->estado_pagamento, ['pago', 'parcial'], true)
+            || (float) ($invoice->valor_pago ?? 0) > 0
+            || filled($invoice->numero_recibo)
+            || $invoice->paymentAllocations()->exists()
+            || $invoice->payments()->exists()
+            || MapaConciliacao::query()->where('fatura_id', $invoice->id)->exists()
+            || $hasFiscalRequest
+            || $hasExternalFiscalDocument;
     }
 
     public function storeMovimento(Request $request)

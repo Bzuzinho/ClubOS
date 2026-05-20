@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Movement extends Model
@@ -64,6 +65,13 @@ class Movement extends Model
     {
         return $this->hasMany(FinancialEntry::class, 'origem_id')
             ->where('origem_tipo', 'movement');
+    }
+
+    public function latestFinancialEntry(): HasOne
+    {
+        return $this->hasOne(FinancialEntry::class, 'origem_id')
+            ->where('origem_tipo', 'movement')
+            ->latestOfMany('created_at');
     }
 
     public function items(): HasMany

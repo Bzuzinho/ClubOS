@@ -293,6 +293,10 @@ Route::middleware(['auth', 'verified'])->group(function () {
         ->whereUuid('item')
         ->name('financeiro.receipt-imports.items.preview');
 
+    Route::get('financeiro/bank-reconciliation-suggestions', [BankReconciliationSuggestionController::class, 'index'])
+        ->middleware(['module.access:financeiro', 'permission.access:financeiro.dashboard,view'])
+        ->name('financeiro.bank-reconciliation-suggestions.index');
+
     Route::resource('financeiro', FinanceiroController::class)
         ->middleware('module.access:financeiro')
         ->middlewareFor(['index', 'show'], 'permission.access:financeiro.dashboard,view')
@@ -318,9 +322,6 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::get('bank-statements/unreconciled', [FinanceiroController::class, 'unreconciledBankStatements'])
             ->middleware('permission.access:financeiro.dashboard,view')
             ->name('bank-statements.unreconciled');
-        Route::get('bank-reconciliation-suggestions', [BankReconciliationSuggestionController::class, 'index'])
-            ->middleware('permission.access:financeiro.dashboard,view')
-            ->name('bank-reconciliation-suggestions.index');
         Route::post('bank-statements/{bankStatement}/generate-suggestions', [BankReconciliationSuggestionController::class, 'generateForBankStatement'])
             ->middleware('permission.access:financeiro.dashboard,edit')
             ->whereUuid('bankStatement')

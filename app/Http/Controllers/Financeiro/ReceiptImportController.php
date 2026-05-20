@@ -11,6 +11,7 @@ use App\Services\Financeiro\ReceiptMatchingService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\ValidationException;
 
 class ReceiptImportController extends Controller
 {
@@ -66,15 +67,23 @@ class ReceiptImportController extends Controller
         ]);
 
         $actor = $request->user();
+        $usePendingDirectory = (bool) ($data['use_pending_directory'] ?? false);
+        $zipFile = $request->file('zip_file');
 
-        if (!empty($data['use_pending_directory'])) {
+        if (! $usePendingDirectory && $zipFile === null) {
+            throw ValidationException::withMessages([
+                'zip_file' => 'Envie um ficheiro ZIP ou ative a importacao pela diretoria pendente.',
+            ]);
+        }
+
+        if ($usePendingDirectory) {
             $batch = $this->receiptImportService->createBatchFromPendingDirectory(
                 $data['pending_directory'] ?? null,
                 $actor,
             );
         } else {
             $batch = $this->receiptImportService->createBatchFromZip(
-                $request->file('zip_file'),
+                $zipFile,
                 $actor,
             );
         }
