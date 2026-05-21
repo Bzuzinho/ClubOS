@@ -313,6 +313,10 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::post('mensalidades/{invoice}/estado', [FinanceiroController::class, 'updateMonthlyInvoiceStatus'])
             ->middleware('permission.access:financeiro.dashboard,edit')
             ->name('mensalidades.estado');
+        Route::post('invoices/{invoice}/estado', [FinanceiroController::class, 'updateInvoicePaymentStatus'])
+            ->middleware('permission.access:financeiro.dashboard,edit')
+            ->whereUuid('invoice')
+            ->name('invoices.estado');
         Route::get('invoices/open', [FinanceiroController::class, 'openInvoices'])
             ->middleware('permission.access:financeiro.dashboard,view')
             ->name('invoices.open');

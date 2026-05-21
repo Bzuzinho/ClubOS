@@ -755,6 +755,128 @@ class PaymentAllocationFlowTest extends TestCase
         ]);
     }
 
+    public function test_invoice_status_endpoint_reopens_paid_manual_invoice_to_pending_and_soft_deletes_pending_fiscal_request(): void
+    {
+        $admin = User::factory()->admin()->create();
+        [$invoice] = $this->createInvoicesForUser([25.00], 'servico');
+
+        $this->actingAs($admin)->postJson(route('financeiro.payments.allocate'), [
+            'amount' => 25.00,
+            'payment_date' => '2026-05-05',
+            'method' => 'dinheiro',
+            'reference' => 'TRX-FATURA-MANUAL-001',
+            'allocations' => [
+                ['invoice_id' => $invoice->id, 'amount' => 25.00],
+            ],
+        ])->assertOk();
+
+        $payment = Payment::query()->where('reference', 'TRX-FATURA-MANUAL-001')->firstOrFail();
+        $allocation = PaymentAllocation::query()->where('payment_id', $payment->id)->firstOrFail();
+        $request = FiscalDocumentRequest::query()->where('invoice_id', $invoice->id)->firstOrFail();
+
+        $response = $this->actingAs($admin)->postJson(route('financeiro.invoices.estado', $invoice), [
+            'estado_pagamento' => 'pendente',
+        ]);
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('invoice.estado_pagamento', 'pendente');
+
+        $invoice->refresh();
+        $payment->refresh();
+
+        $this->assertSame('pendente', $invoice->estado_pagamento);
+        $this->assertSame('0.00', $invoice->valor_pago);
+        $this->assertSame('25.00', $invoice->valor_em_aberto);
+        $this->assertNull($invoice->numero_recibo);
+        $this->assertSame(Payment::STATUS_CANCELLED, $payment->status);
+        $this->assertFalse(PaymentAllocation::query()->whereKey($allocation->id)->exists());
+        $this->assertTrue(PaymentAllocation::withTrashed()->whereKey($allocation->id)->where('status', PaymentAllocation::STATUS_CANCELLED)->exists());
+        $this->assertSoftDeleted('fiscal_document_requests', [
+            'id' => $request->id,
+        ]);
+    }
+
+    public function test_invoice_status_endpoint_reopens_bank_paid_manual_invoice_and_restores_statement_to_unreconciled(): void
+    {
+        $admin = User::factory()->admin()->create();
+        [$invoice] = $this->createInvoicesForUser([25.00], 'servico');
+        $statement = $this->createBankStatement(25.00);
+
+        $this->actingAs($admin)->postJson(route('financeiro.payments.allocate'), [
+            'bank_statement_id' => $statement->id,
+            'allocations' => [
+                ['invoice_id' => $invoice->id, 'amount' => 25.00],
+            ],
+        ])->assertOk();
+
+        $payment = Payment::query()->where('bank_statement_id', $statement->id)->firstOrFail();
+        $allocation = PaymentAllocation::query()->where('payment_id', $payment->id)->firstOrFail();
+        $request = FiscalDocumentRequest::query()->where('invoice_id', $invoice->id)->firstOrFail();
+
+        $response = $this->actingAs($admin)->postJson(route('financeiro.invoices.estado', $invoice), [
+            'estado_pagamento' => 'vencido',
+        ]);
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('invoice.estado_pagamento', 'vencido');
+
+        $invoice->refresh();
+        $payment->refresh();
+        $statement->refresh();
+
+        $this->assertSame('vencido', $invoice->estado_pagamento);
+        $this->assertSame('0.00', $invoice->valor_pago);
+        $this->assertSame('25.00', $invoice->valor_em_aberto);
+        $this->assertSame(Payment::STATUS_CANCELLED, $payment->status);
+        $this->assertFalse(PaymentAllocation::query()->whereKey($allocation->id)->exists());
+        $this->assertSame('unreconciled', $statement->conciliacao_status);
+        $this->assertFalse((bool) $statement->conciliado);
+        $this->assertSame('0.00', (string) $statement->valor_conciliado);
+        $this->assertSame('25.00', (string) $statement->valor_por_conciliar);
+        $this->assertSoftDeleted('fiscal_document_requests', [
+            'id' => $request->id,
+        ]);
+    }
+
+    public function test_invoice_status_endpoint_blocks_reopen_when_non_monthly_invoice_has_external_number(): void
+    {
+        $admin = User::factory()->admin()->create();
+        [$invoice] = $this->createInvoicesForUser([25.00], 'servico');
+
+        $this->actingAs($admin)->postJson(route('financeiro.payments.allocate'), [
+            'amount' => 25.00,
+            'payment_date' => '2026-05-05',
+            'method' => 'dinheiro',
+            'reference' => 'TRX-FATURA-MANUAL-BLOQUEIO-001',
+            'allocations' => [
+                ['invoice_id' => $invoice->id, 'amount' => 25.00],
+            ],
+        ])->assertOk();
+
+        $request = FiscalDocumentRequest::query()->where('invoice_id', $invoice->id)->firstOrFail();
+
+        app(FiscalDocumentRequestService::class)->markIssued($request, [
+            'external_document_number' => 'RC 2026/101',
+            'issued_at' => '2026-05-05 10:00:00',
+        ]);
+
+        $response = $this->actingAs($admin)->postJson(route('financeiro.invoices.estado', $invoice), [
+            'estado_pagamento' => 'pendente',
+        ]);
+
+        $response
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('estado_pagamento')
+            ->assertJsonPath('errors.estado_pagamento.0', FiscalDocumentRequestService::INVOICE_STATUS_CHANGE_BLOCK_MESSAGE);
+
+        $invoice->refresh();
+
+        $this->assertSame('pago', $invoice->estado_pagamento);
+        $this->assertSame('RC 2026/101', $invoice->numero_recibo);
+    }
+
     public function test_it_rejects_marking_an_invoice_as_paid_directly_via_update(): void
     {
         $admin = User::factory()->admin()->create();
@@ -791,11 +913,61 @@ class PaymentAllocationFlowTest extends TestCase
             ->assertStatus(422)
             ->assertJsonValidationErrors('estado_pagamento')
             ->assertJsonPath('errors.estado_pagamento.0', 'A alteracao de estado financeiro da mensalidade tem de ser efetuada pelo fluxo canonico da mensalidade.');
+    }
+
+    public function test_it_rejects_reopening_a_paid_non_monthly_invoice_directly_via_update(): void
+    {
+        $admin = User::factory()->admin()->create();
+        [$invoice] = $this->createInvoicesForUser([25.00], 'servico');
+
+        $this->actingAs($admin)->postJson(route('financeiro.payments.allocate'), [
+            'amount' => 25.00,
+            'payment_date' => '2026-05-05',
+            'method' => 'dinheiro',
+            'reference' => 'TRX-DIRECT-REOPEN-001',
+            'allocations' => [
+                ['invoice_id' => $invoice->id, 'amount' => 25.00],
+            ],
+        ])->assertOk();
+
+        $response = $this->actingAs($admin)->putJson(route('financeiro.update', $invoice), [
+            'user_id' => $invoice->user_id,
+            'data_fatura' => optional($invoice->data_fatura)->toDateString(),
+            'data_emissao' => $invoice->data_emissao->toDateString(),
+            'data_vencimento' => $invoice->data_vencimento->toDateString(),
+            'mes' => $invoice->mes,
+            'tipo' => $invoice->tipo,
+            'estado_pagamento' => 'pendente',
+            'valor_total' => (float) $invoice->valor_total,
+            'oculta' => false,
+            'centro_custo_id' => $invoice->centro_custo_id,
+            'numero_recibo' => $invoice->numero_recibo,
+            'referencia_pagamento' => $invoice->referencia_pagamento,
+            'origem_tipo' => $invoice->origem_tipo,
+            'origem_id' => $invoice->origem_id,
+            'observacoes' => $invoice->observacoes,
+            'items' => [[
+                'descricao' => 'Servico 1',
+                'quantidade' => 1,
+                'valor_unitario' => (float) $invoice->valor_total,
+                'imposto_percentual' => 0,
+                'total_linha' => (float) $invoice->valor_total,
+                'centro_custo_id' => $invoice->centro_custo_id,
+            ]],
+        ]);
+
+        $response
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('estado_pagamento')
+            ->assertJsonPath('errors.estado_pagamento.0', 'A reabertura da fatura tem de ser efetuada pelo endpoint canonico de reabertura.');
 
         $invoice->refresh();
 
-        $this->assertSame('pendente', $invoice->estado_pagamento);
-        $this->assertDatabaseCount('payments', 0);
+        $this->assertSame('pago', $invoice->estado_pagamento);
+        $this->assertDatabaseHas('payments', [
+            'reference' => 'TRX-DIRECT-REOPEN-001',
+            'status' => Payment::STATUS_CONFIRMED,
+        ]);
     }
 
     public function test_it_rejects_marking_an_invoice_as_partially_paid_directly_via_update(): void
@@ -2359,7 +2531,7 @@ class PaymentAllocationFlowTest extends TestCase
     /**
      * @return array<int, Invoice>
      */
-    private function createInvoicesForUser(array $amounts): array
+    private function createInvoicesForUser(array $amounts, string $tipo = 'mensalidade'): array
     {
         $user = User::factory()->create([
             'nome_completo' => 'Socio Pagamentos',
@@ -2377,7 +2549,7 @@ class PaymentAllocationFlowTest extends TestCase
             'ativo' => true,
         ]);
 
-        return collect($amounts)->values()->map(function (float $amount, int $index) use ($user, $costCenter) {
+        return collect($amounts)->values()->map(function (float $amount, int $index) use ($costCenter, $tipo, $user) {
             $invoice = Invoice::create([
                 'user_id' => $user->id,
                 'data_fatura' => '2026-05-01',
@@ -2388,13 +2560,15 @@ class PaymentAllocationFlowTest extends TestCase
                 'numero_recibo' => null,
                 'referencia_pagamento' => sprintf('REF-%02d', $index + 1),
                 'centro_custo_id' => $costCenter->id,
-                'tipo' => 'mensalidade',
+                'tipo' => $tipo,
                 'observacoes' => null,
             ]);
 
             InvoiceItem::create([
                 'fatura_id' => $invoice->id,
-                'descricao' => sprintf('Mensalidade %d', $index + 1),
+                'descricao' => $tipo === 'mensalidade'
+                    ? sprintf('Mensalidade %d', $index + 1)
+                    : sprintf('Servico %d', $index + 1),
                 'quantidade' => 1,
                 'valor_unitario' => $amount,
                 'imposto_percentual' => 0,

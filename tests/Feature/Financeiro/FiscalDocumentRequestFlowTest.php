@@ -86,6 +86,30 @@ class FiscalDocumentRequestFlowTest extends TestCase
         $this->assertNotNull($updated->handled_at);
     }
 
+    public function test_marking_request_as_issued_syncs_invoice_receipt_number(): void
+    {
+        $invoice = $this->createInvoice('pago');
+
+        $request = FiscalDocumentRequest::create([
+            'invoice_id' => $invoice->id,
+            'user_id' => $invoice->user_id,
+            'provider' => FiscalDocumentRequest::PROVIDER_WINTOUCH,
+            'document_type' => FiscalDocumentRequest::DOCUMENT_TYPE_RECEIPT,
+            'status' => FiscalDocumentRequest::STATUS_PENDING,
+            'priority' => FiscalDocumentRequest::PRIORITY_NORMAL,
+        ]);
+
+        app(FiscalDocumentRequestService::class)->markIssued($request, [
+            'external_document_number' => 'RC 2026/31',
+            'issued_at' => '2026-05-06 10:30:00',
+        ]);
+
+        $invoice->refresh();
+
+        $this->assertSame('RC 2026/31', $invoice->numero_recibo);
+        $this->assertSame('2026-05-06', optional($invoice->recibo_emitido_em)->toDateString());
+    }
+
     public function test_invoice_status_change_to_paid_creates_pending_fiscal_request(): void
     {
         $invoice = $this->createInvoice('pendente');

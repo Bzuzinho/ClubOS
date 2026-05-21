@@ -771,9 +771,8 @@ class FinanceiroController extends Controller
             && !in_array($requestedStatus, ['pago', 'parcial'], true);
 
         if ($isManualPaymentReversal) {
-            $financeiro = $this->paymentAllocationService->reverseInvoicePayments($financeiro, [
-                'cancelled_by' => $request->user()?->id,
-                'cancelled_at' => now(),
+            throw ValidationException::withMessages([
+                'estado_pagamento' => 'A reabertura da fatura tem de ser efetuada pelo endpoint canonico de reabertura.',
             ]);
         }
 
@@ -848,6 +847,32 @@ class FinanceiroController extends Controller
 
         return redirect()->route('financeiro.index')
             ->with('success', 'Fatura atualizada com sucesso!');
+    }
+
+    public function updateInvoicePaymentStatus(Request $request, Invoice $invoice): JsonResponse
+    {
+        $data = $request->validate([
+            'estado_pagamento' => ['required', 'in:pendente,vencido'],
+            'notes' => ['nullable', 'string'],
+        ]);
+
+        $updatedInvoice = $invoice->tipo === 'mensalidade'
+            ? $this->monthlyInvoiceStatusService->transition($invoice, $data['estado_pagamento'], [
+                'notes' => $data['notes'] ?? null,
+                'created_by' => $request->user()?->id,
+            ])
+            : $this->paymentAllocationService->reopenInvoice($invoice, $data['estado_pagamento'], [
+                'notes' => $data['notes'] ?? null,
+                'created_by' => $request->user()?->id,
+                'cancelled_at' => now(),
+            ]);
+
+        $this->invalidateFinanceiroCaches();
+
+        return response()->json([
+            'invoice' => $updatedInvoice->load(['items']),
+            'message' => 'Fatura reaberta pelo fluxo canonico com sucesso.',
+        ]);
     }
 
     public function updateMonthlyInvoiceStatus(Request $request, Invoice $invoice): JsonResponse

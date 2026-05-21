@@ -10,7 +10,7 @@ use Illuminate\Validation\ValidationException;
 
 class FiscalDocumentRequestService
 {
-    public const INVOICE_STATUS_CHANGE_BLOCK_MESSAGE = 'Esta fatura ja tem documento Wintouch registado. Para alterar o estado e necessario regularizar/anular o documento fiscal.';
+    public const INVOICE_STATUS_CHANGE_BLOCK_MESSAGE = 'Esta fatura já tem documento fiscal emitido. Para reabrir é necessário anular/cancelar o documento fiscal.';
 
     public const DELETE_WITH_DOCUMENT_MESSAGE = 'Nao e possivel apagar um pedido com documento Wintouch registado. Deve ser cancelado/anulado.';
 
@@ -208,6 +208,15 @@ class FiscalDocumentRequestService
             'last_error' => null,
         ]);
         $request->save();
+
+        if ($request->invoice_id) {
+            Invoice::query()
+                ->whereKey($request->invoice_id)
+                ->update([
+                    'numero_recibo' => $data['external_document_number'],
+                    'recibo_emitido_em' => $issuedAt->toDateString(),
+                ]);
+        }
 
         return $request->refresh();
     }

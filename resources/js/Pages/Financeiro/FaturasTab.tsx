@@ -725,6 +725,23 @@ export function FaturasTab({
     }
   };
 
+  const transitionInvoiceOpenStatus = async (invoiceId: string, payload: {
+    estado_pagamento: 'pendente' | 'vencido';
+    notes?: string;
+  }) => {
+    try {
+      const response = await axios.post(route('financeiro.invoices.estado', invoiceId), payload, getAxiosJsonConfig());
+      const data = response.data;
+
+      return {
+        invoice: data.invoice as Fatura,
+        message: data.message as string | undefined,
+      };
+    } catch (error) {
+      throw new Error(getRequestErrorMessage(error, 'Erro ao reabrir a fatura'));
+    }
+  };
+
   const getDataInicioMensalidades = (user: User) => {
     if (dataInicioMensalidades) {
       const parsed = new Date(dataInicioMensalidades);
@@ -994,7 +1011,7 @@ export function FaturasTab({
           }
         }
 
-        const administrativeStatus = (isTransitionToPaid || (isMonthlyInvoice && isReopenTransition))
+        const administrativeStatus = (isTransitionToPaid || isReopenTransition)
           ? (originalStatus as Fatura['estado_pagamento'])
           : faturaAtualizada.estado_pagamento;
 
@@ -1042,14 +1059,14 @@ export function FaturasTab({
           return;
         }
 
-        if (isMonthlyInvoice && isReopenTransition) {
-          const result = await transitionMonthlyInvoiceStatus(editingFaturaId, {
+        if (isReopenTransition) {
+          const result = await transitionInvoiceOpenStatus(editingFaturaId, {
             estado_pagamento: faturaAtualizada.estado_pagamento as 'pendente' | 'vencido',
             notes: formData.observacoes || undefined,
           });
 
           setFaturas((current) => (current || []).map((f) => (f.id === editingFaturaId ? result.invoice : f)));
-          toast.success(result.message || 'Mensalidade reaberta com sucesso.');
+          toast.success(result.message || 'Fatura reaberta com sucesso.');
           reloadFinanceiroData();
           setDialogOpen(false);
           setEditingFaturaId(null);

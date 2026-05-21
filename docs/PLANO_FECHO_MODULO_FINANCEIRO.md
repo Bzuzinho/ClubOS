@@ -295,6 +295,77 @@ F2 fica fechada tecnicamente, mas continua pendente de validação manual orient
 
 ---
 
+## Sprint F2.1 — Correção da validação manual da F2 no fluxo de faturas manuais
+
+> Estado: tecnicamente concluída em 2026-05-21. Validações automáticas obrigatórias passaram. Validação manual do utilizador ainda pendente.
+
+### Objetivo
+
+Corrigir a regra operacional descoberta na validação manual da F2:
+
+- liquidar fatura manual sem exigir nº de recibo/documento externo;
+- criar `Payment` + `PaymentAllocation` e pedido fiscal pendente quando a fatura fica totalmente paga;
+- deixar o nº Wintouch apenas para a tab Emissão Fiscal;
+- permitir reabertura canónica segura antes de existir documento fiscal externo;
+- bloquear reabertura direta quando já existe Wintouch/documento externo.
+
+### Regras fechadas nesta sprint
+
+- `numero_recibo`/`receipt_number` deixa de ser requisito do fluxo de pagamento de faturas;
+- `FiscalDocumentRequestService::markIssued` retroalimenta `invoice.numero_recibo` e `recibo_emitido_em`;
+- `FinanceiroController` passa a expor endpoint canónico `financeiro.invoices.estado` para reabrir faturas pagas/parciais;
+- `PaymentAllocationService` passou a centralizar a reabertura segura, com reversão de `PaymentAllocation`, cancelamento seguro de `Payment` órfão, limpeza do pedido fiscal pendente e sincronização do `BankStatement` para `partial/unreconciled` conforme saldo restante;
+- update direto de faturas pagas/parciais para `pendente/vencido` continua bloqueado.
+
+### Testes automáticos mínimos
+
+Criar testes para validar:
+
+- pagamento de fatura manual sem nº de recibo cria `Payment` e `PaymentAllocation`;
+- pagamento total cria `FiscalDocumentRequest` pendente sem preencher `invoice.numero_recibo`;
+- marcar pedido fiscal como emitido retroalimenta `invoice.numero_recibo`;
+- reabrir fatura manual paga por dinheiro remove alocação, cancela pagamento órfão e apaga/soft-delete pedido fiscal pendente;
+- reabrir fatura manual paga por banco reverte alocação e devolve extrato a `partial/unreconciled` conforme aplicável;
+- reabrir fatura com documento externo é bloqueado com `422`;
+- update direto de reabertura continua bloqueado.
+
+### Testes manuais para o utilizador
+
+1. Criar uma fatura manual não mensalidade, por exemplo inscrição ou material.
+2. Abrir o modal de pagamento dessa fatura e confirmar que o formulário não pede nº de recibo.
+3. Liquidar em Dinheiro e confirmar:
+   - `Payment`/`PaymentAllocation` criados;
+   - estado `pago`;
+   - pedido aparece na tab Emissão Fiscal como por tratar;
+   - `numero_recibo` continua vazio na fatura.
+4. Reabrir a mesma fatura para `pendente` ou `vencido` e confirmar:
+   - fatura reaberta;
+   - pagamento/alocação revertidos;
+   - pedido fiscal pendente removido.
+5. Repetir com Transferência usando linha bancária e confirmar que o extrato volta a `partial` ou `unreconciled` conforme o saldo por conciliar restante.
+6. Na tab Emissão Fiscal, tratar manualmente a fatura e preencher nº Wintouch.
+7. Tentar reabrir de novo a fatura e confirmar a mensagem:
+   - `Esta fatura já tem documento fiscal emitido. Para reabrir é necessário anular/cancelar o documento fiscal.`
+
+### Resultado esperado
+
+O pagamento continua canónico, o pedido fiscal continua pendente até emissão manual e a reabertura deixa de criar incoerências antes da emissão fiscal.
+
+### Validação automática executada
+
+- `composer dump-autoload`
+- `php artisan migrate --pretend`
+- `php artisan test --filter=Financeiro`
+- `php artisan test --filter=FiscalDocument`
+- `php artisan test --filter=PaymentAllocation`
+- `npm run build`
+
+### Estado para avanço
+
+F2 continua pendente de validação manual orientada e F2.1 fecha a correção da regra de nº de recibo/reversão segura antes de Wintouch. Não avançar para F3 antes de recolher feedback manual de F2 e F2.1.
+
+---
+
 ## Sprint F3 — Mensalidades e conta corrente
 
 ### Objetivo

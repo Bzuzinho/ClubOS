@@ -10,8 +10,6 @@ use Illuminate\Validation\ValidationException;
 
 class MonthlyInvoiceStatusService
 {
-    public const REOPEN_WITH_FISCAL_DOCUMENT_MESSAGE = 'Ja existe documento fiscal emitido. E necessario cancelar/anular fiscalmente antes de reabrir a mensalidade.';
-
     public function __construct(
         private readonly FinancialSettlementService $financialSettlementService,
         private readonly PaymentAllocationService $paymentAllocationService,
@@ -72,58 +70,7 @@ class MonthlyInvoiceStatusService
 
         $invoice = $this->resolveMonthlyInvoice($invoice);
 
-        if ($this->fiscalDocumentRequestService->invoiceHasRegisteredDocument($invoice)) {
-            throw ValidationException::withMessages([
-                'estado_pagamento' => self::REOPEN_WITH_FISCAL_DOCUMENT_MESSAGE,
-            ]);
-        }
-
-        $affectedPaymentIds = PaymentAllocation::query()
-            ->confirmed()
-            ->where('invoice_id', $invoice->id)
-            ->pluck('payment_id')
-            ->filter()
-            ->unique()
-            ->values();
-
-        $invoice = $this->paymentAllocationService->reverseInvoicePayments($invoice, [
-            'cancelled_by' => $options['created_by'] ?? null,
-            'cancelled_at' => now(),
-        ]);
-
-        foreach ($affectedPaymentIds as $paymentId) {
-            $payment = Payment::query()
-                ->with([
-                    'allocations' => function ($query): void {
-                        $query->confirmed();
-                    },
-                    'credits' => function ($query): void {
-                        $query->where('status', '!=', AccountCredit::STATUS_CANCELLED);
-                    },
-                ])
-                ->find($paymentId);
-
-            if ($payment) {
-                $this->cancelOrphanPaymentIfSafe(
-                    $payment,
-                    $options['created_by'] ?? null,
-                    'Pagamento revertido por reabertura canonica de mensalidade.'
-                );
-            }
-        }
-
-        $invoice->forceFill([
-            'estado_pagamento' => $targetStatus,
-            'valor_pago' => 0,
-            'valor_em_aberto' => round((float) $invoice->valor_total, 2),
-            'data_pagamento' => null,
-            'metodo_pagamento' => null,
-            'referencia_pagamento' => null,
-            'pagamento_observacoes' => null,
-        ]);
-        $invoice->save();
-
-        return $invoice->fresh();
+        return $this->paymentAllocationService->reopenInvoice($invoice, $targetStatus, $options);
     }
 
     private function resolveMonthlyInvoice(Invoice $invoice): Invoice
@@ -163,47 +110,5 @@ class MonthlyInvoiceStatusService
         $invoice->save();
 
         return $invoice->fresh();
-    }
-
-    private function cancelOrphanPaymentIfSafe(Payment $payment, ?string $cancelledBy, string $reason): void
-    {
-        if ($payment->status !== Payment::STATUS_CONFIRMED) {
-            return;
-        }
-
-        if ($payment->allocations->isNotEmpty() || $payment->credits->isNotEmpty()) {
-            return;
-        }
-
-        if (! in_array($payment->source, [
-            Payment::SOURCE_MANUAL,
-            Payment::SOURCE_RECONCILIATION,
-            Payment::SOURCE_BANK_STATEMENT,
-        ], true)) {
-            return;
-        }
-
-        $payment->forceFill([
-            'status' => Payment::STATUS_CANCELLED,
-            'cancelled_by' => $cancelledBy,
-            'cancelled_at' => now(),
-            'notes' => $this->appendRepairNote($payment->notes, $reason),
-        ]);
-        $payment->save();
-    }
-
-    private function appendRepairNote(?string $existingNotes, string $reason): string
-    {
-        $existingNotes = trim((string) $existingNotes);
-
-        if ($existingNotes === '') {
-            return $reason;
-        }
-
-        if (str_contains($existingNotes, $reason)) {
-            return $existingNotes;
-        }
-
-        return $existingNotes . "\n" . $reason;
     }
 }

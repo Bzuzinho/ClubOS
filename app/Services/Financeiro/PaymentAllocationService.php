@@ -451,6 +451,91 @@ class PaymentAllocationService
         });
     }
 
+    public function reopenInvoice(Invoice $invoice, string $targetStatus, array $options = []): Invoice
+    {
+        if (! in_array($targetStatus, ['pendente', 'vencido'], true)) {
+            throw ValidationException::withMessages([
+                'estado_pagamento' => 'A fatura so pode ser reaberta para pendente ou vencido.',
+            ]);
+        }
+
+        return DB::transaction(function () use ($invoice, $targetStatus, $options) {
+            $invoice = $invoice->fresh();
+
+            if (! $invoice) {
+                throw ValidationException::withMessages([
+                    'invoice' => 'Fatura invalida.',
+                ]);
+            }
+
+            if ($invoice->estado_pagamento === 'cancelado') {
+                throw ValidationException::withMessages([
+                    'estado_pagamento' => 'Nao e possivel reabrir uma fatura cancelada.',
+                ]);
+            }
+
+            if (
+                $this->fiscalDocumentRequestService->invoiceHasRegisteredDocument($invoice)
+                || filled($invoice->numero_recibo)
+            ) {
+                throw ValidationException::withMessages([
+                    'estado_pagamento' => FiscalDocumentRequestService::INVOICE_STATUS_CHANGE_BLOCK_MESSAGE,
+                ]);
+            }
+
+            $affectedPaymentIds = PaymentAllocation::query()
+                ->confirmed()
+                ->where('invoice_id', $invoice->id)
+                ->pluck('payment_id')
+                ->filter()
+                ->unique()
+                ->values();
+
+            $invoice = $this->reverseInvoicePayments($invoice, [
+                'cancelled_by' => $options['created_by'] ?? null,
+                'cancelled_at' => $options['cancelled_at'] ?? now(),
+            ]);
+
+            foreach ($affectedPaymentIds as $paymentId) {
+                $payment = Payment::query()
+                    ->with([
+                        'allocations' => function ($query): void {
+                            $query->confirmed();
+                        },
+                        'credits' => function ($query): void {
+                            $query->where('status', '!=', AccountCredit::STATUS_CANCELLED);
+                        },
+                    ])
+                    ->find($paymentId);
+
+                if ($payment) {
+                    $this->cancelOrphanPaymentIfSafe(
+                        $payment,
+                        $options['created_by'] ?? null,
+                        'Pagamento revertido por reabertura canonica de fatura.'
+                    );
+                }
+            }
+
+            $invoice->forceFill([
+                'estado_pagamento' => $targetStatus,
+                'valor_pago' => 0,
+                'valor_em_aberto' => round((float) $invoice->valor_total, 2),
+                'data_pagamento' => null,
+                'metodo_pagamento' => null,
+                'referencia_pagamento' => null,
+                'pagamento_observacoes' => null,
+                'numero_recibo' => null,
+                'recibo_emitido_em' => null,
+            ]);
+            $invoice->save();
+
+            $this->fiscalDocumentRequestService->deletePendingForInvoice($invoice);
+
+            return $invoice->refresh();
+        });
+    }
+
     private function repairStaleManualPaymentState(Invoice $invoice, array $options = []): Invoice
     {
         if (in_array($invoice->estado_pagamento, ['pago', 'parcial', 'cancelado'], true)) {
@@ -719,5 +804,47 @@ class PaymentAllocationService
 
         return (bool) $bankStatement->conciliado
             && round((float) ($bankStatement->valor_por_conciliar ?? 0), 2) <= 0.009;
+    }
+
+    private function cancelOrphanPaymentIfSafe(Payment $payment, ?string $cancelledBy, string $reason): void
+    {
+        if ($payment->status !== Payment::STATUS_CONFIRMED) {
+            return;
+        }
+
+        if ($payment->allocations->isNotEmpty() || $payment->credits->isNotEmpty()) {
+            return;
+        }
+
+        if (! in_array($payment->source, [
+            Payment::SOURCE_MANUAL,
+            Payment::SOURCE_RECONCILIATION,
+            Payment::SOURCE_BANK_STATEMENT,
+        ], true)) {
+            return;
+        }
+
+        $payment->forceFill([
+            'status' => Payment::STATUS_CANCELLED,
+            'cancelled_by' => $cancelledBy,
+            'cancelled_at' => now(),
+            'notes' => $this->appendRepairNote($payment->notes, $reason),
+        ]);
+        $payment->save();
+    }
+
+    private function appendRepairNote(?string $existingNotes, string $reason): string
+    {
+        $existingNotes = trim((string) $existingNotes);
+
+        if ($existingNotes === '') {
+            return $reason;
+        }
+
+        if (str_contains($existingNotes, $reason)) {
+            return $existingNotes;
+        }
+
+        return $existingNotes . "\n" . $reason;
     }
 }
