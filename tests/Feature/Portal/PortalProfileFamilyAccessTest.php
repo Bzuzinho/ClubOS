@@ -3,6 +3,11 @@
 namespace Tests\Feature\Portal;
 
 use App\Http\Middleware\HandleInertiaRequests;
+use App\Models\AccountCredit;
+use App\Models\DadosFinanceiros;
+use App\Models\Invoice;
+use App\Models\Payment;
+use App\Models\PaymentAllocation;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -89,6 +94,76 @@ class PortalProfileFamilyAccessTest extends TestCase
         $response->assertJsonPath('component', 'Portal/Profile');
         $response->assertJsonPath('props.profile.id', $educando->id);
         $response->assertJsonPath('props.profile.can_edit', true);
+    }
+
+    public function test_portal_profile_financial_payload_uses_net_debt_and_exposes_credit_and_manual_balance(): void
+    {
+        $guardian = User::factory()->create([
+            'perfil' => 'encarregado',
+            'tipo_membro' => ['encarregado_educacao'],
+        ]);
+
+        $educando = User::factory()->athlete()->create([
+            'tipo_membro' => ['atleta'],
+            'nome_completo' => 'Educando Financeiro',
+        ]);
+
+        $this->linkGuardianToEducandos($guardian, [$educando]);
+
+        DadosFinanceiros::query()->create([
+            'user_id' => $educando->id,
+            'conta_corrente_manual' => 7.5,
+        ]);
+
+        $invoice = Invoice::query()->create([
+            'user_id' => $educando->id,
+            'mes' => 'Mensalidade Maio',
+            'data_fatura' => now()->subDays(5)->toDateString(),
+            'data_emissao' => now()->subDays(5)->toDateString(),
+            'data_vencimento' => now()->addDays(3)->toDateString(),
+            'valor_total' => 100,
+            'valor_pago' => 0,
+            'valor_em_aberto' => 0,
+            'oculta' => false,
+            'estado_pagamento' => 'pendente',
+            'tipo' => 'mensalidade',
+        ]);
+
+        $payment = Payment::query()->create([
+            'user_id' => $educando->id,
+            'amount' => 40,
+            'allocated_amount' => 40,
+            'unallocated_amount' => 0,
+            'payment_date' => now()->toDateString(),
+            'method' => 'dinheiro',
+            'source' => Payment::SOURCE_MANUAL,
+            'status' => Payment::STATUS_CONFIRMED,
+        ]);
+
+        PaymentAllocation::query()->create([
+            'payment_id' => $payment->id,
+            'invoice_id' => $invoice->id,
+            'amount' => 40,
+            'status' => PaymentAllocation::STATUS_CONFIRMED,
+            'allocated_at' => now(),
+        ]);
+
+        AccountCredit::query()->create([
+            'user_id' => $educando->id,
+            'amount' => 15,
+            'remaining_amount' => 15,
+            'source' => 'manual_test',
+            'status' => AccountCredit::STATUS_AVAILABLE,
+        ]);
+
+        $response = $this->inertiaGetAs($guardian, route('portal.profile', ['member' => $educando->id]));
+
+        $response->assertOk();
+        $response->assertJsonPath('props.profile.financial.account_balance', '7,50 €');
+        $response->assertJsonPath('props.profile.financial.outstanding_value', '45,00 €');
+        $response->assertJsonPath('props.profile.financial.gross_debt', '60,00 €');
+        $response->assertJsonPath('props.profile.financial.available_credit', '15,00 €');
+        $response->assertJsonPath('props.profile.financial.next_payment.amount', '60,00 €');
     }
 
     private function inertiaGetAs(User $user, string $uri)

@@ -25,6 +25,7 @@ use App\Models\Supplier;
 use App\Models\User;
 use App\Services\Club\ClubSettingsService;
 use App\Services\Financeiro\BankReconciliationService;
+use App\Services\Financeiro\CurrentAccountService;
 use App\Services\Financeiro\FinanceDashboardService;
 use App\Services\Financeiro\FinancialSettlementService;
 use App\Services\Financeiro\FiscalDocumentRequestService;
@@ -56,6 +57,7 @@ class FinanceiroController extends Controller
         private readonly MonthlyFeeGenerationService $monthlyFeeGenerationService,
         private readonly FinancialSettlementService $financialSettlementService,
         private readonly BankReconciliationService $bankReconciliationService,
+        private readonly CurrentAccountService $currentAccountService,
         private readonly FinanceDashboardService $financeDashboardService,
         private readonly MonthlyInvoiceStatusService $monthlyInvoiceStatusService,
         private readonly ManualExpenseService $manualExpenseService,
@@ -1094,22 +1096,9 @@ class FinanceiroController extends Controller
         $overdue = filter_var($data['overdue'] ?? false, FILTER_VALIDATE_BOOLEAN);
         $operator = $this->searchOperator();
 
-        $query = Invoice::query()
-            ->with(['user:id,nome_completo,name', 'user.families:id,nome', 'costCenter:id,nome'])
-            ->whereIn('estado_pagamento', ['pendente', 'vencido', 'parcial']);
-
-        $query = $this->applyInvoiceFinancialSnapshotColumns($query);
-
-        if (!empty($data['user_id'])) {
-            $query->where('user_id', $data['user_id']);
-        }
-
-        if (!empty($data['family_id'])) {
-            $familyId = $data['family_id'];
-            $query->whereHas('user.families', function ($familyQuery) use ($familyId) {
-                $familyQuery->where('familias.id', $familyId);
-            });
-        }
+        $query = $this->currentAccountService
+            ->openDebtInvoicesQuery($data)
+            ->with(['user:id,nome_completo,name', 'user.families:id,nome', 'costCenter:id,nome']);
 
         if ($search !== '') {
             $tokens = collect(preg_split('/\s+/', $search) ?: [])
@@ -1159,7 +1148,7 @@ class FinanceiroController extends Controller
             ->orderBy('data_vencimento')
             ->paginate($perPage)
             ->through(function (Invoice $invoice) {
-                $invoice = $this->normalizeInvoiceFinancialAmounts($invoice);
+                $invoice = $this->currentAccountService->normalizeInvoiceFinancialAmounts($invoice);
                 $paidAmount = (float) ($invoice->valor_pago ?? 0);
                 $outstandingAmount = (float) ($invoice->valor_em_aberto ?? 0);
                 $family = $invoice->user?->families?->first();
@@ -1309,52 +1298,7 @@ class FinanceiroController extends Controller
 
     private function normalizeInvoiceFinancialAmounts(Invoice $invoice): Invoice
     {
-        $trackedPaidAmount = in_array($invoice->estado_pagamento, ['pago', 'parcial'], true)
-            ? (float) ($invoice->valor_pago ?? 0)
-            : 0.0;
-        $confirmedAllocationPaid = (float) ($invoice->confirmed_payment_allocations_sum ?? 0);
-        $legacyEntryPaid = (float) ($invoice->legacy_financial_entries_sum ?? 0);
-        $paidAmount = round(max($trackedPaidAmount, $confirmedAllocationPaid, $legacyEntryPaid), 2);
-        $fallbackOutstanding = max((float) $invoice->valor_total - $paidAmount, 0);
-        $persistedOutstanding = $invoice->valor_em_aberto !== null
-            ? max((float) $invoice->valor_em_aberto, 0)
-            : null;
-
-        if ($paidAmount > 0 && ($persistedOutstanding === null || abs($persistedOutstanding - $fallbackOutstanding) > 0.009)) {
-            $invoice->valor_em_aberto = $fallbackOutstanding;
-        // Legacy invoices can carry valor_em_aberto = 0 while still pending.
-        } elseif ($invoice->estado_pagamento !== 'pago' && $fallbackOutstanding > 0 && ($persistedOutstanding === null || $persistedOutstanding <= 0)) {
-            $invoice->valor_em_aberto = $fallbackOutstanding;
-        } elseif ($persistedOutstanding !== null) {
-            $invoice->valor_em_aberto = $persistedOutstanding;
-        } else {
-            $invoice->valor_em_aberto = $fallbackOutstanding;
-        }
-
-        $invoice->valor_pago = $paidAmount;
-
-        if ($invoice->estado_pagamento !== 'cancelado') {
-            if ($paidAmount > 0 && (float) $invoice->valor_em_aberto <= 0.009) {
-                $invoice->estado_pagamento = 'pago';
-            } elseif ($paidAmount > 0) {
-                $invoice->estado_pagamento = 'parcial';
-            }
-        }
-
-        $dueDate = $invoice->data_vencimento !== null
-            ? Carbon::parse($invoice->data_vencimento)->startOfDay()
-            : null;
-
-        if (
-            $dueDate !== null
-            && in_array($invoice->estado_pagamento, ['pendente', 'vencido'], true)
-            && (float) $invoice->valor_em_aberto > 0.009
-            && $dueDate->lt(now()->startOfDay())
-        ) {
-            $invoice->estado_pagamento = 'vencido';
-        }
-
-        return $invoice;
+        return $this->currentAccountService->normalizeInvoiceFinancialAmounts($invoice);
     }
 
     private function buildFinancialMovementsPayload(Collection $movements, Collection $entries): Collection

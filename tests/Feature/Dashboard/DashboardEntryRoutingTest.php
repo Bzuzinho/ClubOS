@@ -5,6 +5,8 @@ namespace Tests\Feature\Dashboard;
 use App\Http\Middleware\HandleInertiaRequests;
 use App\Models\Invoice;
 use App\Models\Movement;
+use App\Models\Payment;
+use App\Models\PaymentAllocation;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -178,6 +180,67 @@ class DashboardEntryRoutingTest extends TestCase
 
         $secondResponse->assertOk();
         $secondResponse->assertJsonPath('props.resumo.conta_corrente', 55);
+    }
+
+    public function test_athlete_dashboard_current_account_uses_open_amount_and_excludes_future_hidden_invoices(): void
+    {
+        $athlete = User::factory()->athlete()->create([
+            'tipo_membro' => ['atleta'],
+        ]);
+
+        $invoice = Invoice::query()->create([
+            'user_id' => $athlete->id,
+            'mes' => 'Mensalidade Maio',
+            'data_fatura' => now()->subDay()->toDateString(),
+            'data_emissao' => now()->subDay()->toDateString(),
+            'data_vencimento' => now()->addDays(7)->toDateString(),
+            'valor_total' => 100,
+            'valor_pago' => 0,
+            'valor_em_aberto' => 0,
+            'oculta' => false,
+            'estado_pagamento' => 'pendente',
+            'tipo' => 'mensalidade',
+        ]);
+
+        $payment = Payment::query()->create([
+            'user_id' => $athlete->id,
+            'amount' => 40,
+            'allocated_amount' => 40,
+            'unallocated_amount' => 0,
+            'payment_date' => now()->toDateString(),
+            'method' => 'dinheiro',
+            'source' => Payment::SOURCE_MANUAL,
+            'status' => Payment::STATUS_CONFIRMED,
+        ]);
+
+        PaymentAllocation::query()->create([
+            'payment_id' => $payment->id,
+            'invoice_id' => $invoice->id,
+            'amount' => 40,
+            'status' => PaymentAllocation::STATUS_CONFIRMED,
+            'allocated_at' => now(),
+        ]);
+
+        Invoice::query()->create([
+            'user_id' => $athlete->id,
+            'mes' => 'Mensalidade Futura',
+            'data_fatura' => now()->addMonth()->toDateString(),
+            'data_emissao' => now()->addMonth()->toDateString(),
+            'data_vencimento' => now()->addMonth()->toDateString(),
+            'valor_total' => 999,
+            'valor_pago' => 0,
+            'valor_em_aberto' => 999,
+            'oculta' => true,
+            'estado_pagamento' => 'pendente',
+            'tipo' => 'mensalidade',
+        ]);
+
+        $response = $this->inertiaGetAs($athlete, '/dashboard');
+
+        $response->assertOk();
+        $response->assertJsonPath('props.resumo.conta_corrente', 60);
+        $response->assertJsonPath('props.resumo.divida_bruta', 60);
+        $response->assertJsonPath('props.resumo.credito_disponivel', 0);
     }
 
     public function test_family_route_requires_family_access_and_renders_family_portal(): void

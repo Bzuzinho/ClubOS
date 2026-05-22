@@ -2149,6 +2149,53 @@ class PaymentAllocationFlowTest extends TestCase
         $this->assertNotContains($invoice->id, $invoiceIds);
     }
 
+    public function test_open_invoices_endpoint_excludes_hidden_and_future_invoices_even_when_open(): void
+    {
+        $admin = User::factory()->admin()->create();
+        [$visibleInvoice] = $this->createInvoicesForUser([22.50]);
+
+        $hiddenInvoice = Invoice::query()->create([
+            'user_id' => $visibleInvoice->user_id,
+            'centro_custo_id' => $visibleInvoice->centro_custo_id,
+            'data_fatura' => now()->subDay()->toDateString(),
+            'data_emissao' => now()->subDay()->toDateString(),
+            'data_vencimento' => now()->addDays(5)->toDateString(),
+            'valor_total' => 30.00,
+            'valor_pago' => 0,
+            'valor_em_aberto' => 30.00,
+            'estado_pagamento' => 'pendente',
+            'tipo' => 'mensalidade',
+            'oculta' => true,
+        ]);
+
+        $futureInvoice = Invoice::query()->create([
+            'user_id' => $visibleInvoice->user_id,
+            'centro_custo_id' => $visibleInvoice->centro_custo_id,
+            'data_fatura' => now()->addMonth()->toDateString(),
+            'data_emissao' => now()->addMonth()->toDateString(),
+            'data_vencimento' => now()->addMonth()->toDateString(),
+            'valor_total' => 45.00,
+            'valor_pago' => 0,
+            'valor_em_aberto' => 45.00,
+            'estado_pagamento' => 'pendente',
+            'tipo' => 'mensalidade',
+            'oculta' => false,
+        ]);
+
+        $response = $this->actingAs($admin)
+            ->getJson(route('financeiro.invoices.open', [
+                'per_page' => 50,
+            ]));
+
+        $response->assertOk();
+
+        $invoiceIds = collect($response->json('data') ?? [])->pluck('id')->all();
+
+        $this->assertContains($visibleInvoice->id, $invoiceIds);
+        $this->assertNotContains($hiddenInvoice->id, $invoiceIds);
+        $this->assertNotContains($futureInvoice->id, $invoiceIds);
+    }
+
     public function test_store_movimento_allows_manual_text_origin_reference_without_writing_invalid_uuid(): void
     {
         $admin = User::factory()->admin()->create();

@@ -3,12 +3,12 @@
 namespace App\Http\Controllers;
 
 use App\Models\AgeGroup;
-use App\Models\Invoice;
 use App\Models\MonthlyFee;
 use App\Models\User;
 use App\Models\UserType;
 use App\Services\AccessControl\UserTypeAccessControlService;
 use App\Services\Family\FamilyService;
+use App\Services\Financeiro\CurrentAccountService;
 use App\Services\Loja\StoreProfileResolver;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -154,16 +154,10 @@ class PortalProfileController extends Controller
         $memberTypeLabel = implode(' · ', $memberTypeLabels);
         $attestationStatus = $this->dateStatus($member->data_atestado_medico, true);
         $ageGroup = $this->resolveAgeGroupLabel($member);
-        $openInvoices = Invoice::query()
-            ->where('user_id', $member->id)
-            ->where('oculta', false)
-            ->where('estado_pagamento', '!=', 'pago')
-            ->orderByRaw('CASE WHEN data_vencimento IS NULL THEN 1 ELSE 0 END')
-            ->orderBy('data_vencimento')
-            ->get();
-        $nextInvoice = $openInvoices->first();
-        $outstandingValue = round((float) $openInvoices->sum('valor_total'), 2);
-        $accountBalance = $member->dadosFinanceiros?->conta_corrente_manual ?? $member->conta_corrente;
+        $accountSummary = app(CurrentAccountService::class)->summarize([
+            'user_id' => $member->id,
+        ]);
+        $nextInvoice = collect($accountSummary['breakdown']['invoices'] ?? [])->first();
         $planName = $member->dadosFinanceiros?->mensalidade?->designacao
             ?: $this->resolveMonthlyFeeName($member->tipo_mensalidade)
             ?: $this->displayValue(optional($nextInvoice)->tipo);
@@ -249,13 +243,17 @@ class PortalProfileController extends Controller
                 ['label' => 'Estado desportivo', 'value' => $member->ativo_desportivo ? 'Ativo' : 'Inativo'],
             ],
             'financial' => [
-                'account_balance' => $this->formatCurrency($accountBalance),
-                'outstanding_value' => $this->formatCurrency($outstandingValue),
+                'account_balance' => $this->formatCurrency($accountSummary['manual_account_balance'] ?? 0),
+                'outstanding_value' => $this->formatCurrency($accountSummary['net_debt'] ?? 0),
+                'gross_debt' => $this->formatCurrency($accountSummary['gross_debt'] ?? 0),
+                'available_credit' => $this->formatCurrency($accountSummary['available_credit'] ?? 0),
+                'manual_account_balance' => $this->formatCurrency($accountSummary['manual_account_balance'] ?? 0),
+                'net_debt' => $this->formatCurrency($accountSummary['net_debt'] ?? 0),
                 'next_payment' => $nextInvoice ? [
-                    'label' => $this->displayValue($nextInvoice->mes ?: $nextInvoice->tipo ?: 'Próximo pagamento'),
-                    'due_date' => $this->formatDate($nextInvoice->data_vencimento),
-                    'amount' => $this->formatCurrency($nextInvoice->valor_total),
-                    'state' => $this->humanizeInvoiceState($nextInvoice->estado_pagamento),
+                    'label' => $this->displayValue(($nextInvoice['mes'] ?? null) ?: ($nextInvoice['tipo'] ?? null) ?: 'Próximo pagamento'),
+                    'due_date' => $this->formatDate($nextInvoice['data_vencimento'] ?? null),
+                    'amount' => $this->formatCurrency($nextInvoice['valor_em_aberto'] ?? 0),
+                    'state' => $this->humanizeInvoiceState($nextInvoice['estado_pagamento'] ?? null),
                 ] : null,
                 'plan' => $this->displayValue($planName),
             ],

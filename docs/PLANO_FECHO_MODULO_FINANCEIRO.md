@@ -672,9 +672,21 @@ F2.4 e F2.5 ficam validadas manualmente no browser e a regressão crítica de Me
 
 ## Sprint F3 — Mensalidades e conta corrente
 
+> Estado F3.0: diagnóstico obrigatório concluído sem alterações de código.
+
+> Estado F3.1: tecnicamente concluída em 2026-05-22. A leitura canónica de dívida/conta corrente foi centralizada em `CurrentAccountService` e ligada a `DashboardController`, `PortalProfileController` e `FinanceiroController::openInvoices`, mantendo os fluxos de escrita financeira inalterados. Validação manual no browser ainda pendente.
+
 ### Objetivo
 
-Fechar geração, pagamento, pagamento parcial, vencimento, reabertura e crédito de mensalidades.
+Fechar geração, pagamento, pagamento parcial, vencimento, reabertura e crédito de mensalidades, e alinhar a leitura canónica de dívida/conta corrente nas superfícies críticas.
+
+### Fecho técnico já executado em F3.1
+
+- `CurrentAccountService` passou a ser a fonte canónica de leitura para faturas abertas, movimentos de receita pendentes, crédito disponível e saldo manual legado.
+- Dashboard atleta passou a calcular `conta_corrente` por `net_debt`, deixando explícitos `divida_bruta`, `credito_disponivel` e `conta_corrente_manual` no payload.
+- Portal Profile passou a expor `gross_debt`, `available_credit`, `manual_account_balance` e `net_debt`, mantendo `account_balance` como saldo manual legado e `outstanding_value` como dívida líquida.
+- `financeiro.invoices.open` passou a excluir faturas ocultas/futuras e a devolver `valor_em_aberto` canónico mesmo quando o snapshot persistido está desatualizado.
+- Os testes focados executados nesta sprint cobrem Dashboard atleta, Portal Profile e `financeiro.invoices.open`.
 
 ### Testes automáticos mínimos
 
@@ -691,6 +703,9 @@ Criar testes para validar:
 - reabrir mensalidade paga remove pagamento e pedido fiscal pendente;
 - bloquear reabertura se existir documento fiscal externo;
 - pagamento com excedente cria crédito só quando a regra permitir.
+- dashboard atleta usa `valor_em_aberto` em vez de `valor_total` e exclui faturas ocultas/futuras;
+- portal profile expõe dívida líquida, crédito disponível e saldo manual legado sem misturar conceitos;
+- `financeiro.invoices.open` exclui faturas ocultas/futuras e corrige `valor_em_aberto` com base em alocações confirmadas.
 
 ### Testes manuais para o utilizador
 
@@ -706,10 +721,14 @@ Criar testes para validar:
 10. Marcar pedido fiscal como emitido com número Wintouch.
 11. Tentar reabrir novamente.
 12. Confirmar que bloqueia.
+13. Abrir o Dashboard do atleta e confirmar que a conta corrente mostra apenas a dívida líquida atual.
+14. Criar ou escolher um caso com crédito em conta e confirmar que o valor em dívida desce sem apagar o saldo manual legado.
+15. Abrir Portal > Perfil do mesmo membro e confirmar os valores de `Conta corrente`, `Valor em dívida` e `Próximo pagamento`.
+16. Abrir Financeiro > Faturas abertas e confirmar que mensalidades ocultas/futuras já não aparecem e que pagamentos parciais mostram apenas o remanescente.
 
 ### Resultado esperado
 
-Mensalidades ficam consistentes do início ao fim.
+Mensalidades ficam consistentes do início ao fim e as superfícies críticas passam a ler a mesma dívida canónica.
 
 ---
 

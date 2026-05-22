@@ -17,6 +17,7 @@ use App\Models\Presence;
 use App\Models\Training;
 use App\Models\TrainingAthlete;
 use App\Models\UserDocument;
+use App\Services\Financeiro\CurrentAccountService;
 use App\Services\Performance\AuthenticatedModuleWarmupService;
 use App\Services\AccessControl\UserTypeAccessControlService;
 use App\Services\Family\FamilyService;
@@ -607,47 +608,12 @@ class DashboardController extends Controller
             return $attendanceSummary['scheduled'];
         });
 
-        $contaCorrente = Cache::remember("athlete_dashboard:{$uid}:current_account", 60, function () use ($user) {
-            $today = now()->startOfDay();
-
-            $pendingAmount = Invoice::query()
-                ->where('user_id', $user->id)
-                ->where('oculta', false)
-                ->get()
-                ->filter(function (Invoice $invoice) use ($today) {
-                    if (! in_array($invoice->estado_pagamento, ['pendente', 'vencido', 'parcial'], true)) {
-                        return false;
-                    }
-
-                    if (! $invoice->data_fatura) {
-                        return true;
-                    }
-
-                    return $invoice->data_fatura->startOfDay()->lte($today);
-                })
-                ->sum('valor_total');
-
-            $pendingMovementAmount = Movement::query()
-                ->where('user_id', $user->id)
-                ->where('classificacao', 'receita')
-                ->get()
-                ->filter(function (Movement $movement) use ($today) {
-                    if (! in_array($movement->estado_pagamento, ['pendente', 'vencido', 'parcial'], true)) {
-                        return false;
-                    }
-
-                    if (! $movement->data_emissao) {
-                        return true;
-                    }
-
-                    return $movement->data_emissao->startOfDay()->lte($today);
-                })
-                ->sum('valor_total');
-
-            $manualBalance = (float) ($user->dadosFinanceiros?->conta_corrente_manual ?? 0);
-
-            return round((float) $pendingAmount + (float) $pendingMovementAmount + $manualBalance, 2);
+        $accountSummary = Cache::remember("athlete_dashboard:{$uid}:current_account", 60, function () use ($user) {
+            return app(CurrentAccountService::class)->summarize([
+                'user_id' => $user->id,
+            ]);
         });
+        $contaCorrente = (float) ($accountSummary['net_debt'] ?? 0);
 
         $proxima_mensalidade_pendente = Cache::remember("athlete_dashboard:{$uid}:pending_invoice", 60, function () use ($user) {
             $invoice = Invoice::where('user_id', $user->id)
@@ -720,6 +686,9 @@ class DashboardController extends Controller
                 'treinos_mes' => $treinos_mes,
                 'eventos_proximos' => count($proximos_eventos),
                 'conta_corrente' => $athlete['conta_corrente'],
+                'divida_bruta' => (float) ($accountSummary['gross_debt'] ?? 0),
+                'credito_disponivel' => (float) ($accountSummary['available_credit'] ?? 0),
+                'conta_corrente_manual' => (float) ($accountSummary['manual_account_balance'] ?? 0),
                 'assiduidade_percent' => $attendanceSummary['percentage'],
                 'treinos_agendados_mes' => $attendanceSummary['scheduled'],
             ],
