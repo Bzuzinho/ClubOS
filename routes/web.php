@@ -579,6 +579,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::put('/movimentos/{movimento}', [FinanceiroController::class, 'updateMovimento'])->name('financeiro.movimentos.update');
         Route::delete('/movimentos/{movimento}', [FinanceiroController::class, 'destroyMovimento'])->name('financeiro.movimentos.destroy');
         Route::post('/movimentos/{movimento}/liquidar', [FinanceiroController::class, 'liquidarMovimento'])->name('financeiro.movimentos.liquidar');
+        Route::post('/movimentos/{movimento}/reabrir', [FinanceiroController::class, 'reopenMovimento'])->name('financeiro.movimentos.reabrir');
         Route::post('/movimentos/{movimento}/documents', [FinanceiroController::class, 'storeMovementDocument'])->name('financeiro.movimentos.documents.store');
         Route::patch('/movimentos/{movimento}/documents/{document}/validate', [FinanceiroController::class, 'validateMovementDocument'])->name('financeiro.movimentos.documents.validate');
         Route::patch('/movimentos/{movimento}/documents/{document}/reject', [FinanceiroController::class, 'rejectMovementDocument'])->name('financeiro.movimentos.documents.reject');

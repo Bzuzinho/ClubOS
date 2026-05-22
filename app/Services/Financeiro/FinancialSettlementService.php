@@ -5,6 +5,7 @@ namespace App\Services\Financeiro;
 use App\Models\AccountCredit;
 use App\Models\BankStatement;
 use App\Models\FinancialEntry;
+use App\Models\FiscalDocumentRequest;
 use App\Models\MapaConciliacao;
 use App\Models\Movement;
 use App\Models\Payment;
@@ -14,6 +15,8 @@ use Illuminate\Validation\ValidationException;
 
 class FinancialSettlementService
 {
+    public const MOVEMENT_STATUS_CHANGE_BLOCK_MESSAGE = 'Este movimento já tem documento fiscal emitido. Para reabrir é necessário anular/cancelar o documento fiscal.';
+
     public function __construct(
         private readonly PaymentAllocationService $paymentAllocationService,
         private readonly FinancialBalanceService $financialBalanceService,
@@ -198,6 +201,143 @@ class FinancialSettlementService
         ];
     }
 
+    public function reopenMovement(Movement $movement, string $targetStatus, array $options = []): array
+    {
+        if (! in_array($targetStatus, ['pendente', 'vencido'], true)) {
+            throw ValidationException::withMessages([
+                'estado_pagamento' => 'O movimento so pode ser reaberto para pendente ou vencido.',
+            ]);
+        }
+
+        return DB::transaction(function () use ($movement, $targetStatus, $options): array {
+            $movement = $movement->fresh();
+
+            if (! $movement) {
+                throw ValidationException::withMessages([
+                    'movimento' => 'Movimento invalido.',
+                ]);
+            }
+
+            if (! in_array($movement->estado_pagamento, ['pago', 'parcial', 'pago_parcial'], true)) {
+                throw ValidationException::withMessages([
+                    'estado_pagamento' => 'A reabertura canonica so esta disponivel para movimentos pagos ou parciais.',
+                ]);
+            }
+
+            $financialEntries = FinancialEntry::query()
+                ->where('origem_tipo', 'movement')
+                ->where('origem_id', $movement->id)
+                ->orderByDesc('created_at')
+                ->get();
+
+            if ($financialEntries->isEmpty()) {
+                throw ValidationException::withMessages([
+                    'movimento' => 'Nao foi encontrada a entrada financeira associada ao movimento.',
+                ]);
+            }
+
+            $entryIds = $financialEntries->pluck('id')->all();
+
+            if ($this->movementHasRegisteredFiscalDocument($movement, $entryIds)) {
+                throw ValidationException::withMessages([
+                    'estado_pagamento' => self::MOVEMENT_STATUS_CHANGE_BLOCK_MESSAGE,
+                ]);
+            }
+
+            $allocations = PaymentAllocation::query()
+                ->confirmed()
+                ->whereIn('financial_entry_id', $entryIds)
+                ->get();
+
+            $affectedPaymentIds = $allocations
+                ->pluck('payment_id')
+                ->filter()
+                ->unique()
+                ->values();
+
+            $affectedBankStatementIds = Payment::query()
+                ->whereIn('id', $affectedPaymentIds)
+                ->whereNotNull('bank_statement_id')
+                ->pluck('bank_statement_id')
+                ->filter()
+                ->unique()
+                ->values();
+
+            foreach ($allocations as $allocation) {
+                MapaConciliacao::query()
+                    ->where('payment_allocation_id', $allocation->id)
+                    ->delete();
+
+                $allocation->forceFill([
+                    'status' => PaymentAllocation::STATUS_CANCELLED,
+                ]);
+                $allocation->save();
+                $allocation->delete();
+            }
+
+            $updatedEntries = $financialEntries->map(function (FinancialEntry $entry): FinancialEntry {
+                $entry = $this->financialBalanceService->recalculateFinancialEntry($entry->fresh());
+                $this->deletePendingFiscalRequestsForFinancialEntry($entry);
+
+                return $entry;
+            });
+
+            $payments = Payment::query()
+                ->with([
+                    'allocations' => function ($query): void {
+                        $query->confirmed();
+                    },
+                    'credits' => function ($query): void {
+                        $query->where('status', '!=', AccountCredit::STATUS_CANCELLED);
+                    },
+                ])
+                ->whereIn('id', $affectedPaymentIds)
+                ->get();
+
+            foreach ($payments as $payment) {
+                $payment = $this->syncPaymentBalances($payment->fresh());
+                $payment->load([
+                    'allocations' => function ($query): void {
+                        $query->confirmed();
+                    },
+                    'credits' => function ($query): void {
+                        $query->where('status', '!=', AccountCredit::STATUS_CANCELLED);
+                    },
+                ]);
+
+                $this->cancelOrphanPaymentIfSafe(
+                    $payment,
+                    $options['created_by'] ?? null,
+                    'Pagamento revertido por reabertura canonica de movimento.'
+                );
+            }
+
+            $updatedBankStatements = $affectedBankStatementIds
+                ->map(fn ($bankStatementId) => BankStatement::query()->find($bankStatementId))
+                ->filter()
+                ->map(fn (BankStatement $bankStatement) => $this->syncBankStatementStatus($bankStatement->fresh()))
+                ->values();
+
+            $movement->forceFill([
+                'estado_pagamento' => $targetStatus,
+                'estado_conciliacao' => 'nao_conciliado',
+                'numero_recibo' => null,
+                'referencia_pagamento' => null,
+                'metodo_pagamento' => null,
+            ]);
+            $movement->save();
+
+            app(MovementDocumentControlService::class)->refresh($movement->fresh());
+
+            return [
+                'movement' => $movement->fresh(),
+                'financial_entry' => $updatedEntries->firstWhere('id', $financialEntries->first()->id)?->fresh(),
+                'payments' => $payments->map(fn (Payment $payment) => $payment->fresh())->all(),
+                'bank_statements' => $updatedBankStatements->all(),
+            ];
+        });
+    }
+
     public function findOrCreateFinancialEntryForMovement(Movement $movement, array $options = []): FinancialEntry
     {
         $financialEntry = FinancialEntry::query()
@@ -375,6 +515,80 @@ class FinancialSettlementService
         ])->save();
 
         return $bankStatement->refresh();
+    }
+
+    private function movementHasRegisteredFiscalDocument(Movement $movement, array $entryIds): bool
+    {
+        if (filled($movement->numero_recibo)) {
+            return true;
+        }
+
+        return FiscalDocumentRequest::query()
+            ->whereIn('financial_entry_id', $entryIds)
+            ->where(function ($query): void {
+                $query
+                    ->where('status', FiscalDocumentRequest::STATUS_ISSUED)
+                    ->orWhere(function ($documentQuery): void {
+                        $documentQuery
+                            ->whereNotNull('external_document_number')
+                            ->where('external_document_number', '!=', '');
+                    });
+            })
+            ->exists();
+    }
+
+    private function deletePendingFiscalRequestsForFinancialEntry(FinancialEntry $financialEntry): void
+    {
+        FiscalDocumentRequest::query()
+            ->where('financial_entry_id', $financialEntry->id)
+            ->where(function ($query): void {
+                $query
+                    ->whereNull('external_document_number')
+                    ->orWhere('external_document_number', '');
+            })
+            ->delete();
+    }
+
+    private function cancelOrphanPaymentIfSafe(Payment $payment, ?string $cancelledBy, string $reason): void
+    {
+        if ($payment->status !== Payment::STATUS_CONFIRMED) {
+            return;
+        }
+
+        if ($payment->allocations->isNotEmpty() || $payment->credits->isNotEmpty()) {
+            return;
+        }
+
+        if (! in_array($payment->source, [
+            Payment::SOURCE_MANUAL,
+            Payment::SOURCE_RECONCILIATION,
+            Payment::SOURCE_BANK_STATEMENT,
+        ], true)) {
+            return;
+        }
+
+        $payment->forceFill([
+            'status' => Payment::STATUS_CANCELLED,
+            'cancelled_by' => $cancelledBy,
+            'cancelled_at' => now(),
+            'notes' => $this->appendRepairNote($payment->notes, $reason),
+        ]);
+        $payment->save();
+    }
+
+    private function appendRepairNote(?string $existingNotes, string $reason): string
+    {
+        $existingNotes = trim((string) $existingNotes);
+
+        if ($existingNotes === '') {
+            return $reason;
+        }
+
+        if (str_contains($existingNotes, $reason)) {
+            return $existingNotes;
+        }
+
+        return $existingNotes . "\n" . $reason;
     }
 
     private function syncLegacyMovement(FinancialEntry $financialEntry, array $options = []): void

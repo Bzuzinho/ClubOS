@@ -567,6 +567,78 @@ F2, F2.1, F2.2, F2.3 e F2.4 ficam tecnicamente fechadas, mas continuam pendentes
 
 ---
 
+## Sprint F2.5 — Reabertura controlada de movimentos liquidados
+
+> Estado: tecnicamente concluída em 2026-05-22. Validações automáticas obrigatórias passaram. Validação manual do utilizador ainda pendente.
+
+### Objetivo
+
+Fechar a lacuna deixada pela F2.4 na tab Movimentos, permitindo reabrir movimentos liquidados sem reintroduzir escrita direta insegura:
+
+- permitir reabertura apenas de movimentos `pago`, `parcial` e `pago_parcial` para `pendente` ou `vencido`;
+- usar um endpoint canónico próprio para reverter pagamentos, alocações, conciliação e pedidos fiscais pendentes;
+- bloquear a reabertura quando já existe documento fiscal emitido ou nº externo associado ao movimento;
+- manter proibida a alteração direta do estado por `update` administrativo.
+
+### Regras fechadas nesta sprint
+
+- `FinancialSettlementService` passou a expor `reopenMovement()` como fluxo canónico de reabertura de movimentos;
+- a reabertura só é permitida a partir de estados liquidados e apenas para `pendente` ou `vencido`;
+- `PaymentAllocation` confirmadas ligadas ao movimento são canceladas por soft delete e respetivos registos de `MapaConciliacao` são removidos;
+- pagamentos órfãos são cancelados apenas quando é seguro fazê-lo, reaproveitando o mesmo critério canónico aplicado noutros fluxos;
+- pedidos fiscais pendentes ligados às `FinancialEntry` do movimento são removidos por soft delete;
+- extratos bancários afetados são recalculados e voltam a `partial` ou `unreconciled` conforme o remanescente;
+- movimentos com `numero_recibo` preenchido ou com documento fiscal externo emitido ficam bloqueados com erro `422` claro;
+- `FinanceiroController::updateMovimento` continua a bloquear reabertura direta fora do endpoint canónico;
+- a tab Movimentos passou a expor ações explícitas para `Reabrir para pendente` e `Reabrir para vencido` no modal de edição, com aviso específico quando existe risco fiscal/Wintouch.
+
+### Testes automáticos mínimos
+
+Criar ou ajustar testes para validar:
+
+- reabertura de receita liquidada em dinheiro remove alocação, cancela pagamento órfão seguro e apaga pedido fiscal pendente;
+- reabertura de receita liquidada por transferência reabre o extrato e remove o pedido fiscal pendente;
+- reabertura de despesa liquidada reverte pagamento sem criar pedido fiscal indevido;
+- reabertura falha com `422` quando o movimento já tem documento fiscal emitido ou nº externo associado;
+- update direto para `pendente` continua bloqueado fora do endpoint canónico.
+
+### Testes manuais para o utilizador
+
+1. Entrar em Financeiro > Movimentos.
+2. Escolher um movimento de receita já liquidado em Dinheiro e abrir `Editar`.
+3. Confirmar que surgem as ações `Reabrir para pendente` e `Reabrir para vencido`.
+4. Reabrir para `pendente` e confirmar:
+   - o estado volta a `pendente`;
+   - `metodo_pagamento` e `numero_recibo` ficam vazios;
+   - o pedido na tab Emissão Fiscal desaparece se ainda estava pendente.
+5. Escolher um movimento liquidado por Transferência com linha bancária conciliada.
+6. Reabrir para `vencido` e confirmar:
+   - o movimento passa para `vencido`;
+   - o extrato volta a `partial` ou `unreconciled`;
+   - a linha volta a ficar disponível para nova conciliação.
+7. Escolher um movimento que já tenha nº Wintouch/documento emitido.
+8. Tentar reabrir e confirmar que a operação é bloqueada com mensagem explícita.
+9. Tentar alterar o mesmo estado por uma edição administrativa normal e confirmar que continua bloqueado.
+
+### Resultado esperado
+
+A tab Movimentos passa a ter reabertura segura e explícita para movimentos liquidados, revertendo apenas o rasto financeiro que ainda é reversível e bloqueando os casos já fechados fiscalmente.
+
+### Validação automática executada
+
+- `composer dump-autoload`
+- `php artisan migrate --pretend`
+- `php artisan test --filter=ManualExpenseFlowsTest`
+- `php artisan test --filter=PaymentAllocation`
+- `php artisan test --filter=Financeiro`
+- `npm run build`
+
+### Estado para avanço
+
+F2, F2.1, F2.2, F2.3, F2.4 e F2.5 ficam tecnicamente fechadas, mas continuam pendentes de validação manual orientada no browser. Não avançar para F3 antes de repetir esses testes e recolher feedback do utilizador.
+
+---
+
 ## Sprint F3 — Mensalidades e conta corrente
 
 ### Objetivo

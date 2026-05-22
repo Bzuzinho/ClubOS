@@ -2532,6 +2532,25 @@ class FinanceiroController extends Controller
         ]);
     }
 
+    public function reopenMovimento(Request $request, Movement $movimento)
+    {
+        $data = $request->validate([
+            'estado_pagamento' => ['required', 'in:pendente,vencido'],
+        ]);
+
+        $result = $this->financialSettlementService->reopenMovement($movimento, $data['estado_pagamento'], [
+            'created_by' => $request->user()?->id,
+        ]);
+
+        $this->invalidateFinanceiroCaches();
+
+        return response()->json([
+            'movimento' => $this->decorateMovementForResponse($result['movement']),
+            'lancamento' => $result['financial_entry'] ?? null,
+            'bank_statements' => $result['bank_statements'] ?? [],
+        ]);
+    }
+
     public function createExpenseFromBankStatement(Request $request, BankStatement $extrato): JsonResponse
     {
         $data = $request->validate([

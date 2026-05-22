@@ -79,7 +79,7 @@ export function MovimentosTab({
   };
   const refreshMovimentos = () => {
     router.reload({
-      only: ['movimentos', 'movimentosFinanceiros', 'movimentoItens', 'lancamentos'],
+      only: ['movimentos', 'movimentosFinanceiros', 'movimentoItens', 'lancamentos', 'extratos', 'fiscalRequests'],
       preserveScroll: true,
     });
   };
@@ -140,6 +140,16 @@ export function MovimentosTab({
     });
   };
 
+  const reopenMovimento = async (movimentoId: string, estadoPagamento: 'pendente' | 'vencido') => {
+    return fetchFinanceiro<{ movimento: Movimento; lancamento?: LancamentoFinanceiro }>(route('financeiro.movimentos.reabrir', movimentoId), {
+      method: 'POST',
+      body: {
+        estado_pagamento: estadoPagamento,
+      },
+      fallbackMessage: 'Erro ao reabrir movimento',
+    });
+  };
+
   const [estadoFilter, setEstadoFilter] = useState<string>('all');
   const [classificacaoFilter, setClassificacaoFilter] = useState<string>('all');
   const [documentalFilter, setDocumentalFilter] = useState<string>('all');
@@ -152,6 +162,7 @@ export function MovimentosTab({
   const [metodoPagamento, setMetodoPagamento] = useState<string>('transferencia');
   const [selectedBankStatementId, setSelectedBankStatementId] = useState<string>('none');
   const [comprovativoFile, setComprovativoFile] = useState<File | null>(null);
+  const [reopeningMovimentoId, setReopeningMovimentoId] = useState<string | null>(null);
   const [editingMovimentoId, setEditingMovimentoId] = useState<string | null>(null);
   const [usarDadosUtilizador, setUsarDadosUtilizador] = useState(false);
   const [usarDadosFornecedor, setUsarDadosFornecedor] = useState(false);
@@ -336,6 +347,18 @@ export function MovimentosTab({
 
   const getActionableMovimentoId = (movimento: MovimentoFinanceiro) => movimento.movimento_id || null;
 
+  const editingMovimento = useMemo(() => {
+    if (!editingMovimentoId) {
+      return null;
+    }
+
+    return (movimentos || []).find((movimento) => movimento.id === editingMovimentoId) || null;
+  }, [editingMovimentoId, movimentos]);
+
+  const editingMovimentoCanReopen = Boolean(
+    editingMovimento && ['pago', 'parcial', 'pago_parcial'].includes(editingMovimento.estado_pagamento)
+  );
+
   const selectableMovimentoIds = useMemo(
     () => filteredMovimentos
       .map((movimento) => getActionableMovimentoId(movimento))
@@ -424,6 +447,31 @@ export function MovimentosTab({
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Erro ao liquidar movimento';
       toast.error(message);
+    }
+  };
+
+  const handleReabrirMovimento = async (movimentoId: string, targetStatus: 'pendente' | 'vencido') => {
+    setReopeningMovimentoId(movimentoId);
+
+    try {
+      const result = await reopenMovimento(movimentoId, targetStatus);
+
+      setMovimentos((current) =>
+        (current || []).map((movimento) => (movimento.id === movimentoId ? result.movimento : movimento))
+      );
+
+      toast.success('Movimento reaberto com sucesso.');
+      refreshMovimentos();
+
+      if (editingMovimentoId === movimentoId) {
+        setDialogOpen(false);
+        resetForm();
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Erro ao reabrir movimento';
+      toast.error(message);
+    } finally {
+      setReopeningMovimentoId(null);
     }
   };
 
@@ -1360,8 +1408,37 @@ export function MovimentosTab({
                       .toFixed(2)}
                   </span>
                 </div>
+
+                {editingMovimentoCanReopen ? (
+                  <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+                    <p className="font-medium">Reabertura controlada do movimento</p>
+                    <p className="mt-1">
+                      Para voltar este movimento a pendente ou vencido, use a acao canonica abaixo. Se existir documento Wintouch emitido, a reabertura sera bloqueada.
+                    </p>
+                  </div>
+                ) : null}
               </div>
               <DialogFooter>
+                {editingMovimentoCanReopen && editingMovimentoId ? (
+                  <>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={reopeningMovimentoId === editingMovimentoId}
+                      onClick={() => handleReabrirMovimento(editingMovimentoId, 'pendente')}
+                    >
+                      Reabrir para Pendente
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={reopeningMovimentoId === editingMovimentoId}
+                      onClick={() => handleReabrirMovimento(editingMovimentoId, 'vencido')}
+                    >
+                      Reabrir para Vencido
+                    </Button>
+                  </>
+                ) : null}
                 <Button variant="outline" onClick={() => { setDialogOpen(false); resetForm(); }}>
                   Cancelar
                 </Button>
