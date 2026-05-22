@@ -554,6 +554,18 @@ Criar ou ajustar testes para validar:
 
 O popup `Liquidar Movimento` passa a respeitar a configuração ativa de métodos e a regra bancária definida para cada método, sem depender de `numero_recibo` e sem alterar o fluxo canónico de Faturas/Mensalidades.
 
+### Validação manual confirmada
+
+O utilizador confirmou manualmente no browser que:
+
+- Financeiro > Movimentos > `Liquidar` já não obriga nº de recibo;
+- métodos inativos já não aparecem no popup;
+- `Dinheiro` não pede linha bancária;
+- `Dinheiro` liquida sem nº de recibo;
+- `Transferência` mostra linhas bancárias;
+- `Transferência` sem linha bancária bloqueia;
+- `Transferência` com linha bancária liquida e concilia.
+
 ### Validação automática executada
 
 - `php artisan test --filter=ManualExpenseFlowsTest`
@@ -563,7 +575,7 @@ O popup `Liquidar Movimento` passa a respeitar a configuração ativa de método
 
 ### Estado para avanço
 
-F2.4 fica validada manualmente no browser para o fluxo de Movimentos testado. Em conjunto com a validação manual confirmada da F2.5, F2/F2.1/F2.2/F2.3/F2.4/F2.5 ficam fechadas operacionalmente na parte testada, mantendo apenas pendências que não pertencem a estas sprints. Não avançar para F3.
+F2.4 fica validada manualmente no browser para o fluxo de Movimentos testado. Em conjunto com a validação manual confirmada da F2.5 e com a regressão validada em Mensalidades, F2/F2.1/F2.2/F2.3/F2.4/F2.5 ficam fechadas operacionalmente na parte validada desta sequência, mantendo apenas pendências que não pertencem a estas sprints. Não avançar para F3.
 
 ---
 
@@ -634,6 +646,15 @@ O utilizador confirmou manualmente no browser que:
 - ao reabrir, o pedido fiscal pendente é removido quando ainda não existe nº Wintouch;
 - a regra ficou confinada ao fluxo de Movimentos, sem mexer em Mensalidades.
 
+### Regressão de Mensalidades validada manualmente
+
+O utilizador confirmou manualmente no browser que:
+
+- `Dinheiro` sem banco liquida sem nº de recibo;
+- `Transferência` sem banco bloqueia;
+- `Transferência` com banco liquida e concilia;
+- a desconciliação na tab Banco reabre a mensalidade e remove o pedido fiscal pendente.
+
 ### Validação automática executada
 
 - `composer dump-autoload`
@@ -645,7 +666,7 @@ O utilizador confirmou manualmente no browser que:
 
 ### Estado para avanço
 
-F2.4 e F2.5 ficam validadas manualmente no browser. F2/F2.1/F2.2/F2.3/F2.4/F2.5 ficam fechadas operacionalmente na parte testada, mantendo apenas pendências que não pertencem a estas sprints. Não avançar para F3.
+F2.4 e F2.5 ficam validadas manualmente no browser e a regressão crítica de Mensalidades desta sequência fica confirmada. F2/F2.1/F2.2/F2.3/F2.4/F2.5 ficam fechadas operacionalmente na parte validada desta sequência, mantendo apenas pendências que não pertencem a estas sprints. Não avançar para F3.
 
 ---
 
