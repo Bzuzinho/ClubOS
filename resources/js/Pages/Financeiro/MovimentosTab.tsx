@@ -1,6 +1,6 @@
-import { useState, useMemo } from 'react';
-import { router } from '@inertiajs/react';
-import { Movimento, MovimentoFinanceiro, MovimentoItem, User, Supplier, CentroCusto, Product, LancamentoFinanceiro } from './types';
+import { useEffect, useMemo, useState } from 'react';
+import { router, usePage } from '@inertiajs/react';
+import { Movimento, MovimentoFinanceiro, MovimentoItem, User, Supplier, CentroCusto, Product, LancamentoFinanceiro, PaymentMethod, ExtratoBancario } from './types';
 import { fetchFinanceiro } from './request';
 import { useClubSettings } from '@/hooks/useClubSettings';
 import { Button } from '@/Components/ui/button';
@@ -47,9 +47,12 @@ export function MovimentosTab({
   products,
   setProducts,
 }: MovimentosTabProps) {
+  const { props } = usePage<{ paymentMethods?: PaymentMethod[]; extratos?: ExtratoBancario[] }>();
   const { defaultFinancialEntityName } = useClubSettings();
   const allMovimentos = movimentos || [];
   const displayedMovimentos = movimentosFinanceiros || [];
+  const paymentMethods = props.paymentMethods || [];
+  const extratos = props.extratos || [];
   const toNumber = (value: unknown, fallback = 0): number => {
     if (typeof value === 'number' && !Number.isNaN(value)) return value;
     if (typeof value === 'string' && value.trim() !== '') {
@@ -109,16 +112,26 @@ export function MovimentosTab({
     });
   };
 
-  const liquidarMovimento = async (movimentoId: string, numeroReciboLocal: string, metodoPagamentoLocal: string, comprovativo?: File | null) => {
+  const liquidarMovimento = async (
+    movimentoId: string,
+    metodoPagamentoLocal: string,
+    bankStatementId?: string | null,
+    comprovativo?: File | null,
+  ) => {
     const body = comprovativo
       ? (() => {
       const form = new FormData();
-      form.append('numero_recibo', numeroReciboLocal);
       form.append('metodo_pagamento', metodoPagamentoLocal);
+      if (bankStatementId) {
+        form.append('bank_statement_id', bankStatementId);
+      }
       form.append('comprovativo', comprovativo);
       return form;
     })()
-      : { numero_recibo: numeroReciboLocal, metodo_pagamento: metodoPagamentoLocal };
+      : {
+        metodo_pagamento: metodoPagamentoLocal,
+        ...(bankStatementId ? { bank_statement_id: bankStatementId } : {}),
+      };
 
     return fetchFinanceiro<{ movimento: Movimento; lancamento?: LancamentoFinanceiro }>(route('financeiro.movimentos.liquidar', movimentoId), {
       method: 'POST',
@@ -136,8 +149,8 @@ export function MovimentosTab({
   const [dialogDeleteOpen, setDialogDeleteOpen] = useState(false);
   const [selectedMovimentoId, setSelectedMovimentoId] = useState<string | null>(null);
   const [selectedMovimentos, setSelectedMovimentos] = useState<Set<string>>(new Set());
-  const [numeroRecibo, setNumeroRecibo] = useState<string>('');
   const [metodoPagamento, setMetodoPagamento] = useState<string>('transferencia');
+  const [selectedBankStatementId, setSelectedBankStatementId] = useState<string>('none');
   const [comprovativoFile, setComprovativoFile] = useState<File | null>(null);
   const [editingMovimentoId, setEditingMovimentoId] = useState<string | null>(null);
   const [usarDadosUtilizador, setUsarDadosUtilizador] = useState(false);
@@ -211,6 +224,89 @@ export function MovimentosTab({
     { descricao: '', valor_unitario: 0, quantidade: 1, imposto_percentual: 0 },
   ]);
 
+  const activePaymentMethods = useMemo(() => {
+    return [...paymentMethods]
+      .filter((method) => method.ativo)
+      .sort((left, right) => left.ordem - right.ordem);
+  }, [paymentMethods]);
+
+  const defaultManualPaymentMethod = useMemo(() => {
+    const manualMethod = activePaymentMethods.find((method) => !method.requer_linha_bancaria);
+
+    return manualMethod?.codigo || activePaymentMethods[0]?.codigo || 'dinheiro';
+  }, [activePaymentMethods]);
+
+  const defaultBankPaymentMethod = useMemo(() => {
+    const bankMethod = activePaymentMethods.find((method) => method.requer_linha_bancaria);
+
+    return bankMethod?.codigo || activePaymentMethods[0]?.codigo || 'transferencia';
+  }, [activePaymentMethods]);
+
+  const defaultPaymentMethod = defaultManualPaymentMethod || defaultBankPaymentMethod || '';
+
+  const availableBankStatements = useMemo(() => {
+    return extratos.filter((statement) => {
+      const remaining = statement.valor_por_conciliar !== null && statement.valor_por_conciliar !== undefined
+        ? Math.abs(toNumber(statement.valor_por_conciliar, 0))
+        : Math.abs(toNumber(statement.valor, 0));
+
+      if (remaining <= 0.009) {
+        return false;
+      }
+
+      return !statement.conciliado || statement.conciliacao_status === 'partial';
+    });
+  }, [extratos]);
+
+  const selectedBankStatement = useMemo(() => {
+    if (selectedBankStatementId === 'none') {
+      return null;
+    }
+
+    return availableBankStatements.find((statement) => statement.id === selectedBankStatementId) || null;
+  }, [availableBankStatements, selectedBankStatementId]);
+
+  const selectedPaymentMethod = useMemo(() => {
+    return activePaymentMethods.find((method) => method.codigo === metodoPagamento) || null;
+  }, [activePaymentMethods, metodoPagamento]);
+
+  const paymentRequiresBankStatement = Boolean(selectedPaymentMethod?.requer_linha_bancaria);
+  const hasAvailableBankStatements = availableBankStatements.length > 0;
+  const liquidacaoValidationMessage = useMemo(() => {
+    if (!metodoPagamento) {
+      return 'Selecione um metodo de pagamento ativo.';
+    }
+
+    if (!selectedPaymentMethod) {
+      return 'Selecione um metodo de pagamento ativo.';
+    }
+
+    if (paymentRequiresBankStatement && !hasAvailableBankStatements) {
+      return 'Nao existem linhas bancarias disponiveis para conciliar.';
+    }
+
+    if (paymentRequiresBankStatement && !selectedBankStatement) {
+      return 'Este metodo de pagamento exige selecao de uma linha de extrato bancario.';
+    }
+
+    return null;
+  }, [hasAvailableBankStatements, metodoPagamento, paymentRequiresBankStatement, selectedBankStatement, selectedPaymentMethod]);
+  const canConfirmLiquidacao = !liquidacaoValidationMessage;
+
+  useEffect(() => {
+    if (selectedPaymentMethod || !defaultPaymentMethod) {
+      return;
+    }
+
+    setMetodoPagamento(defaultPaymentMethod);
+  }, [defaultPaymentMethod, selectedPaymentMethod]);
+
+  useEffect(() => {
+    if (!paymentRequiresBankStatement && selectedBankStatementId !== 'none') {
+      setSelectedBankStatementId('none');
+    }
+  }, [paymentRequiresBankStatement, selectedBankStatementId]);
+
   const filteredMovimentos = useMemo(() => {
     return displayedMovimentos
       .filter((movimento) => {
@@ -265,15 +361,21 @@ export function MovimentosTab({
 
   const formatAmount = (value?: number | null) => (value === null || value === undefined ? '-' : `€${value.toFixed(2)}`);
 
-  const handleAbrirDialogoRecibo = (movimentoId?: string, reciboAtual?: string | null, metodoAtual?: string | null) => {
+  const handleAbrirDialogoRecibo = (movimentoId?: string, _reciboAtual?: string | null, metodoAtual?: string | null) => {
     if (movimentoId) {
       setSelectedMovimentoId(movimentoId);
       setSelectedMovimentos(new Set());
     } else {
       setSelectedMovimentoId(null);
     }
-    setNumeroRecibo(reciboAtual || '');
-    setMetodoPagamento(metodoAtual || 'transferencia');
+    const nextMethod = activePaymentMethods.find((method) => method.codigo === metodoAtual)?.codigo
+      || defaultPaymentMethod
+      || defaultManualPaymentMethod
+      || defaultBankPaymentMethod;
+
+    setSelectedBankStatementId('none');
+    setMetodoPagamento(nextMethod);
+    setComprovativoFile(null);
     setDialogReciboOpen(true);
   };
 
@@ -282,8 +384,8 @@ export function MovimentosTab({
 
     if (movimentosParaLiquidar.length === 0) return;
 
-    if (!numeroRecibo.trim()) {
-      toast.error('Por favor, insira o numero do recibo');
+    if (liquidacaoValidationMessage) {
+      toast.error(liquidacaoValidationMessage);
       return;
     }
 
@@ -292,7 +394,12 @@ export function MovimentosTab({
       const novosLancamentos: LancamentoFinanceiro[] = [];
 
       for (const movimentoId of movimentosParaLiquidar) {
-        const result = await liquidarMovimento(movimentoId, numeroRecibo.trim(), metodoPagamento, comprovativoFile);
+        const result = await liquidarMovimento(
+          movimentoId,
+          metodoPagamento,
+          paymentRequiresBankStatement ? selectedBankStatement?.id ?? null : null,
+          comprovativoFile,
+        );
         updatedMovimentos.push(result.movimento);
         if (result.lancamento) {
           novosLancamentos.push(result.lancamento);
@@ -307,12 +414,12 @@ export function MovimentosTab({
         setLancamentos((current) => [...(current || []), ...novosLancamentos]);
       }
 
-      toast.success(`${movimentosParaLiquidar.length} movimento(s) liquidado(s) com recibo ${numeroRecibo.trim()}`);
+      toast.success(`${movimentosParaLiquidar.length} movimento(s) liquidado(s) com sucesso`);
       refreshMovimentos();
       setDialogReciboOpen(false);
       setSelectedMovimentoId(null);
       setSelectedMovimentos(new Set());
-      setNumeroRecibo('');
+      setSelectedBankStatementId('none');
       setComprovativoFile(null);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Erro ao liquidar movimento';
@@ -1507,51 +1614,73 @@ export function MovimentosTab({
             </DialogTitle>
             <DialogDescription>
               {selectedMovimentoId
-                ? 'Confirme o pagamento do movimento indicando o numero de recibo'
-                : `Confirme o pagamento de ${selectedMovimentos.size} movimento(s) com o mesmo numero de recibo`}
+                ? 'Confirme o pagamento do movimento com um metodo de pagamento ativo.'
+                : `Confirme o pagamento de ${selectedMovimentos.size} movimento(s) com o mesmo metodo de pagamento.`}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="numero-recibo">Numero do Recibo *</Label>
-              <Input
-                id="numero-recibo"
-                placeholder="Ex: REC-2025-001"
-                value={numeroRecibo}
-                onChange={(e) => setNumeroRecibo(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    handleConfirmarLiquidacao();
+              <Label>Metodo de Pagamento</Label>
+              <Select
+                value={metodoPagamento}
+                onValueChange={(value) => {
+                  const nextMethod = activePaymentMethods.find((method) => method.codigo === value) || null;
+
+                  setMetodoPagamento(value);
+
+                  if (!nextMethod?.requer_linha_bancaria) {
+                    setSelectedBankStatementId('none');
                   }
                 }}
-                autoFocus
-              />
-              <p className="text-xs text-muted-foreground">
-                {selectedMovimentoId
-                  ? 'Insira o numero do recibo para confirmar o pagamento deste movimento.'
-                  : 'Este numero de recibo sera usado para todos os movimentos selecionados.'}
-              </p>
-            </div>
-            <div className="space-y-2">
-              <Label>Metodo de Pagamento</Label>
-              <Select value={metodoPagamento} onValueChange={setMetodoPagamento}>
+              >
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent className={scrollableSelectContentClassName}>
-                  <SelectItem value="dinheiro">Dinheiro</SelectItem>
-                  <SelectItem value="transferencia">Transferencia</SelectItem>
-                  <SelectItem value="mbway">MB Way</SelectItem>
-                  <SelectItem value="multibanco">Multibanco</SelectItem>
-                  <SelectItem value="cartao">Cartao</SelectItem>
+                  {activePaymentMethods.map((method) => (
+                    <SelectItem key={method.id} value={method.codigo}>
+                      {method.nome}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
+            {paymentRequiresBankStatement ? (
+              <div className="space-y-2">
+                <Label>Linha de Extrato Bancario</Label>
+                {hasAvailableBankStatements ? (
+                  <Select value={selectedBankStatementId} onValueChange={setSelectedBankStatementId}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Selecione uma linha bancária" />
+                    </SelectTrigger>
+                    <SelectContent className={scrollableSelectContentClassName}>
+                      {availableBankStatements.map((statement) => {
+                        const remaining = statement.valor_por_conciliar !== null && statement.valor_por_conciliar !== undefined
+                          ? Math.abs(toNumber(statement.valor_por_conciliar, 0))
+                          : Math.abs(toNumber(statement.valor, 0));
+
+                        return (
+                          <SelectItem key={statement.id} value={statement.id}>
+                            {format(new Date(statement.data_movimento), 'dd/MM/yyyy')} | {statement.descricao} | EUR {remaining.toFixed(2)}
+                          </SelectItem>
+                        );
+                      })}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <div className="rounded-md border border-dashed border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                    Nao existem linhas bancarias disponiveis para conciliar.
+                  </div>
+                )}
+              </div>
+            ) : null}
             <div className="space-y-2">
               <Label>Comprovativo (opcional)</Label>
               <Input type="file" onChange={(e) => setComprovativoFile(e.target.files?.[0] || null)} />
             </div>
+            {liquidacaoValidationMessage ? (
+              <p className="text-sm text-amber-700">{liquidacaoValidationMessage}</p>
+            ) : null}
           </div>
           <DialogFooter>
             <Button
@@ -1559,12 +1688,13 @@ export function MovimentosTab({
               onClick={() => {
                 setDialogReciboOpen(false);
                 setSelectedMovimentoId(null);
-                setNumeroRecibo('');
+                setSelectedBankStatementId('none');
+                setComprovativoFile(null);
               }}
             >
               Cancelar
             </Button>
-            <Button onClick={handleConfirmarLiquidacao}>
+            <Button onClick={handleConfirmarLiquidacao} disabled={!canConfirmLiquidacao}>
               <Check className="mr-2" size={16} />
               Confirmar Liquidacao
             </Button>

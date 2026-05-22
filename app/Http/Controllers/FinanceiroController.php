@@ -2488,8 +2488,9 @@ class FinanceiroController extends Controller
     public function liquidarMovimento(Request $request, Movement $movimento)
     {
         $data = $request->validate([
-            'numero_recibo' => ['required', 'string', 'max:255'],
+            'numero_recibo' => ['nullable', 'string', 'max:255'],
             'metodo_pagamento' => ['nullable', 'string', 'max:50'],
+            'bank_statement_id' => ['nullable', 'exists:bank_statements,id'],
         ]);
 
         if ($request->hasFile('comprovativo')) {
@@ -2501,23 +2502,24 @@ class FinanceiroController extends Controller
 
         $financialEntry = $this->financialSettlementService->findOrCreateFinancialEntryForMovement($movimento, [
             'description' => $movimento->observacoes,
-            'reference' => $data['numero_recibo'],
+            'reference' => $data['numero_recibo'] ?? null,
             'method' => $data['metodo_pagamento'] ?? $movimento->metodo_pagamento,
             'comprovativo' => $movimento->comprovativo,
         ]);
 
         $result = $this->financialSettlementService->settleFinancialEntry($financialEntry, [
-            'numero_recibo' => $data['numero_recibo'],
+            'numero_recibo' => $data['numero_recibo'] ?? null,
             'amount' => abs((float) $movimento->valor_total),
             'payment_amount' => abs((float) $movimento->valor_total),
             'payment_date' => optional($movimento->data_emissao)?->toDateString() ?? now()->toDateString(),
             'method' => $data['metodo_pagamento'] ?? $movimento->metodo_pagamento,
-            'reference' => $data['numero_recibo'],
+            'reference' => $data['numero_recibo'] ?? null,
             'description' => $movimento->observacoes,
             'user_id' => $movimento->user_id,
             'comprovativo' => $movimento->comprovativo,
+            'bank_statement_id' => $data['bank_statement_id'] ?? null,
             'created_by' => $request->user()?->id,
-            'source' => Payment::SOURCE_MANUAL,
+            'source' => ! empty($data['bank_statement_id']) ? Payment::SOURCE_BANK_STATEMENT : Payment::SOURCE_MANUAL,
             'notes' => 'Liquidacao manual de movimento.',
         ]);
 

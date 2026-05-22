@@ -5,9 +5,11 @@ namespace Tests\Feature\Financeiro;
 use App\Models\BankStatement;
 use App\Models\CostCenter;
 use App\Models\FinancialEntry;
+use App\Models\FiscalDocumentRequest;
 use App\Models\Movement;
 use App\Models\MovementDocument;
 use App\Models\MovementDocumentRequirement;
+use App\Models\PaymentMethod;
 use App\Models\Supplier;
 use App\Models\User;
 use Illuminate\Http\UploadedFile;
@@ -195,6 +197,144 @@ class ManualExpenseFlowsTest extends TestCase
 
         $statement->refresh();
         $this->assertTrue((bool) $statement->conciliado);
+    }
+
+    public function test_liquidar_movimento_allows_manual_cash_without_receipt_number(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $member = User::factory()->create([
+            'nome_completo' => 'Atleta Receita',
+            'nif' => '245678901',
+        ]);
+        $movement = Movement::query()->create([
+            'user_id' => $member->id,
+            'nome_manual' => 'Patrocinio local',
+            'classificacao' => 'receita',
+            'categoria' => 'patrocinio',
+            'data_emissao' => now()->toDateString(),
+            'data_vencimento' => now()->toDateString(),
+            'valor_total' => 125.00,
+            'estado_pagamento' => 'pendente',
+            'estado_conciliacao' => 'nao_conciliado',
+            'tipo' => 'patrocinio',
+        ]);
+
+        $cashMethod = PaymentMethod::query()->where('codigo', 'dinheiro')->firstOrFail();
+
+        $response = $this->actingAs($admin)->postJson(route('financeiro.movimentos.liquidar', $movement->id), [
+            'metodo_pagamento' => $cashMethod->codigo,
+        ]);
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('movimento.estado_pagamento', 'pago')
+            ->assertJsonPath('movimento.numero_recibo', null)
+            ->assertJsonPath('payment.method', $cashMethod->codigo)
+            ->assertJsonPath('payment.bank_statement_id', null);
+
+        $financialEntryId = (string) $response->json('lancamento.id');
+
+        $movement->refresh();
+
+        $this->assertSame('pago', $movement->estado_pagamento);
+        $this->assertNull($movement->numero_recibo);
+        $this->assertDatabaseHas('fiscal_document_requests', [
+            'financial_entry_id' => $financialEntryId,
+            'status' => FiscalDocumentRequest::STATUS_PENDING,
+        ]);
+    }
+
+    public function test_liquidar_movimento_requires_bank_statement_for_bank_method_and_rejects_inactive_method(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $movement = Movement::query()->create([
+            'nome_manual' => 'Quota evento',
+            'classificacao' => 'receita',
+            'categoria' => 'evento',
+            'data_emissao' => now()->toDateString(),
+            'data_vencimento' => now()->toDateString(),
+            'valor_total' => 80.00,
+            'estado_pagamento' => 'pendente',
+            'estado_conciliacao' => 'nao_conciliado',
+            'tipo' => 'evento',
+        ]);
+
+        $transferMethod = PaymentMethod::query()->where('codigo', 'transferencia')->firstOrFail();
+        $inactiveMethod = PaymentMethod::query()->create([
+            'codigo' => 'movimentos-inativo',
+            'nome' => 'Movimentos Inativo',
+            'descricao' => 'Metodo desativado para teste',
+            'requer_linha_bancaria' => false,
+            'ativo' => false,
+            'ordem' => 999,
+        ]);
+
+        $this->actingAs($admin)
+            ->postJson(route('financeiro.movimentos.liquidar', $movement->id), [
+                'metodo_pagamento' => $transferMethod->codigo,
+            ])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['bank_statement_id']);
+
+        $this->actingAs($admin)
+            ->postJson(route('financeiro.movimentos.liquidar', $movement->id), [
+                'metodo_pagamento' => $inactiveMethod->codigo,
+            ])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['method']);
+    }
+
+    public function test_liquidar_movimento_with_bank_statement_reconciles_expense_without_fiscal_request(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $costCenter = CostCenter::query()->firstOrFail();
+        $movement = Movement::query()->create([
+            'nome_manual' => 'Fornecedor gas',
+            'classificacao' => 'despesa',
+            'categoria' => 'gas',
+            'data_emissao' => now()->toDateString(),
+            'data_vencimento' => now()->toDateString(),
+            'valor_total' => -55.00,
+            'estado_pagamento' => 'pendente',
+            'estado_conciliacao' => 'nao_conciliado',
+            'centro_custo_id' => $costCenter->id,
+            'tipo' => 'servico',
+        ]);
+
+        $statement = BankStatement::query()->create([
+            'data_movimento' => now()->toDateString(),
+            'descricao' => 'Transferencia fornecedor gas',
+            'valor' => -55.00,
+            'referencia' => 'TRX-GAS-1',
+            'centro_custo_id' => $costCenter->id,
+            'conciliado' => false,
+        ]);
+
+        $transferMethod = PaymentMethod::query()->where('codigo', 'transferencia')->firstOrFail();
+
+        $response = $this->actingAs($admin)->postJson(route('financeiro.movimentos.liquidar', $movement->id), [
+            'metodo_pagamento' => $transferMethod->codigo,
+            'bank_statement_id' => $statement->id,
+        ]);
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('movimento.estado_pagamento', 'pago')
+            ->assertJsonPath('movimento.estado_conciliacao', 'conciliado')
+            ->assertJsonPath('payment.method', $transferMethod->codigo)
+            ->assertJsonPath('payment.bank_statement_id', $statement->id);
+
+        $financialEntryId = (string) $response->json('lancamento.id');
+
+        $movement->refresh();
+        $statement->refresh();
+
+        $this->assertSame('pago', $movement->estado_pagamento);
+        $this->assertSame('conciliado', $movement->estado_conciliacao);
+        $this->assertTrue((bool) $statement->conciliado);
+        $this->assertDatabaseMissing('fiscal_document_requests', [
+            'financial_entry_id' => $financialEntryId,
+        ]);
     }
 
     public function test_movement_paid_without_receipt_generates_missing_receipt_when_rule_requires_it(): void

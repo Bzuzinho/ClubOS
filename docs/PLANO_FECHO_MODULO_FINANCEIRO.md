@@ -505,6 +505,68 @@ F2, F2.1, F2.2 e F2.3 ficam tecnicamente fechadas, mas continuam pendentes de va
 
 ---
 
+## Sprint F2.4 — Correção limitada do popup Liquidar Movimento
+
+> Estado: tecnicamente concluída em 2026-05-22. Validações automáticas obrigatórias passaram. Validação manual do utilizador ainda pendente.
+
+### Objetivo
+
+Corrigir exclusivamente o popup `Liquidar Movimento` da tab Movimentos, sem reabrir o fluxo de Faturas/Mensalidades:
+
+- remover a obrigatoriedade de `numero_recibo` no popup e no endpoint local de liquidação;
+- usar apenas métodos de pagamento ativos;
+- mostrar seleção de linha bancária apenas para métodos com `requer_linha_bancaria=true`;
+- bloquear confirmação de transferência sem linha bancária e permitir dinheiro sem linha bancária.
+
+### Regras fechadas nesta sprint
+
+- `MovimentosTab.tsx` passou a ler `paymentMethods` e `extratos` dos `page props` do Inertia, sem alterar `Index.tsx` nem o fluxo de Faturas;
+- o popup deixou de mostrar o campo `Numero do Recibo` e removeu o texto que o tornava obrigatório;
+- a lista de métodos do popup passou a usar apenas métodos ativos e ordenados;
+- a seleção de linha bancária aparece apenas quando o método ativo exige conciliação bancária;
+- o botão de confirmar fica bloqueado quando falta linha bancária obrigatória ou quando não existem linhas disponíveis;
+- `FinanceiroController::liquidarMovimento` passou a aceitar `numero_recibo` nulo e `bank_statement_id`, delegando a validação do método e da regra bancária para o motor financeiro existente.
+
+### Testes automáticos mínimos
+
+Criar ou ajustar testes para validar:
+
+- liquidação de movimento com `dinheiro` sem `numero_recibo`;
+- liquidação de movimento com método bancário sem `bank_statement_id` falha com `422`;
+- liquidação de movimento com método inativo falha com `422`;
+- liquidação de despesa com `transferencia` e `bank_statement_id` concilia o extrato e não cria pedido fiscal de receita;
+- liquidação de receita sem `numero_recibo` mantém `numero_recibo` nulo e pode criar pedido fiscal pendente quando existem dados fiscais mínimos.
+
+### Testes manuais para o utilizador
+
+1. Entrar em Financeiro > Movimentos.
+2. Escolher um movimento pendente e clicar em `Liquidar`.
+3. Confirmar que o popup já não mostra nem exige `Numero do Recibo`.
+4. Confirmar que o seletor de métodos lista apenas métodos ativos.
+5. Escolher `Transferencia` e confirmar que surge a seleção de linha bancária.
+6. Tentar confirmar sem linha bancária e confirmar que o botão fica bloqueado com aviso explícito.
+7. Selecionar uma linha bancária e confirmar que a liquidação avança.
+8. Repetir com `Dinheiro` e confirmar que a secção bancária desaparece e a liquidação continua possível.
+9. Repetir com um movimento de receita e confirmar que não aparece nº Wintouch e que o pedido fiscal fica pendente quando o movimento tem dados fiscais mínimos.
+10. Repetir com um movimento de despesa e confirmar que não é criado pedido fiscal de receita.
+
+### Resultado esperado
+
+O popup `Liquidar Movimento` passa a respeitar a configuração ativa de métodos e a regra bancária definida para cada método, sem depender de `numero_recibo` e sem alterar o fluxo canónico de Faturas/Mensalidades.
+
+### Validação automática executada
+
+- `php artisan test --filter=ManualExpenseFlowsTest`
+- `php artisan test --filter=PaymentAllocation`
+- `php artisan test --filter=Financeiro`
+- `npm run build`
+
+### Estado para avanço
+
+F2, F2.1, F2.2, F2.3 e F2.4 ficam tecnicamente fechadas, mas continuam pendentes de validação manual orientada no browser. Não avançar para F3 antes de repetir esses testes e recolher feedback do utilizador.
+
+---
+
 ## Sprint F3 — Mensalidades e conta corrente
 
 ### Objetivo
