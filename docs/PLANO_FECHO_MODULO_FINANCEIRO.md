@@ -366,6 +366,145 @@ F2 continua pendente de validação manual orientada e F2.1 fecha a correção d
 
 ---
 
+## Sprint F2.2 — Correção de UX/CSRF da tab Movimentos
+
+> Estado: tecnicamente concluída em 2026-05-21. Validações automáticas obrigatórias passaram. Validação manual do utilizador ainda pendente.
+
+### Objetivo
+
+Corrigir a falha operacional detetada na validação manual de F2/F2.1 antes de avançar:
+
+- `POST /financeiro/movimentos` devolvia `419` quando a tab Movimentos usava `fetch` sem envelope CSRF/AJAX consistente;
+- dropdowns longos, sobretudo de utilizadores, não tinham scroll utilizável;
+- o CTA principal da tab precisava de ser normalizado para `Novo Movimento`.
+
+### Regras fechadas nesta sprint
+
+- a tab Movimentos passou a reutilizar helper partilhado de requests Financeiro com `Accept: application/json`, `X-Requested-With: XMLHttpRequest`, `X-CSRF-TOKEN` vindo do `meta[name="csrf-token"]` e `credentials: 'same-origin'`;
+- respostas `419` passam a mostrar a mensagem `Sessão expirada. Atualize a página e tente novamente.`;
+- criação de movimento continua a aceitar payload JSON e multipart/FormData;
+- edição, liquidação e delete de movimento passaram a usar o mesmo envelope de erro/request;
+- dropdowns longos ganharam `max-height` e `overflow-y-auto`;
+- labels ambíguos da tab foram normalizados para `Movimento`, mantendo a funcionalidade;
+- não foi reintroduzida qualquer exigência de nº de recibo na liquidação de faturas.
+
+### Testes automáticos mínimos
+
+Criar ou ajustar testes para validar:
+
+- `POST /financeiro/movimentos` com utilizador autenticado cria movimento por JSON;
+- `POST /financeiro/movimentos` aceita multipart/FormData com `items` serializado;
+- o endpoint devolve validação JSON clara quando falta campo obrigatório;
+- os testes Financeiro existentes continuam a passar.
+
+### Testes manuais para o utilizador
+
+1. Entrar em Financeiro > tab Movimentos.
+2. Confirmar que o botão principal mostra `Novo Movimento`.
+3. Abrir criação de movimento e usar o dropdown de utilizadores com lista longa.
+4. Confirmar que o dropdown tem scroll e continua fácil de pesquisar/selecionar.
+5. Criar um movimento sem ficheiro anexado.
+6. Confirmar que o movimento é criado sem erro `419`.
+7. Repetir a criação anexando documento original para forçar envio multipart/FormData.
+8. Editar um movimento existente e confirmar persistência sem erro `419`.
+9. Se a sessão expirar, repetir a ação e confirmar a mensagem:
+   `Sessão expirada. Atualize a página e tente novamente.`
+
+### Resultado esperado
+
+A tab Movimentos volta a ser utilizável em browser sem regressão das regras canónicas de pagamento já fechadas nas sprints anteriores.
+
+### Validação automática executada
+
+- `composer dump-autoload`
+- `php artisan migrate --pretend`
+- `php artisan test --filter=Financeiro`
+- `npm run build`
+
+### Estado para avanço
+
+F2, F2.1 e F2.2 ficam tecnicamente fechadas, mas continuam pendentes de validação manual orientada no browser. Não avançar para F3 antes de repetir esses testes e recolher feedback do utilizador.
+
+---
+
+## Sprint F2.3 — Remoção definitiva do nº de recibo do pagamento de faturas
+
+> Estado: tecnicamente concluída em 2026-05-22. Validações automáticas obrigatórias passaram. Validação manual do utilizador ainda pendente.
+
+### Objetivo
+
+Fechar definitivamente a regressão observada na validação manual de F2.1:
+
+- garantir que o pagamento de faturas manuais e mensalidades não depende de `numero_recibo`, `receipt_number`, `external_document_number` nem comprovativo;
+- manter o fluxo canónico de pagamento em `financeiro.payments.allocate` para faturas manuais e no endpoint canónico de mensalidades para `mensalidade`;
+- reservar o nº externo apenas para a tab Emissão Fiscal ao marcar o pedido como emitido.
+
+### Regras fechadas nesta sprint
+
+- a tab Faturas deixou de transportar `numero_recibo` nos updates administrativos e passou a nomear explicitamente o modal como fluxo de pagamento;
+- `StoreInvoiceRequest` e `UpdateInvoiceRequest` deixaram de aceitar `numero_recibo` na superfície administrativa de criação/edição;
+- `FinanceiroController::store` e `FinanceiroController::update` deixaram de escrever `invoice.numero_recibo` fora da Emissão Fiscal;
+- o pagamento canónico continua a criar `Payment`, `PaymentAllocation` e `FiscalDocumentRequest` pendente sem preencher `invoice.numero_recibo`;
+- `FiscalDocumentRequestController::markIssued` continua a exigir `external_document_number` e a ser o único ponto que retroalimenta `invoice.numero_recibo`;
+- `Financeiro/Index.tsx` volta a passar `faturasState` completo para `FaturasTab`, impedindo que faturas manuais escapem ao modal canónico;
+- `FaturasTab.tsx` filtra apenas `paymentMethods` ativos, repara automaticamente um método inválido/inativo para o default ativo e só mostra seleção de linha bancária quando `requer_linha_bancaria` está ativo;
+- o botão de confirmar fica bloqueado quando um método bancário ativo não tem linha disponível ou selecionada, sem cair no fluxo legado `financeiro.movimentos.liquidar`.
+
+### Testes automáticos mínimos
+
+Criar ou ajustar testes para validar:
+
+- pagamento integral de fatura manual `material` sem nº de recibo;
+- pagamento integral de fatura manual `inscricao` sem nº de recibo;
+- pagamento integral de `mensalidade` sem nº de recibo;
+- criação de `Payment` + `PaymentAllocation` + `FiscalDocumentRequest` pendente quando a fatura fica totalmente paga;
+- `invoice.numero_recibo` continua `null` até à emissão fiscal;
+- `mark-issued` continua a falhar sem `external_document_number`;
+- a tab Faturas usa apenas métodos ativos no modal;
+- a seleção de linha bancária aparece apenas quando o método o exige e bloqueia a confirmação quando não existe linha válida;
+- a tab Faturas continua a usar `financeiro.payments.allocate` e não recai em `financeiro.movimentos.liquidar`.
+
+### Testes manuais para o utilizador
+
+1. Entrar em Financeiro > Faturas.
+2. Criar uma fatura manual do tipo `material`.
+3. Abrir `Registar Pagamento` dessa fatura e confirmar que o modal não pede nº de recibo.
+4. Liquidar em Dinheiro sem preencher qualquer nº externo.
+5. Confirmar:
+   - a fatura fica `pago`;
+   - o pagamento é registado;
+   - o pedido aparece na tab Emissão Fiscal como pendente;
+   - `numero_recibo` continua vazio na fatura.
+6. Repetir o mesmo teste com uma fatura `inscricao`.
+7. Repetir o mesmo teste com uma `mensalidade`.
+8. Confirmar que só aparecem métodos de pagamento ativos no modal.
+9. Escolher um método com exigência de linha bancária, por exemplo Transferência, sem linha disponível/selecionada, e confirmar que o botão fica bloqueado com aviso explícito.
+10. Escolher um método manual ativo, por exemplo Dinheiro, e confirmar que a secção de linha bancária desaparece e o pagamento continua possível.
+11. Na tab Emissão Fiscal, tentar marcar um pedido como emitido sem nº externo.
+12. Confirmar que o backend devolve erro de validação para `external_document_number`.
+13. Preencher o nº Wintouch e confirmar então que `invoice.numero_recibo` é atualizado.
+
+### Resultado esperado
+
+O pagamento de faturas volta a depender apenas do fluxo canónico de pagamentos, com o modal a respeitar apenas métodos ativos e a lógica bancária configurada, enquanto a numeração fiscal externa permanece exclusiva da Emissão Fiscal.
+
+### Validação automática executada
+
+- `composer dump-autoload`
+- `php artisan migrate --pretend`
+- `php artisan test --filter=FaturasTabFlowContractTest`
+- `php artisan test --filter=PaymentAllocation`
+- `php artisan test --filter=FiscalDocument`
+- `php artisan test --filter=Financeiro`
+- `php artisan test --filter=PaymentMethod`
+- `npm run build`
+
+### Estado para avanço
+
+F2, F2.1, F2.2 e F2.3 ficam tecnicamente fechadas, mas continuam pendentes de validação manual orientada no browser. Não avançar para F3 antes de repetir esses testes e recolher feedback do utilizador.
+
+---
+
 ## Sprint F3 — Mensalidades e conta corrente
 
 ### Objetivo

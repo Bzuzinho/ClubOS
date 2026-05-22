@@ -274,6 +274,36 @@ class FiscalDocumentRequestFlowTest extends TestCase
         ]);
     }
 
+    public function test_mark_issued_still_requires_external_document_number_via_http(): void
+    {
+        $user = User::factory()->admin()->create();
+
+        $request = FiscalDocumentRequest::create([
+            'provider' => FiscalDocumentRequest::PROVIDER_WINTOUCH,
+            'document_type' => FiscalDocumentRequest::DOCUMENT_TYPE_RECEIPT,
+            'status' => FiscalDocumentRequest::STATUS_IN_PROGRESS,
+            'priority' => FiscalDocumentRequest::PRIORITY_NORMAL,
+        ]);
+
+        $response = $this->actingAs($user)->postJson(
+            route('financeiro.fiscal-document-requests.mark-issued', $request),
+            [
+                'issued_at' => '2026-05-05',
+                'notes' => 'Sem numero externo',
+            ]
+        );
+
+        $response
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('external_document_number');
+
+        $this->assertDatabaseHas('fiscal_document_requests', [
+            'id' => $request->id,
+            'status' => FiscalDocumentRequest::STATUS_IN_PROGRESS,
+            'external_document_number' => null,
+        ]);
+    }
+
     public function test_request_can_be_marked_with_data_error_via_http(): void
     {
         $user = User::factory()->admin()->create();

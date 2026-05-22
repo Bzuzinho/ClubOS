@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react';
 import { router } from '@inertiajs/react';
 import { Movimento, MovimentoFinanceiro, MovimentoItem, User, Supplier, CentroCusto, Product, LancamentoFinanceiro } from './types';
+import { fetchFinanceiro } from './request';
 import { useClubSettings } from '@/hooks/useClubSettings';
 import { Button } from '@/Components/ui/button';
 import { Card } from '@/Components/ui/card';
@@ -73,111 +74,57 @@ export function MovimentosTab({
 
     return format(parsedDate, 'yyyy-MM-dd');
   };
-
-  const getCsrfToken = () => {
-    const token = document.querySelector('meta[name="csrf-token"]') as HTMLMetaElement | null;
-    return token?.content || '';
-  };
   const refreshMovimentos = () => {
     router.reload({
       only: ['movimentos', 'movimentosFinanceiros', 'movimentoItens', 'lancamentos'],
       preserveScroll: true,
     });
   };
-  const sendMovimento = async (url: string, method: 'POST' | 'PUT', payload: Record<string, unknown>, documentoOriginal?: File | null) => {
-    const headers: Record<string, string> = {
-      Accept: 'application/json',
-      'X-Requested-With': 'XMLHttpRequest',
-      'X-CSRF-TOKEN': getCsrfToken(),
-    };
+  const scrollableSelectContentClassName = 'max-h-72 overflow-y-auto';
+  const buildMovimentoFormData = (payload: Record<string, unknown>, documentoOriginal?: File | null) => {
+    const form = new FormData();
 
-    let body: BodyInit;
-    if (documentoOriginal) {
-      const form = new FormData();
-      Object.entries(payload).forEach(([key, value]) => {
-        if (value === undefined || value === null) return;
-        if (key === 'items') {
-          form.append('items', JSON.stringify(value));
-          return;
-        }
-        form.append(key, String(value));
-      });
-      form.append('documento_original', documentoOriginal);
-      body = form;
-    } else {
-      headers['Content-Type'] = 'application/json';
-      body = JSON.stringify(payload);
-    }
-
-    const response = await fetch(url, {
-      method,
-      headers,
-      credentials: 'same-origin',
-      body,
+    Object.entries(payload).forEach(([key, value]) => {
+      if (value === undefined || value === null) return;
+      if (key === 'items') {
+        form.append('items', JSON.stringify(value));
+        return;
+      }
+      form.append(key, String(value));
     });
 
-    if (!response.ok) {
-      let message = 'Erro ao gravar movimento';
-      try {
-        const data = await response.json();
-        if (data?.message) message = data.message;
-        if (data?.errors) {
-          const errors = Object.values(data.errors).flat().join(' ');
-          if (errors) message = errors;
-        }
-      } catch (error) {
-        const fallback = await response.text();
-        if (fallback) message = fallback;
-      }
-      throw new Error(message);
+    if (documentoOriginal) {
+      form.append('documento_original', documentoOriginal);
     }
 
-    return response.json() as Promise<{ movimento: Movimento; items: MovimentoItem[] }>;
+    return form;
+  };
+  const sendMovimento = async (url: string, method: 'POST' | 'PUT', payload: Record<string, unknown>, documentoOriginal?: File | null) => {
+    const body = documentoOriginal ? buildMovimentoFormData(payload, documentoOriginal) : payload;
+
+    return fetchFinanceiro<{ movimento: Movimento; items: MovimentoItem[] }>(url, {
+      method,
+      body,
+      fallbackMessage: 'Erro ao gravar movimento',
+    });
   };
 
   const liquidarMovimento = async (movimentoId: string, numeroReciboLocal: string, metodoPagamentoLocal: string, comprovativo?: File | null) => {
-    const headers: Record<string, string> = {
-      Accept: 'application/json',
-      'X-Requested-With': 'XMLHttpRequest',
-      'X-CSRF-TOKEN': getCsrfToken(),
-    };
-
-    let body: BodyInit;
-    if (comprovativo) {
+    const body = comprovativo
+      ? (() => {
       const form = new FormData();
       form.append('numero_recibo', numeroReciboLocal);
       form.append('metodo_pagamento', metodoPagamentoLocal);
       form.append('comprovativo', comprovativo);
-      body = form;
-    } else {
-      headers['Content-Type'] = 'application/json';
-      body = JSON.stringify({ numero_recibo: numeroReciboLocal, metodo_pagamento: metodoPagamentoLocal });
-    }
+      return form;
+    })()
+      : { numero_recibo: numeroReciboLocal, metodo_pagamento: metodoPagamentoLocal };
 
-    const response = await fetch(route('financeiro.movimentos.liquidar', movimentoId), {
+    return fetchFinanceiro<{ movimento: Movimento; lancamento?: LancamentoFinanceiro }>(route('financeiro.movimentos.liquidar', movimentoId), {
       method: 'POST',
-      headers,
-      credentials: 'same-origin',
       body,
+      fallbackMessage: 'Erro ao liquidar movimento',
     });
-
-    if (!response.ok) {
-      let message = 'Erro ao liquidar movimento';
-      try {
-        const data = await response.json();
-        if (data?.message) message = data.message;
-        if (data?.errors) {
-          const errors = Object.values(data.errors).flat().join(' ');
-          if (errors) message = errors;
-        }
-      } catch (error) {
-        const fallback = await response.text();
-        if (fallback) message = fallback;
-      }
-      throw new Error(message);
-    }
-
-    return response.json() as Promise<{ movimento: Movimento; lancamento?: LancamentoFinanceiro }>;
   };
 
   const [estadoFilter, setEstadoFilter] = useState<string>('all');
@@ -405,14 +352,9 @@ export function MovimentosTab({
     const movimentosParaApagar = Array.from(selectedMovimentos);
     try {
       for (const movimentoId of movimentosParaApagar) {
-        await fetch(route('financeiro.movimentos.destroy', movimentoId), {
+        await fetchFinanceiro<{ success: boolean }>(route('financeiro.movimentos.destroy', movimentoId), {
           method: 'DELETE',
-          headers: {
-            Accept: 'application/json',
-            'X-Requested-With': 'XMLHttpRequest',
-            'X-CSRF-TOKEN': getCsrfToken(),
-          },
-          credentials: 'same-origin',
+          fallbackMessage: 'Erro ao apagar movimentos',
         });
       }
 
@@ -432,14 +374,9 @@ export function MovimentosTab({
 
   const handleDeleteSingleMovimento = async (movimentoId: string) => {
     try {
-      await fetch(route('financeiro.movimentos.destroy', movimentoId), {
+      await fetchFinanceiro<{ success: boolean }>(route('financeiro.movimentos.destroy', movimentoId), {
         method: 'DELETE',
-        headers: {
-          Accept: 'application/json',
-          'X-Requested-With': 'XMLHttpRequest',
-          'X-CSRF-TOKEN': getCsrfToken(),
-        },
-        credentials: 'same-origin',
+        fallbackMessage: 'Erro ao apagar movimento',
       });
       setMovimentos((current) => (current || []).filter((m) => m.id !== movimentoId));
       setMovimentoItens((current) => (current || []).filter((item) => item.movimento_id !== movimentoId));
@@ -761,7 +698,7 @@ export function MovimentosTab({
             <SelectTrigger className="w-[200px]">
               <SelectValue placeholder="Classificacao" />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent className={scrollableSelectContentClassName}>
               <SelectItem value="all">Todas Classificacoes</SelectItem>
               <SelectItem value="receita">Receita</SelectItem>
               <SelectItem value="despesa">Despesa</SelectItem>
@@ -772,7 +709,7 @@ export function MovimentosTab({
             <SelectTrigger className="w-[200px]">
               <SelectValue placeholder="Estado" />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent className={scrollableSelectContentClassName}>
               <SelectItem value="all">Todos os Estados</SelectItem>
               <SelectItem value="pendente">Pendente</SelectItem>
               <SelectItem value="por_pagar">Por pagar</SelectItem>
@@ -788,7 +725,7 @@ export function MovimentosTab({
             <SelectTrigger className="w-[220px]">
               <SelectValue placeholder="Estado documental" />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent className={scrollableSelectContentClassName}>
               <SelectItem value="all">Todos os documentos</SelectItem>
               <SelectItem value="falta_fatura">Falta fatura</SelectItem>
               <SelectItem value="falta_recibo">Falta recibo</SelectItem>
@@ -803,7 +740,7 @@ export function MovimentosTab({
             <SelectTrigger className="w-[220px]">
               <SelectValue placeholder="Conciliacao" />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent className={scrollableSelectContentClassName}>
               <SelectItem value="all">Toda a conciliacao</SelectItem>
               <SelectItem value="nao_conciliado">Nao conciliado</SelectItem>
               <SelectItem value="sugerido">Sugerido</SelectItem>
@@ -831,7 +768,7 @@ export function MovimentosTab({
             <DialogTrigger asChild>
               <Button onClick={resetForm}>
                 <Plus className="mr-2" />
-                Nova despesa
+                Novo Movimento
               </Button>
             </DialogTrigger>
             <Button variant="outline" onClick={() => router.visit(route('logistica.index', { tab: 'fornecedores' }))}>
@@ -839,9 +776,9 @@ export function MovimentosTab({
             </Button>
             <DialogContent className="w-[calc(100vw-1rem)] sm:w-[calc(100vw-2rem)] sm:max-w-6xl max-h-[90vh] overflow-y-auto overflow-x-hidden p-3 sm:p-6">
               <DialogHeader>
-                <DialogTitle>{editingMovimentoId ? 'Editar despesa' : 'Nova despesa'}</DialogTitle>
+                <DialogTitle>{editingMovimentoId ? 'Editar Movimento' : 'Novo Movimento'}</DialogTitle>
                 <DialogDescription>
-                  {editingMovimentoId ? 'Altere os dados da despesa' : 'Registe uma nova despesa manual'}
+                  {editingMovimentoId ? 'Altere os dados do movimento' : 'Registe um novo movimento manual'}
                 </DialogDescription>
               </DialogHeader>
               <div className="space-y-3 overflow-x-hidden">
@@ -920,7 +857,7 @@ export function MovimentosTab({
                         <SelectTrigger className="h-8 text-sm">
                           <SelectValue placeholder="Selecionar utilizador" />
                         </SelectTrigger>
-                        <SelectContent>
+                        <SelectContent className={scrollableSelectContentClassName}>
                           {(users || []).map((user) => (
                             <SelectItem key={user.id} value={user.id}>
                               {user.nome_completo} - {user.numero_socio}
@@ -936,7 +873,7 @@ export function MovimentosTab({
                         <SelectTrigger className="h-8 text-sm">
                           <SelectValue placeholder="Selecionar fornecedor" />
                         </SelectTrigger>
-                        <SelectContent>
+                        <SelectContent className={scrollableSelectContentClassName}>
                           {(suppliers || []).map((supplier) => (
                             <SelectItem key={supplier.id} value={supplier.id}>
                               {supplier.nome}{supplier.nif ? ` - ${supplier.nif}` : ''}
@@ -986,7 +923,7 @@ export function MovimentosTab({
                       <SelectTrigger>
                         <SelectValue />
                       </SelectTrigger>
-                      <SelectContent>
+                      <SelectContent className={scrollableSelectContentClassName}>
                         <SelectItem value="receita">Receita</SelectItem>
                         <SelectItem value="despesa">Despesa</SelectItem>
                       </SelectContent>
@@ -1026,7 +963,7 @@ export function MovimentosTab({
                       <SelectTrigger>
                         <SelectValue />
                       </SelectTrigger>
-                      <SelectContent>
+                      <SelectContent className={scrollableSelectContentClassName}>
                         <SelectItem value="inscricao">Inscricao</SelectItem>
                         <SelectItem value="material">Material</SelectItem>
                         <SelectItem value="servico">Servico</SelectItem>
@@ -1070,7 +1007,7 @@ export function MovimentosTab({
                       <SelectTrigger>
                         <SelectValue placeholder="Sem origem" />
                       </SelectTrigger>
-                      <SelectContent>
+                      <SelectContent className={scrollableSelectContentClassName}>
                         <SelectItem value="none">Sem origem</SelectItem>
                         <SelectItem value="evento">Evento</SelectItem>
                         <SelectItem value="stock">Stock</SelectItem>
@@ -1110,7 +1047,7 @@ export function MovimentosTab({
                       <SelectTrigger>
                         <SelectValue placeholder="Opcional" />
                       </SelectTrigger>
-                      <SelectContent>
+                      <SelectContent className={scrollableSelectContentClassName}>
                         {(centrosCusto || [])
                           .filter((cc) => cc.ativo)
                           .map((cc) => (
@@ -1179,7 +1116,7 @@ export function MovimentosTab({
                                 <SelectTrigger className="h-7 text-xs">
                                   <SelectValue placeholder="Nenhum" />
                                 </SelectTrigger>
-                                <SelectContent>
+                                <SelectContent className={scrollableSelectContentClassName}>
                                   <SelectItem value="none">Nenhum</SelectItem>
                                   {(users || []).map((user) => (
                                     <SelectItem key={user.id} value={user.id}>
@@ -1265,7 +1202,7 @@ export function MovimentosTab({
                                 <SelectTrigger className="h-7 text-xs">
                                   <SelectValue placeholder="Nenhum" />
                                 </SelectTrigger>
-                                <SelectContent>
+                                <SelectContent className={scrollableSelectContentClassName}>
                                   <SelectItem value="none">Nenhum</SelectItem>
                                   {(allMovimentos || [])
                                     .filter((m) => m.id !== editingMovimentoId && m.estado_pagamento !== 'cancelado')
@@ -1321,7 +1258,7 @@ export function MovimentosTab({
                 <Button variant="outline" onClick={() => { setDialogOpen(false); resetForm(); }}>
                   Cancelar
                 </Button>
-                <Button onClick={handleCriarMovimento}>{editingMovimentoId ? 'Guardar Alteracoes' : 'Criar Movimento'}</Button>
+                <Button onClick={handleCriarMovimento}>{editingMovimentoId ? 'Guardar Alterações' : 'Criar Movimento'}</Button>
               </DialogFooter>
             </DialogContent>
           </Dialog>
@@ -1602,7 +1539,7 @@ export function MovimentosTab({
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className={scrollableSelectContentClassName}>
                   <SelectItem value="dinheiro">Dinheiro</SelectItem>
                   <SelectItem value="transferencia">Transferencia</SelectItem>
                   <SelectItem value="mbway">MB Way</SelectItem>

@@ -224,7 +224,7 @@ export default function FinanceiroIndex({
             {activeTab === 'mensalidades' ? (
               <Suspense fallback={<TabFallback />}>
                 <FaturasTab
-                  faturas={mensalidadesFaturasState}
+                  faturas={faturasState}
                   setFaturas={updateFaturasState}
                   faturaItens={faturaItensState}
                   setFaturaItens={setFaturaItens}

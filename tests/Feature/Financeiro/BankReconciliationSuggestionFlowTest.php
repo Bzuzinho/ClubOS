@@ -1097,7 +1097,7 @@ class BankReconciliationSuggestionFlowTest extends TestCase
     {
         $defaults = [
             'nome_completo' => 'John Exact',
-            'numero_socio' => '5001',
+            'numero_socio' => fake()->unique()->numerify('5###'),
             'nif' => '123456789',
             'morada' => 'Rua Financeira 1',
             'codigo_postal' => '1000-100',
@@ -1127,7 +1127,7 @@ class BankReconciliationSuggestionFlowTest extends TestCase
     {
         $user = User::factory()->create(array_merge([
             'nome_completo' => 'Membro Familia',
-            'numero_socio' => '5900',
+            'numero_socio' => fake()->unique()->numerify('59##'),
             'nif' => '123123123',
             'morada' => 'Rua da Familia 1',
             'codigo_postal' => '1000-200',

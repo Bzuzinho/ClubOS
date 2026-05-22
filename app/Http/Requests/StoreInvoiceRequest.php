@@ -24,7 +24,6 @@ class StoreInvoiceRequest extends FormRequest
             'valor_total' => ['required', 'numeric', 'min:0'],
             'oculta' => ['nullable', 'boolean'],
             'centro_custo_id' => ['nullable', 'exists:cost_centers,id'],
-            'numero_recibo' => ['nullable', 'string', 'max:255'],
             'referencia_pagamento' => ['nullable', 'string', 'max:255'],
             'origem_tipo' => ['nullable', 'in:evento,stock,patrocinio,manual'],
             'origem_id' => ['nullable', 'string', 'max:255'],

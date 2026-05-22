@@ -1,7 +1,8 @@
-import { useState, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { router } from '@inertiajs/react';
 import axios from 'axios';
 import { Fatura, FaturaItem, User, CentroCusto, Product, LancamentoFinanceiro, MonthlyFee, InvoiceType, ConciliacaoMapa, ExtratoBancario, PaymentMethod } from './types';
+import { getFinanceiroAxiosJsonConfig, getFinanceiroJsonHeaders, getFinanceiroRequestErrorMessage } from './request';
 import { Button } from '@/Components/ui/button';
 import { Card } from '@/Components/ui/card';
 import { Input } from '@/Components/ui/input';
@@ -65,42 +66,6 @@ export function FaturasTab({
     }
     return fallback;
   };
-  const getCsrfToken = () => {
-    const token = document.querySelector('meta[name="csrf-token"]') as HTMLMetaElement | null;
-    return token?.content || '';
-  };
-  const getApiHeaders = () => {
-    const csrfToken = getCsrfToken();
-
-    return {
-      Accept: 'application/json',
-      'Content-Type': 'application/json',
-      'X-Requested-With': 'XMLHttpRequest',
-      ...(csrfToken ? { 'X-CSRF-TOKEN': csrfToken } : {}),
-    };
-  };
-  const getAxiosJsonConfig = () => ({
-    headers: getApiHeaders(),
-    withCredentials: true,
-  });
-  const getRequestErrorMessage = (error: unknown, fallbackMessage: string) => {
-    if (axios.isAxiosError(error)) {
-      if (error.response?.status === 419) {
-        return 'Sessao expirada. Atualize a pagina e tente novamente.';
-      }
-
-      const responseMessage = error.response?.data?.message;
-      const validationErrors = Object.values(error.response?.data?.errors || {}).flat().join(' ');
-
-      return responseMessage || validationErrors || fallbackMessage;
-    }
-
-    if (error instanceof Error) {
-      return error.message;
-    }
-
-    return fallbackMessage;
-  };
   const persistInvoice = async (payload: {
     user_id: string;
     data_emissao: string;
@@ -127,7 +92,7 @@ export function FaturasTab({
   }) => {
     const response = await fetch(route('financeiro.store'), {
       method: 'POST',
-      headers: getApiHeaders(),
+      headers: getFinanceiroJsonHeaders(),
       credentials: 'same-origin',
       body: JSON.stringify(payload),
     });
@@ -178,7 +143,7 @@ export function FaturasTab({
   }) => {
     const response = await fetch(route('financeiro.update', invoiceId), {
       method: 'PUT',
-      headers: getApiHeaders(),
+      headers: getFinanceiroJsonHeaders(),
       credentials: 'same-origin',
       body: JSON.stringify(payload),
     });
@@ -204,7 +169,7 @@ export function FaturasTab({
   };
 
   const deleteInvoice = async (invoiceId: string) => {
-    await axios.post(route('financeiro.destroy.post', invoiceId), {}, getAxiosJsonConfig());
+    await axios.post(route('financeiro.destroy.post', invoiceId), {}, getFinanceiroAxiosJsonConfig());
   };
   const getStartOfToday = () => {
     const today = new Date();
@@ -237,7 +202,7 @@ export function FaturasTab({
   };
   const [dialogOpen, setDialogOpen] = useState(false);
   const [dialogAutoOpen, setDialogAutoOpen] = useState(false);
-  const [dialogReciboOpen, setDialogReciboOpen] = useState(false);
+  const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
   const [dialogDeleteOpen, setDialogDeleteOpen] = useState(false);
   const [selectedUserId, setSelectedUserId] = useState<string>('');
   const [selectedFaturaId, setSelectedFaturaId] = useState<string | null>(null);
@@ -269,15 +234,23 @@ export function FaturasTab({
       || 'mensalidade';
   };
 
-  const defaultManualPaymentMethod = useMemo(() => {
-    const manualMethod = (paymentMethods || []).find((method) => !method.requer_linha_bancaria);
-    return manualMethod?.codigo || paymentMethods?.[0]?.codigo || 'dinheiro';
+  const activePaymentMethods = useMemo(() => {
+    return (paymentMethods || []).filter((method) => method.ativo);
   }, [paymentMethods]);
 
+  const defaultManualPaymentMethod = useMemo(() => {
+    const manualMethod = activePaymentMethods.find((method) => !method.requer_linha_bancaria);
+
+    return manualMethod?.codigo || activePaymentMethods[0]?.codigo || 'dinheiro';
+  }, [activePaymentMethods]);
+
   const defaultBankPaymentMethod = useMemo(() => {
-    const bankMethod = (paymentMethods || []).find((method) => method.requer_linha_bancaria);
-    return bankMethod?.codigo || paymentMethods?.[0]?.codigo || 'transferencia';
-  }, [paymentMethods]);
+    const bankMethod = activePaymentMethods.find((method) => method.requer_linha_bancaria);
+
+    return bankMethod?.codigo || activePaymentMethods[0]?.codigo || 'transferencia';
+  }, [activePaymentMethods]);
+
+  const defaultPaymentMethod = defaultManualPaymentMethod || defaultBankPaymentMethod || '';
 
   const reloadFinanceiroData = () => {
     router.reload({
@@ -318,11 +291,11 @@ export function FaturasTab({
   const getInvoicePaidAmount = (invoice: Fatura) => Math.max(toNumber(invoice.valor_pago, 0), 0);
 
   const resetPaymentDialog = () => {
-    setDialogReciboOpen(false);
+    setPaymentDialogOpen(false);
     setSelectedFaturaId(null);
     setSelectedBankStatementId('none');
     setPaymentDate(format(new Date(), 'yyyy-MM-dd'));
-    setPaymentMethod(defaultManualPaymentMethod);
+    setPaymentMethod(defaultPaymentMethod);
     setPaymentReference('');
     setPaymentNotes('');
     setPaymentAmount('0.00');
@@ -423,10 +396,11 @@ export function FaturasTab({
   }, [availableBankStatements, selectedBankStatementId]);
 
   const selectedPaymentMethod = useMemo(() => {
-    return (paymentMethods || []).find((method) => method.codigo === paymentMethod) || null;
-  }, [paymentMethod, paymentMethods]);
+    return activePaymentMethods.find((method) => method.codigo === paymentMethod) || null;
+  }, [activePaymentMethods, paymentMethod]);
 
   const paymentRequiresBankStatement = Boolean(selectedPaymentMethod?.requer_linha_bancaria);
+  const hasAvailableBankStatements = availableBankStatements.length > 0;
 
   const editingInvoice = useMemo(() => {
     if (!editingFaturaId) {
@@ -464,6 +438,14 @@ export function FaturasTab({
       return 'Selecione um metodo de pagamento configurado.';
     }
 
+    if (!selectedPaymentMethod) {
+      return 'Selecione um metodo de pagamento ativo.';
+    }
+
+    if (paymentRequiresBankStatement && !hasAvailableBankStatements) {
+      return 'Nao existem linhas bancarias disponiveis para conciliar.';
+    }
+
     if (paymentRequiresBankStatement && !selectedBankStatement) {
       return 'Este metodo de pagamento exige selecao de uma linha de extrato bancario.';
     }
@@ -483,16 +465,32 @@ export function FaturasTab({
     return null;
   }, [
     hasValidPaymentAllocations,
+    hasAvailableBankStatements,
     paymentMethod,
     paymentRequiresBankStatement,
     paymentSubmitting,
+    selectedPaymentMethod,
     selectedBankStatement,
     totalAllocatedAmount,
     totalAvailableAmount,
   ]);
   const canConfirmPayment = !paymentValidationMessage;
 
-  const handleAbrirDialogoRecibo = (faturaId?: string, fromStatusTransition = false) => {
+  useEffect(() => {
+    if (selectedPaymentMethod || !defaultPaymentMethod) {
+      return;
+    }
+
+    setPaymentMethod(defaultPaymentMethod);
+  }, [defaultPaymentMethod, selectedPaymentMethod]);
+
+  useEffect(() => {
+    if (!paymentRequiresBankStatement && selectedBankStatementId !== 'none') {
+      setSelectedBankStatementId('none');
+    }
+  }, [paymentRequiresBankStatement, selectedBankStatementId]);
+
+  const handleOpenPaymentDialog = (faturaId?: string, fromStatusTransition = false) => {
     const invoiceIds = faturaId ? [faturaId] : Array.from(selectedFaturas);
     const eligibleInvoices = invoiceIds
       .map((invoiceId) => (faturas || []).find((invoice) => invoice.id === invoiceId))
@@ -518,14 +516,14 @@ export function FaturasTab({
     }
     setSelectedBankStatementId('none');
     setPaymentDate(format(new Date(), 'yyyy-MM-dd'));
-    setPaymentMethod(defaultManualPaymentMethod);
+    setPaymentMethod(defaultPaymentMethod);
     setPaymentReference('');
     setPaymentNotes('');
     setPaymentAllocations(defaultAllocations);
     setPaymentAmount(formatAmount(eligibleInvoices.reduce((sum, invoice) => sum + getInvoiceOutstandingAmount(invoice), 0)));
     setPaymentCreateCredit(false);
     setStatusTransitionInvoiceId(fromStatusTransition && faturaId ? faturaId : null);
-    setDialogReciboOpen(true);
+    setPaymentDialogOpen(true);
   };
 
   const handleConfirmarLiquidacao = async () => {
@@ -621,7 +619,7 @@ export function FaturasTab({
       resetPaymentDialog();
       setSelectedFaturas(new Set());
     } catch (error) {
-      const message = getRequestErrorMessage(error, 'Erro ao registar pagamento');
+      const message = getFinanceiroRequestErrorMessage(error, 'Erro ao registar pagamento');
       toast.error(message);
     } finally {
       setPaymentSubmitting(false);
@@ -721,7 +719,7 @@ export function FaturasTab({
         message: data.message as string | undefined,
       };
     } catch (error) {
-      throw new Error(getRequestErrorMessage(error, 'Erro ao alterar estado da mensalidade'));
+      throw new Error(getFinanceiroRequestErrorMessage(error, 'Erro ao alterar estado da mensalidade'));
     }
   };
 
@@ -738,7 +736,7 @@ export function FaturasTab({
         message: data.message as string | undefined,
       };
     } catch (error) {
-      throw new Error(getRequestErrorMessage(error, 'Erro ao reabrir a fatura'));
+      throw new Error(getFinanceiroRequestErrorMessage(error, 'Erro ao reabrir a fatura'));
     }
   };
 
@@ -1024,7 +1022,6 @@ export function FaturasTab({
           tipo: faturaAtualizada.tipo,
           valor_total: faturaAtualizada.valor_total,
           estado_pagamento: administrativeStatus,
-          numero_recibo: faturaAtualizada.numero_recibo || null,
           centro_custo_id: faturaAtualizada.centro_custo_id || undefined,
           observacoes: faturaAtualizada.observacoes || undefined,
           origem_tipo: faturaAtualizada.origem_tipo || null,
@@ -1055,7 +1052,7 @@ export function FaturasTab({
           );
           setDialogOpen(false);
           setEditingFaturaId(null);
-          handleAbrirDialogoRecibo(editingFaturaId, isMonthlyInvoice);
+          handleOpenPaymentDialog(editingFaturaId, isMonthlyInvoice);
           return;
         }
 
@@ -1319,7 +1316,7 @@ export function FaturasTab({
             <>
               <Button
                 variant="outline"
-                onClick={() => handleAbrirDialogoRecibo()}
+                onClick={() => handleOpenPaymentDialog()}
                 className="w-full sm:w-auto text-xs sm:text-sm"
                 size="sm"
               >
@@ -1766,7 +1763,7 @@ export function FaturasTab({
                               size="sm"
                               variant="ghost"
                               className="h-7 w-7 p-0"
-                              onClick={() => handleAbrirDialogoRecibo(fatura.id)}
+                              onClick={() => handleOpenPaymentDialog(fatura.id)}
                               title="Registar pagamento"
                             >
                               <Check size={14} />
@@ -1868,7 +1865,7 @@ export function FaturasTab({
                                 <PencilSimple size={14} />
                               </Button>
                               {!['pago', 'cancelado'].includes(fatura.estado_pagamento) && (
-                                <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => handleAbrirDialogoRecibo(fatura.id)} title="Registar pagamento">
+                                <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => handleOpenPaymentDialog(fatura.id)} title="Registar pagamento">
                                   <Check size={14} />
                                 </Button>
                               )}
@@ -1892,7 +1889,7 @@ export function FaturasTab({
         )}
       </Card>
 
-      <Dialog open={dialogReciboOpen} onOpenChange={setDialogReciboOpen}>
+      <Dialog open={paymentDialogOpen} onOpenChange={setPaymentDialogOpen}>
         <DialogContent className="w-[95vw] sm:w-full max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="text-base sm:text-lg">
@@ -1904,47 +1901,52 @@ export function FaturasTab({
           </DialogHeader>
           <div className="space-y-4">
             <div className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-2">
-                <Label className="text-sm">Linha do Extrato Bancario</Label>
-                <Select
-                  value={selectedBankStatementId}
-                  onValueChange={(value) => {
-                    setSelectedBankStatementId(value);
+              {paymentRequiresBankStatement ? (
+                <div className="space-y-2">
+                  <Label className="text-sm">Linha bancaria para conciliar</Label>
+                  {hasAvailableBankStatements ? (
+                    <Select
+                      value={selectedBankStatementId}
+                      onValueChange={(value) => {
+                        setSelectedBankStatementId(value);
 
-                    if (value === 'none') {
-                      setPaymentDate(format(new Date(), 'yyyy-MM-dd'));
-                      return;
-                    }
+                        if (value === 'none') {
+                          return;
+                        }
 
-                    const statement = availableBankStatements.find((item) => item.id === value);
-                    if (!statement) {
-                      return;
-                    }
+                        const statement = availableBankStatements.find((item) => item.id === value);
+                        if (!statement) {
+                          return;
+                        }
 
-                    setPaymentDate(statement.data_movimento);
-                    setPaymentMethod(defaultBankPaymentMethod);
-                    setPaymentReference(statement.referencia || '');
-                  }}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Sem associar linha bancaria" />
-                  </SelectTrigger>
-                  <SelectContent className="max-h-72 overflow-y-auto">
-                    <SelectItem value="none">Sem associar linha bancaria</SelectItem>
-                    {availableBankStatements.map((statement) => {
-                      const remaining = statement.valor_por_conciliar !== null && statement.valor_por_conciliar !== undefined
-                        ? Math.abs(toNumber(statement.valor_por_conciliar, 0))
-                        : Math.abs(toNumber(statement.valor, 0));
+                        setPaymentDate(statement.data_movimento);
+                        setPaymentReference(statement.referencia || '');
+                      }}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Selecionar linha bancaria" />
+                      </SelectTrigger>
+                      <SelectContent className="max-h-72 overflow-y-auto">
+                        {availableBankStatements.map((statement) => {
+                          const remaining = statement.valor_por_conciliar !== null && statement.valor_por_conciliar !== undefined
+                            ? Math.abs(toNumber(statement.valor_por_conciliar, 0))
+                            : Math.abs(toNumber(statement.valor, 0));
 
-                      return (
-                        <SelectItem key={statement.id} value={statement.id}>
-                          {format(new Date(statement.data_movimento), 'dd/MM/yyyy')} · {statement.referencia || statement.descricao} · €{remaining.toFixed(2)}
-                        </SelectItem>
-                      );
-                    })}
-                  </SelectContent>
-                </Select>
-              </div>
+                          return (
+                            <SelectItem key={statement.id} value={statement.id}>
+                              {format(new Date(statement.data_movimento), 'dd/MM/yyyy')} · {statement.descricao} · {statement.referencia || 'sem referencia'} · €{Math.abs(toNumber(statement.valor, 0)).toFixed(2)} · por conciliar €{remaining.toFixed(2)}
+                            </SelectItem>
+                          );
+                        })}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                      Nao existem linhas bancarias disponiveis para conciliar.
+                    </div>
+                  )}
+                </div>
+              ) : null}
 
               <div className="space-y-2">
                 <Label className="text-sm">Valor a pagar/alocar</Label>
@@ -1978,7 +1980,7 @@ export function FaturasTab({
               <div className="space-y-2">
                 <Label className="text-sm">Metodo</Label>
                 <Select value={paymentMethod} onValueChange={(value) => {
-                  const nextMethod = (paymentMethods || []).find((method) => method.codigo === value) || null;
+                  const nextMethod = activePaymentMethods.find((method) => method.codigo === value) || null;
 
                   setPaymentMethod(value);
 
@@ -1991,7 +1993,7 @@ export function FaturasTab({
                     <SelectValue placeholder="Selecionar metodo de pagamento" />
                   </SelectTrigger>
                   <SelectContent>
-                    {(paymentMethods || []).map((method) => (
+                    {activePaymentMethods.map((method) => (
                       <SelectItem key={method.id} value={method.codigo}>
                         {method.nome}
                       </SelectItem>

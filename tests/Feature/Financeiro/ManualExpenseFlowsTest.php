@@ -10,6 +10,7 @@ use App\Models\MovementDocument;
 use App\Models\MovementDocumentRequirement;
 use App\Models\Supplier;
 use App\Models\User;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
@@ -59,7 +60,10 @@ class ManualExpenseFlowsTest extends TestCase
             ]],
         ]);
 
-        $response->assertOk();
+        $response
+            ->assertOk()
+            ->assertJsonPath('movimento.classificacao', 'despesa')
+            ->assertJsonPath('movimento.estado_pagamento', 'por_pagar');
 
         $movement = Movement::query()->firstOrFail();
         $entry = FinancialEntry::query()->where('origem_tipo', 'movement')->where('origem_id', $movement->id)->first();
@@ -76,6 +80,84 @@ class ManualExpenseFlowsTest extends TestCase
         ]);
         $this->assertSame('invoice', $document->document_type);
         $this->assertSame('despesa', $entry->tipo);
+    }
+
+    public function test_creating_movement_accepts_multipart_form_data_and_returns_json(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $costCenter = CostCenter::query()->firstOrFail();
+        $documentoOriginal = UploadedFile::fake()->create('movimento.pdf', 32, 'application/pdf');
+
+        $response = $this->actingAs($admin)
+            ->withHeaders([
+                'Accept' => 'application/json',
+                'X-Requested-With' => 'XMLHttpRequest',
+            ])
+            ->post(route('financeiro.movimentos.store'), [
+                'nome_manual' => 'Patrocinador Teste',
+                'classificacao' => 'receita',
+                'categoria' => 'patrocinio',
+                'data_emissao' => now()->toDateString(),
+                'data_vencimento' => now()->addDays(5)->toDateString(),
+                'valor_total' => 150.00,
+                'estado_pagamento' => 'pendente',
+                'centro_custo_id' => $costCenter->id,
+                'tipo' => 'patrocinio',
+                'documento_original' => $documentoOriginal,
+                'items' => json_encode([
+                    [
+                        'descricao' => 'Apoio mensal',
+                        'quantidade' => 1,
+                        'valor_unitario' => 150.00,
+                        'imposto_percentual' => 0,
+                        'total_linha' => 150.00,
+                        'centro_custo_id' => $costCenter->id,
+                    ],
+                ], JSON_THROW_ON_ERROR),
+            ]);
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('movimento.classificacao', 'receita')
+            ->assertJsonPath('movimento.nome_manual', 'Patrocinador Teste');
+
+        $movement = Movement::query()->latest('created_at')->firstOrFail();
+
+        $this->assertNotNull($movement->documento_original);
+        Storage::disk('public')->assertExists($movement->documento_original);
+        $this->assertDatabaseHas('movement_items', [
+            'movimento_id' => $movement->id,
+            'descricao' => 'Apoio mensal',
+        ]);
+    }
+
+    public function test_store_movimento_returns_json_validation_errors_for_missing_required_fields(): void
+    {
+        $admin = User::factory()->admin()->create();
+
+        $response = $this->actingAs($admin)->postJson(route('financeiro.movimentos.store'), [
+            'nome_manual' => 'Fornecedor sem centro de custo',
+            'classificacao' => 'despesa',
+            'data_emissao' => now()->toDateString(),
+            'data_vencimento' => now()->addDays(5)->toDateString(),
+            'valor_total' => 45.00,
+            'tipo' => 'servico',
+            'items' => [
+                [
+                    'descricao' => 'Servico sem centro',
+                    'quantidade' => 1,
+                    'valor_unitario' => 45.00,
+                    'imposto_percentual' => 0,
+                    'total_linha' => 45.00,
+                ],
+            ],
+        ]);
+
+        $response
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['centro_custo_id']);
+
+        $this->assertNotEmpty($response->json('errors.centro_custo_id.0'));
     }
 
     public function test_bank_payment_before_invoice_creates_paid_reconciled_expense_missing_invoice(): void

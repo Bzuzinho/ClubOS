@@ -76,6 +76,90 @@ class PaymentAllocationFlowTest extends TestCase
         ]);
     }
 
+    public function test_it_pays_a_manual_material_invoice_without_receipt_number_and_keeps_invoice_receipt_null(): void
+    {
+        $admin = User::factory()->admin()->create();
+        [$invoice] = $this->createInvoicesForUser([85.50], 'material');
+
+        $response = $this->actingAs($admin)->postJson(route('financeiro.payments.allocate'), [
+            'amount' => 85.50,
+            'payment_date' => '2026-05-05',
+            'method' => 'dinheiro',
+            'reference' => 'TRX-MATERIAL-001',
+            'notes' => 'Pagamento manual de fatura de material sem recibo.',
+            'allocations' => [
+                ['invoice_id' => $invoice->id, 'amount' => 85.50],
+            ],
+        ]);
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('summary.all_paid', true)
+            ->assertJsonPath('summary.new_fiscal_requests', 1);
+
+        $invoice->refresh();
+
+        $this->assertSame('material', $invoice->tipo);
+        $this->assertSame('pago', $invoice->estado_pagamento);
+        $this->assertNull($invoice->numero_recibo);
+
+        $this->assertDatabaseHas('payments', [
+            'reference' => 'TRX-MATERIAL-001',
+            'status' => Payment::STATUS_CONFIRMED,
+        ]);
+        $this->assertDatabaseHas('payment_allocations', [
+            'invoice_id' => $invoice->id,
+            'amount' => 85.50,
+        ]);
+        $this->assertDatabaseHas('fiscal_document_requests', [
+            'invoice_id' => $invoice->id,
+            'status' => FiscalDocumentRequest::STATUS_PENDING,
+            'external_document_number' => null,
+        ]);
+    }
+
+    public function test_it_pays_a_manual_inscricao_invoice_without_receipt_number_and_keeps_invoice_receipt_null(): void
+    {
+        $admin = User::factory()->admin()->create();
+        [$invoice] = $this->createInvoicesForUser([55.00], 'inscricao');
+
+        $response = $this->actingAs($admin)->postJson(route('financeiro.payments.allocate'), [
+            'amount' => 55.00,
+            'payment_date' => '2026-05-05',
+            'method' => 'dinheiro',
+            'reference' => 'TRX-INSCRICAO-001',
+            'notes' => 'Pagamento manual de inscricao sem recibo.',
+            'allocations' => [
+                ['invoice_id' => $invoice->id, 'amount' => 55.00],
+            ],
+        ]);
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('summary.all_paid', true)
+            ->assertJsonPath('summary.new_fiscal_requests', 1);
+
+        $invoice->refresh();
+
+        $this->assertSame('inscricao', $invoice->tipo);
+        $this->assertSame('pago', $invoice->estado_pagamento);
+        $this->assertNull($invoice->numero_recibo);
+
+        $this->assertDatabaseHas('payments', [
+            'reference' => 'TRX-INSCRICAO-001',
+            'status' => Payment::STATUS_CONFIRMED,
+        ]);
+        $this->assertDatabaseHas('payment_allocations', [
+            'invoice_id' => $invoice->id,
+            'amount' => 55.00,
+        ]);
+        $this->assertDatabaseHas('fiscal_document_requests', [
+            'invoice_id' => $invoice->id,
+            'status' => FiscalDocumentRequest::STATUS_PENDING,
+            'external_document_number' => null,
+        ]);
+    }
+
     public function test_it_records_partial_payment_without_creating_fiscal_request(): void
     {
         $admin = User::factory()->admin()->create();
@@ -2595,14 +2679,20 @@ class PaymentAllocationFlowTest extends TestCase
 
     private function createInvoiceType(): void
     {
-        InvoiceType::query()->firstOrCreate(
-            ['codigo' => 'mensalidade'],
-            [
-                'nome' => 'Mensalidade',
-                'descricao' => 'Mensalidade',
-                'ativo' => true,
-            ],
-        );
+        foreach ([
+            ['codigo' => 'mensalidade', 'nome' => 'Mensalidade', 'descricao' => 'Mensalidade'],
+            ['codigo' => 'material', 'nome' => 'Material', 'descricao' => 'Material'],
+            ['codigo' => 'inscricao', 'nome' => 'Inscricao', 'descricao' => 'Inscricao'],
+        ] as $invoiceType) {
+            InvoiceType::query()->firstOrCreate(
+                ['codigo' => $invoiceType['codigo']],
+                [
+                    'nome' => $invoiceType['nome'],
+                    'descricao' => $invoiceType['descricao'],
+                    'ativo' => true,
+                ],
+            );
+        }
     }
 
     private function createCostCenter(): CostCenter
