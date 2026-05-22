@@ -507,7 +507,7 @@ F2, F2.1, F2.2 e F2.3 ficam tecnicamente fechadas, mas continuam pendentes de va
 
 ## Sprint F2.4 — Correção limitada do popup Liquidar Movimento
 
-> Estado: tecnicamente concluída em 2026-05-22. Validações automáticas obrigatórias passaram. Validação manual do utilizador ainda pendente.
+> Estado: tecnicamente concluída em 2026-05-22. Validações automáticas obrigatórias passaram. Validação manual do utilizador confirmada no browser.
 
 ### Objetivo
 
@@ -563,13 +563,13 @@ O popup `Liquidar Movimento` passa a respeitar a configuração ativa de método
 
 ### Estado para avanço
 
-F2, F2.1, F2.2, F2.3 e F2.4 ficam tecnicamente fechadas, mas continuam pendentes de validação manual orientada no browser. Não avançar para F3 antes de repetir esses testes e recolher feedback do utilizador.
+F2.4 fica validada manualmente no browser para o fluxo de Movimentos testado. Em conjunto com a validação manual confirmada da F2.5, F2/F2.1/F2.2/F2.3/F2.4/F2.5 ficam fechadas operacionalmente na parte testada, mantendo apenas pendências que não pertencem a estas sprints. Não avançar para F3.
 
 ---
 
 ## Sprint F2.5 — Reabertura controlada de movimentos liquidados
 
-> Estado: tecnicamente concluída em 2026-05-22. Validações automáticas obrigatórias passaram. Validação manual do utilizador ainda pendente.
+> Estado: tecnicamente concluída em 2026-05-22. Validações automáticas obrigatórias passaram. Validação manual do utilizador confirmada no browser.
 
 ### Objetivo
 
@@ -624,6 +624,16 @@ Criar ou ajustar testes para validar:
 
 A tab Movimentos passa a ter reabertura segura e explícita para movimentos liquidados, revertendo apenas o rasto financeiro que ainda é reversível e bloqueando os casos já fechados fiscalmente.
 
+### Validação manual confirmada
+
+O utilizador confirmou manualmente no browser que:
+
+- Financeiro > Movimentos > `Liquidar` já funciona;
+- o movimento liquidado passa para a tab Emissão Fiscal;
+- reabrir o movimento para `pendente` e `vencido` já funciona;
+- ao reabrir, o pedido fiscal pendente é removido quando ainda não existe nº Wintouch;
+- a regra ficou confinada ao fluxo de Movimentos, sem mexer em Mensalidades.
+
 ### Validação automática executada
 
 - `composer dump-autoload`
@@ -635,7 +645,7 @@ A tab Movimentos passa a ter reabertura segura e explícita para movimentos liqu
 
 ### Estado para avanço
 
-F2, F2.1, F2.2, F2.3, F2.4 e F2.5 ficam tecnicamente fechadas, mas continuam pendentes de validação manual orientada no browser. Não avançar para F3 antes de repetir esses testes e recolher feedback do utilizador.
+F2.4 e F2.5 ficam validadas manualmente no browser. F2/F2.1/F2.2/F2.3/F2.4/F2.5 ficam fechadas operacionalmente na parte testada, mantendo apenas pendências que não pertencem a estas sprints. Não avançar para F3.
 
 ---
 
