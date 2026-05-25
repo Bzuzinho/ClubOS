@@ -14,6 +14,7 @@ use App\Models\User;
 use App\Services\Communication\InAppAlertService;
 use App\Services\Communication\InternalCommunicationService;
 use App\Services\Family\FamilyService;
+use App\Services\Financeiro\CurrentAccountService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -380,37 +381,39 @@ class PortalPageController extends Controller
     private function buildPaymentsPayload(User $user): array
     {
         $today = now()->startOfDay();
+        $currentAccountService = app(CurrentAccountService::class);
+        $accountSummary = $currentAccountService->summarize([
+            'user_id' => $user->id,
+        ]);
 
         $user->loadMissing('dadosFinanceiros.mensalidade');
 
-        $invoices = Invoice::query()
-            ->where('user_id', $user->id)
-            ->where('oculta', false)
-            ->orderByDesc('data_emissao')
-            ->orderByDesc('created_at')
-            ->get();
+        $openInvoices = collect($accountSummary['breakdown']['invoices'] ?? []);
+        $openFinancialMovements = collect($accountSummary['breakdown']['movements'] ?? []);
+        $visibleInvoices = Invoice::query()
+            ->whereIn('id', $openInvoices->pluck('id')->filter()->all())
+            ->get()
+            ->keyBy('id');
+        $visibleFinanceMovements = Movement::query()
+            ->whereIn('id', $openFinancialMovements->pluck('id')->filter()->all())
+            ->get()
+            ->keyBy('id');
 
-        $financeMovements = Movement::query()
-            ->where('user_id', $user->id)
-            ->where('classificacao', 'receita')
-            ->orderByDesc('data_emissao')
-            ->orderByDesc('created_at')
-            ->get();
-
-        $movements = $invoices
-            ->map(fn (Invoice $invoice) => $this->mapPaymentMovement($invoice, $today))
-            ->concat($financeMovements->map(fn (Movement $movement) => $this->mapFinancialMovement($movement, $today)))
+        $movements = $openInvoices
+            ->map(fn (array $invoice) => $this->mapOpenInvoicePaymentMovement(
+                $invoice,
+                $today,
+                $visibleInvoices->get($invoice['id'] ?? null),
+            ))
+            ->concat($openFinancialMovements->map(fn (array $movement) => $this->mapOpenFinancialMovement(
+                $movement,
+                $today,
+                $visibleFinanceMovements->get($movement['id'] ?? null),
+            )))
             ->sortByDesc(fn (array $movement) => sprintf('%s-%s', $movement['date'] ?? '', $movement['id']))
             ->values();
 
-        $openInvoices = $movements
-            ->filter(fn (array $movement) => in_array($movement['status']['key'], ['pending', 'overdue', 'partial'], true))
-            ->values();
-        $overdueInvoices = $openInvoices
-            ->filter(fn (array $movement) => $movement['status']['key'] === 'overdue')
-            ->values();
-
-        $nextPayment = $openInvoices
+        $nextPayment = $movements
             ->sortBy([
                 fn (array $movement) => $movement['due_date'] === null ? 1 : 0,
                 'due_date',
@@ -418,7 +421,40 @@ class PortalPageController extends Controller
             ])
             ->first();
 
-        $receipts = $movements
+        $receipts = Invoice::query()
+            ->where('user_id', $user->id)
+            ->where('oculta', false)
+            ->whereNotNull('numero_recibo')
+            ->where(function (Builder $query) use ($today): void {
+                $query->whereNull('data_fatura')
+                    ->orWhereDate('data_fatura', '<=', $today->toDateString());
+            })
+            ->orderByDesc('data_emissao')
+            ->orderByDesc('created_at')
+            ->get()
+            ->map(fn (Invoice $invoice) => [
+                'id' => (string) $invoice->id,
+                'receipt_number' => (string) $invoice->numero_recibo,
+                'date' => optional($invoice->data_emissao ?: $invoice->data_fatura)->toDateString(),
+                'amount' => round((float) ($invoice->valor_pago ?: $invoice->valor_total), 2),
+                'can_view_receipt' => true,
+            ])
+            ->concat(
+                Movement::query()
+                    ->where('user_id', $user->id)
+                    ->where('classificacao', 'receita')
+                    ->whereNotNull('numero_recibo')
+                    ->orderByDesc('data_emissao')
+                    ->orderByDesc('created_at')
+                    ->get()
+                    ->map(fn (Movement $movement) => [
+                        'id' => (string) $movement->id,
+                        'receipt_number' => (string) $movement->numero_recibo,
+                        'date' => optional($movement->data_emissao)->toDateString(),
+                        'amount' => round((float) $movement->valor_total, 2),
+                        'can_view_receipt' => true,
+                    ])
+            )
             ->filter(fn (array $movement) => filled($movement['receipt_number']))
             ->sortByDesc('date')
             ->values();
@@ -427,11 +463,20 @@ class PortalPageController extends Controller
             ->filter(fn (array $movement) => $movement['date'] !== null && (int) date('Y', strtotime((string) $movement['date'])) === now()->year)
             ->count();
 
-        $outstandingTotal = round((float) $openInvoices->sum('amount'), 2);
-        $overdueTotal = round((float) $overdueInvoices->sum('amount'), 2);
+        $grossDebt = round((float) ($accountSummary['gross_debt'] ?? 0), 2);
+        $availableCredit = round((float) ($accountSummary['available_credit'] ?? 0), 2);
+        $manualAccountBalance = round((float) ($accountSummary['manual_account_balance'] ?? 0), 2);
+        $outstandingTotal = round((float) ($accountSummary['net_debt'] ?? 0), 2);
+        $overdueTotal = round((float) ($accountSummary['overdue_debt'] ?? 0), 2);
         $plan = $user->dadosFinanceiros?->mensalidade?->designacao
             ?: (is_string($user->tipo_mensalidade) ? $user->tipo_mensalidade : null)
+            ?: collect($accountSummary['breakdown']['invoices'] ?? [])->pluck('tipo')->filter()->first()
             ?: 'Sem plano definido';
+        $generalStatus = $outstandingTotal > 0
+            ? 'Pagamento pendente'
+            : ($availableCredit > 0 && $grossDebt > 0
+                ? 'Crédito disponível compensa a dívida'
+                : ($availableCredit > 0 ? 'Crédito disponível' : 'Tudo em dia'));
 
         return [
             'user' => [
@@ -442,7 +487,7 @@ class PortalPageController extends Controller
             'secure_payment_enabled' => false,
             'hero' => [
                 'title' => 'Pagamentos',
-                'status' => $outstandingTotal > 0 ? 'Pagamento pendente' : 'Tudo em dia',
+                'status' => $generalStatus,
                 'outstanding_value' => $outstandingTotal,
                 'next_payment' => $this->compactPaymentSummary($nextPayment),
                 'actions' => [
@@ -459,24 +504,17 @@ class PortalPageController extends Controller
             ],
             'account_current' => [
                 'outstanding_value' => $outstandingTotal,
-                'overdue_invoices' => $overdueInvoices->count(),
+                'gross_debt' => $grossDebt,
+                'available_credit' => $availableCredit,
+                'manual_account_balance' => $manualAccountBalance,
+                'overdue_invoices' => $openInvoices->where('estado_pagamento', 'vencido')->count(),
                 'overdue_value' => $overdueTotal,
                 'next_payment' => $this->compactPaymentSummary($nextPayment),
                 'plan' => $plan,
-                'general_status' => $outstandingTotal > 0 ? 'Pagamento pendente' : 'Tudo em dia',
+                'general_status' => $generalStatus,
             ],
             'movements' => $movements->all(),
-            'latest_receipts' => $receipts
-                ->take(6)
-                ->map(fn (array $movement) => [
-                    'id' => $movement['id'],
-                    'receipt_number' => $movement['receipt_number'],
-                    'date' => $movement['date'],
-                    'amount' => $movement['amount'],
-                    'can_view_receipt' => true,
-                ])
-                ->values()
-                ->all(),
+            'latest_receipts' => $receipts->take(6)->values()->all(),
         ];
     }
 
@@ -497,6 +535,68 @@ class PortalPageController extends Controller
             'payment_method' => null,
             'actions' => [
                 'can_view_receipt' => filled($invoice->numero_recibo),
+                'can_view_detail' => true,
+                'can_pay' => false,
+            ],
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $invoice
+     * @return array<string, mixed>
+     */
+    private function mapOpenInvoicePaymentMovement(array $invoice, Carbon $today, ?Invoice $visibleInvoice = null): array
+    {
+        return [
+            'id' => (string) ($invoice['id'] ?? Str::uuid()),
+            'description' => trim((string) (($invoice['mes'] ?? null) ?: ($invoice['tipo'] ?? null) ?: 'Fatura')) ?: 'Fatura',
+            'date' => $invoice['data_fatura'] ?? null,
+            'due_date' => $invoice['data_vencimento'] ?? null,
+            'amount' => round((float) ($invoice['valor_em_aberto'] ?? 0), 2),
+            'nominal_amount' => round((float) ($invoice['valor_total'] ?? 0), 2),
+            'paid_amount' => round((float) ($invoice['valor_pago'] ?? 0), 2),
+            'amount_label' => 'Em aberto',
+            'type_label' => 'Fatura',
+            'status' => $this->normalizeStatus((string) ($invoice['estado_pagamento'] ?? ''), $invoice['data_vencimento'] ?? null, $today),
+            'reference' => $visibleInvoice?->referencia_pagamento,
+            'receipt_number' => $visibleInvoice?->numero_recibo,
+            'payment_method' => null,
+            'actions' => [
+                'can_view_receipt' => filled($visibleInvoice?->numero_recibo),
+                'can_view_detail' => true,
+                'can_pay' => false,
+            ],
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $movement
+     * @return array<string, mixed>
+     */
+    private function mapOpenFinancialMovement(array $movement, Carbon $today, ?Movement $visibleMovement = null): array
+    {
+        $legacyDescription = $visibleMovement
+            ? ($visibleMovement->referencia_pagamento
+                ? 'Loja - ' . $visibleMovement->referencia_pagamento
+                : 'Movimento material')
+            : null;
+
+        return [
+            'id' => (string) ($movement['id'] ?? Str::uuid()),
+            'description' => trim((string) ($legacyDescription ?: ($movement['description'] ?? 'Movimento'))) ?: 'Movimento',
+            'date' => $movement['data_emissao'] ?? null,
+            'due_date' => $movement['data_vencimento'] ?? null,
+            'amount' => round((float) ($movement['open_amount'] ?? 0), 2),
+            'nominal_amount' => null,
+            'paid_amount' => null,
+            'amount_label' => 'Em aberto',
+            'type_label' => 'Movimento',
+            'status' => $this->normalizeStatus((string) ($movement['estado_pagamento'] ?? ''), $movement['data_vencimento'] ?? null, $today),
+            'reference' => $visibleMovement?->referencia_pagamento,
+            'receipt_number' => $visibleMovement?->numero_recibo,
+            'payment_method' => $visibleMovement?->metodo_pagamento,
+            'actions' => [
+                'can_view_receipt' => filled($visibleMovement?->numero_recibo),
                 'can_view_detail' => true,
                 'can_pay' => false,
             ],
@@ -532,6 +632,9 @@ class PortalPageController extends Controller
     private function normalizeStatus(string $rawStatus, mixed $dueDate, Carbon $today): array
     {
         $rawStatus = strtolower(trim($rawStatus));
+        $dueDateValue = $dueDate instanceof Carbon
+            ? $dueDate
+            : ($dueDate ? Carbon::parse((string) $dueDate)->startOfDay() : null);
 
         if ($rawStatus === 'cancelado') {
             return ['key' => 'cancelled', 'label' => 'Cancelado'];
@@ -545,7 +648,7 @@ class PortalPageController extends Controller
             return ['key' => 'partial', 'label' => 'Parcial'];
         }
 
-        if ($rawStatus === 'vencido' || ($dueDate && $dueDate->lt($today))) {
+        if ($rawStatus === 'vencido' || ($dueDateValue && $dueDateValue->lt($today))) {
             return ['key' => 'overdue', 'label' => 'Vencido'];
         }
 

@@ -33,6 +33,10 @@ interface PaymentMovement {
     date: string | null;
     due_date: string | null;
     amount: number;
+    nominal_amount?: number | null;
+    paid_amount?: number | null;
+    amount_label?: string;
+    type_label?: string;
     status: PaymentStatus;
     reference: string | null;
     receipt_number: string | null;
@@ -80,6 +84,9 @@ interface PortalPaymentsProps {
     };
     account_current: {
         outstanding_value: number;
+        gross_debt: number;
+        available_credit: number;
+        manual_account_balance: number;
         overdue_invoices: number;
         overdue_value: number;
         next_payment: PaymentSummary | null;
@@ -195,11 +202,11 @@ export default function Payments() {
 
                         <div className="grid w-full max-w-[22rem] gap-2.5 rounded-[18px] border border-white/15 bg-white/10 p-3.5 backdrop-blur">
                             <div>
-                                <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-blue-100">Valor em dívida</p>
+                                <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-blue-100">Dívida líquida</p>
                                 <p className={`mt-1.5 text-xl font-semibold ${amountToneClass(hero.outstanding_value, 'debt', 'dark')}`}>{formatSignedCurrency(hero.outstanding_value, 'debt')}</p>
                             </div>
                             <div>
-                                <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-blue-100">Próximo pagamento</p>
+                                <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-blue-100">Próximo valor em aberto</p>
                                 {hero.next_payment ? (
                                     <>
                                         <p className="mt-1.5 text-xs font-semibold text-white">{hero.next_payment.label}</p>
@@ -238,7 +245,7 @@ export default function Payments() {
                 </section>
 
                 <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-                    <PortalKpiCard label="Valor em dívida" value={formatSignedCurrency(kpis.outstanding_value, 'debt')} valueClassName={amountToneClass(kpis.outstanding_value, 'debt')} helper="total por regularizar" icon={CreditCard} />
+                    <PortalKpiCard label="Dívida líquida" value={formatSignedCurrency(kpis.outstanding_value, 'debt')} valueClassName={amountToneClass(kpis.outstanding_value, 'debt')} helper="já desconta crédito disponível" icon={CreditCard} />
                     <PortalKpiCard label="Próximo pagamento" value={kpis.next_payment ? formatDate(kpis.next_payment.date) : 'Sem data'} helper={kpis.next_payment ? formatSignedCurrency(kpis.next_payment.amount, 'debt') : 'Tudo em dia'} icon={CalendarClock} />
                     <PortalKpiCard label="Plano / mensalidade" value={kpis.plan} helper="configuração atual" icon={FileText} />
                     <PortalKpiCard label="Recibos no ano" value={String(kpis.receipts_this_year)} helper="emitidos este ano" icon={Receipt} />
@@ -246,7 +253,7 @@ export default function Payments() {
 
                 <section className="grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(320px,0.85fr)] xl:items-start">
                     <div className="space-y-4">
-                        <PortalSection title="Faturas e movimentos" description="Histórico financeiro visível ao utilizador final." actionLabel="Ver histórico" onAction={() => scrollToSection('movements')}>
+                        <PortalSection title="Faturas e movimentos" description="Valores em aberto reais visíveis ao utilizador final." actionLabel="Ver histórico" onAction={() => scrollToSection('movements')}>
                             <div id="movements" className="space-y-3">
                                 {movements.length > 0 ? movements.map((movement) => (
                                     <article key={movement.id} className="rounded-[24px] border border-slate-200 bg-slate-50/70 p-4">
@@ -254,13 +261,20 @@ export default function Payments() {
                                             <div className="min-w-0 flex-1">
                                                 <div className="flex flex-wrap items-center gap-2">
                                                     <h3 className="text-base font-semibold text-slate-900">{movement.description}</h3>
+                                                    {movement.type_label ? <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-600">{movement.type_label}</span> : null}
                                                     {statusChip(movement.status)}
                                                 </div>
                                                 <div className="mt-3 grid gap-2 text-sm text-slate-600 sm:grid-cols-2">
                                                     <p><span className="font-medium text-slate-800">Data:</span> {formatFullDate(movement.date)}</p>
-                                                    <p><span className="font-medium text-slate-800">Valor:</span> <span className={amountToneClass(movement.amount, movement.status.key === 'paid' ? 'credit' : 'debt')}>{formatSignedCurrency(movement.amount, movement.status.key === 'paid' ? 'credit' : 'debt')}</span></p>
+                                                    <p><span className="font-medium text-slate-800">{movement.amount_label || 'Valor'}:</span> <span className={amountToneClass(movement.amount, movement.status.key === 'paid' ? 'credit' : 'debt')}>{formatSignedCurrency(movement.amount, movement.status.key === 'paid' ? 'credit' : 'debt')}</span></p>
                                                     <p><span className="font-medium text-slate-800">Referência / recibo:</span> {movement.receipt_number || movement.reference || 'Sem referência'}</p>
                                                     <p><span className="font-medium text-slate-800">Método de pagamento:</span> {movement.payment_method || 'Não disponível'}</p>
+                                                    {movement.nominal_amount !== undefined && movement.nominal_amount !== null && Math.abs(movement.nominal_amount - movement.amount) > 0.009 ? (
+                                                        <p><span className="font-medium text-slate-800">Valor nominal:</span> <span className="text-slate-800">{formatSignedCurrency(movement.nominal_amount, 'debt')}</span></p>
+                                                    ) : null}
+                                                    {movement.paid_amount !== undefined && movement.paid_amount !== null && movement.paid_amount > 0 ? (
+                                                        <p><span className="font-medium text-slate-800">Pago:</span> <span className={amountToneClass(movement.paid_amount, 'credit')}>{formatSignedCurrency(movement.paid_amount, 'credit')}</span></p>
+                                                    ) : null}
                                                     <p className="sm:col-span-2"><span className="font-medium text-slate-800">Vencimento:</span> {formatFullDate(movement.due_date)}</p>
                                                 </div>
                                             </div>
@@ -292,7 +306,7 @@ export default function Payments() {
                     </div>
 
                     <div className="space-y-4">
-                        <PortalSection title="Conta corrente" description="Resumo consolidado apenas com a sua informação." actionLabel="Abrir recibos" onAction={() => scrollToSection('latest-receipts')}>
+                        <PortalSection title="Conta corrente canónica" description="Leitura consolidada com dívida líquida, crédito e saldo legado separados." actionLabel="Abrir recibos" onAction={() => scrollToSection('latest-receipts')}>
                             <div className="space-y-3">
                                 <div className="rounded-[22px] border border-slate-200 bg-slate-50/70 p-4">
                                     <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">Estado geral</p>
@@ -304,16 +318,28 @@ export default function Payments() {
 
                                 <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
                                     <div className="rounded-[22px] border border-slate-200 bg-slate-50/70 p-4">
-                                        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">Valor em dívida</p>
+                                        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">Dívida líquida</p>
                                         <p className={`mt-2 text-xl font-semibold ${amountToneClass(account_current.outstanding_value, 'debt')}`}>{formatSignedCurrency(account_current.outstanding_value, 'debt')}</p>
                                     </div>
                                     <div className="rounded-[22px] border border-slate-200 bg-slate-50/70 p-4">
-                                        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">Faturas vencidas</p>
+                                        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">Dívida vencida</p>
                                         <p className="mt-2 text-xl font-semibold text-slate-900">{account_current.overdue_invoices}</p>
                                         <p className={`mt-1 text-sm ${amountToneClass(account_current.overdue_value, 'debt')}`}>{formatSignedCurrency(account_current.overdue_value, 'debt')}</p>
                                     </div>
                                     <div className="rounded-[22px] border border-slate-200 bg-slate-50/70 p-4">
-                                        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">Próximo pagamento</p>
+                                        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">Dívida bruta</p>
+                                        <p className={`mt-2 text-xl font-semibold ${amountToneClass(account_current.gross_debt, 'debt')}`}>{formatSignedCurrency(account_current.gross_debt, 'debt')}</p>
+                                    </div>
+                                    <div className="rounded-[22px] border border-slate-200 bg-slate-50/70 p-4">
+                                        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">Crédito disponível</p>
+                                        <p className={`mt-2 text-xl font-semibold ${amountToneClass(account_current.available_credit, 'credit')}`}>{formatSignedCurrency(account_current.available_credit, 'credit')}</p>
+                                    </div>
+                                    <div className="rounded-[22px] border border-slate-200 bg-slate-50/70 p-4">
+                                        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">Saldo manual legado</p>
+                                        <p className="mt-2 text-xl font-semibold text-slate-900">{formatSignedCurrency(account_current.manual_account_balance, account_current.manual_account_balance >= 0 ? 'credit' : 'debt')}</p>
+                                    </div>
+                                    <div className="rounded-[22px] border border-slate-200 bg-slate-50/70 p-4">
+                                        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">Próximo valor em aberto</p>
                                         {account_current.next_payment ? (
                                             <>
                                                 <p className="mt-2 text-base font-semibold text-slate-900">{account_current.next_payment.label}</p>

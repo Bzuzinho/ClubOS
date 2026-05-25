@@ -74,6 +74,7 @@ export function FinancialTab({
   };
 
   const isFutureInvoice = (fatura: any) => new Date(fatura.data_fatura) > getStartOfToday();
+  const currentAccountSummary = user.current_account_summary || {};
 
   const userFaturas = useMemo(() => {
     return (faturas || [])
@@ -81,25 +82,21 @@ export function FinancialTab({
       .sort((a, b) => new Date(b.data_emissao).getTime() - new Date(a.data_emissao).getTime());
   }, [faturas, user.id]);
 
-  const totalPago = useMemo(() => {
-    return userFaturas
-      .filter(f => f.estado_pagamento === 'pago')
-      .reduce((sum, f) => sum + toNumber(f.valor_total), 0);
-  }, [userFaturas]);
+  const dividaLiquida = useMemo(() => {
+    return toNumber(currentAccountSummary.net_debt ?? user.divida_liquida ?? user.conta_corrente ?? 0);
+  }, [currentAccountSummary.net_debt, user.divida_liquida, user.conta_corrente]);
 
-  const totalPendente = useMemo(() => {
-    return userFaturas
-      .filter(f => f.estado_pagamento === 'pendente' || f.estado_pagamento === 'vencido')
-      .reduce((sum, f) => sum + toNumber(f.valor_total), 0);
-  }, [userFaturas]);
+  const dividaBruta = useMemo(() => {
+    return toNumber(currentAccountSummary.gross_debt ?? user.divida_bruta ?? 0);
+  }, [currentAccountSummary.gross_debt, user.divida_bruta]);
 
-  const contaCorrente = useMemo(() => {
-    return toNumber(user.conta_corrente ?? 0) + toNumber(user.conta_corrente_manual ?? 0);
-  }, [user.conta_corrente, user.conta_corrente_manual]);
+  const creditoDisponivel = useMemo(() => {
+    return toNumber(currentAccountSummary.available_credit ?? user.credito_disponivel ?? 0);
+  }, [currentAccountSummary.available_credit, user.credito_disponivel]);
 
-  const contaCorrenteBase = useMemo(() => {
-    return toNumber(user.conta_corrente ?? 0);
-  }, [user.conta_corrente]);
+  const saldoManualLegado = useMemo(() => {
+    return toNumber(currentAccountSummary.manual_account_balance ?? user.saldo_manual_legado ?? user.conta_corrente_manual ?? 0);
+  }, [currentAccountSummary.manual_account_balance, user.saldo_manual_legado, user.conta_corrente_manual]);
 
   const formatSignedEuro = (value: number) => {
     const normalizedValue = normalizeCurrencyAmount(value);
@@ -112,6 +109,8 @@ export function FinancialTab({
       pendente: 'bg-yellow-100 text-yellow-800',
       pago: 'bg-green-100 text-green-800',
       vencido: 'bg-red-100 text-red-800',
+      parcial: 'bg-sky-100 text-sky-800',
+      cancelado: 'bg-slate-100 text-slate-700',
     };
     return <Badge className={`${variants[estado] || 'bg-gray-100 text-gray-800'} text-xs px-1 py-0`}>{estado.toUpperCase()}</Badge>;
   };
@@ -221,10 +220,10 @@ export function FinancialTab({
           <div className="flex flex-col items-center justify-center gap-2 px-2 py-1">
             <div className="text-xs text-muted-foreground flex items-center justify-center gap-1 leading-none">
               <DollarSign size={14} />
-              Conta Corrente
+              Dívida líquida
             </div>
-            <div className={`text-lg font-bold leading-none ${contaCorrente < 0 ? 'text-red-600' : 'text-green-600'}`}>
-              {formatSignedEuro(contaCorrente)}
+            <div className={`text-lg font-bold leading-none ${dividaLiquida > 0 ? 'text-red-600' : 'text-green-600'}`}>
+              {formatSignedEuro(dividaLiquida)}
             </div>
           </div>
         </Card>
@@ -233,10 +232,10 @@ export function FinancialTab({
           <div className="flex flex-col items-center justify-center gap-2 px-2 py-1">
             <div className="text-xs text-muted-foreground flex items-center justify-center gap-1 leading-none">
               <TrendingUp size={14} />
-              Total Pago
+              Dívida bruta
             </div>
-            <div className="text-lg font-bold text-green-600 leading-none">
-              {totalPago.toFixed(2)}€
+            <div className="text-lg font-bold text-amber-600 leading-none">
+              {dividaBruta.toFixed(2)}€
             </div>
           </div>
         </Card>
@@ -245,10 +244,10 @@ export function FinancialTab({
           <div className="flex flex-col items-center justify-center gap-2 px-2 py-1">
             <div className="text-xs text-muted-foreground flex items-center justify-center gap-1 leading-none">
               <TrendingDown size={14} />
-              Pendente
+              Crédito disponível
             </div>
-            <div className="text-lg font-bold text-amber-600 leading-none">
-              {totalPendente.toFixed(2)}€
+            <div className="text-lg font-bold text-green-600 leading-none">
+              {creditoDisponivel.toFixed(2)}€
             </div>
           </div>
         </Card>
@@ -257,10 +256,10 @@ export function FinancialTab({
           <div className="flex flex-col items-center justify-center gap-2 px-2 py-1">
             <div className="text-xs text-muted-foreground flex items-center justify-center gap-1 leading-none">
               📊
-              Faturas
+              Saldo manual legado
             </div>
             <div className="text-lg font-bold leading-none">
-              {userFaturas.length}
+              {saldoManualLegado.toFixed(2)}€
             </div>
           </div>
         </Card>
@@ -383,11 +382,11 @@ export function FinancialTab({
         </Card>
 
         <Card className="p-2">
-          <h3 className="text-xs font-semibold mb-1.5">Conta Corrente Base</h3>
+          <h3 className="text-xs font-semibold mb-1.5">Saldo manual legado</h3>
           <div
-            className={`h-7 px-3 rounded-md border bg-muted text-xs font-semibold flex items-center ${contaCorrenteBase < 0 ? 'text-red-600' : 'text-green-600'}`}
+            className={`h-7 px-3 rounded-md border bg-muted text-xs font-semibold flex items-center ${saldoManualLegado < 0 ? 'text-red-600' : 'text-green-600'}`}
           >
-            {formatSignedEuro(contaCorrenteBase)}
+            {formatSignedEuro(saldoManualLegado)}
           </div>
         </Card>
 
@@ -407,7 +406,9 @@ export function FinancialTab({
                 <TableRow className="text-xs">
                   <TableHead className="text-xs h-7 py-1">Emissão</TableHead>
                   <TableHead className="text-xs h-7 py-1 hidden sm:table-cell">Vencimento</TableHead>
-                  <TableHead className="text-xs h-7 py-1">Valor</TableHead>
+                  <TableHead className="text-xs h-7 py-1">Nominal</TableHead>
+                  <TableHead className="text-xs h-7 py-1 hidden md:table-cell">Pago</TableHead>
+                  <TableHead className="text-xs h-7 py-1">Em aberto</TableHead>
                   <TableHead className="text-xs h-7 py-1">Estado</TableHead>
                 </TableRow>
               </TableHeader>
@@ -417,6 +418,8 @@ export function FinancialTab({
                     <TableCell className="py-1">{format(new Date(fatura.data_emissao), 'dd/MM/yy')}</TableCell>
                     <TableCell className="py-1 hidden sm:table-cell">{format(new Date(fatura.data_vencimento), 'dd/MM/yy')}</TableCell>
                     <TableCell className="font-semibold py-1">€{toNumber(fatura.valor_total).toFixed(2)}</TableCell>
+                    <TableCell className="py-1 hidden md:table-cell">€{toNumber(fatura.valor_pago ?? 0).toFixed(2)}</TableCell>
+                    <TableCell className="font-semibold py-1">€{toNumber(fatura.valor_em_aberto ?? fatura.valor_total).toFixed(2)}</TableCell>
                     <TableCell className="py-1">{getEstadoBadge(fatura.estado_pagamento)}</TableCell>
                   </TableRow>
                 ))}

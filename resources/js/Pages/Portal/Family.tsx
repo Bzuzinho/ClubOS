@@ -52,6 +52,10 @@ interface FamilySummary {
     total_educandos: number;
     pagamentos_pendentes: number;
     pagamentos_pendentes_valor: number;
+    gross_debt: number;
+    available_credit: number;
+    manual_account_balance: number;
+    net_debt: number;
     convocatorias_pendentes: number;
     proximos_treinos: number;
     documentos_alerta: number;
@@ -63,7 +67,11 @@ interface PaymentItem {
     user_name: string;
     mes?: string | null;
     valor?: string | number | null;
+    valor_nominal?: string | number | null;
+    valor_pago?: string | number | null;
+    valor_label?: string | null;
     estado?: string | null;
+    tipo_label?: string | null;
     data_vencimento?: string | null;
 }
 
@@ -340,7 +348,7 @@ export default function Family() {
 
     const kpis = [
         { label: 'Membros', value: String(totalManagedMembers), helper: 'Associados', icon: Users },
-        { label: 'Pagamentos', value: String(familySummary?.pagamentos_pendentes ?? pagamentos.length), helper: 'Pendentes', icon: CreditCard },
+        { label: 'Pagamentos', value: String(familySummary?.pagamentos_pendentes ?? pagamentos.length), helper: formatSignedCurrency(familySummary?.pagamentos_pendentes_valor ?? 0, 'debt'), icon: CreditCard },
         { label: 'Convocatórias', value: String(familySummary?.convocatorias_pendentes ?? convocatorias_pendentes.length), helper: 'Treinos por responder', icon: CalendarDays },
         { label: 'Documentos', value: String(familySummary?.documentos_alerta ?? documentos_alerta.length), helper: 'A expirar', icon: FileText },
     ];
@@ -543,6 +551,15 @@ export default function Family() {
                         </PortalSection>
 
                     <div className="space-y-4">
+                        <PortalSection title="Resumo financeiro da família" description="Dívida líquida, crédito disponível e saldo legado separados por regra canónica.">
+                            <div className="grid gap-3 sm:grid-cols-2">
+                                <PortalKpiCard label="Dívida líquida" value={formatSignedCurrency(familySummary?.net_debt ?? 0, 'debt')} helper="já desconta crédito" icon={CreditCard} valueClassName={amountToneClass(familySummary?.net_debt ?? 0, 'debt')} />
+                                <PortalKpiCard label="Dívida bruta" value={formatSignedCurrency(familySummary?.gross_debt ?? 0, 'debt')} helper="antes do crédito" icon={CreditCard} valueClassName={amountToneClass(familySummary?.gross_debt ?? 0, 'debt')} />
+                                <PortalKpiCard label="Crédito disponível" value={formatSignedCurrency(familySummary?.available_credit ?? 0, 'credit')} helper="separado da dívida" icon={Shield} valueClassName={amountToneClass(familySummary?.available_credit ?? 0, 'credit')} />
+                                <PortalKpiCard label="Saldo manual legado" value={formatSignedCurrency(familySummary?.manual_account_balance ?? 0, (familySummary?.manual_account_balance ?? 0) >= 0 ? 'credit' : 'debt')} helper="não entra duas vezes no total" icon={FileText} />
+                            </div>
+                        </PortalSection>
+
                         <PortalSection title="Pagamentos pendentes" description="Família e educandos associados.">
                             <div className="space-y-2.5">
                                 {pagamentos.length > 0 ? pagamentos.map((payment) => (
@@ -550,10 +567,16 @@ export default function Family() {
                                         <div className="flex items-start justify-between gap-3">
                                             <div>
                                                 <p className="text-sm font-semibold text-slate-900">{payment.user_name}</p>
-                                                <p className="mt-1 text-xs text-slate-500">{payment.mes || 'Pagamento pendente'} · {payment.estado || 'Pendente'}</p>
+                                                <p className="mt-1 text-xs text-slate-500">{payment.mes || 'Pagamento pendente'} · {payment.tipo_label || 'Pagamento'} · {payment.estado || 'Pendente'}</p>
                                             </div>
-                                            <p className={`text-sm font-semibold ${amountToneClass(payment.valor, 'debt')}`}>{formatSignedCurrency(payment.valor, 'debt')}</p>
+                                            <p className={`text-sm font-semibold ${amountToneClass(payment.valor, 'debt')}`}>{payment.valor_label || 'Em aberto'}: {formatSignedCurrency(payment.valor, 'debt')}</p>
                                         </div>
+                                        {payment.valor_nominal !== undefined && payment.valor_nominal !== null && Number(payment.valor_nominal) !== Number(payment.valor) ? (
+                                            <p className="mt-2 text-xs text-slate-500">Valor nominal: {formatSignedCurrency(payment.valor_nominal, 'debt')}</p>
+                                        ) : null}
+                                        {payment.valor_pago !== undefined && payment.valor_pago !== null && Number(payment.valor_pago) > 0 ? (
+                                            <p className="mt-1 text-xs text-slate-500">Pago: {formatSignedCurrency(payment.valor_pago, 'credit')}</p>
+                                        ) : null}
                                         <p className="mt-2 text-xs text-slate-500">Vencimento: {formatDate(payment.data_vencimento)}</p>
                                     </div>
                                 )) : (

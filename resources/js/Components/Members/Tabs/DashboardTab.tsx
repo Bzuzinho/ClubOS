@@ -16,6 +16,7 @@ export function DashboardTab({ user, faturas = [] }: DashboardTabProps) {
   const [presencas] = useKV<EventoPresenca[]>('club-presencas', []);
   const [events] = useKV<Event[]>('club-events', []);
   const [resultadosProvas] = useKV<ResultadoProva[]>('club-resultados-provas', []);
+  const currentAccountSummary = user.current_account_summary || {};
 
   const toNumber = (value: unknown) => {
     if (typeof value === 'number') return value;
@@ -41,21 +42,25 @@ export function DashboardTab({ user, faturas = [] }: DashboardTabProps) {
       .sort((a, b) => new Date(b.data_emissao).getTime() - new Date(a.data_emissao).getTime());
   }, [faturas, user.id]);
 
-  const totalPago = useMemo(() => {
-    return userFaturas
-      .filter(f => f.estado_pagamento === 'pago')
-      .reduce((sum, f) => sum + toNumber(f.valor_total), 0);
-  }, [userFaturas]);
+  const dividaLiquida = useMemo(() => {
+    return toNumber(currentAccountSummary.net_debt ?? user.divida_liquida ?? user.conta_corrente ?? 0);
+  }, [currentAccountSummary.net_debt, user.divida_liquida, user.conta_corrente]);
 
-  const totalPendente = useMemo(() => {
-    return userFaturas
-      .filter(f => f.estado_pagamento === 'pendente' || f.estado_pagamento === 'vencido')
-      .reduce((sum, f) => sum + toNumber(f.valor_total), 0);
-  }, [userFaturas]);
+  const dividaBruta = useMemo(() => {
+    return toNumber(currentAccountSummary.gross_debt ?? user.divida_bruta ?? 0);
+  }, [currentAccountSummary.gross_debt, user.divida_bruta]);
 
-  const contaCorrente = useMemo(() => {
-    return totalPendente - totalPago;
-  }, [totalPendente, totalPago]);
+  const creditoDisponivel = useMemo(() => {
+    return toNumber(currentAccountSummary.available_credit ?? user.credito_disponivel ?? 0);
+  }, [currentAccountSummary.available_credit, user.credito_disponivel]);
+
+  const saldoManualLegado = useMemo(() => {
+    return toNumber(currentAccountSummary.manual_account_balance ?? user.saldo_manual_legado ?? user.conta_corrente_manual ?? 0);
+  }, [currentAccountSummary.manual_account_balance, user.saldo_manual_legado, user.conta_corrente_manual]);
+
+  const dividaVencida = useMemo(() => {
+    return toNumber(currentAccountSummary.overdue_debt ?? user.divida_vencida ?? 0);
+  }, [currentAccountSummary.overdue_debt, user.divida_vencida]);
 
   // Ultimas faturas para o grafico
   const ultimasFaturas = useMemo(() => {
@@ -141,10 +146,10 @@ export function DashboardTab({ user, faturas = [] }: DashboardTabProps) {
           <div className="flex flex-col items-center justify-center gap-2 px-2 py-1">
             <div className="text-xs text-muted-foreground flex items-center justify-center gap-1 leading-none">
               <DollarSign size={14} />
-              Conta
+              Dívida líquida
             </div>
-            <div className={`text-lg font-bold leading-none ${contaCorrente < 0 ? 'text-red-600' : contaCorrente > 0 ? 'text-green-600' : 'text-muted-foreground'}`}>
-              {contaCorrente.toFixed(2)}€
+            <div className={`text-lg font-bold leading-none ${dividaLiquida > 0 ? 'text-red-600' : 'text-green-600'}`}>
+              {dividaLiquida.toFixed(2)}€
             </div>
           </div>
         </Card>
@@ -153,10 +158,10 @@ export function DashboardTab({ user, faturas = [] }: DashboardTabProps) {
           <div className="flex flex-col items-center justify-center gap-2 px-2 py-1">
             <div className="text-xs text-muted-foreground flex items-center justify-center gap-1 leading-none">
               <TrendingDown size={14} />
-              Pendente
+              Dívida bruta
             </div>
             <div className="text-lg font-bold text-amber-600 leading-none">
-              {totalPendente.toFixed(2)}€
+              {dividaBruta.toFixed(2)}€
             </div>
           </div>
         </Card>
@@ -196,12 +201,23 @@ export function DashboardTab({ user, faturas = [] }: DashboardTabProps) {
             <div className="space-y-1">
               <div className="grid grid-cols-2 gap-1">
                 <div>
-                  <div className="text-xs text-muted-foreground">Total Pago</div>
-                  <div className="text-base font-bold text-green-600">{totalPago.toFixed(2)}€</div>
+                  <div className="text-xs text-muted-foreground">Crédito disponível</div>
+                  <div className="text-base font-bold text-green-600">{creditoDisponivel.toFixed(2)}€</div>
                 </div>
                 <div>
-                  <div className="text-xs text-muted-foreground">Total Vencido</div>
-                  <div className="text-base font-bold text-red-600">{totalPendente.toFixed(2)}€</div>
+                  <div className="text-xs text-muted-foreground">Dívida vencida</div>
+                  <div className="text-base font-bold text-red-600">{dividaVencida.toFixed(2)}€</div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-1">
+                <div>
+                  <div className="text-xs text-muted-foreground">Dívida líquida</div>
+                  <div className="text-base font-bold text-slate-900">{dividaLiquida.toFixed(2)}€</div>
+                </div>
+                <div>
+                  <div className="text-xs text-muted-foreground">Saldo manual legado</div>
+                  <div className="text-base font-bold text-slate-900">{saldoManualLegado.toFixed(2)}€</div>
                 </div>
               </div>
 
@@ -225,7 +241,7 @@ export function DashboardTab({ user, faturas = [] }: DashboardTabProps) {
                           {fatura.estado_pagamento === 'pago' ? 'PAGO' : 'pendente'}
                         </Badge>
                       </div>
-                      <span className="font-medium">{toNumber(fatura.valor_total).toFixed(2)}€</span>
+                      <span className="font-medium">{toNumber(fatura.estado_pagamento === 'pago' ? fatura.valor_total : (fatura.valor_em_aberto ?? fatura.valor_total)).toFixed(2)}€</span>
                     </div>
                   ))}
                   {ultimasFaturas.length === 0 && (

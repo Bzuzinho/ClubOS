@@ -676,6 +676,8 @@ F2.4 e F2.5 ficam validadas manualmente no browser e a regressão crítica de Me
 
 > Estado F3.1: tecnicamente concluída em 2026-05-22. A leitura canónica de dívida/conta corrente foi centralizada em `CurrentAccountService` e ligada a `DashboardController`, `PortalProfileController` e `FinanceiroController::openInvoices`, mantendo os fluxos de escrita financeira inalterados. Validação manual no browser ainda pendente.
 
+> Estado F3.2: tecnicamente concluída em 2026-05-25. As superfícies de utilizador/família passaram a consumir `CurrentAccountService` em Ficha do membro, tabs de membro, Portal Pagamentos e Portal Família, com distinção explícita entre valor nominal, pago, em aberto, dívida líquida, crédito disponível e saldo manual legado. Validação manual no browser ainda pendente. Não avançar para F3.3.
+
 ### Objetivo
 
 Fechar geração, pagamento, pagamento parcial, vencimento, reabertura e crédito de mensalidades, e alinhar a leitura canónica de dívida/conta corrente nas superfícies críticas.
@@ -687,6 +689,15 @@ Fechar geração, pagamento, pagamento parcial, vencimento, reabertura e crédit
 - Portal Profile passou a expor `gross_debt`, `available_credit`, `manual_account_balance` e `net_debt`, mantendo `account_balance` como saldo manual legado e `outstanding_value` como dívida líquida.
 - `financeiro.invoices.open` passou a excluir faturas ocultas/futuras e a devolver `valor_em_aberto` canónico mesmo quando o snapshot persistido está desatualizado.
 - Os testes focados executados nesta sprint cobrem Dashboard atleta, Portal Profile e `financeiro.invoices.open`.
+
+### Fecho técnico já executado em F3.2
+
+- `MembrosController::show` passou a expor `gross_debt`, `available_credit`, `manual_account_balance`, `net_debt` e `overdue_debt` para a Ficha do membro, mantendo o histórico de faturas com `valor_total`, `valor_pago` e `valor_em_aberto` distintos.
+- A Ficha do membro deixou de duplicar `conta_corrente_manual`: `conta_corrente` passou a representar apenas `net_debt` e o saldo manual legado passou a ser apresentado em separado.
+- `PortalPageController::buildPaymentsPayload()` passou a usar o breakdown de `CurrentAccountService`, com `outstanding_value = net_debt`, `overdue_value = overdue_debt`, `next_payment = valor_em_aberto` e exclusão de faturas ocultas/futuras da dívida exigível.
+- `FamilyPortalController::show()` passou a somar apenas dívida aberta real dos membros visíveis, incluindo casos parciais, separando `available_credit` e `manual_account_balance` do total pendente familiar.
+- Os rótulos frontend destas superfícies passaram a distinguir `Valor nominal`, `Pago`, `Em aberto`, `Dívida líquida`, `Crédito disponível` e `Saldo manual legado`.
+- Os testes focados executados nesta sprint cobrem Ficha do membro, Portal Pagamentos, Portal Família e payload canónico usado pelo dashboard/tab do membro.
 
 ### Testes automáticos mínimos
 
@@ -706,6 +717,12 @@ Criar testes para validar:
 - dashboard atleta usa `valor_em_aberto` em vez de `valor_total` e exclui faturas ocultas/futuras;
 - portal profile expõe dívida líquida, crédito disponível e saldo manual legado sem misturar conceitos;
 - `financeiro.invoices.open` exclui faturas ocultas/futuras e corrige `valor_em_aberto` com base em alocações confirmadas.
+- ficha do membro mostra invoice parcial com dívida exibida pelo remanescente e não pelo nominal;
+- ficha do membro mostra saldo manual legado em separado sem o duplicar no total;
+- portal pagamentos usa `net_debt`/`overdue_debt` e `valor_em_aberto` no próximo pagamento;
+- portal pagamentos exclui faturas futuras/ocultas da dívida exigível;
+- portal família soma apenas dívida aberta real dos educandos/membros visíveis e expõe crédito disponível em separado;
+- payload usado pela superfície de dashboard/tab do membro continua canónico mesmo com histórico pago.
 
 ### Testes manuais para o utilizador
 
@@ -725,10 +742,15 @@ Criar testes para validar:
 14. Criar ou escolher um caso com crédito em conta e confirmar que o valor em dívida desce sem apagar o saldo manual legado.
 15. Abrir Portal > Perfil do mesmo membro e confirmar os valores de `Conta corrente`, `Valor em dívida` e `Próximo pagamento`.
 16. Abrir Financeiro > Faturas abertas e confirmar que mensalidades ocultas/futuras já não aparecem e que pagamentos parciais mostram apenas o remanescente.
+17. Abrir Membros > Ficha do membro > Dashboard e confirmar que o cartão principal mostra dívida líquida atual, sem subtrair históricos pagos ao nominal.
+18. Abrir Membros > Ficha do membro > Financeiro e confirmar que `Saldo manual legado` aparece separado da `Dívida líquida`.
+19. Abrir Portal > Pagamentos com uma fatura parcial e confirmar que o ecrã mostra `Em aberto`, `Valor nominal` e `Pago` com valores distintos.
+20. Abrir Portal > Família com dois educandos, um parcial e outro com fatura futura/oculta, e confirmar que o total pendente familiar soma apenas o valor exigível atual.
+21. No mesmo Portal > Família, confirmar que `Crédito disponível` aparece em cartão separado e que a `Dívida líquida` já o desconta.
 
 ### Resultado esperado
 
-Mensalidades ficam consistentes do início ao fim e as superfícies críticas passam a ler a mesma dívida canónica.
+Mensalidades ficam consistentes do início ao fim e as superfícies críticas passam a ler a mesma dívida canónica. Em F3.2, as superfícies de utilizador/família deixam também de misturar valor nominal com valor em aberto e de duplicar saldo manual legado.
 
 ---
 

@@ -10,6 +10,7 @@ use App\Models\User;
 use App\Models\UserDocument;
 use App\Services\AccessControl\UserTypeAccessControlService;
 use App\Services\Family\FamilyService;
+use App\Services\Financeiro\CurrentAccountService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -58,20 +59,63 @@ class FamilyPortalController extends Controller
             ->values();
 
         $educandoIds = $educandos->pluck('id')->filter()->values();
-
-        $pendingPayments = $visibleFamilyMemberIds->isEmpty()
+        $visibleMembers = $visibleFamilyMemberIds->isEmpty()
             ? collect()
-            : Invoice::query()
-                ->with(['user:id,name,nome_completo'])
-                ->whereIn('user_id', $visibleFamilyMemberIds)
-                ->where('oculta', false)
-                ->where(function ($query) {
-                    $query->whereNull('estado_pagamento')
-                        ->orWhereNotIn('estado_pagamento', ['pago', 'cancelado']);
-                })
-                ->orderByRaw('CASE WHEN data_vencimento IS NULL THEN 1 ELSE 0 END')
-                ->orderBy('data_vencimento')
-                ->get();
+            : User::query()
+                ->whereIn('id', $visibleFamilyMemberIds)
+                ->get(['id', 'name', 'nome_completo'])
+                ->keyBy('id');
+        $currentAccountService = app(CurrentAccountService::class);
+        $currentAccountByMember = $visibleFamilyMemberIds
+            ->mapWithKeys(fn ($memberId) => [(string) $memberId => $currentAccountService->summarize(['user_id' => $memberId])]);
+
+        $pendingPayments = $currentAccountByMember
+            ->flatMap(function (array $summary, string $memberId) use ($visibleMembers) {
+                $member = $visibleMembers->get($memberId);
+
+                return collect($summary['breakdown']['invoices'] ?? [])
+                    ->map(function (array $invoice) use ($memberId, $member) {
+                        return [
+                            'id' => (string) ($invoice['id'] ?? ''),
+                            'user_id' => $memberId,
+                            'user_name' => $member instanceof User ? $this->displayName($member) : 'Utilizador',
+                            'mes' => $invoice['mes'] ?? $invoice['tipo'] ?? 'Pagamento pendente',
+                            'valor' => round((float) ($invoice['valor_em_aberto'] ?? 0), 2),
+                            'valor_nominal' => round((float) ($invoice['valor_total'] ?? 0), 2),
+                            'valor_pago' => round((float) ($invoice['valor_pago'] ?? 0), 2),
+                            'valor_label' => 'Em aberto',
+                            'estado' => $invoice['estado_pagamento'] ?? 'pendente',
+                            'tipo_label' => 'Fatura',
+                            'data_vencimento' => $invoice['data_vencimento'] ?? null,
+                        ];
+                    })
+                    ->concat(collect($summary['breakdown']['movements'] ?? [])->map(function (array $movement) use ($memberId, $member) {
+                        return [
+                            'id' => (string) ($movement['id'] ?? ''),
+                            'user_id' => $memberId,
+                            'user_name' => $member instanceof User ? $this->displayName($member) : 'Utilizador',
+                            'mes' => $movement['description'] ?? 'Movimento pendente',
+                            'valor' => round((float) ($movement['open_amount'] ?? 0), 2),
+                            'valor_nominal' => null,
+                            'valor_pago' => null,
+                            'valor_label' => 'Em aberto',
+                            'estado' => $movement['estado_pagamento'] ?? 'pendente',
+                            'tipo_label' => 'Movimento',
+                            'data_vencimento' => $movement['data_vencimento'] ?? null,
+                        ];
+                    }));
+            })
+            ->sortBy([
+                fn (array $payment) => $payment['data_vencimento'] === null ? 1 : 0,
+                'data_vencimento',
+                'mes',
+            ])
+            ->values();
+
+        $familyGrossDebt = round((float) $currentAccountByMember->sum('gross_debt'), 2);
+        $familyAvailableCredit = round((float) $currentAccountByMember->sum('available_credit'), 2);
+        $familyManualAccountBalance = round((float) $currentAccountByMember->sum('manual_account_balance'), 2);
+        $familyNetDebt = round((float) $currentAccountByMember->sum('net_debt'), 2);
 
         $upcomingTrainings = $educandoIds->isEmpty()
             ? collect()
@@ -188,20 +232,16 @@ class FamilyPortalController extends Controller
             'familySummary' => [
                 'total_educandos' => (int) $familyService->familySummary($user)['educandos'],
                 'pagamentos_pendentes' => $pendingPayments->count(),
-                'pagamentos_pendentes_valor' => (float) $pendingPayments->sum('valor_total'),
+                'pagamentos_pendentes_valor' => $familyNetDebt,
+                'gross_debt' => $familyGrossDebt,
+                'available_credit' => $familyAvailableCredit,
+                'manual_account_balance' => $familyManualAccountBalance,
+                'net_debt' => $familyNetDebt,
                 'convocatorias_pendentes' => $pendingConvocations->count(),
                 'proximos_treinos' => $upcomingTrainings->count(),
                 'documentos_alerta' => $documentAlerts->count(),
             ],
-            'pagamentos' => $pagamentos->map(fn (Invoice $invoice) => [
-                'id' => $invoice->id,
-                'user_id' => $invoice->user_id,
-                'user_name' => $this->displayName($invoice->user),
-                'mes' => $invoice->mes,
-                'valor' => $invoice->valor_total,
-                'estado' => $invoice->estado_pagamento,
-                'data_vencimento' => $invoice->data_vencimento?->toDateString(),
-            ])->values()->all(),
+            'pagamentos' => $pagamentos->all(),
             'convocatorias_pendentes' => $convocatoriasPendentes->map(fn (EventConvocation $convocation) => [
                 'id' => $convocation->id,
                 'user_id' => $convocation->user_id,

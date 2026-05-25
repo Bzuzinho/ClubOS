@@ -6,6 +6,8 @@ use App\Http\Middleware\HandleInertiaRequests;
 use App\Models\DadosFinanceiros;
 use App\Models\Invoice;
 use App\Models\MonthlyFee;
+use App\Models\Payment;
+use App\Models\PaymentAllocation;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -131,6 +133,101 @@ class PortalPaymentsTest extends TestCase
         $response->assertJsonPath('props.hero.actions.can_view_receipts', true);
         $response->assertJsonPath('props.latest_receipts.0.receipt_number', 'REC-2026-010');
         $response->assertJsonPath('props.latest_receipts.0.can_view_receipt', true);
+    }
+
+    public function test_portal_payments_uses_remaining_amount_for_partial_invoice(): void
+    {
+        $user = User::factory()->create([
+            'perfil' => 'user',
+            'tipo_membro' => ['socio'],
+        ]);
+
+        $invoice = Invoice::query()->create([
+            'user_id' => $user->id,
+            'data_fatura' => now()->subDays(12)->toDateString(),
+            'mes' => 'Abril 2026',
+            'data_emissao' => now()->subDays(12)->toDateString(),
+            'data_vencimento' => now()->addDays(4)->toDateString(),
+            'valor_total' => 100,
+            'valor_pago' => 0,
+            'valor_em_aberto' => 0,
+            'estado_pagamento' => 'pendente',
+            'tipo' => 'mensalidade',
+            'oculta' => false,
+        ]);
+
+        $payment = Payment::query()->create([
+            'user_id' => $user->id,
+            'amount' => 40,
+            'allocated_amount' => 40,
+            'unallocated_amount' => 0,
+            'payment_date' => now()->toDateString(),
+            'method' => 'dinheiro',
+            'source' => Payment::SOURCE_MANUAL,
+            'status' => Payment::STATUS_CONFIRMED,
+        ]);
+
+        PaymentAllocation::query()->create([
+            'payment_id' => $payment->id,
+            'invoice_id' => $invoice->id,
+            'amount' => 40,
+            'status' => PaymentAllocation::STATUS_CONFIRMED,
+            'allocated_at' => now(),
+        ]);
+
+        $response = $this->inertiaGetAs($user, route('portal.payments'));
+
+        $response->assertOk();
+        $response->assertJsonPath('props.kpis.outstanding_value', 60);
+        $response->assertJsonPath('props.account_current.outstanding_value', 60);
+        $response->assertJsonPath('props.account_current.overdue_value', 0);
+        $response->assertJsonPath('props.account_current.next_payment.amount', 60);
+        $response->assertJsonPath('props.movements.0.amount', 60);
+        $response->assertJsonPath('props.movements.0.nominal_amount', 100);
+        $response->assertJsonPath('props.movements.0.paid_amount', 40);
+    }
+
+    public function test_portal_payments_excludes_hidden_or_future_invoice_from_outstanding_debt(): void
+    {
+        $user = User::factory()->create([
+            'perfil' => 'user',
+            'tipo_membro' => ['socio'],
+        ]);
+
+        Invoice::query()->create([
+            'user_id' => $user->id,
+            'data_fatura' => now()->subDays(5)->toDateString(),
+            'mes' => 'Maio 2026',
+            'data_emissao' => now()->subDays(5)->toDateString(),
+            'data_vencimento' => now()->addDays(5)->toDateString(),
+            'valor_total' => 60,
+            'valor_pago' => 0,
+            'valor_em_aberto' => 60,
+            'estado_pagamento' => 'pendente',
+            'tipo' => 'mensalidade',
+            'oculta' => false,
+        ]);
+
+        Invoice::query()->create([
+            'user_id' => $user->id,
+            'data_fatura' => now()->addMonth()->toDateString(),
+            'mes' => 'Junho 2026',
+            'data_emissao' => now()->addMonth()->toDateString(),
+            'data_vencimento' => now()->addMonth()->toDateString(),
+            'valor_total' => 100,
+            'valor_pago' => 0,
+            'valor_em_aberto' => 100,
+            'estado_pagamento' => 'pendente',
+            'tipo' => 'mensalidade',
+            'oculta' => true,
+        ]);
+
+        $response = $this->inertiaGetAs($user, route('portal.payments'));
+
+        $response->assertOk();
+        $response->assertJsonPath('props.kpis.outstanding_value', 60);
+        $response->assertJsonPath('props.account_current.outstanding_value', 60);
+        $this->assertCount(1, $response->json('props.movements'));
     }
 
     private function inertiaGetAs(User $user, string $uri)

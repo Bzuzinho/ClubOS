@@ -13,7 +13,9 @@ use App\Models\MonthlyFee;
 use App\Models\DadosFinanceiros;
 use App\Models\Invoice;
 use App\Models\Movement;
+use App\Models\PaymentAllocation;
 use App\Services\Communication\InternalCommunicationService;
+use App\Services\Financeiro\CurrentAccountService;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -353,11 +355,21 @@ class MembrosController extends Controller
             'data_nascimento'
         )->get();
 
+        $currentAccountService = app(CurrentAccountService::class);
+
         $faturas = Invoice::where('user_id', $memberKey)
+            ->withSum([
+                'paymentAllocations as confirmed_payment_allocations_sum' => function ($paymentAllocationQuery): void {
+                    $paymentAllocationQuery->where('status', PaymentAllocation::STATUS_CONFIRMED);
+                },
+            ], 'amount')
             ->orderBy('data_emissao', 'desc')
             ->get()
-            ->map(function ($fatura) {
+            ->map(function ($fatura) use ($currentAccountService) {
+                $fatura = $currentAccountService->normalizeInvoiceFinancialAmounts($fatura);
                 $fatura->valor_total = (float) $fatura->valor_total;
+                $fatura->valor_pago = (float) ($fatura->valor_pago ?? 0);
+                $fatura->valor_em_aberto = (float) ($fatura->valor_em_aberto ?? 0);
                 return $fatura;
             });
 
@@ -369,23 +381,24 @@ class MembrosController extends Controller
                 return $movimento;
             });
 
-        $contaCorrente = (float) $faturas
-            ->filter(function ($fatura) {
-                if (!in_array($fatura->estado_pagamento, ['pendente', 'vencido'], true)) {
-                    return false;
-                }
+        $accountSummary = $currentAccountService->summarize([
+            'user_id' => $memberKey,
+        ]);
 
-                if (!$fatura->data_fatura) {
-                    return true;
-                }
-
-                return $fatura->data_fatura->startOfDay()->lte(now()->startOfDay());
-            })
-            ->sum('valor_total');
-
-        $contaCorrenteManual = $member->dadosFinanceiros?->conta_corrente_manual ?? 0;
-        $memberData['conta_corrente'] = $contaCorrente + (float) $contaCorrenteManual;
-        $memberData['conta_corrente_manual'] = (float) $contaCorrenteManual;
+        $memberData['conta_corrente'] = (float) ($accountSummary['net_debt'] ?? 0);
+        $memberData['conta_corrente_manual'] = (float) ($accountSummary['manual_account_balance'] ?? 0);
+        $memberData['divida_bruta'] = (float) ($accountSummary['gross_debt'] ?? 0);
+        $memberData['credito_disponivel'] = (float) ($accountSummary['available_credit'] ?? 0);
+        $memberData['divida_liquida'] = (float) ($accountSummary['net_debt'] ?? 0);
+        $memberData['divida_vencida'] = (float) ($accountSummary['overdue_debt'] ?? 0);
+        $memberData['saldo_manual_legado'] = (float) ($accountSummary['manual_account_balance'] ?? 0);
+        $memberData['current_account_summary'] = [
+            'gross_debt' => (float) ($accountSummary['gross_debt'] ?? 0),
+            'available_credit' => (float) ($accountSummary['available_credit'] ?? 0),
+            'manual_account_balance' => (float) ($accountSummary['manual_account_balance'] ?? 0),
+            'net_debt' => (float) ($accountSummary['net_debt'] ?? 0),
+            'overdue_debt' => (float) ($accountSummary['overdue_debt'] ?? 0),
+        ];
         $memberData['tipo_mensalidade'] = $member->dadosFinanceiros?->mensalidade_id ?? $member->tipo_mensalidade;
         $memberData['discount_type'] = $member->dadosFinanceiros?->discount_type;
         $memberData['discount_value'] = $member->dadosFinanceiros?->discount_value !== null
