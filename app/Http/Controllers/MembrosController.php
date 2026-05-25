@@ -384,20 +384,20 @@ class MembrosController extends Controller
         $accountSummary = $currentAccountService->summarize([
             'user_id' => $memberKey,
         ]);
+        $openInvoices = collect($accountSummary['breakdown']['invoices'] ?? []);
+        $openMovements = collect($accountSummary['breakdown']['movements'] ?? []);
 
         $memberData['conta_corrente'] = (float) ($accountSummary['net_debt'] ?? 0);
-        $memberData['conta_corrente_manual'] = (float) ($accountSummary['manual_account_balance'] ?? 0);
-        $memberData['divida_bruta'] = (float) ($accountSummary['gross_debt'] ?? 0);
-        $memberData['credito_disponivel'] = (float) ($accountSummary['available_credit'] ?? 0);
-        $memberData['divida_liquida'] = (float) ($accountSummary['net_debt'] ?? 0);
-        $memberData['divida_vencida'] = (float) ($accountSummary['overdue_debt'] ?? 0);
-        $memberData['saldo_manual_legado'] = (float) ($accountSummary['manual_account_balance'] ?? 0);
         $memberData['current_account_summary'] = [
             'gross_debt' => (float) ($accountSummary['gross_debt'] ?? 0),
             'available_credit' => (float) ($accountSummary['available_credit'] ?? 0),
             'manual_account_balance' => (float) ($accountSummary['manual_account_balance'] ?? 0),
             'net_debt' => (float) ($accountSummary['net_debt'] ?? 0),
             'overdue_debt' => (float) ($accountSummary['overdue_debt'] ?? 0),
+            'monthly_fees_open_amount' => (float) $openInvoices
+                ->filter(fn (array $invoice): bool => ($invoice['tipo'] ?? null) === 'mensalidade')
+                ->sum('valor_em_aberto'),
+            'revenue_movements_open_amount' => (float) $openMovements->sum('open_amount'),
         ];
         $memberData['tipo_mensalidade'] = $member->dadosFinanceiros?->mensalidade_id ?? $member->tipo_mensalidade;
         $memberData['discount_type'] = $member->dadosFinanceiros?->discount_type;

@@ -89,6 +89,8 @@ class PortalFamilyCurrentAccountTest extends TestCase
         $response->assertJsonPath('props.familySummary.pagamentos_pendentes_valor', 60);
         $response->assertJsonPath('props.familySummary.net_debt', 60);
         $response->assertJsonPath('props.familySummary.gross_debt', 60);
+        $this->assertArrayNotHasKey('manual_account_balance', $response->json('props.familySummary'));
+        $response->assertJsonPath('props.familySummary.deprecated.manual_account_balance', 0);
         $this->assertCount(1, $response->json('props.pagamentos'));
         $response->assertJsonPath('props.pagamentos.0.valor', 60);
         $response->assertJsonPath('props.pagamentos.0.valor_nominal', 100);
@@ -137,6 +139,7 @@ class PortalFamilyCurrentAccountTest extends TestCase
         $response->assertJsonPath('props.familySummary.available_credit', 15);
         $response->assertJsonPath('props.familySummary.net_debt', 45);
         $response->assertJsonPath('props.familySummary.pagamentos_pendentes_valor', 45);
+        $this->assertArrayNotHasKey('manual_account_balance', $response->json('props.familySummary'));
     }
 
     private function inertiaGetAs(User $user, string $uri)

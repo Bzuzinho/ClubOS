@@ -185,6 +185,8 @@ class PortalPaymentsTest extends TestCase
         $response->assertJsonPath('props.movements.0.amount', 60);
         $response->assertJsonPath('props.movements.0.nominal_amount', 100);
         $response->assertJsonPath('props.movements.0.paid_amount', 40);
+        $this->assertArrayNotHasKey('manual_account_balance', $response->json('props.account_current'));
+        $response->assertJsonPath('props.account_current.deprecated.manual_account_balance', 0);
     }
 
     public function test_portal_payments_excludes_hidden_or_future_invoice_from_outstanding_debt(): void
@@ -228,6 +230,7 @@ class PortalPaymentsTest extends TestCase
         $response->assertJsonPath('props.kpis.outstanding_value', 60);
         $response->assertJsonPath('props.account_current.outstanding_value', 60);
         $this->assertCount(1, $response->json('props.movements'));
+        $this->assertArrayNotHasKey('manual_account_balance', $response->json('props.account_current'));
     }
 
     private function inertiaGetAs(User $user, string $uri)

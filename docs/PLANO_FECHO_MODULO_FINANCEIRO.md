@@ -676,7 +676,9 @@ F2.4 e F2.5 ficam validadas manualmente no browser e a regressão crítica de Me
 
 > Estado F3.1: tecnicamente concluída em 2026-05-22. A leitura canónica de dívida/conta corrente foi centralizada em `CurrentAccountService` e ligada a `DashboardController`, `PortalProfileController` e `FinanceiroController::openInvoices`, mantendo os fluxos de escrita financeira inalterados. Validação manual no browser ainda pendente.
 
-> Estado F3.2: tecnicamente concluída em 2026-05-25. As superfícies de utilizador/família passaram a consumir `CurrentAccountService` em Ficha do membro, tabs de membro, Portal Pagamentos e Portal Família, com distinção explícita entre valor nominal, pago, em aberto, dívida líquida, crédito disponível e saldo manual legado. Validação manual no browser ainda pendente. Não avançar para F3.3.
+> Estado F3.2: tecnicamente concluída em 2026-05-25. As superfícies de utilizador/família passaram a consumir `CurrentAccountService` em Ficha do membro, tabs de membro, Portal Pagamentos e Portal Família, com distinção explícita entre valor nominal, pago, em aberto, dívida líquida, crédito disponível e saldo manual legado.
+
+> Estado F3.2.1: correção limitada aplicada em 2026-05-25. Mantém-se `CurrentAccountService` como leitura canónica, mas `conta_corrente_manual`/`manual_account_balance` deixam de ser promovidos como saldo operacional nestas superfícies; a UI volta a usar linguagem funcional (`Conta Corrente`, `Mensalidades`, `Movimentos`, `Valor Pago`, `Em aberto`) e novos ajustes passam a ser remetidos para movimento manual auditável no Financeiro. Validação manual no browser ainda pendente. Não avançar para F3.3.
 
 ### Objetivo
 
@@ -699,6 +701,14 @@ Fechar geração, pagamento, pagamento parcial, vencimento, reabertura e crédit
 - Os rótulos frontend destas superfícies passaram a distinguir `Valor nominal`, `Pago`, `Em aberto`, `Dívida líquida`, `Crédito disponível` e `Saldo manual legado`.
 - Os testes focados executados nesta sprint cobrem Ficha do membro, Portal Pagamentos, Portal Família e payload canónico usado pelo dashboard/tab do membro.
 
+### Fecho técnico já executado em F3.2.1
+
+- `CurrentAccountService` manteve a fórmula operacional: `net_debt = max(gross_debt - available_credit, 0)` continua independente de `manual_account_balance`.
+- Ficha do membro deixou de expor campos top-level operacionais legados (`conta_corrente_manual`, `saldo_manual_legado`, `divida_bruta`, `divida_liquida`) e passou a concentrar a leitura financeira em `current_account_summary`.
+- DashboardTab e FinancialTab do membro voltaram a apresentar os cartões `Conta Corrente`, `Mensalidades`, `Movimentos` e `Valor Pago`; a tab Financeira acrescenta orientação explícita para fazer ajustes por movimento manual no Financeiro.
+- Portal Pagamentos e Portal Família deixaram de mostrar `Saldo manual legado` e de usar `Dívida líquida`/`Dívida bruta` como linguagem principal, privilegiando `Conta Corrente`, `Em aberto` e `Crédito disponível`.
+- Foram acrescentados testes de regressão para garantir que saldo manual legado não cria dívida operacional, que movimentos manuais auditáveis entram na conta corrente canónica e que as superfícies TSX não reintroduzem a linguagem rejeitada.
+
 ### Testes automáticos mínimos
 
 Criar testes para validar:
@@ -718,11 +728,12 @@ Criar testes para validar:
 - portal profile expõe dívida líquida, crédito disponível e saldo manual legado sem misturar conceitos;
 - `financeiro.invoices.open` exclui faturas ocultas/futuras e corrige `valor_em_aberto` com base em alocações confirmadas.
 - ficha do membro mostra invoice parcial com dívida exibida pelo remanescente e não pelo nominal;
-- ficha do membro mostra saldo manual legado em separado sem o duplicar no total;
+- ficha do membro não volta a expor campos top-level operacionais para saldo manual legado e mantém esse valor apenas fora do total operacional;
 - portal pagamentos usa `net_debt`/`overdue_debt` e `valor_em_aberto` no próximo pagamento;
 - portal pagamentos exclui faturas futuras/ocultas da dívida exigível;
 - portal família soma apenas dívida aberta real dos educandos/membros visíveis e expõe crédito disponível em separado;
 - payload usado pela superfície de dashboard/tab do membro continua canónico mesmo com histórico pago.
+- saldo manual legado isolado não cria dívida operacional e novos ajustes fazem-se por movimento manual auditável.
 
 ### Testes manuais para o utilizador
 
@@ -742,15 +753,15 @@ Criar testes para validar:
 14. Criar ou escolher um caso com crédito em conta e confirmar que o valor em dívida desce sem apagar o saldo manual legado.
 15. Abrir Portal > Perfil do mesmo membro e confirmar os valores de `Conta corrente`, `Valor em dívida` e `Próximo pagamento`.
 16. Abrir Financeiro > Faturas abertas e confirmar que mensalidades ocultas/futuras já não aparecem e que pagamentos parciais mostram apenas o remanescente.
-17. Abrir Membros > Ficha do membro > Dashboard e confirmar que o cartão principal mostra dívida líquida atual, sem subtrair históricos pagos ao nominal.
-18. Abrir Membros > Ficha do membro > Financeiro e confirmar que `Saldo manual legado` aparece separado da `Dívida líquida`.
-19. Abrir Portal > Pagamentos com uma fatura parcial e confirmar que o ecrã mostra `Em aberto`, `Valor nominal` e `Pago` com valores distintos.
+17. Abrir Membros > Ficha do membro > Dashboard e confirmar que os cartões principais são `Conta Corrente`, `Mensalidades`, `Movimentos` e `Valor Pago`.
+18. Abrir Membros > Ficha do membro > Financeiro e confirmar que não existe cartão `Saldo manual legado` e que o aviso remete ajustes para movimento manual no Financeiro.
+19. Abrir Portal > Pagamentos com uma fatura parcial e confirmar que o ecrã mostra `Conta Corrente`, `Em aberto`, `Crédito disponível`, `Valor nominal` e `Pago` com valores distintos.
 20. Abrir Portal > Família com dois educandos, um parcial e outro com fatura futura/oculta, e confirmar que o total pendente familiar soma apenas o valor exigível atual.
-21. No mesmo Portal > Família, confirmar que `Crédito disponível` aparece em cartão separado e que a `Dívida líquida` já o desconta.
+21. No mesmo Portal > Família, confirmar que `Crédito disponível` aparece em cartão separado, sem cartão `Saldo manual legado`.
 
 ### Resultado esperado
 
-Mensalidades ficam consistentes do início ao fim e as superfícies críticas passam a ler a mesma dívida canónica. Em F3.2, as superfícies de utilizador/família deixam também de misturar valor nominal com valor em aberto e de duplicar saldo manual legado.
+Mensalidades ficam consistentes do início ao fim e as superfícies críticas passam a ler a mesma dívida canónica. Em F3.2.1, estas superfícies deixam também de promover saldo manual legado como saldo operacional e regressam a linguagem funcional suportada por movimentos auditáveis.
 
 ---
 

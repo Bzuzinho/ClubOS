@@ -58,14 +58,18 @@ class MembrosCurrentAccountSurfaceTest extends TestCase
         $response->assertOk();
         $response->assertJsonPath('component', 'Membros/Show');
         $this->assertEquals(60.0, (float) $response->json('props.member.conta_corrente'));
-        $this->assertEquals(60.0, (float) $response->json('props.member.divida_bruta'));
-        $this->assertEquals(60.0, (float) $response->json('props.member.divida_liquida'));
+        $this->assertEquals(60.0, (float) $response->json('props.member.current_account_summary.net_debt'));
+        $this->assertEquals(60.0, (float) $response->json('props.member.current_account_summary.gross_debt'));
+        $this->assertEquals(60.0, (float) $response->json('props.member.current_account_summary.monthly_fees_open_amount'));
+        $this->assertEquals(0.0, (float) $response->json('props.member.current_account_summary.revenue_movements_open_amount'));
+        $this->assertArrayNotHasKey('divida_bruta', $response->json('props.member'));
+        $this->assertArrayNotHasKey('divida_liquida', $response->json('props.member'));
         $this->assertEquals(100.0, (float) $response->json('props.faturas.0.valor_total'));
         $this->assertEquals(40.0, (float) $response->json('props.faturas.0.valor_pago'));
         $this->assertEquals(60.0, (float) $response->json('props.faturas.0.valor_em_aberto'));
     }
 
-    public function test_member_show_exposes_manual_legacy_balance_separately_without_duplicating_total(): void
+    public function test_member_show_keeps_manual_legacy_balance_out_of_operational_top_level_fields(): void
     {
         $admin = User::factory()->admin()->create();
         $member = User::factory()->create();
@@ -93,10 +97,12 @@ class MembrosCurrentAccountSurfaceTest extends TestCase
 
         $response->assertOk();
         $this->assertEquals(35.0, (float) $response->json('props.member.conta_corrente'));
-        $this->assertEquals(18.5, (float) $response->json('props.member.conta_corrente_manual'));
-        $this->assertEquals(18.5, (float) $response->json('props.member.saldo_manual_legado'));
-        $this->assertEquals(35.0, (float) $response->json('props.member.divida_liquida'));
+        $this->assertEquals(35.0, (float) $response->json('props.member.current_account_summary.net_debt'));
         $this->assertEquals(18.5, (float) $response->json('props.member.current_account_summary.manual_account_balance'));
+        $this->assertArrayNotHasKey('conta_corrente_manual', $response->json('props.member'));
+        $this->assertArrayNotHasKey('saldo_manual_legado', $response->json('props.member'));
+        $this->assertArrayNotHasKey('divida_liquida', $response->json('props.member'));
+        $this->assertArrayNotHasKey('divida_bruta', $response->json('props.member'));
     }
 
     private function inertiaGetAs(User $user, string $uri)

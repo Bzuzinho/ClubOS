@@ -54,7 +54,6 @@ interface FamilySummary {
     pagamentos_pendentes_valor: number;
     gross_debt: number;
     available_credit: number;
-    manual_account_balance: number;
     net_debt: number;
     convocatorias_pendentes: number;
     proximos_treinos: number;
@@ -551,12 +550,11 @@ export default function Family() {
                         </PortalSection>
 
                     <div className="space-y-4">
-                        <PortalSection title="Resumo financeiro da família" description="Dívida líquida, crédito disponível e saldo legado separados por regra canónica.">
+                        <PortalSection title="Conta Corrente da família" description="Saldo operacional agregado dos membros visíveis e crédito disponível real.">
                             <div className="grid gap-3 sm:grid-cols-2">
-                                <PortalKpiCard label="Dívida líquida" value={formatSignedCurrency(familySummary?.net_debt ?? 0, 'debt')} helper="já desconta crédito" icon={CreditCard} valueClassName={amountToneClass(familySummary?.net_debt ?? 0, 'debt')} />
-                                <PortalKpiCard label="Dívida bruta" value={formatSignedCurrency(familySummary?.gross_debt ?? 0, 'debt')} helper="antes do crédito" icon={CreditCard} valueClassName={amountToneClass(familySummary?.gross_debt ?? 0, 'debt')} />
-                                <PortalKpiCard label="Crédito disponível" value={formatSignedCurrency(familySummary?.available_credit ?? 0, 'credit')} helper="separado da dívida" icon={Shield} valueClassName={amountToneClass(familySummary?.available_credit ?? 0, 'credit')} />
-                                <PortalKpiCard label="Saldo manual legado" value={formatSignedCurrency(familySummary?.manual_account_balance ?? 0, (familySummary?.manual_account_balance ?? 0) >= 0 ? 'credit' : 'debt')} helper="não entra duas vezes no total" icon={FileText} />
+                                <PortalKpiCard label="Conta Corrente" value={formatSignedCurrency(familySummary?.net_debt ?? 0, 'debt')} helper="saldo operacional agregado" icon={CreditCard} valueClassName={amountToneClass(familySummary?.net_debt ?? 0, 'debt')} />
+                                <PortalKpiCard label="Em aberto" value={formatSignedCurrency(familySummary?.gross_debt ?? 0, 'debt')} helper="antes de créditos" icon={CreditCard} valueClassName={amountToneClass(familySummary?.gross_debt ?? 0, 'debt')} />
+                                <PortalKpiCard label="Crédito disponível" value={formatSignedCurrency(familySummary?.available_credit ?? 0, 'credit')} helper="créditos reais da família" icon={Shield} valueClassName={amountToneClass(familySummary?.available_credit ?? 0, 'credit')} />
                             </div>
                         </PortalSection>
 

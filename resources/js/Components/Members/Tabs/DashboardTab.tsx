@@ -42,21 +42,27 @@ export function DashboardTab({ user, faturas = [] }: DashboardTabProps) {
       .sort((a, b) => new Date(b.data_emissao).getTime() - new Date(a.data_emissao).getTime());
   }, [faturas, user.id]);
 
-  const dividaLiquida = useMemo(() => {
-    return toNumber(currentAccountSummary.net_debt ?? user.divida_liquida ?? user.conta_corrente ?? 0);
-  }, [currentAccountSummary.net_debt, user.divida_liquida, user.conta_corrente]);
-
-  const dividaBruta = useMemo(() => {
-    return toNumber(currentAccountSummary.gross_debt ?? user.divida_bruta ?? 0);
-  }, [currentAccountSummary.gross_debt, user.divida_bruta]);
+  const contaCorrente = useMemo(() => {
+    return toNumber(currentAccountSummary.net_debt ?? user.conta_corrente ?? 0);
+  }, [currentAccountSummary.net_debt, user.conta_corrente]);
 
   const creditoDisponivel = useMemo(() => {
     return toNumber(currentAccountSummary.available_credit ?? user.credito_disponivel ?? 0);
   }, [currentAccountSummary.available_credit, user.credito_disponivel]);
 
-  const saldoManualLegado = useMemo(() => {
-    return toNumber(currentAccountSummary.manual_account_balance ?? user.saldo_manual_legado ?? user.conta_corrente_manual ?? 0);
-  }, [currentAccountSummary.manual_account_balance, user.saldo_manual_legado, user.conta_corrente_manual]);
+  const mensalidadesAbertas = useMemo(() => {
+    return toNumber(currentAccountSummary.monthly_fees_open_amount ?? 0);
+  }, [currentAccountSummary.monthly_fees_open_amount]);
+
+  const movimentosAbertos = useMemo(() => {
+    return toNumber(currentAccountSummary.revenue_movements_open_amount ?? 0);
+  }, [currentAccountSummary.revenue_movements_open_amount]);
+
+  const valorPago = useMemo(() => {
+    const valorPagoFaturas = userFaturas.reduce((sum, fatura) => sum + toNumber(fatura.valor_pago ?? (fatura.estado_pagamento === 'pago' ? fatura.valor_total : 0)), 0);
+
+    return valorPagoFaturas;
+  }, [userFaturas]);
 
   const dividaVencida = useMemo(() => {
     return toNumber(currentAccountSummary.overdue_debt ?? user.divida_vencida ?? 0);
@@ -146,10 +152,10 @@ export function DashboardTab({ user, faturas = [] }: DashboardTabProps) {
           <div className="flex flex-col items-center justify-center gap-2 px-2 py-1">
             <div className="text-xs text-muted-foreground flex items-center justify-center gap-1 leading-none">
               <DollarSign size={14} />
-              Dívida líquida
+              Conta Corrente
             </div>
-            <div className={`text-lg font-bold leading-none ${dividaLiquida > 0 ? 'text-red-600' : 'text-green-600'}`}>
-              {dividaLiquida.toFixed(2)}€
+            <div className={`text-lg font-bold leading-none ${contaCorrente > 0 ? 'text-red-600' : 'text-green-600'}`}>
+              {contaCorrente.toFixed(2)}€
             </div>
           </div>
         </Card>
@@ -158,10 +164,10 @@ export function DashboardTab({ user, faturas = [] }: DashboardTabProps) {
           <div className="flex flex-col items-center justify-center gap-2 px-2 py-1">
             <div className="text-xs text-muted-foreground flex items-center justify-center gap-1 leading-none">
               <TrendingDown size={14} />
-              Dívida bruta
+              Mensalidades
             </div>
             <div className="text-lg font-bold text-amber-600 leading-none">
-              {dividaBruta.toFixed(2)}€
+              {mensalidadesAbertas.toFixed(2)}€
             </div>
           </div>
         </Card>
@@ -170,10 +176,10 @@ export function DashboardTab({ user, faturas = [] }: DashboardTabProps) {
           <div className="flex flex-col items-center justify-center gap-2 px-2 py-1">
             <div className="text-xs text-muted-foreground flex items-center justify-center gap-1 leading-none">
               <Activity size={14} />
-              Presença
+              Movimentos
             </div>
             <div className="text-lg font-bold leading-none">
-              {presencasStats.taxaPresenca}%
+              {movimentosAbertos.toFixed(2)}€
             </div>
           </div>
         </Card>
@@ -181,11 +187,11 @@ export function DashboardTab({ user, faturas = [] }: DashboardTabProps) {
         <Card className="p-0">
           <div className="flex flex-col items-center justify-center gap-2 px-2 py-1">
             <div className="text-xs text-muted-foreground flex items-center justify-center gap-1 leading-none">
-              <Trophy size={14} />
-              Resultados
+              <TrendingUp size={14} />
+              Valor Pago
             </div>
             <div className="text-lg font-bold leading-none">
-              {atletaResultados.length}
+              {valorPago.toFixed(2)}€
             </div>
           </div>
         </Card>
@@ -205,19 +211,19 @@ export function DashboardTab({ user, faturas = [] }: DashboardTabProps) {
                   <div className="text-base font-bold text-green-600">{creditoDisponivel.toFixed(2)}€</div>
                 </div>
                 <div>
-                  <div className="text-xs text-muted-foreground">Dívida vencida</div>
+                  <div className="text-xs text-muted-foreground">Conta Corrente vencida</div>
                   <div className="text-base font-bold text-red-600">{dividaVencida.toFixed(2)}€</div>
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-1">
                 <div>
-                  <div className="text-xs text-muted-foreground">Dívida líquida</div>
-                  <div className="text-base font-bold text-slate-900">{dividaLiquida.toFixed(2)}€</div>
+                  <div className="text-xs text-muted-foreground">Mensalidades em aberto</div>
+                  <div className="text-base font-bold text-slate-900">{mensalidadesAbertas.toFixed(2)}€</div>
                 </div>
                 <div>
-                  <div className="text-xs text-muted-foreground">Saldo manual legado</div>
-                  <div className="text-base font-bold text-slate-900">{saldoManualLegado.toFixed(2)}€</div>
+                  <div className="text-xs text-muted-foreground">Movimentos em aberto</div>
+                  <div className="text-base font-bold text-slate-900">{movimentosAbertos.toFixed(2)}€</div>
                 </div>
               </div>
 

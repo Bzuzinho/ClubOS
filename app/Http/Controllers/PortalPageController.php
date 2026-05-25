@@ -465,7 +465,6 @@ class PortalPageController extends Controller
 
         $grossDebt = round((float) ($accountSummary['gross_debt'] ?? 0), 2);
         $availableCredit = round((float) ($accountSummary['available_credit'] ?? 0), 2);
-        $manualAccountBalance = round((float) ($accountSummary['manual_account_balance'] ?? 0), 2);
         $outstandingTotal = round((float) ($accountSummary['net_debt'] ?? 0), 2);
         $overdueTotal = round((float) ($accountSummary['overdue_debt'] ?? 0), 2);
         $plan = $user->dadosFinanceiros?->mensalidade?->designacao
@@ -506,12 +505,14 @@ class PortalPageController extends Controller
                 'outstanding_value' => $outstandingTotal,
                 'gross_debt' => $grossDebt,
                 'available_credit' => $availableCredit,
-                'manual_account_balance' => $manualAccountBalance,
                 'overdue_invoices' => $openInvoices->where('estado_pagamento', 'vencido')->count(),
                 'overdue_value' => $overdueTotal,
                 'next_payment' => $this->compactPaymentSummary($nextPayment),
                 'plan' => $plan,
                 'general_status' => $generalStatus,
+                'deprecated' => [
+                    'manual_account_balance' => round((float) ($accountSummary['manual_account_balance'] ?? 0), 2),
+                ],
             ],
             'movements' => $movements->all(),
             'latest_receipts' => $receipts->take(6)->values()->all(),

@@ -114,7 +114,6 @@ class FamilyPortalController extends Controller
 
         $familyGrossDebt = round((float) $currentAccountByMember->sum('gross_debt'), 2);
         $familyAvailableCredit = round((float) $currentAccountByMember->sum('available_credit'), 2);
-        $familyManualAccountBalance = round((float) $currentAccountByMember->sum('manual_account_balance'), 2);
         $familyNetDebt = round((float) $currentAccountByMember->sum('net_debt'), 2);
 
         $upcomingTrainings = $educandoIds->isEmpty()
@@ -235,11 +234,13 @@ class FamilyPortalController extends Controller
                 'pagamentos_pendentes_valor' => $familyNetDebt,
                 'gross_debt' => $familyGrossDebt,
                 'available_credit' => $familyAvailableCredit,
-                'manual_account_balance' => $familyManualAccountBalance,
                 'net_debt' => $familyNetDebt,
                 'convocatorias_pendentes' => $pendingConvocations->count(),
                 'proximos_treinos' => $upcomingTrainings->count(),
                 'documentos_alerta' => $documentAlerts->count(),
+                'deprecated' => [
+                    'manual_account_balance' => round((float) $currentAccountByMember->sum('manual_account_balance'), 2),
+                ],
             ],
             'pagamentos' => $pagamentos->all(),
             'convocatorias_pendentes' => $convocatoriasPendentes->map(fn (EventConvocation $convocation) => [
