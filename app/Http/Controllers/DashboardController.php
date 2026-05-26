@@ -688,7 +688,6 @@ class DashboardController extends Controller
                 'conta_corrente' => $athlete['conta_corrente'],
                 'divida_bruta' => (float) ($accountSummary['gross_debt'] ?? 0),
                 'credito_disponivel' => (float) ($accountSummary['available_credit'] ?? 0),
-                'conta_corrente_manual' => (float) ($accountSummary['manual_account_balance'] ?? 0),
                 'assiduidade_percent' => $attendanceSummary['percentage'],
                 'treinos_agendados_mes' => $attendanceSummary['scheduled'],
             ],

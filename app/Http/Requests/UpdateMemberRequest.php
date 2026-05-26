@@ -97,7 +97,7 @@ class UpdateMemberRequest extends FormRequest
             'discount_reason' => ['nullable', 'string', 'max:255'],
             'centro_custo' => ['nullable', 'array'],
             'centro_custo.*' => ['exists:cost_centers,id'],
-            'conta_corrente_manual' => ['nullable', 'numeric'],
+            'conta_corrente_manual' => ['prohibited'],
         ];
     }
 
@@ -109,6 +109,7 @@ class UpdateMemberRequest extends FormRequest
             'email_utilizador.unique' => 'Este email já está em uso.',
             'sexo.required' => 'O sexo é obrigatório.',
             'estado.required' => 'O estado é obrigatório.',
+            'conta_corrente_manual.prohibited' => 'Ajustes de conta corrente devem ser feitos por Movimentos manuais.',
         ];
     }
 }

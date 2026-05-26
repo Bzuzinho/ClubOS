@@ -164,6 +164,7 @@ class DashboardEntryRoutingTest extends TestCase
         $firstResponse->assertOk();
         $firstResponse->assertJsonPath('props.component', null);
         $firstResponse->assertJsonPath('props.resumo.conta_corrente', 40);
+        $this->assertArrayNotHasKey('conta_corrente_manual', $firstResponse->json('props.resumo'));
 
         Movement::query()->create([
             'user_id' => $athlete->id,
@@ -180,6 +181,7 @@ class DashboardEntryRoutingTest extends TestCase
 
         $secondResponse->assertOk();
         $secondResponse->assertJsonPath('props.resumo.conta_corrente', 55);
+        $this->assertArrayNotHasKey('conta_corrente_manual', $secondResponse->json('props.resumo'));
     }
 
     public function test_athlete_dashboard_current_account_uses_open_amount_and_excludes_future_hidden_invoices(): void

@@ -38,7 +38,6 @@ export const MEMBER_IMPORT_FIELDS: MemberImportFieldDefinition[] = [
   { key: 'escola', label: 'Escola', group: 'pessoal' },
   { key: 'tipo_mensalidade', label: 'Tipo de mensalidade', group: 'financeiro', aliases: ['mensalidade', 'fee'] },
   { key: 'centro_custo', label: 'Centro de custo', group: 'financeiro', aliases: ['centro custo', 'cost center'] },
-  { key: 'conta_corrente_manual', label: 'Conta corrente manual', group: 'financeiro', aliases: ['saldo manual', 'conta corrente'] },
   { key: 'ativo_desportivo', label: 'Ativo desportivo', group: 'desportivo', aliases: ['ativo', 'ativo atleta'] },
   { key: 'num_federacao', label: 'Número de federação', group: 'desportivo', aliases: ['federacao', 'num federacao'] },
   { key: 'numero_pmb', label: 'Número PMB', group: 'desportivo', aliases: ['pmb'] },

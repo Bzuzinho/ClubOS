@@ -8,6 +8,8 @@ use App\Models\Invoice;
 use App\Models\Payment;
 use App\Models\PaymentAllocation;
 use App\Models\User;
+use App\Services\Financeiro\CurrentAccountService;
+use App\Services\Members\MemberImportService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -103,6 +105,92 @@ class MembrosCurrentAccountSurfaceTest extends TestCase
         $this->assertArrayNotHasKey('saldo_manual_legado', $response->json('props.member'));
         $this->assertArrayNotHasKey('divida_liquida', $response->json('props.member'));
         $this->assertArrayNotHasKey('divida_bruta', $response->json('props.member'));
+    }
+
+    public function test_member_show_page_does_not_expose_editable_manual_current_account_field(): void
+    {
+        $source = file_get_contents(resource_path('js/Pages/Membros/Show.tsx'));
+
+        $this->assertIsString($source);
+        $this->assertStringNotContainsString('conta_corrente_manual', $source);
+        $this->assertStringNotContainsString('Conta corrente manual', $source);
+    }
+
+    public function test_member_update_rejects_manual_legacy_balance_adjustments_and_preserves_operational_current_account(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $member = User::factory()->create([
+            'nome_completo' => 'Membro Ajuste',
+            'sexo' => 'masculino',
+            'estado' => 'ativo',
+        ]);
+
+        DadosFinanceiros::query()->create([
+            'user_id' => $member->id,
+            'conta_corrente_manual' => 18.5,
+        ]);
+
+        Invoice::query()->create([
+            'user_id' => $member->id,
+            'mes' => 'Mensalidade Julho',
+            'data_fatura' => now()->subDay()->toDateString(),
+            'data_emissao' => now()->subDay()->toDateString(),
+            'data_vencimento' => now()->addDays(10)->toDateString(),
+            'valor_total' => 35,
+            'valor_pago' => 0,
+            'valor_em_aberto' => 35,
+            'oculta' => false,
+            'estado_pagamento' => 'pendente',
+            'tipo' => 'mensalidade',
+        ]);
+
+        $response = $this->actingAs($admin)->from(route('membros.show', $member))
+            ->put(route('membros.update', $member), [
+                'nome_completo' => $member->nome_completo,
+                'email_utilizador' => $member->email_utilizador,
+                'numero_socio' => (string) $member->numero_socio,
+                'sexo' => $member->sexo,
+                'estado' => $member->estado,
+                'tipo_membro' => $member->tipo_membro ?? [],
+                'conta_corrente_manual' => 99.99,
+            ]);
+
+        $response->assertRedirect(route('membros.show', $member));
+        $response->assertSessionHasErrors('conta_corrente_manual');
+
+        $member->dadosFinanceiros()->firstOrFail()->refresh();
+        $this->assertSame('18.50', $member->dadosFinanceiros->conta_corrente_manual);
+
+        $summary = app(CurrentAccountService::class)->summarize(['user_id' => $member->id]);
+
+        $this->assertSame(35.0, (float) $summary['net_debt']);
+        $this->assertSame(18.5, (float) $summary['manual_account_balance']);
+    }
+
+    public function test_member_import_ignores_manual_legacy_balance_field_and_warns(): void
+    {
+        $result = app(MemberImportService::class)->import([
+            [
+                'Nome completo' => 'Importado Sem Saldo',
+                'Sexo' => 'masculino',
+                'Estado' => 'ativo',
+                'Conta Corrente' => '123,45',
+            ],
+        ], [
+            'nome_completo' => 'Nome completo',
+            'sexo' => 'Sexo',
+            'estado' => 'Estado',
+            'conta_corrente_manual' => 'Conta Corrente',
+        ]);
+
+        $this->assertSame(1, $result['created_count']);
+        $this->assertCount(0, $result['errors']);
+        $this->assertNotEmpty($result['warnings']);
+        $this->assertSame('conta_corrente_manual', $result['warnings'][0]['field']);
+
+        $member = User::query()->findOrFail($result['created_ids'][0]);
+
+        $this->assertNull($member->dadosFinanceiros);
     }
 
     private function inertiaGetAs(User $user, string $uri)

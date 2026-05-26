@@ -680,6 +680,8 @@ F2.4 e F2.5 ficam validadas manualmente no browser e a regressão crítica de Me
 
 > Estado F3.2.1: correção limitada aplicada em 2026-05-25. Mantém-se `CurrentAccountService` como leitura canónica, mas `conta_corrente_manual`/`manual_account_balance` deixam de ser promovidos como saldo operacional nestas superfícies; a UI volta a usar linguagem funcional (`Conta Corrente`, `Mensalidades`, `Movimentos`, `Valor Pago`, `Em aberto`) e novos ajustes passam a ser remetidos para movimento manual auditável no Financeiro. Validação manual no browser ainda pendente. Não avançar para F3.3.
 
+> Estado F3.3: tecnicamente concluída em 2026-05-26 e pendente de validação manual orientada. `conta_corrente_manual` deixou de ser editável nos fluxos de membro, deixou de entrar como ajuste na importação de membros, deixou de ser promovida como `Conta corrente` no Portal Profile e saiu do payload operacional do Dashboard atleta. Mantém-se apenas na base de dados e em payloads explicitamente deprecated/compatibilidade enquanto a F3.4 não migrar legado para movimentos auditáveis.
+
 ### Objetivo
 
 Fechar geração, pagamento, pagamento parcial, vencimento, reabertura e crédito de mensalidades, e alinhar a leitura canónica de dívida/conta corrente nas superfícies críticas.
@@ -709,6 +711,17 @@ Fechar geração, pagamento, pagamento parcial, vencimento, reabertura e crédit
 - Portal Pagamentos e Portal Família deixaram de mostrar `Saldo manual legado` e de usar `Dívida líquida`/`Dívida bruta` como linguagem principal, privilegiando `Conta Corrente`, `Em aberto` e `Crédito disponível`.
 - Foram acrescentados testes de regressão para garantir que saldo manual legado não cria dívida operacional, que movimentos manuais auditáveis entram na conta corrente canónica e que as superfícies TSX não reintroduzem a linguagem rejeitada.
 
+### Fecho técnico já executado em F3.3
+
+- Requests de criação/edição de membro passaram a bloquear `conta_corrente_manual` com mensagem explícita: `Ajustes de conta corrente devem ser feitos por Movimentos manuais.`
+- `MembrosController` deixou de tratar `conta_corrente_manual` como payload financeiro editável; a ficha do membro mantém apenas leitura operacional por `CurrentAccountService`.
+- `MemberImportService` passou a ignorar `conta_corrente_manual` na importação, devolvendo aviso de compatibilidade em vez de persistir saldo operacional legado.
+- A biblioteca frontend de importação deixou de mapear `Conta corrente manual` como campo importável.
+- `PortalProfileController` deixou de expor saldo manual legado como `account_balance`; `Conta corrente` no Portal Profile passou a refletir apenas `net_debt`.
+- `DashboardController` deixou de incluir `conta_corrente_manual` no payload operacional de `resumo`.
+- A regra operacional fica explícita nesta sprint: `Ajustes de conta corrente devem ser feitos por Movimentos manuais.`
+- F3.4 fica apenas proposta para migração controlada do legado para movimentos manuais; não executar nesta sprint.
+
 ### Testes automáticos mínimos
 
 Criar testes para validar:
@@ -734,6 +747,10 @@ Criar testes para validar:
 - portal família soma apenas dívida aberta real dos educandos/membros visíveis e expõe crédito disponível em separado;
 - payload usado pela superfície de dashboard/tab do membro continua canónico mesmo com histórico pago.
 - saldo manual legado isolado não cria dívida operacional e novos ajustes fazem-se por movimento manual auditável.
+- atualização de membro com `conta_corrente_manual` é bloqueada e não altera a conta corrente operacional.
+- importação de membros ignora `conta_corrente_manual` e devolve aviso de compatibilidade.
+- movimento manual de receita em aberto afeta a conta corrente operacional.
+- movimento manual pago deixa de afetar a conta corrente operacional.
 
 ### Testes manuais para o utilizador
 
@@ -758,10 +775,14 @@ Criar testes para validar:
 19. Abrir Portal > Pagamentos com uma fatura parcial e confirmar que o ecrã mostra `Conta Corrente`, `Em aberto`, `Crédito disponível`, `Valor nominal` e `Pago` com valores distintos.
 20. Abrir Portal > Família com dois educandos, um parcial e outro com fatura futura/oculta, e confirmar que o total pendente familiar soma apenas o valor exigível atual.
 21. No mesmo Portal > Família, confirmar que `Crédito disponível` aparece em cartão separado, sem cartão `Saldo manual legado`.
+22. Abrir Membros > Ficha do membro, tentar descobrir um campo de saldo manual editável e confirmar que ele já não existe.
+23. Tentar atualizar um membro por fluxo administrativo que envie `conta_corrente_manual` e confirmar que o sistema bloqueia com a mensagem `Ajustes de conta corrente devem ser feitos por Movimentos manuais.`
+24. No Portal > Perfil, confirmar que o cartão `Conta corrente` coincide com a dívida líquida atual e não com o saldo legado antigo.
+25. No Dashboard atleta, confirmar que não existe qualquer indicador operacional baseado em `conta_corrente_manual`.
 
 ### Resultado esperado
 
-Mensalidades ficam consistentes do início ao fim e as superfícies críticas passam a ler a mesma dívida canónica. Em F3.2.1, estas superfícies deixam também de promover saldo manual legado como saldo operacional e regressam a linguagem funcional suportada por movimentos auditáveis.
+Mensalidades ficam consistentes do início ao fim e as superfícies críticas passam a ler a mesma dívida canónica. Em F3.2.1, estas superfícies deixam também de promover saldo manual legado como saldo operacional e regressam a linguagem funcional suportada por movimentos auditáveis. Em F3.3, `conta_corrente_manual` deixa adicionalmente de ser editável ou importável como ajuste operacional, ficando apenas como legado persistido até migração controlada futura.
 
 ---
 

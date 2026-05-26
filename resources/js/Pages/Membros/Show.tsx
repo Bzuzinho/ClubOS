@@ -186,7 +186,6 @@ const buildMemberUpdatePayload = (user: User) => ({
     discount_value: user.discount_value ?? '',
     discount_reason: user.discount_reason || '',
     centro_custo: normalizeRelationIds(user.centro_custo),
-    conta_corrente_manual: user.conta_corrente_manual ?? 0,
     ativo_desportivo: Boolean(user.ativo_desportivo),
     num_federacao: user.num_federacao || '',
     numero_pmb: user.numero_pmb || '',

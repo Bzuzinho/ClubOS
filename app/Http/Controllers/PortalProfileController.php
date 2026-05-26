@@ -47,7 +47,7 @@ class PortalProfileController extends Controller
                 'userTypes:id,codigo,nome,ativo',
                 'athleteSportsData:id,user_id,escalao_id',
                 'athleteSportsData.escalao:id,nome',
-                'dadosFinanceiros:id,user_id,mensalidade_id,conta_corrente_manual',
+                'dadosFinanceiros:id,user_id,mensalidade_id',
                 'dadosFinanceiros.mensalidade:id,designacao',
             ])
             ->findOrFail($requestedMemberId);
@@ -243,11 +243,10 @@ class PortalProfileController extends Controller
                 ['label' => 'Estado desportivo', 'value' => $member->ativo_desportivo ? 'Ativo' : 'Inativo'],
             ],
             'financial' => [
-                'account_balance' => $this->formatCurrency($accountSummary['manual_account_balance'] ?? 0),
+                'account_balance' => $this->formatCurrency($accountSummary['net_debt'] ?? 0),
                 'outstanding_value' => $this->formatCurrency($accountSummary['net_debt'] ?? 0),
                 'gross_debt' => $this->formatCurrency($accountSummary['gross_debt'] ?? 0),
                 'available_credit' => $this->formatCurrency($accountSummary['available_credit'] ?? 0),
-                'manual_account_balance' => $this->formatCurrency($accountSummary['manual_account_balance'] ?? 0),
                 'net_debt' => $this->formatCurrency($accountSummary['net_debt'] ?? 0),
                 'next_payment' => $nextInvoice ? [
                     'label' => $this->displayValue(($nextInvoice['mes'] ?? null) ?: ($nextInvoice['tipo'] ?? null) ?: 'Próximo pagamento'),

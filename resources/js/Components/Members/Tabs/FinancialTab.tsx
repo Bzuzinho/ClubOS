@@ -387,6 +387,13 @@ export function FinancialTab({
 
       </div>
 
+      <Card className="p-2">
+        <h3 className="text-xs font-semibold mb-1">Ajustes operacionais</h3>
+        <p className="text-xs text-muted-foreground">
+          Ajustes de conta corrente devem ser feitos por Movimento manual no Financeiro.
+        </p>
+      </Card>
+
       {/* Histórico Financeiro */}
       <Card className="p-2">
         <h3 className="text-xs font-semibold mb-1.5">Histórico de Faturas</h3>

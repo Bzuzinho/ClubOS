@@ -782,7 +782,7 @@ class MembrosController extends Controller
 
     private function hasFinancialDataPayload(array $data): bool
     {
-        foreach (['tipo_mensalidade', 'conta_corrente_manual', 'discount_type', 'discount_value', 'discount_reason'] as $field) {
+        foreach (['tipo_mensalidade', 'discount_type', 'discount_value', 'discount_reason'] as $field) {
             if (array_key_exists($field, $data)) {
                 return true;
             }
@@ -795,10 +795,6 @@ class MembrosController extends Controller
     {
         if (array_key_exists('tipo_mensalidade', $data)) {
             $financeData->mensalidade_id = $data['tipo_mensalidade'] ?: null;
-        }
-
-        if (array_key_exists('conta_corrente_manual', $data)) {
-            $financeData->conta_corrente_manual = $data['conta_corrente_manual'] ?? 0;
         }
 
         if (array_key_exists('discount_type', $data)) {

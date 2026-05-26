@@ -71,7 +71,7 @@ class Movement extends Model
     {
         return $this->hasOne(FinancialEntry::class, 'origem_id')
             ->where('origem_tipo', 'movement')
-            ->latestOfMany('created_at');
+            ->orderByDesc('created_at');
     }
 
     public function items(): HasMany

@@ -96,7 +96,7 @@ class PortalProfileFamilyAccessTest extends TestCase
         $response->assertJsonPath('props.profile.can_edit', true);
     }
 
-    public function test_portal_profile_financial_payload_uses_net_debt_and_exposes_credit_and_manual_balance(): void
+    public function test_portal_profile_financial_payload_uses_operational_current_account_and_exposes_credit(): void
     {
         $guardian = User::factory()->create([
             'perfil' => 'encarregado',
@@ -159,11 +159,12 @@ class PortalProfileFamilyAccessTest extends TestCase
         $response = $this->inertiaGetAs($guardian, route('portal.profile', ['member' => $educando->id]));
 
         $response->assertOk();
-        $response->assertJsonPath('props.profile.financial.account_balance', '7,50 €');
+        $response->assertJsonPath('props.profile.financial.account_balance', '45,00 €');
         $response->assertJsonPath('props.profile.financial.outstanding_value', '45,00 €');
         $response->assertJsonPath('props.profile.financial.gross_debt', '60,00 €');
         $response->assertJsonPath('props.profile.financial.available_credit', '15,00 €');
         $response->assertJsonPath('props.profile.financial.next_payment.amount', '60,00 €');
+        $this->assertArrayNotHasKey('manual_account_balance', $response->json('props.profile.financial'));
     }
 
     private function inertiaGetAs(User $user, string $uri)

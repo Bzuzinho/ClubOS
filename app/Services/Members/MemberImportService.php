@@ -127,6 +127,15 @@ class MemberImportService
                     continue;
                 }
 
+                if ($field === 'conta_corrente_manual') {
+                    $rowWarnings[] = $this->message(
+                        'conta_corrente_manual',
+                        'Campo legado ignorado; ajustes de conta corrente devem ser feitos por Movimentos manuais.'
+                    );
+
+                    continue;
+                }
+
                 $normalized[$field] = $this->normalizeFieldValue(
                     $field,
                     Arr::get($row, $sourceColumn),
@@ -262,7 +271,6 @@ class MemberImportService
             'ativo_desportivo', 'rgpd', 'consentimento', 'afiliacao', 'declaracao_de_transporte' => $this->normalizeBoolean($field, $value, $errors),
             'data_nascimento', 'data_inscricao', 'data_atestado_medico', 'data_rgpd', 'data_consentimento', 'data_afiliacao' => $this->normalizeDate($field, $value, $errors),
             'numero_irmaos' => $this->normalizeInteger($field, $value, $errors),
-            'conta_corrente_manual' => $this->normalizeNumber($field, $value, $errors),
             default => is_string($value) ? trim($value) : $value,
         };
     }
@@ -342,15 +350,12 @@ class MemberImportService
         $payload['password'] = Hash::make('password123');
         $payload = $this->syncAuthIdentityFields($payload);
 
-        $member = User::create(Arr::except($payload, ['conta_corrente_manual', 'tipo_mensalidade']));
+        $member = User::create(Arr::except($payload, ['tipo_mensalidade']));
 
-        if (array_key_exists('tipo_mensalidade', $normalized) || array_key_exists('conta_corrente_manual', $normalized)) {
+        if (array_key_exists('tipo_mensalidade', $normalized)) {
             $financeData = DadosFinanceiros::firstOrNew(['user_id' => $member->id]);
             if (array_key_exists('tipo_mensalidade', $normalized)) {
                 $financeData->mensalidade_id = $normalized['tipo_mensalidade'];
-            }
-            if (array_key_exists('conta_corrente_manual', $normalized)) {
-                $financeData->conta_corrente_manual = $normalized['conta_corrente_manual'] ?? 0;
             }
             $financeData->save();
         }

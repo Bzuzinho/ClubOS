@@ -46,6 +46,19 @@ class CurrentAccountServiceOperationalBalanceTest extends TestCase
         $this->assertSame(50.0, (float) $summary['breakdown']['movements'][0]['open_amount']);
     }
 
+    public function test_paid_manual_revenue_movement_does_not_count_in_operational_current_account(): void
+    {
+        $member = User::factory()->create();
+
+        $this->createRevenueMovement($member, 50, 'pago');
+
+        $summary = app(CurrentAccountService::class)->summarize(['user_id' => $member->id]);
+
+        $this->assertSame(0.0, (float) $summary['gross_debt']);
+        $this->assertSame(0.0, (float) $summary['net_debt']);
+        $this->assertSame([], $summary['breakdown']['movements']);
+    }
+
     public function test_partial_invoice_uses_remaining_amount_in_operational_current_account(): void
     {
         $member = User::factory()->create();
@@ -129,7 +142,7 @@ class CurrentAccountServiceOperationalBalanceTest extends TestCase
         $this->assertSame(80.0, (float) $summary['manual_account_balance']);
     }
 
-    private function createRevenueMovement(User $member, float $amount): Movement
+    private function createRevenueMovement(User $member, float $amount, string $paymentState = 'pendente'): Movement
     {
         return Movement::query()->create([
             'user_id' => $member->id,
@@ -138,7 +151,7 @@ class CurrentAccountServiceOperationalBalanceTest extends TestCase
             'data_emissao' => now()->subDay()->toDateString(),
             'data_vencimento' => now()->addDays(7)->toDateString(),
             'valor_total' => $amount,
-            'estado_pagamento' => 'pendente',
+            'estado_pagamento' => $paymentState,
             'tipo' => 'servico',
             'origem_tipo' => 'manual',
             'origem_id' => null,
