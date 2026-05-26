@@ -2720,14 +2720,6 @@ class FinanceiroController extends Controller
         ];
     }
 
-        $this->invalidateFinanceiroCaches();
-
-        return response()->json([
-            'created_extratos' => $created,
-            'extratos' => $this->financeBankStatements(),
-        ]);
-    }
-
     public function updateExtrato(Request $request, BankStatement $extrato)
     {
         $data = $request->validate([

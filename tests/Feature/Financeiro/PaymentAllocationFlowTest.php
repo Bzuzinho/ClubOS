@@ -474,7 +474,7 @@ class PaymentAllocationFlowTest extends TestCase
         $this->assertSame('70.00', (string) collect($response->json('extratos'))->firstWhere('id', $first->id)['saldo']);
     }
 
-    public function test_it_can_manually_catalog_a_bank_statement_without_selecting_invoice_or_movement(): void
+    public function test_legacy_bank_reconciliation_endpoint_is_gone_for_manual_catalog_payload(): void
     {
         $admin = User::factory()->admin()->create();
         $costCenter = $this->createCostCenter();
@@ -487,65 +487,25 @@ class PaymentAllocationFlowTest extends TestCase
         ]);
 
         $response
-            ->assertOk()
-            ->assertJsonPath('extrato.conciliado', true)
-            ->assertJsonPath('extrato.conciliacao_status', 'reconciled');
-
-        $statement->refresh();
-
-        $this->assertTrue($statement->conciliado);
-        $this->assertSame('reconciled', $statement->conciliacao_status);
-        $this->assertSame('15062.16', $statement->valor_conciliado);
-        $this->assertSame('0.00', $statement->valor_por_conciliar);
-        $this->assertNotNull($statement->lancamento_id);
-
-        $this->assertDatabaseHas('financial_entries', [
-            'id' => $statement->lancamento_id,
-            'centro_custo_id' => $costCenter->id,
-            'user_id' => $admin->id,
-            'fatura_id' => null,
-            'origem_tipo' => 'manual',
-            'origem_id' => null,
-            'valor' => 15062.16,
-        ]);
-        $this->assertDatabaseHas('mapa_conciliacao', [
-            'extrato_id' => $statement->id,
-            'lancamento_id' => $statement->lancamento_id,
-            'fatura_id' => null,
-            'movimento_id' => null,
-            'status' => 'confirmado',
-            'regra_usada' => 'manual',
-            'valor_conciliado' => 15062.16,
-        ]);
+            ->assertStatus(410)
+            ->assertJsonPath('message', 'Endpoint descontinuado. Use fluxo canonico de alocacoes de pagamentos.');
     }
 
-    public function test_reconciled_manual_bank_catalog_entry_is_exposed_as_paid_in_movimentos_payload(): void
+    public function test_legacy_bank_reconciliation_endpoint_is_gone_for_financial_entry_payload(): void
     {
         $admin = User::factory()->admin()->create();
-        $costCenter = $this->createCostCenter();
+        $entry = $this->createStandaloneFinancialEntry('receita', 150.00, true);
         $statement = $this->createBankStatement(150.00);
 
-        $this->actingAs($admin)->postJson(route('financeiro.extratos.conciliar', $statement), [
+        $response = $this->actingAs($admin)->postJson(route('financeiro.extratos.conciliar', $statement), [
             'tipo' => 'receita',
-            'centro_custo_id' => $costCenter->id,
-            'user_id' => $admin->id,
-        ])->assertOk();
+            'centro_custo_id' => $entry->centro_custo_id,
+            'financial_entry_id' => $entry->id,
+        ]);
 
-        $statement->refresh();
-
-        $response = $this->actingAs($admin)->get(route('financeiro.index'));
-
-        $response->assertOk();
-
-        $row = collect($response->viewData('page')['props']['movimentosFinanceiros'] ?? [])
-            ->firstWhere('financial_entry_id', $statement->lancamento_id);
-
-        $this->assertNotNull($row);
-        $this->assertSame('financial_entry', $row['source_kind']);
-        $this->assertTrue((bool) $row['read_only']);
-        $this->assertSame('pago', $row['estado_pagamento']);
-        $this->assertSame(150.0, (float) $row['valor_pago']);
-        $this->assertSame(0.0, (float) $row['valor_em_aberto']);
+        $response
+            ->assertStatus(410)
+            ->assertJsonPath('message', 'Endpoint descontinuado. Use fluxo canonico de alocacoes de pagamentos.');
     }
 
     public function test_partially_allocated_bank_statement_stays_partial_when_credit_is_not_created(): void
@@ -1599,7 +1559,7 @@ class PaymentAllocationFlowTest extends TestCase
         ]);
     }
 
-    public function test_bank_reconciliation_endpoint_still_reconciles_invoice(): void
+    public function test_legacy_bank_reconciliation_endpoint_is_gone_for_invoice_payload(): void
     {
         $admin = User::factory()->admin()->create();
         [$invoice] = $this->createInvoicesForUser([60.00]);
@@ -1612,22 +1572,11 @@ class PaymentAllocationFlowTest extends TestCase
         ]);
 
         $response
-            ->assertOk()
-            ->assertJsonPath('extrato.conciliado', true);
-
-        $invoice->refresh();
-        $statement->refresh();
-
-        $this->assertSame('pago', $invoice->estado_pagamento);
-        $this->assertTrue($statement->conciliado);
-        $this->assertDatabaseHas('mapa_conciliacao', [
-            'extrato_id' => $statement->id,
-            'fatura_id' => $invoice->id,
-            'status' => 'confirmado',
-        ]);
+            ->assertStatus(410)
+            ->assertJsonPath('message', 'Endpoint descontinuado. Use fluxo canonico de alocacoes de pagamentos.');
     }
 
-    public function test_bank_reconciliation_endpoint_accepts_financial_entry_directly(): void
+    public function test_legacy_bank_reconciliation_endpoint_is_gone_for_financial_entry_direct_payload(): void
     {
         $admin = User::factory()->admin()->create();
         $entry = $this->createStandaloneFinancialEntry('receita', 60.00, true);
@@ -1640,19 +1589,8 @@ class PaymentAllocationFlowTest extends TestCase
         ]);
 
         $response
-            ->assertOk()
-            ->assertJsonPath('extrato.conciliado', true);
-
-        $entry->refresh();
-        $statement->refresh();
-
-        $this->assertSame('pago', $entry->estado);
-        $this->assertTrue($statement->conciliado);
-        $this->assertDatabaseHas('mapa_conciliacao', [
-            'extrato_id' => $statement->id,
-            'lancamento_id' => $entry->id,
-            'status' => 'confirmado',
-        ]);
+            ->assertStatus(410)
+            ->assertJsonPath('message', 'Endpoint descontinuado. Use fluxo canonico de alocacoes de pagamentos.');
     }
 
     public function test_unreconciling_bank_statement_cancels_invoice_allocations_and_account_credit(): void
@@ -1706,11 +1644,13 @@ class PaymentAllocationFlowTest extends TestCase
         $entry = $this->createStandaloneFinancialEntry('receita', 60.00, true);
         $statement = $this->createBankStatement(60.00);
 
-        $this->actingAs($admin)->postJson(route('financeiro.extratos.conciliar', $statement), [
-            'tipo' => 'receita',
-            'centro_custo_id' => $entry->centro_custo_id,
-            'financial_entry_id' => $entry->id,
-        ])->assertOk();
+        app(FinancialSettlementService::class)->settleFinancialEntry($entry, [
+            'payment_date' => '2026-05-05',
+            'method' => 'transferencia',
+            'reference' => 'LEGACY-ENDPOINT-GONE-SETUP',
+            'bank_statement_id' => $statement->id,
+            'created_by' => $admin->id,
+        ]);
 
         $response = $this->actingAs($admin)
             ->postJson(route('financeiro.extratos.desconciliar', $statement));
@@ -1756,10 +1696,12 @@ class PaymentAllocationFlowTest extends TestCase
 
         $statement = $this->createBankStatement(60.00);
 
-        $this->actingAs($admin)->postJson(route('financeiro.extratos.conciliar', $statement), [
-            'tipo' => 'receita',
-            'centro_custo_id' => $invoice->centro_custo_id,
-            'fatura_id' => $invoice->id,
+        $this->actingAs($admin)->postJson(route('financeiro.payments.allocate'), [
+            'bank_statement_id' => $statement->id,
+            'create_credit' => false,
+            'allocations' => [
+                ['invoice_id' => $invoice->id, 'amount' => 60.00],
+            ],
         ])->assertOk();
 
         $statementPayment = Payment::query()->where('bank_statement_id', $statement->id)->firstOrFail();
