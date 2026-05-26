@@ -270,7 +270,7 @@ export function FinancialTab({
       </div>
 
       {/* Configurações e Ajustes */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-6 gap-1">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-1">
         <Card className="p-2">
           <h3 className="text-xs font-semibold mb-1.5">Mensalidade</h3>
           <div className="space-y-1">
@@ -383,13 +383,6 @@ export function FinancialTab({
             className="h-7 text-xs bg-white"
             placeholder="Opcional"
           />
-        </Card>
-
-        <Card className="p-2">
-          <h3 className="text-xs font-semibold mb-1.5">Ajustes operacionais</h3>
-          <div className="rounded-md border bg-muted px-3 py-2 text-xs text-muted-foreground">
-            Ajustes à conta corrente devem ser feitos por Movimento manual no Financeiro, com rasto e histórico auditável.
-          </div>
         </Card>
 
       </div>
