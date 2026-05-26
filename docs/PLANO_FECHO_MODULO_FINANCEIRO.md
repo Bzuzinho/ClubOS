@@ -682,7 +682,7 @@ F2.4 e F2.5 ficam validadas manualmente no browser e a regressão crítica de Me
 
 > Estado F3.3: tecnicamente concluída em 2026-05-26 e pendente de validação manual orientada. `conta_corrente_manual` deixou de ser editável nos fluxos de membro, deixou de entrar como ajuste na importação de membros, deixou de ser promovida como `Conta corrente` no Portal Profile e saiu do payload operacional do Dashboard atleta. Mantém-se apenas na base de dados e em payloads explicitamente deprecated/compatibilidade enquanto a F3.4 não migrar legado para movimentos auditáveis.
 
-> Estado F3.4: tecnicamente concluída em 2026-05-26 como auditoria e preparação de migração. Foram criados `finance:audit-manual-current-account` e `finance:migrate-manual-current-account` para medir o legado em `dados_financeiros.conta_corrente_manual`, listar membros afetados, totais positivos/negativos, movimentos manuais já existentes, pendências abertas e gerar preview de um Movimento manual auditável com origem planeada `legacy_manual_current_account`. O `--commit` fica bloqueado nesta sprint: a semântica de valores positivos/negativos continua dependente de decisão manual e nenhuma migração real é executada.
+> Estado F3.4: tecnicamente concluída em 2026-05-26 como auditoria e preparação de migração. Foram criados `finance:audit-manual-current-account` e `finance:migrate-manual-current-account` para medir o legado em `dados_financeiros.conta_corrente_manual`, listar membros afetados, totais positivos/negativos, movimentos manuais já existentes, pendências abertas e gerar preview de um Movimento manual auditável com origem planeada `legacy_manual_current_account`. A validação operacional executada no servidor real confirmou `0` membros afetados, `0.00` total positivo, `0.00` total negativo, `0.00` total líquido legado e estado semântico `no_legacy_manual_balance_found`. Não existe legado real para migrar, o `--commit` continua bloqueado por desenho conservador e não é necessário avançar para F3.5.
 
 ### Objetivo
 
@@ -732,6 +732,24 @@ Fechar geração, pagamento, pagamento parcial, vencimento, reabertura e crédit
 - O comando de migração explicita as guardas: nunca criar `Payment`, `PaymentAllocation`, `FiscalDocumentRequest`, conciliação bancária ou marcação automática como pago.
 - `--commit` foi reservado para sprint futura e falha explicitamente em F3.4 para impedir migração automática sem decisão manual sobre a semântica de valores positivos/negativos.
 
+### Validação operacional executada em F3.4
+
+- comando executado no servidor real: `php artisan finance:audit-manual-current-account`;
+- membros afetados: `0`;
+- total positivo: `0.00`;
+- total negativo: `0.00`;
+- total líquido legado: `0.00`;
+- membros com movimentos manuais associados ao legado: `0`;
+- membros com faturas/movimentos em aberto associados ao legado: `0`;
+- estado semântico: `no_legacy_manual_balance_found`.
+
+### Conclusão operacional de F3.4
+
+- não existem valores reais em `dados_financeiros.conta_corrente_manual` para migrar;
+- não é necessário avançar para F3.5 de migração real;
+- a regra operacional mantém-se: ajustes de conta corrente devem ser feitos por Movimentos manuais auditáveis;
+- o comando de migração continua bloqueado para `--commit` e deve permanecer assim salvo decisão futura explícita.
+
 ### Como correr F3.4
 
 ```bash
@@ -749,6 +767,8 @@ php artisan finance:migrate-manual-current-account --export=storage/app/manual-c
 - valor positivo: não assumir automaticamente se é dívida do membro ou crédito a favor;
 - valor negativo: não assumir automaticamente se é crédito, acerto anterior ou convenção invertida;
 - qualquer linha com dúvida semântica, movimentos manuais existentes ou pendências abertas requer revisão humana antes de futura migração.
+
+Na validação operacional real desta sprint não surgiram linhas para interpretar, pelo que esta decisão pode permanecer adiada sem impacto operacional.
 
 ### Testes automáticos mínimos
 
