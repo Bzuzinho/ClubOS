@@ -2553,21 +2553,27 @@ class FinanceiroController extends Controller
             'centro_custo_id' => ['required', 'exists:cost_centers,id'],
         ]);
 
-        $extrato = DB::transaction(function () use ($data): BankStatement {
-            $extrato = BankStatement::create([
-                'conta' => $data['conta'] ?? null,
-                'data_movimento' => $data['data_movimento'],
-                'descricao' => $data['descricao'],
-                'valor' => $data['valor'],
+        $attributes = $this->buildBankStatementAttributes($data);
+
+        if (\App\Models\BankStatement::findDuplicateFor($attributes)) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'extrato' => \App\Models\BankStatement::DUPLICATE_MESSAGE,
+            ]);
+        }
+
+        $extrato = DB::transaction(function () use ($attributes) {
+            $extrato = \App\Models\BankStatement::create([
+                'conta' => $attributes['conta'],
+                'data_movimento' => $attributes['data_movimento'],
+                'descricao' => $attributes['descricao'],
+                'valor' => $attributes['valor'],
                 'saldo' => null,
-                'referencia' => $data['referencia'] ?? null,
-                'ficheiro_id' => $data['ficheiro_id'] ?? null,
-                'centro_custo_id' => $data['centro_custo_id'],
+                'referencia' => $attributes['referencia'],
+                'ficheiro_id' => $attributes['ficheiro_id'],
+                'centro_custo_id' => $attributes['centro_custo_id'],
                 'conciliado' => false,
             ]);
-
             $this->recalculateBankStatementBalances();
-
             return $extrato->fresh();
         });
 
@@ -2593,27 +2599,126 @@ class FinanceiroController extends Controller
             'extratos.*.centro_custo_id' => ['required', 'exists:cost_centers,id'],
         ]);
 
-        $created = DB::transaction(function () use ($data): Collection {
-            $created = [];
+        $preparedRows = collect($data['extratos'])
+            ->values()
+            ->map(function (array $row, int $index): array {
+                $attributes = $this->buildBankStatementAttributes($row);
+                return [
+                    'line' => $index + 1,
+                    'attributes' => $attributes,
+                    'signature' => \App\Models\BankStatement::duplicateSignatureFrom($attributes),
+                ];
+            });
 
-            foreach ($data['extratos'] as $row) {
-                $created[] = BankStatement::create([
-                    'conta' => $row['conta'] ?? null,
-                    'data_movimento' => $row['data_movimento'],
-                    'descricao' => $row['descricao'],
-                    'valor' => $row['valor'],
+        $seenSignatures = [];
+        $created = collect();
+        $duplicates = collect();
+
+        DB::transaction(function () use ($preparedRows, &$seenSignatures, &$created, &$duplicates): void {
+            foreach ($preparedRows as $row) {
+                $signature = $row['signature']['signature'];
+                if (isset($seenSignatures[$signature])) {
+                    $duplicates->push($this->formatDuplicateBankStatementRow(
+                        line: $row['line'],
+                        attributes: $row['attributes'],
+                        reason: sprintf('Linha duplicada no ficheiro (primeira ocorrencia na linha %d).', $seenSignatures[$signature]),
+                    ));
+                    continue;
+                }
+                $seenSignatures[$signature] = $row['line'];
+                $duplicate = \App\Models\BankStatement::findDuplicateFor($row['attributes']);
+                if ($duplicate) {
+                    $duplicates->push($this->formatDuplicateBankStatementRow(
+                        line: $row['line'],
+                        attributes: $row['attributes'],
+                        reason: sprintf('Linha duplicada de extrato existente (%s).', $duplicate->id),
+                    ));
+                    continue;
+                }
+                $created->push(\App\Models\BankStatement::create([
+                    'conta' => $row['attributes']['conta'],
+                    'data_movimento' => $row['attributes']['data_movimento'],
+                    'descricao' => $row['attributes']['descricao'],
+                    'valor' => $row['attributes']['valor'],
                     'saldo' => null,
-                    'referencia' => $row['referencia'] ?? null,
-                    'ficheiro_id' => $row['ficheiro_id'] ?? null,
-                    'centro_custo_id' => $row['centro_custo_id'],
+                    'referencia' => $row['attributes']['referencia'],
+                    'ficheiro_id' => $row['attributes']['ficheiro_id'],
+                    'centro_custo_id' => $row['attributes']['centro_custo_id'],
                     'conciliado' => false,
-                ]);
+                ]));
             }
-
-            $this->recalculateBankStatementBalances();
-
-            return collect($created)->map(fn (BankStatement $statement) => $statement->fresh());
+            if ($created->isNotEmpty()) {
+                $this->recalculateBankStatementBalances();
+                $created = $created->map(fn ($statement) => $statement->fresh());
+            }
         });
+
+        $this->invalidateFinanceiroCaches();
+
+        $summary = [
+            'received' => $preparedRows->count(),
+            'created' => $created->count(),
+            'duplicates' => $duplicates->count(),
+        ];
+
+        if ($duplicates->isNotEmpty() && $created->isEmpty()) {
+            return response()->json([
+                'message' => 'Nenhuma linha foi importada. Foram detetados duplicados de extrato.',
+                'errors' => [
+                    'extratos' => $duplicates->pluck('message')->values()->all(),
+                ],
+                'rejected_duplicates' => $duplicates,
+                'import_summary' => $summary,
+                'extratos' => $this->financeBankStatements(),
+            ], 422);
+        }
+
+        $message = $duplicates->isNotEmpty()
+            ? sprintf('Importacao concluida com %d linha(s) criada(s) e %d duplicado(s) rejeitado(s).', $created->count(), $duplicates->count())
+            : sprintf('Importacao concluida com %d linha(s) criada(s).', $created->count());
+
+        return response()->json([
+            'message' => $message,
+            'created_extratos' => $created,
+            'rejected_duplicates' => $duplicates,
+            'import_summary' => $summary,
+            'extratos' => $this->financeBankStatements(),
+        ]);
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>
+     */
+    private function buildBankStatementAttributes(array $data): array
+    {
+        return [
+            'conta' => $data['conta'] ?? null,
+            'data_movimento' => $data['data_movimento'],
+            'descricao' => trim((string) $data['descricao']),
+            'valor' => round((float) $data['valor'], 2),
+            'referencia' => $data['referencia'] ?? null,
+            'ficheiro_id' => $data['ficheiro_id'] ?? null,
+            'centro_custo_id' => $data['centro_custo_id'],
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $attributes
+     * @return array<string, mixed>
+     */
+    private function formatDuplicateBankStatementRow(int $line, array $attributes, string $reason): array
+    {
+        return [
+            'line' => $line,
+            'conta' => $attributes['conta'],
+            'data_movimento' => $attributes['data_movimento'],
+            'valor' => $attributes['valor'],
+            'referencia' => $attributes['referencia'],
+            'descricao' => $attributes['descricao'],
+            'message' => sprintf('Linha %d: %s', $line, $reason),
+        ];
+    }
 
         $this->invalidateFinanceiroCaches();
 
@@ -2714,6 +2819,19 @@ class FinanceiroController extends Controller
     }
 
     public function conciliarExtrato(Request $request, BankStatement $extrato)
+    {
+        abort(410, 'Endpoint descontinuado. Use fluxo canonico de alocacoes de pagamentos.');
+    }
+
+    /**
+     * DEPRECATED - Este endpoint será removido na próxima versão.
+     * Use PaymentAllocationService::allocate() para o fluxo canónico.
+     *
+     * Mantido apenas para compatibilidade transitória.
+     *
+     * @deprecated
+     */
+    public function conciliarExtratoLegacy(Request $request, BankStatement $extrato)
     {
         $data = $request->validate([
             'tipo' => ['required', 'in:receita,despesa'],

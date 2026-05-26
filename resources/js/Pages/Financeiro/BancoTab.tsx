@@ -844,6 +844,21 @@ export function BancoTab({
   };
 
   const handleCatalogar = async () => {
+    // Este é o fluxo legado de conciliação que foi descontinuado.
+    // O endpoint retorna 410 Gone. Os utilizadores devem usar o fluxo canónico
+    // através do componente BankReconciliationDialog.
+    toast.error('Fluxo legado de conciliação descontinuado. Use o novo fluxo de alocações de pagamentos.');
+    return;
+  }
+
+  /**
+   * DEPRECATED - Mantido apenas para referência histórica.
+   * Este era o fluxo legado de conciliação manual.
+   * Substituído pelo fluxo canónico de alocações de pagamentos.
+   *
+   * @deprecated
+   */
+  const handleCatalogarLegacy = async () => {
     if (!selectedExtrato) return;
 
     if (!catalogData.centro_custo_id && conciliacaoItens.length === 0) {

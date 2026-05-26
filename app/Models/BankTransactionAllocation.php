@@ -10,6 +10,9 @@ class BankTransactionAllocation extends Model
 {
     use HasUuids;
 
+    public const STATUS_CONFIRMED = 'confirmed';
+    public const STATUS_CANCELLED = 'cancelled';
+
     protected $fillable = [
         'bank_statement_id',
         'invoice_id',

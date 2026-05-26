@@ -199,6 +199,9 @@ class BankReconciliationService
 
     public function unreconcile(BankStatement $bankStatement, array $options = []): array
     {
+        // Remove alocações de recibos relacionadas antes de desconciliar
+        $this->cleanupReceiptAllocationsFor($bankStatement);
+
         return DB::transaction(function () use ($bankStatement, $options): array {
             $bankStatement = $bankStatement->fresh();
             $maps = MapaConciliacao::query()
@@ -434,6 +437,38 @@ class BankReconciliationService
                     ->orWhere('external_document_number', '');
             })
             ->delete();
+    }
+
+    /**
+     * Remove todas as alocações de recibos associadas a um extrato bancário.
+     * Restaura os recibos importados ao estado anterior.
+     *
+     * @param  \App\Models\BankStatement  $statement
+     * @return void
+     */
+    private function cleanupReceiptAllocationsFor(BankStatement $statement): void
+    {
+        $allocations = \App\Models\BankTransactionAllocation::query()
+            ->where('bank_statement_id', $statement->id)
+            ->where('status', \App\Models\BankTransactionAllocation::STATUS_CONFIRMED)
+            ->get();
+
+        foreach ($allocations as $allocation) {
+            // Marca como cancelada
+            $allocation->update([
+                'status' => \App\Models\BankTransactionAllocation::STATUS_CANCELLED,
+            ]);
+
+            // Se existir recibo relacionado, volta a estado anterior
+            if ($allocation->receipt_import_id) {
+                $receiptImport = $allocation->receiptImport;
+                if ($receiptImport) {
+                    $receiptImport->update([
+                        'status' => \App\Models\ReceiptImport::STATUS_PENDING,
+                    ]);
+                }
+            }
+        }
     }
 
     private function rejectActiveSuggestionsForStatement(BankStatement $bankStatement, ?string $userId = null): void
