@@ -27,6 +27,8 @@ return Application::configure(basePath: dirname(__DIR__))
         \App\Console\Commands\SyncPermissionNodes::class,
         \App\Console\Commands\GenerateMonthlyFeesCommand::class,
         \App\Console\Commands\ActivateDueMonthlyFeesCommand::class,
+        \App\Console\Commands\AuditManualCurrentAccount::class,
+        \App\Console\Commands\MigrateManualCurrentAccount::class,
     ])
     ->withMiddleware(function (Middleware $middleware) {
         // Trust all proxies for Codespaces
