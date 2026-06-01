@@ -53,7 +53,25 @@ export function BancoTab({
 }: BancoTabProps) {
   const getCsrfToken = () => {
     const token = document.querySelector('meta[name="csrf-token"]') as HTMLMetaElement | null;
-    return token?.content || '';
+    if (token?.content) {
+      return token.content;
+    }
+
+    const cookieToken = document.cookie
+      .split('; ')
+      .find((cookie) => cookie.startsWith('XSRF-TOKEN='));
+
+    if (!cookieToken) {
+      return '';
+    }
+
+    const encodedToken = cookieToken.slice('XSRF-TOKEN='.length);
+
+    try {
+      return decodeURIComponent(encodedToken);
+    } catch {
+      return encodedToken;
+    }
   };
   const buildJsonHeaders = () => ({
     'Content-Type': 'application/json',
@@ -197,6 +215,7 @@ export function BancoTab({
     return format(value, 'yyyy-MM-dd');
   };
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [bankStatementFormError, setBankStatementFormError] = useState<string | null>(null);
   const [dialogCatalogOpen, setDialogCatalogOpen] = useState(false);
   const [dialogEditOpen, setDialogEditOpen] = useState(false);
   const [dialogImportOpen, setDialogImportOpen] = useState(false);
@@ -798,13 +817,28 @@ export function BancoTab({
   };
 
   const handleAddExtrato = async () => {
+    setBankStatementFormError(null);
+
     if (!formData.descricao || formData.valor === 0) {
-      toast.error('Preencha todos os campos obrigatorios');
+      const message = 'Preencha todos os campos obrigatorios';
+      toast.error(message);
+      setBankStatementFormError(message);
       return;
     }
 
     if (!formData.centro_custo_id) {
-      toast.error('Selecione um centro de custo');
+      const message = 'Selecione um centro de custo';
+      toast.error(message);
+      setBankStatementFormError(message);
+      return;
+    }
+
+    const csrfToken = getCsrfToken();
+
+    if (!csrfToken) {
+      const message = 'Não foi possível guardar o movimento bancário.';
+      toast.error(message);
+      setBankStatementFormError(message);
       return;
     }
 
@@ -815,7 +849,7 @@ export function BancoTab({
           'Content-Type': 'application/json',
           Accept: 'application/json',
           'X-Requested-With': 'XMLHttpRequest',
-          'X-CSRF-TOKEN': getCsrfToken(),
+          'X-CSRF-TOKEN': csrfToken,
         },
         credentials: 'same-origin',
         body: JSON.stringify({
@@ -828,18 +862,46 @@ export function BancoTab({
         }),
       });
 
-      if (!response.ok) {
-        throw new Error('Erro ao guardar movimento bancario');
+      if (response.status === 419) {
+        const message = 'A sessão expirou. Atualize a página e tente novamente.';
+        toast.error(message);
+        setBankStatementFormError(message);
+        return;
       }
 
-      const data = await response.json();
-  setExtratos(data.extratos || []);
+      const data = await response.json().catch(() => null);
+
+      if (response.status === 422) {
+        const firstValidationError = Object.values(data?.errors || {})
+          .flat()
+          .find((value) => typeof value === 'string');
+
+        const validationMessage =
+          data?.errors?.extrato?.[0] ||
+          firstValidationError ||
+          data?.message ||
+          'Não foi possível guardar o movimento bancário.';
+        toast.error(validationMessage);
+        setBankStatementFormError(validationMessage);
+        return;
+      }
+
+      if (!response.ok) {
+        const message = data?.message || 'Não foi possível guardar o movimento bancário.';
+        toast.error(message);
+        setBankStatementFormError(message);
+        return;
+      }
+
+      setBankStatementFormError(null);
+      setExtratos(data?.extratos || []);
       toast.success('Movimento bancario adicionado');
       setDialogOpen(false);
       resetForm();
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Erro ao guardar movimento bancario';
+      const message = error instanceof Error ? error.message : 'Não foi possível guardar o movimento bancário.';
       toast.error(message);
+      setBankStatementFormError(message);
     }
   };
 
@@ -1614,9 +1676,23 @@ export function BancoTab({
             </DialogContent>
           </Dialog>
 
-          <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+          <Dialog
+            open={dialogOpen}
+            onOpenChange={(open) => {
+              setDialogOpen(open);
+              if (open) {
+                setBankStatementFormError(null);
+              }
+            }}
+          >
             <DialogTrigger asChild>
-              <Button onClick={resetForm} className="w-full sm:w-auto">
+              <Button
+                onClick={() => {
+                  resetForm();
+                  setBankStatementFormError(null);
+                }}
+                className="w-full sm:w-auto"
+              >
                 <Plus className="mr-2" />
                 Adicionar Movimento
               </Button>
@@ -1700,6 +1776,11 @@ export function BancoTab({
                   </div>
                 </div>
               </div>
+              {bankStatementFormError && (
+                <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                  {bankStatementFormError}
+                </div>
+              )}
               <DialogFooter>
                 <Button variant="outline" onClick={() => setDialogOpen(false)}>
                   Cancelar
