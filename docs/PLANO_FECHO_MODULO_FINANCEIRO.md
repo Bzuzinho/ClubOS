@@ -836,6 +836,12 @@ Mensalidades ficam consistentes do início ao fim e as superfícies críticas pa
 
 ## Sprint F4 — Banco e conciliação bancária
 
+> Estado F4.1: validada manualmente no browser e fechada operacionalmente em 2026-06-02 para canonicidade e guardas da conciliação bancária.
+
+> Atualização F4.1.4: a funcionalidade `Importar Recibos` foi movida de Financeiro para Configurações > Financeiro > Importar Recibos (reorganização de navegação). Sem alterações em endpoints, controllers ou regras financeiras/fiscais.
+
+> Estado F4.2: não iniciada nesta alteração documental. Não avançar para F4.2 neste registo.
+
 ### Objetivo
 
 Fechar alocação manual e assistida de linhas bancárias a faturas e movimentos.
@@ -872,6 +878,30 @@ Criar testes para validar:
 ### Resultado esperado
 
 Banco fica operacional e coerente com faturas, pagamentos e conciliação.
+
+### Fecho operacional confirmado de F4.1 (validação manual no browser)
+
+Checklist confirmado:
+
+- criar linha bancária nova: OK;
+- criar novamente a mesma linha bloqueia como duplicado e mostra mensagem visível: OK;
+- importar ficheiro com duplicados internos rejeita duplicados e mostra resumo: OK;
+- importar linha já existente na base de dados rejeita como duplicada e identifica a linha: OK;
+- importar duas linhas com mesma data/valor mas referência/descrição diferente aceita ambas: OK;
+- conciliar manualmente extrato a mensalidade cria pagamento/alocação e atualiza estado: OK;
+- desconciliar essa linha repõe mensalidade no estado correto e remove pedido fiscal pendente quando ainda não havia Wintouch: OK;
+- criar despesa a partir do extrato deixa movimento pago/conciliado: OK;
+- desconciliar despesa repõe movimento como não conciliado e não cria pedido fiscal indevido: OK;
+- fluxo legado/catalogar está bloqueado/descontinuado: OK;
+- documento Wintouch emitido continua a bloquear desconciliação: OK.
+
+### Estado para avanço
+
+Sprint F4.1 fica fechada operacionalmente com validação manual confirmada no browser.
+
+Na F4.1.4, a localização visual da importação de recibos foi consolidada em Configurações > Financeiro para reduzir ruído operacional no módulo Financeiro, mantendo o mesmo fluxo técnico e permissões.
+
+Não avançar para F4.2 nesta alteração documental.
 
 ---
 

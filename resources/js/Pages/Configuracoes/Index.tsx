@@ -20,6 +20,7 @@ import { AccessControlBootstrap } from '@/types/access-control';
 
 const UserTypePermissionSettings = lazy(() => import('@/Components/Configuracoes/Permissions/UserTypePermissionSettings').then((module) => ({ default: module.UserTypePermissionSettings })));
 const ConfiguracoesDesportivoIndex = lazy(() => import('@/Pages/Configuracoes/Desportivo/Index'));
+const ReceiptImportsTab = lazy(() => import('@/Pages/Financeiro/ReceiptImportsTab').then((module) => ({ default: module.ReceiptImportsTab })));
 
 interface AgeGroup {
     id: string;
@@ -246,6 +247,39 @@ interface DbUser {
     email_utilizador?: string | null;
     perfil?: string | null;
     estado?: string | null;
+}
+
+interface ReceiptImportUserOption {
+    id: string;
+    numero_socio?: string | null;
+    nome_completo?: string | null;
+}
+
+interface ReceiptImportInvoiceOption {
+    id: string;
+    user_id: string;
+    tipo: string;
+    mes?: string | null;
+    valor_total: number;
+    valor_em_aberto?: number | null;
+    estado_pagamento: string;
+}
+
+interface AccessPermission {
+    permission_node_id: string;
+    can_view: boolean;
+    can_edit: boolean;
+}
+
+interface SharedPageProps {
+    auth?: {
+        user?: {
+            perfil?: string | null;
+        } | null;
+    };
+    accessControl?: {
+        permissions?: AccessPermission[];
+    };
 }
 
 interface ClubSettings {
@@ -557,6 +591,8 @@ interface Props {
     invoiceTypes?: InvoiceType[];
     costCenters?: CostCenter[];
     paymentMethods?: PaymentMethod[];
+    receiptImportUsers?: ReceiptImportUserOption[];
+    receiptImportInvoices?: ReceiptImportInvoiceOption[];
     products?: Product[];
     sponsors?: Sponsor[];
     suppliers?: Supplier[];
@@ -585,6 +621,8 @@ export default function SettingsIndex({
     invoiceTypes = [],
     costCenters = [],
     paymentMethods = [],
+    receiptImportUsers = [],
+    receiptImportInvoices = [],
     products = [],
     sponsors = [],
     suppliers = [],
@@ -597,7 +635,7 @@ export default function SettingsIndex({
     clubSettings,
     accessControlBootstrap,
 }: Props) {
-    const page = usePage<Props>();
+    const page = usePage<Props & SharedPageProps>();
     const [currentTab, setCurrentTab] = useState(() => {
         if (typeof window !== 'undefined') {
             return new URLSearchParams(window.location.search).get('tab') || 'geral';
@@ -720,6 +758,8 @@ export default function SettingsIndex({
     const hasInvoiceTypes = Object.prototype.hasOwnProperty.call(page.props, 'invoiceTypes');
     const hasCostCenters = Object.prototype.hasOwnProperty.call(page.props, 'costCenters');
     const hasPaymentMethods = Object.prototype.hasOwnProperty.call(page.props, 'paymentMethods');
+    const hasReceiptImportUsers = Object.prototype.hasOwnProperty.call(page.props, 'receiptImportUsers');
+    const hasReceiptImportInvoices = Object.prototype.hasOwnProperty.call(page.props, 'receiptImportInvoices');
     const hasProducts = Object.prototype.hasOwnProperty.call(page.props, 'products');
     const hasSponsors = Object.prototype.hasOwnProperty.call(page.props, 'sponsors');
     const hasSuppliers = Object.prototype.hasOwnProperty.call(page.props, 'suppliers');
@@ -733,6 +773,11 @@ export default function SettingsIndex({
     const hasInjuryReasons = Object.prototype.hasOwnProperty.call(page.props, 'injuryReasons');
     const hasPoolTypes = Object.prototype.hasOwnProperty.call(page.props, 'poolTypes');
     const hasProvaTipos = Object.prototype.hasOwnProperty.call(page.props, 'provaTipos');
+    const accessPermissions = page.props.accessControl?.permissions ?? [];
+    const hasReceiptImportViewPermission = page.props.auth?.user?.perfil === 'admin'
+        || accessPermissions.some((permission) => permission.permission_node_id === 'financeiro.importacao_recibos' && permission.can_view);
+    const canEditReceiptImports = page.props.auth?.user?.perfil === 'admin'
+        || accessPermissions.some((permission) => permission.permission_node_id === 'financeiro.importacao_recibos' && permission.can_edit);
 
     useEffect(() => {
         if (clubSettings?.logo_url) {
@@ -799,7 +844,20 @@ export default function SettingsIndex({
 
     useEffect(() => {
         const pendingByTab: Record<string, { ready: boolean; props: string[] }> = {
-            financeiro: { ready: hasMonthlyFees && hasInvoiceTypes && hasCostCenters && hasPaymentMethods, props: ['monthlyFees', 'invoiceTypes', 'costCenters', 'paymentMethods'] },
+            financeiro: {
+                ready: hasMonthlyFees
+                    && hasInvoiceTypes
+                    && hasCostCenters
+                    && hasPaymentMethods
+                    && (!hasReceiptImportViewPermission || (hasReceiptImportUsers && hasReceiptImportInvoices)),
+                props: [
+                    'monthlyFees',
+                    'invoiceTypes',
+                    'costCenters',
+                    'paymentMethods',
+                    ...(hasReceiptImportViewPermission ? ['receiptImportUsers', 'receiptImportInvoices'] : []),
+                ],
+            },
             logistica: { ready: hasProducts && hasSponsors && hasSuppliers && hasItemCategories, props: ['products', 'sponsors', 'suppliers', 'itemCategories'] },
             notificacoes: { ready: hasNotificationPrefs && hasCommunicationDynamicSources && hasCommunicationAlertCategories, props: ['notificationPrefs', 'communicationDynamicSources', 'communicationAlertCategories'] },
             'base-dados': { ready: hasUsers, props: ['users'] },
@@ -834,6 +892,9 @@ export default function SettingsIndex({
         hasPoolTypes,
         hasProducts,
         hasProvaTipos,
+        hasReceiptImportInvoices,
+        hasReceiptImportUsers,
+        hasReceiptImportViewPermission,
         hasSponsors,
         hasSuppliers,
         hasTrainingTypes,
@@ -1731,7 +1792,7 @@ export default function SettingsIndex({
                     {/* Tab: Financeiro */}
                     <TabsContent value="financeiro" className="mt-0 min-h-0 flex-1 overflow-hidden">
                         {currentTab === 'financeiro' ? (
-                        !hasMonthlyFees || !hasInvoiceTypes || !hasCostCenters || !hasPaymentMethods || loadingRootTab === 'financeiro' ? (
+                        !hasMonthlyFees || !hasInvoiceTypes || !hasCostCenters || !hasPaymentMethods || (hasReceiptImportViewPermission && (!hasReceiptImportUsers || !hasReceiptImportInvoices)) || loadingRootTab === 'financeiro' ? (
                         <TabFallback />
                         ) : (
                         <Tabs value={currentFinanceiroTab} onValueChange={setCurrentFinanceiroTab} className={sectionTabsClass}>
@@ -1740,6 +1801,9 @@ export default function SettingsIndex({
                                 <TabsTrigger value="financeiro-tipos-fatura">Itens de Fatura</TabsTrigger>
                                 <TabsTrigger value="financeiro-centros-custos">Centros de Custos</TabsTrigger>
                                 <TabsTrigger value="financeiro-metodos-pagamento">Métodos de Pagamento</TabsTrigger>
+                                {hasReceiptImportViewPermission ? (
+                                    <TabsTrigger value="financeiro-importacao-recibos">Importar Recibos</TabsTrigger>
+                                ) : null}
                                 <TabsTrigger value="financeiro-ciclo">Ciclo Financeiro</TabsTrigger>
                             </TabsList>
 
@@ -1947,6 +2011,20 @@ export default function SettingsIndex({
                         </Card>
                         ) : null}
                         </TabsContent>
+
+                        {hasReceiptImportViewPermission ? (
+                        <TabsContent value="financeiro-importacao-recibos" className={nestedScrollableTabContentClass}>
+                        {currentFinanceiroTab === 'financeiro-importacao-recibos' ? (
+                        <Suspense fallback={<TabFallback />}>
+                            <ReceiptImportsTab
+                                users={receiptImportUsers}
+                                invoices={receiptImportInvoices}
+                                canEdit={canEditReceiptImports}
+                            />
+                        </Suspense>
+                        ) : null}
+                        </TabsContent>
+                        ) : null}
 
                         <TabsContent value="financeiro-ciclo" className={nestedScrollableTabContentClass}>
                         {currentFinanceiroTab === 'financeiro-ciclo' ? (

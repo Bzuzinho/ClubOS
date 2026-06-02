@@ -17,6 +17,7 @@ use App\Models\ClubSetting;
 use App\Models\CommunicationAlertCategory;
 use App\Models\CommunicationDynamicSource;
 use App\Models\CostCenter;
+use App\Models\Invoice;
 use App\Models\InvoiceType;
 use App\Models\MonthlyFee;
 use App\Models\PaymentMethod;
@@ -69,6 +70,8 @@ class ConfiguracoesController extends Controller
             'invoiceTypes' => Inertia::lazy(fn () => $this->buildFinanceiroPayload($useDefaultCache)['invoiceTypes']),
             'costCenters' => Inertia::lazy(fn () => $this->buildFinanceiroPayload($useDefaultCache)['costCenters']),
             'paymentMethods' => Inertia::lazy(fn () => $this->buildFinanceiroPayload($useDefaultCache)['paymentMethods']),
+            'receiptImportUsers' => Inertia::lazy(fn () => $this->buildFinanceiroPayload($useDefaultCache)['receiptImportUsers']),
+            'receiptImportInvoices' => Inertia::lazy(fn () => $this->buildFinanceiroPayload($useDefaultCache)['receiptImportInvoices']),
             'products' => Inertia::lazy(fn () => $this->buildLogisticaPayload($useDefaultCache)['products']),
             'sponsors' => Inertia::lazy(fn () => $this->buildLogisticaPayload($useDefaultCache)['sponsors']),
             'suppliers' => Inertia::lazy(fn () => $this->buildLogisticaPayload($useDefaultCache)['suppliers']),
@@ -135,6 +138,15 @@ class ConfiguracoesController extends Controller
             'invoiceTypes' => InvoiceType::orderBy('nome')->get(),
             'costCenters' => CostCenter::all(),
             'paymentMethods' => PaymentMethod::query()->ordenado()->get(),
+            'receiptImportUsers' => User::query()
+                ->select('id', 'numero_socio', 'nome_completo')
+                ->orderByRaw('COALESCE(nome_completo, name)')
+                ->get(),
+            'receiptImportInvoices' => Invoice::query()
+                ->select('id', 'user_id', 'tipo', 'mes', 'valor_total', 'valor_em_aberto', 'estado_pagamento')
+                ->whereIn('estado_pagamento', ['pendente', 'vencido', 'parcial'])
+                ->orderByDesc('data_vencimento')
+                ->get(),
         ];
     }
 

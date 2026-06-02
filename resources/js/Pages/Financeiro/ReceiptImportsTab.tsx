@@ -12,11 +12,27 @@ import { Label } from '@/Components/ui/label';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/Components/ui/table';
 import { Textarea } from '@/Components/ui/textarea';
 
-import { ExtratoBancario, Fatura, ReceiptImportBatch, ReceiptImportItem, User } from './types';
+import { ExtratoBancario, ReceiptImportBatch, ReceiptImportItem } from './types';
+
+interface ReceiptImportUserOption {
+  id: string;
+  nome_completo?: string | null;
+  numero_socio?: string | null;
+}
+
+interface ReceiptImportInvoiceOption {
+  id: string;
+  user_id: string;
+  tipo: string;
+  mes?: string | null;
+  valor_total: number;
+  valor_em_aberto?: number | null;
+  estado_pagamento: string;
+}
 
 interface ReceiptImportsTabProps {
-  users: User[];
-  invoices: Fatura[];
+  users: ReceiptImportUserOption[];
+  invoices: ReceiptImportInvoiceOption[];
   canEdit: boolean;
 }
 
