@@ -960,6 +960,55 @@ Sprint F4.2 fica tecnicamente concluída, mas mantém pendente a validação man
 
 ---
 
+## Sprint F4.2.1 — Sugestão bancária mensal por mês de referência
+
+> Estado: tecnicamente concluída em 2026-06-02. Validações automáticas executadas e concluídas. Validação manual do browser ainda pendente.
+
+### Objetivo
+
+Melhorar o motor de sugestões para cenários de mensalidades acumuladas, garantindo ordem cronológica e previsibilidade:
+
+- inferir mês de referência a partir de descrição/referência (com fallback para mês do movimento);
+- considerar mensalidades em aberto desde as mais antigas até ao mês de referência;
+- nunca sugerir alocação acima do valor disponível na linha bancária;
+- diferenciar cobertura total vs parcial com explicação textual explícita;
+- manter proteção contra falsos positivos sem identidade segura.
+
+### Regras fechadas nesta sprint
+
+- sequência cronológica construída apenas com faturas mensais abertas, não ocultas e até ao mês de referência;
+- faturas futuras ao mês de referência ficam excluídas da sequência;
+- faturas ocultas ficam excluídas da sequência;
+- em faturas parciais, a sugestão usa `valor_em_aberto` (não `valor_total`);
+- explicação da sugestão passa a distinguir cobertura total e parcial da sequência mensal;
+- sem evidência de identidade segura, sequência por valor não atinge confiança alta;
+- rejeições por assinatura de alocação continuam a impedir reaparecimento em regeneração normal.
+
+### Testes automáticos mínimos
+
+Cobertos em `BankReconciliationSuggestionFlowTest`:
+
+- cobertura completa Jan-Abr para valor acumulado;
+- cobertura parcial com explicação clara (1 mensalidade);
+- cobertura parcial de 2 meses com primeira fatura parcial;
+- exclusão de faturas futuras e ocultas da sequência;
+- cenário sem identidade segura não atinge score de persistência alta;
+- regressões de rejeição e fluxo canónico mantidas.
+
+### Testes manuais para o utilizador
+
+1. Na tab Banco, usar uma linha com referência textual de mês (ex.: "mensalidade abril 2026") e valor para 4 mensalidades acumuladas.
+2. Confirmar que a sugestão inclui as mensalidades mais antigas até abril, por ordem cronológica.
+3. Repetir com valor parcial e confirmar explicação de cobertura parcial.
+4. Confirmar que mensalidade futura e fatura oculta não entram na sugestão.
+5. Repetir com descrição genérica sem identidade (sem nome/nif/sócio) e confirmar que não surge sugestão de alta confiança.
+
+### Estado operacional
+
+Sprint F4.2.1 fica tecnicamente concluída, com validação manual no browser pendente antes de qualquer avanço para F4.3.
+
+---
+
 ## Sprint F5 — Movimentos financeiros, despesas e receitas manuais
 
 ### Objetivo

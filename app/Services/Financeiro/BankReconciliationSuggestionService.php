@@ -13,12 +13,27 @@ use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 class BankReconciliationSuggestionService
 {
     private const MAX_INVOICES_PER_CONTEXT = 6;
     private const MIN_SCORE_TO_PERSIST_WITHOUT_HISTORY = 80;
+    private const REFERENCE_MONTH_NAMES = [
+        'janeiro' => 1,
+        'fevereiro' => 2,
+        'marco' => 3,
+        'abril' => 4,
+        'maio' => 5,
+        'junho' => 6,
+        'julho' => 7,
+        'agosto' => 8,
+        'setembro' => 9,
+        'outubro' => 10,
+        'novembro' => 11,
+        'dezembro' => 12,
+    ];
 
     public function __construct(
         private readonly BankAliasNormalizer $normalizer,
@@ -69,8 +84,16 @@ class BankReconciliationSuggestionService
             }
 
             $historyProfile = $this->resolvePaymentHistoryProfile($context['user_id'] ?? null, $context['family_id'] ?? null);
+            $referenceMonthSequence = $this->buildReferenceMonthChronologicalSequence(
+                $candidateInvoices,
+                $statementAmount,
+                $bankStatement,
+                $context,
+            );
 
-            foreach ($this->generateCandidateInvoiceSets($candidateInvoices, $statementAmount, $bankStatement, $context, $historyProfile) as $candidateSet) {
+            foreach ($this->generateCandidateInvoiceSets($candidateInvoices, $statementAmount, $bankStatement, $context, $historyProfile, $referenceMonthSequence) as $candidateSetPayload) {
+                $candidateSet = $candidateSetPayload['candidate_set'] ?? $candidateSetPayload;
+                $candidateContext = $candidateSetPayload['context'] ?? [];
                 $signature = $this->makeAllocationSignature($candidateSet);
                 if (isset($seenSignatures[$signature])) {
                     continue;
@@ -86,7 +109,7 @@ class BankReconciliationSuggestionService
                     'statement_amount' => $statementAmount,
                     'normalized_text' => $normalizedText,
                     'history_profile' => $historyProfile,
-                ]);
+                ], $candidateContext);
                 $scoreData = $this->calculateScore($bankStatement, $candidateSet, $scoringContext);
 
                 if (($context['repository_match'] ?? false) !== true
@@ -98,7 +121,7 @@ class BankReconciliationSuggestionService
                     'statement_amount' => $statementAmount,
                     'normalized_text' => $normalizedText,
                     'history_profile' => $historyProfile,
-                ]), $scoreData);
+                ], $candidateContext), $scoreData);
 
                 if ($suggestion->score > 0 || ($options['include_zero_score'] ?? false)) {
                     $suggestions->push($suggestion);
@@ -375,6 +398,22 @@ class BankReconciliationSuggestionService
             $score += 15;
             $rules[] = 'recurring_monthly_pattern';
             $explanations[] = 'O valor coincide com mensalidade habitual.';
+        }
+
+        $referenceMonthSignal = $this->resolveReferenceMonthSignal($candidateInvoices);
+        if ($referenceMonthSignal !== null) {
+            if ($this->hasClearIdentityEvidence($context) || ($context['repository_match'] ?? false)) {
+                $score += $referenceMonthSignal['is_full'] ? 20 : 12;
+                $rules[] = $referenceMonthSignal['is_full']
+                    ? 'reference_month_sequence_full'
+                    : 'reference_month_sequence_partial';
+            } else {
+                $score -= 8;
+                $score = min($score, 74);
+                $rules[] = 'reference_month_sequence_without_identity';
+            }
+
+            $explanations[] = $referenceMonthSignal['message'];
         }
 
         if (($context['conflict_count'] ?? 0) === 0) {
@@ -688,16 +727,20 @@ class BankReconciliationSuggestionService
         float $statementAmount,
         ?BankStatement $bankStatement = null,
         array $context = [],
-        array $historyProfile = []
+        array $historyProfile = [],
+        ?array $referenceMonthSequence = null
     ): array
     {
+        $referenceMonthSets = $referenceMonthSequence ? [$referenceMonthSequence] : [];
+
         if (($context['repository_match'] ?? false) === true) {
-            return $this->dedupeCandidateSets(
-                $this->generateRepositoryCandidateInvoiceSets($candidateInvoices->all(), $statementAmount, $bankStatement)
-            );
+            return $this->dedupeCandidateSets(array_merge(
+                $this->generateRepositoryCandidateInvoiceSets($candidateInvoices->all(), $statementAmount, $bankStatement),
+                $referenceMonthSets,
+            ));
         }
 
-        $sets = [];
+        $sets = $referenceMonthSets;
         $invoiceArray = $this->prioritizeCandidateInvoices(
             $candidateInvoices,
             $statementAmount,
@@ -797,6 +840,76 @@ class BankReconciliationSuggestionService
         }
 
         return $sets;
+    }
+
+    private function buildReferenceMonthChronologicalSequence(
+        Collection $candidateInvoices,
+        float $statementAmount,
+        ?BankStatement $bankStatement,
+        array $context,
+    ): ?array {
+        if (!$bankStatement || $statementAmount <= 0.009) {
+            return null;
+        }
+
+        $referenceMonthKey = $this->resolveReferenceMonthKey($bankStatement);
+        if ($referenceMonthKey === null) {
+            return null;
+        }
+
+        $monthlyCandidates = $this->fetchMonthlyInvoicesUntilReferenceMonth(
+            $context['user_id'] ?? null,
+            $context['family_id'] ?? null,
+            $context['matched_user_ids'] ?? [],
+            $referenceMonthKey,
+        );
+
+        if ($monthlyCandidates->isEmpty()) {
+            return null;
+        }
+
+        $remainingAmount = round($statementAmount, 2);
+        $selected = [];
+
+        foreach ($monthlyCandidates as $candidate) {
+            $openAmount = round((float) ($candidate['open_amount'] ?? 0), 2);
+            if ($openAmount <= 0.009) {
+                continue;
+            }
+
+            if ($openAmount - $remainingAmount > 0.009) {
+                break;
+            }
+
+            $selected[] = [
+                'invoice' => $candidate['invoice'],
+                'open_amount' => $openAmount,
+                'amount' => $openAmount,
+                'reason' => '',
+            ];
+
+            $remainingAmount = round($remainingAmount - $openAmount, 2);
+            if ($remainingAmount <= 0.009) {
+                break;
+            }
+        }
+
+        if ($selected === []) {
+            return null;
+        }
+
+        $coveredCount = count($selected);
+        $totalCount = $monthlyCandidates->count();
+        $referenceMonthLabel = $this->formatReferenceMonthLabel($referenceMonthKey);
+        $reason = $coveredCount >= $totalCount
+            ? sprintf('Valor cobre mensalidades em aberto ate %s.', $referenceMonthLabel)
+            : sprintf('Existem mensalidades em aberto ate %s, mas o valor da linha so cobre %d mensalidade(s).', $referenceMonthLabel, $coveredCount);
+
+        return array_map(function (array $candidate) use ($reason): array {
+            $candidate['reason'] = $reason;
+
+            return $candidate;
+        }, $selected);
     }
 
     private function dedupeCandidateSets(array $sets): array
@@ -1319,6 +1432,154 @@ class BankReconciliationSuggestionService
             $bankStatement->descricao,
             $bankStatement->referencia,
         ]))));
+    }
+
+    private function resolveReferenceMonthKey(BankStatement $bankStatement): ?string
+    {
+        $statementMonthKey = $bankStatement->data_movimento?->format('Y-m');
+        if ($statementMonthKey === null) {
+            return null;
+        }
+
+        $source = trim((string) ($bankStatement->descricao . ' ' . $bankStatement->referencia));
+        if ($source === '') {
+            return $statementMonthKey;
+        }
+
+        $normalized = Str::lower(Str::ascii($source));
+        $statementYear = (int) $bankStatement->data_movimento->format('Y');
+
+        if (preg_match('/\b(janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)(?:\s+de)?\s+(20\d{2})\b/u', $normalized, $matches) === 1) {
+            $month = self::REFERENCE_MONTH_NAMES[$matches[1]] ?? null;
+            $year = (int) ($matches[2] ?? 0);
+
+            if ($month !== null && $year >= 2000) {
+                return sprintf('%04d-%02d', $year, $month);
+            }
+        }
+
+        if (preg_match('/\b(janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)\b/u', $normalized, $matches) === 1) {
+            $month = self::REFERENCE_MONTH_NAMES[$matches[1]] ?? null;
+
+            if ($month !== null) {
+                return sprintf('%04d-%02d', $statementYear, $month);
+            }
+        }
+
+        if (preg_match('/\b(0?[1-9]|1[0-2])\/(20\d{2})\b/', $normalized, $matches) === 1) {
+            return sprintf('%04d-%02d', (int) $matches[2], (int) $matches[1]);
+        }
+
+        if (preg_match('/\b(20\d{2})\-(0?[1-9]|1[0-2])\b/', $normalized, $matches) === 1) {
+            return sprintf('%04d-%02d', (int) $matches[1], (int) $matches[2]);
+        }
+
+        return $statementMonthKey;
+    }
+
+    private function fetchMonthlyInvoicesUntilReferenceMonth(
+        ?string $userId,
+        ?string $familyId,
+        array $matchedUserIds,
+        string $referenceMonthKey,
+    ): Collection {
+        $query = Invoice::query()
+            ->with(['user:id'])
+            ->withSum([
+                'paymentAllocations as confirmed_payment_allocations_sum' => function ($paymentAllocationQuery): void {
+                    $paymentAllocationQuery->where('status', PaymentAllocation::STATUS_CONFIRMED);
+                },
+            ], 'amount')
+            ->where('oculta', false)
+            ->whereIn('estado_pagamento', ['pendente', 'vencido', 'parcial'])
+            ->where(function ($monthlyTypeQuery): void {
+                $monthlyTypeQuery
+                    ->where('tipo', 'like', '%mens%')
+                    ->orWhere('origem_tipo', 'like', '%mens%');
+            });
+
+        if ($familyId) {
+            $query->whereHas('user.families', function ($familyQuery) use ($familyId): void {
+                $familyQuery->where('familias.id', $familyId);
+            });
+        } elseif ($matchedUserIds !== []) {
+            $query->whereIn('user_id', $matchedUserIds);
+        } elseif ($userId) {
+            $query->where('user_id', $userId);
+        } else {
+            return collect();
+        }
+
+        return $query
+            ->orderBy('data_vencimento')
+            ->orderBy('data_emissao')
+            ->orderBy('id')
+            ->get()
+            ->map(function (Invoice $invoice): array {
+                return [
+                    'invoice' => $invoice,
+                    'open_amount' => $this->getInvoiceOutstandingAmount($invoice),
+                    'month_key' => $this->resolveInvoiceMonthKey($invoice),
+                ];
+            })
+            ->filter(fn (array $candidate): bool => $candidate['open_amount'] > 0.009)
+            ->filter(fn (array $candidate): bool => $candidate['month_key'] !== null && $candidate['month_key'] <= $referenceMonthKey)
+            ->sortBy(fn (array $candidate): array => [
+                $candidate['month_key'],
+                $candidate['invoice']->data_vencimento?->format('Y-m-d') ?? '9999-12-31',
+                (string) $candidate['invoice']->id,
+            ])
+            ->values();
+    }
+
+    private function resolveInvoiceMonthKey(Invoice $invoice): ?string
+    {
+        if (is_string($invoice->mes) && preg_match('/^\d{4}-\d{2}$/', $invoice->mes) === 1) {
+            return $invoice->mes;
+        }
+
+        if ($invoice->data_emissao) {
+            return $invoice->data_emissao->format('Y-m');
+        }
+
+        if ($invoice->data_vencimento) {
+            return $invoice->data_vencimento->format('Y-m');
+        }
+
+        return null;
+    }
+
+    private function formatReferenceMonthLabel(string $monthKey): string
+    {
+        $date = Carbon::createFromFormat('Y-m-d', $monthKey . '-01');
+        $monthNumber = (int) $date->format('n');
+        $monthName = array_flip(self::REFERENCE_MONTH_NAMES)[$monthNumber] ?? $date->format('m');
+
+        return sprintf('%s de %s', $monthName, $date->format('Y'));
+    }
+
+    /**
+     * @return array{is_full:bool,message:string}|null
+     */
+    private function resolveReferenceMonthSignal(array $candidateInvoices): ?array
+    {
+        foreach ($candidateInvoices as $candidate) {
+            $reason = trim((string) ($candidate['reason'] ?? ''));
+
+            if ($reason === '') {
+                continue;
+            }
+
+            if (str_starts_with($reason, 'Valor cobre mensalidades em aberto ate ')) {
+                return ['is_full' => true, 'message' => $reason];
+            }
+
+            if (str_starts_with($reason, 'Existem mensalidades em aberto ate ')) {
+                return ['is_full' => false, 'message' => $reason];
+            }
+        }
+
+        return null;
     }
 
     private function getInvoiceOutstandingAmount(Invoice $invoice): float

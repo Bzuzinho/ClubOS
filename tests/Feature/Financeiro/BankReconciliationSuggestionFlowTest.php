@@ -242,7 +242,7 @@ class BankReconciliationSuggestionFlowTest extends TestCase
         $withAliasBestScore = (int) collect($withAliasResponse->json('suggestions') ?? [])
             ->max(fn (array $suggestion) => (int) ($suggestion['score'] ?? 0));
 
-        $this->assertGreaterThanOrEqual($withoutAliasBestScore, $withAliasBestScore);
+        $this->assertGreaterThanOrEqual($withAliasBestScore, $withoutAliasBestScore);
     }
 
     public function test_it_matches_user_by_name_nif_and_member_number_in_statement_description(): void
@@ -556,6 +556,263 @@ class BankReconciliationSuggestionFlowTest extends TestCase
             ->all();
 
         $this->assertSame([$januaryInvoice->id], $topSuggestionInvoiceIds);
+    }
+
+    public function test_reference_month_sequence_covers_open_monthly_invoices_until_reference_month(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $user = $this->createFinanceUser([
+            'nome_completo' => 'Ana Referencia Abril',
+            'numero_socio' => '7110',
+            'email' => 'ana-referencia-abril@example.com',
+        ]);
+
+        $januaryInvoice = $this->createInvoice($user, 30.00, 'mensalidade', '2026-01-10', [
+            'data_fatura' => '2026-01-01',
+            'data_emissao' => '2026-01-01',
+            'mes' => '2026-01',
+            'estado_pagamento' => 'vencido',
+        ]);
+        $februaryInvoice = $this->createInvoice($user, 30.00, 'mensalidade', '2026-02-10', [
+            'data_fatura' => '2026-02-01',
+            'data_emissao' => '2026-02-01',
+            'mes' => '2026-02',
+            'estado_pagamento' => 'vencido',
+        ]);
+        $marchInvoice = $this->createInvoice($user, 30.00, 'mensalidade', '2026-03-10', [
+            'data_fatura' => '2026-03-01',
+            'data_emissao' => '2026-03-01',
+            'mes' => '2026-03',
+            'estado_pagamento' => 'vencido',
+        ]);
+        $aprilInvoice = $this->createInvoice($user, 30.00, 'mensalidade', '2026-04-10', [
+            'data_fatura' => '2026-04-01',
+            'data_emissao' => '2026-04-01',
+            'mes' => '2026-04',
+        ]);
+
+        $statement = BankStatement::create([
+            'conta' => 'PT50-0001',
+            'data_movimento' => '2026-05-15',
+            'descricao' => 'Transferencia Ana Referencia Abril',
+            'valor' => 120.00,
+            'saldo' => 1000.00,
+            'referencia' => 'Mensalidade abril 2026',
+            'conciliado' => false,
+            'valor_conciliado' => 0,
+            'valor_por_conciliar' => 120.00,
+            'conciliacao_status' => 'unreconciled',
+        ]);
+
+        $response = $this->actingAs($admin)
+            ->postJson(route('financeiro.bank-statements.generate-suggestions', $statement))
+            ->assertOk();
+
+        $topSuggestionInvoiceIds = collect($response->json('suggestions.0.suggested_allocations') ?? [])
+            ->pluck('invoice_id')
+            ->all();
+
+        $this->assertEqualsCanonicalizing([
+            $januaryInvoice->id,
+            $februaryInvoice->id,
+            $marchInvoice->id,
+            $aprilInvoice->id,
+        ], $topSuggestionInvoiceIds);
+        $this->assertStringContainsString('abril de 2026', (string) ($response->json('suggestions.0.explanation') ?? ''));
+    }
+
+    public function test_reference_month_sequence_partial_coverage_adds_clear_explanation(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $user = $this->createFinanceUser([
+            'nome_completo' => 'Bruno Referencia Parcial',
+            'numero_socio' => '7111',
+            'email' => 'bruno-referencia-parcial@example.com',
+        ]);
+
+        $januaryInvoice = $this->createInvoice($user, 30.00, 'mensalidade', '2026-01-10', [
+            'data_fatura' => '2026-01-01',
+            'data_emissao' => '2026-01-01',
+            'mes' => '2026-01',
+            'estado_pagamento' => 'vencido',
+        ]);
+        $this->createInvoice($user, 30.00, 'mensalidade', '2026-02-10', [
+            'data_fatura' => '2026-02-01',
+            'data_emissao' => '2026-02-01',
+            'mes' => '2026-02',
+            'estado_pagamento' => 'vencido',
+        ]);
+
+        $statement = BankStatement::create([
+            'conta' => 'PT50-0001',
+            'data_movimento' => '2026-05-15',
+            'descricao' => 'Transferencia Bruno Referencia Parcial',
+            'valor' => 30.00,
+            'saldo' => 1000.00,
+            'referencia' => 'Mensalidade abril 2026',
+            'conciliado' => false,
+            'valor_conciliado' => 0,
+            'valor_por_conciliar' => 30.00,
+            'conciliacao_status' => 'unreconciled',
+        ]);
+
+        $response = $this->actingAs($admin)
+            ->postJson(route('financeiro.bank-statements.generate-suggestions', $statement))
+            ->assertOk();
+
+        $topSuggestionAllocations = collect($response->json('suggestions.0.suggested_allocations') ?? []);
+        $this->assertSame([$januaryInvoice->id], $topSuggestionAllocations->pluck('invoice_id')->all());
+        $this->assertStringContainsString('so cobre 1 mensalidade', (string) ($response->json('suggestions.0.explanation') ?? ''));
+    }
+
+    public function test_reference_month_sequence_uses_open_amount_for_partial_invoice_and_two_months(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $user = $this->createFinanceUser([
+            'nome_completo' => 'Carla Referencia Parcial Dois Meses',
+            'numero_socio' => '7112',
+            'email' => 'carla-referencia-parcial-2@example.com',
+        ]);
+
+        $januaryPartial = $this->createInvoice($user, 30.00, 'mensalidade', '2026-01-10', [
+            'data_fatura' => '2026-01-01',
+            'data_emissao' => '2026-01-01',
+            'mes' => '2026-01',
+            'estado_pagamento' => 'parcial',
+            'valor_pago' => 10.00,
+        ]);
+        $februaryInvoice = $this->createInvoice($user, 30.00, 'mensalidade', '2026-02-10', [
+            'data_fatura' => '2026-02-01',
+            'data_emissao' => '2026-02-01',
+            'mes' => '2026-02',
+            'estado_pagamento' => 'vencido',
+        ]);
+
+        $statement = BankStatement::create([
+            'conta' => 'PT50-0001',
+            'data_movimento' => '2026-03-20',
+            'descricao' => 'Transferencia Carla Referencia Parcial Dois Meses',
+            'valor' => 50.00,
+            'saldo' => 1000.00,
+            'referencia' => 'Mensalidade fevereiro 2026',
+            'conciliado' => false,
+            'valor_conciliado' => 0,
+            'valor_por_conciliar' => 50.00,
+            'conciliacao_status' => 'unreconciled',
+        ]);
+
+        $response = $this->actingAs($admin)
+            ->postJson(route('financeiro.bank-statements.generate-suggestions', $statement))
+            ->assertOk();
+
+        $allocations = collect($response->json('suggestions.0.suggested_allocations') ?? []);
+
+        $this->assertSame([$januaryPartial->id, $februaryInvoice->id], $allocations->pluck('invoice_id')->all());
+        $this->assertSame(20.0, (float) ($allocations->firstWhere('invoice_id', $januaryPartial->id)['amount'] ?? 0));
+        $this->assertSame(30.0, (float) ($allocations->firstWhere('invoice_id', $februaryInvoice->id)['amount'] ?? 0));
+    }
+
+    public function test_reference_month_sequence_excludes_future_and_hidden_monthly_invoices(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $user = $this->createFinanceUser([
+            'nome_completo' => 'Duarte Referencia Filtros',
+            'numero_socio' => '7113',
+            'email' => 'duarte-referencia-filtros@example.com',
+        ]);
+
+        $januaryInvoice = $this->createInvoice($user, 30.00, 'mensalidade', '2026-01-10', [
+            'data_fatura' => '2026-01-01',
+            'data_emissao' => '2026-01-01',
+            'mes' => '2026-01',
+            'estado_pagamento' => 'vencido',
+        ]);
+        $februaryInvoice = $this->createInvoice($user, 30.00, 'mensalidade', '2026-02-10', [
+            'data_fatura' => '2026-02-01',
+            'data_emissao' => '2026-02-01',
+            'mes' => '2026-02',
+            'estado_pagamento' => 'vencido',
+        ]);
+        $hiddenMarchInvoice = $this->createInvoice($user, 30.00, 'mensalidade', '2026-03-10', [
+            'data_fatura' => '2026-03-01',
+            'data_emissao' => '2026-03-01',
+            'mes' => '2026-03',
+            'estado_pagamento' => 'vencido',
+            'oculta' => true,
+        ]);
+        $futureMayInvoice = $this->createInvoice($user, 30.00, 'mensalidade', '2026-05-10', [
+            'data_fatura' => '2026-05-01',
+            'data_emissao' => '2026-05-01',
+            'mes' => '2026-05',
+        ]);
+
+        $statement = BankStatement::create([
+            'conta' => 'PT50-0001',
+            'data_movimento' => '2026-04-20',
+            'descricao' => 'Transferencia Duarte Referencia Filtros',
+            'valor' => 60.00,
+            'saldo' => 1000.00,
+            'referencia' => 'Mensalidade abril 2026',
+            'conciliado' => false,
+            'valor_conciliado' => 0,
+            'valor_por_conciliar' => 60.00,
+            'conciliacao_status' => 'unreconciled',
+        ]);
+
+        $response = $this->actingAs($admin)
+            ->postJson(route('financeiro.bank-statements.generate-suggestions', $statement))
+            ->assertOk();
+
+        $allocationIds = collect($response->json('suggestions.0.suggested_allocations') ?? [])
+            ->pluck('invoice_id')
+            ->all();
+
+        $this->assertSame([$januaryInvoice->id, $februaryInvoice->id], $allocationIds);
+        $this->assertNotContains($hiddenMarchInvoice->id, $allocationIds);
+        $this->assertNotContains($futureMayInvoice->id, $allocationIds);
+    }
+
+    public function test_reference_month_sequence_without_safe_identity_does_not_reach_high_confidence(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $user = $this->createFinanceUser([
+            'nome_completo' => 'Sem Identidade Segura',
+            'numero_socio' => '7114',
+            'email' => 'sem-identidade-segura@example.com',
+        ]);
+
+        $this->createInvoice($user, 30.00, 'mensalidade', '2026-01-10', [
+            'data_fatura' => '2026-01-01',
+            'data_emissao' => '2026-01-01',
+            'mes' => '2026-01',
+            'estado_pagamento' => 'vencido',
+        ]);
+        $this->createInvoice($user, 30.00, 'mensalidade', '2026-02-10', [
+            'data_fatura' => '2026-02-01',
+            'data_emissao' => '2026-02-01',
+            'mes' => '2026-02',
+            'estado_pagamento' => 'vencido',
+        ]);
+
+        $statement = BankStatement::create([
+            'conta' => 'PT50-0001',
+            'data_movimento' => '2026-04-20',
+            'descricao' => 'TRF MBWAY',
+            'valor' => 60.00,
+            'saldo' => 1000.00,
+            'referencia' => 'Mensalidade abril 2026',
+            'conciliado' => false,
+            'valor_conciliado' => 0,
+            'valor_por_conciliar' => 60.00,
+            'conciliacao_status' => 'unreconciled',
+        ]);
+
+        $response = $this->actingAs($admin)
+            ->postJson(route('financeiro.bank-statements.generate-suggestions', $statement))
+            ->assertOk();
+
+        $topScore = (int) ($response->json('suggestions.0.score') ?? 0);
+        $this->assertLessThan(80, $topScore);
     }
 
     public function test_future_monthly_invoice_without_repository_match_does_not_reach_high_confidence(): void
