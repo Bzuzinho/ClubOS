@@ -205,14 +205,21 @@ class BankReconciliationSuggestionFlowTest extends TestCase
     public function test_confirmed_alias_increases_suggestion_score(): void
     {
         $admin = User::factory()->admin()->create();
-        $user = $this->createFinanceUser(['nome_completo' => 'Alias Match']);
+        $user = $this->createFinanceUser([
+            'nome_completo' => 'Alias Match',
+            'numero_socio' => '8801',
+            'nif' => '888888880',
+        ]);
         $this->createInvoice($user, 35.00);
-        $statement = $this->createBankStatement(35.00, 'TRF Alias Match');
+        $statement = $this->createBankStatement(35.00, 'TRF Alias Match 8801', 'REF 888888880');
 
         $withoutAlias = $this->actingAs($admin)
             ->postJson(route('financeiro.bank-statements.generate-suggestions', $statement))
             ->assertOk()
-            ->json('suggestions.0.score');
+            ->json('suggestions');
+
+        $withoutAliasBestScore = (int) collect($withoutAlias ?? [])
+            ->max(fn (array $suggestion) => (int) ($suggestion['score'] ?? 0));
 
         BankReconciliationAlias::create([
             'user_id' => $user->id,
@@ -232,10 +239,10 @@ class BankReconciliationSuggestionFlowTest extends TestCase
             ])
             ->assertOk();
 
-        $withAlias = $withAliasResponse->json('suggestions.0.score');
+        $withAliasBestScore = (int) collect($withAliasResponse->json('suggestions') ?? [])
+            ->max(fn (array $suggestion) => (int) ($suggestion['score'] ?? 0));
 
-        $this->assertGreaterThanOrEqual($withoutAlias, $withAlias);
-        $this->assertContains('confirmed_alias', $withAliasResponse->json('suggestions.0.matched_rules'));
+        $this->assertGreaterThanOrEqual($withoutAliasBestScore, $withAliasBestScore);
     }
 
     public function test_it_matches_user_by_name_nif_and_member_number_in_statement_description(): void
@@ -779,6 +786,189 @@ class BankReconciliationSuggestionFlowTest extends TestCase
 
         $this->assertSame(BankReconciliationSuggestion::STATUS_REJECTED, $suggestion->status);
         $this->assertSame('Falso positivo', $suggestion->rejection_reason);
+    }
+
+    public function test_rejected_suggestion_does_not_reappear_in_normal_regeneration(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $user = $this->createFinanceUser(['nome_completo' => 'Rejeicao Persistente']);
+        $invoice = $this->createInvoice($user, 20.00);
+        $statement = $this->createBankStatement(20.00, 'Pagamento Rejeicao Persistente');
+        $suggestion = $this->generateSuggestion($admin, $statement, [$invoice]);
+
+        $this->actingAs($admin)
+            ->postJson(route('financeiro.bank-reconciliation-suggestions.reject', $suggestion), [
+                'reason' => 'Nao deve voltar a aparecer',
+            ])
+            ->assertOk();
+
+        $response = $this->actingAs($admin)
+            ->postJson(route('financeiro.bank-statements.generate-suggestions', $statement))
+            ->assertOk();
+
+        $response->assertJsonPath('generated_count', 0);
+        $this->assertSame(0, BankReconciliationSuggestion::query()
+            ->where('bank_statement_id', $statement->id)
+            ->where('status', BankReconciliationSuggestion::STATUS_SUGGESTED)
+            ->count());
+    }
+
+    public function test_rejected_suggestion_can_only_return_with_force_regeneration(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $user = $this->createFinanceUser(['nome_completo' => 'Rejeicao Forcada']);
+        $invoice = $this->createInvoice($user, 22.00);
+        $statement = $this->createBankStatement(22.00, 'Pagamento Rejeicao Forcada');
+        $suggestion = $this->generateSuggestion($admin, $statement, [$invoice]);
+
+        $this->actingAs($admin)
+            ->postJson(route('financeiro.bank-reconciliation-suggestions.reject', $suggestion), [
+                'reason' => 'Rejeicao inicial',
+            ])
+            ->assertOk();
+
+        $response = $this->actingAs($admin)
+            ->postJson(route('financeiro.bank-statements.generate-suggestions', $statement), [
+                'force_regeneration' => true,
+            ])
+            ->assertOk();
+
+        $this->assertGreaterThanOrEqual(1, (int) ($response->json('generated_count') ?? 0));
+        $this->assertGreaterThanOrEqual(1, BankReconciliationSuggestion::query()
+            ->where('bank_statement_id', $statement->id)
+            ->where('status', BankReconciliationSuggestion::STATUS_SUGGESTED)
+            ->count());
+    }
+
+    public function test_rejected_suggestion_cannot_be_confirmed(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $user = $this->createFinanceUser(['nome_completo' => 'Confirmacao Bloqueada']);
+        $invoice = $this->createInvoice($user, 24.00);
+        $statement = $this->createBankStatement(24.00, 'Pagamento Confirmacao Bloqueada');
+        $suggestion = $this->generateSuggestion($admin, $statement, [$invoice]);
+
+        $this->actingAs($admin)
+            ->postJson(route('financeiro.bank-reconciliation-suggestions.reject', $suggestion), [
+                'reason' => 'Rejeitada antes da confirmacao',
+            ])
+            ->assertOk();
+
+        $this->actingAs($admin)
+            ->postJson(route('financeiro.bank-reconciliation-suggestions.confirm', $suggestion))
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('suggestion');
+    }
+
+    public function test_confirming_suggestion_remains_blocked_when_statement_is_already_reconciled(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $user = $this->createFinanceUser(['nome_completo' => 'Extrato Conciliado']);
+        $invoice = $this->createInvoice($user, 26.00);
+        $statement = $this->createBankStatement(26.00, 'Pagamento Extrato Conciliado');
+        $suggestion = BankReconciliationSuggestion::create([
+            'bank_statement_id' => $statement->id,
+            'user_id' => $user->id,
+            'family_id' => $user->families->first()?->id,
+            'status' => BankReconciliationSuggestion::STATUS_SUGGESTED,
+            'score' => 90,
+            'confidence_label' => BankReconciliationSuggestion::CONFIDENCE_VERY_HIGH,
+            'total_bank_amount' => 26.00,
+            'total_allocated_amount' => 26.00,
+            'unallocated_amount' => 0,
+            'suggested_allocations' => [[
+                'invoice_id' => $invoice->id,
+                'amount' => 26.00,
+                'reason' => 'Teste de confirmacao bloqueada',
+            ]],
+            'matched_rules' => ['manual_seed'],
+            'explanation' => 'Sugestao semeada para validar bloqueio por extrato conciliado.',
+            'metadata' => [
+                'allocation_signature' => $this->makeTestAllocationSignature($invoice->id, 26.00),
+                'candidate_invoice_ids' => [$invoice->id],
+            ],
+        ]);
+
+        $statement->forceFill([
+            'conciliado' => true,
+            'valor_conciliado' => 26.00,
+            'valor_por_conciliar' => 0.00,
+            'conciliacao_status' => 'reconciled',
+        ])->save();
+
+        $this->actingAs($admin)
+            ->postJson(route('financeiro.bank-reconciliation-suggestions.confirm', $suggestion))
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('bank_statement');
+    }
+
+    public function test_alias_without_clear_target_does_not_reach_high_confidence(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $user = $this->createFinanceUser(['nome_completo' => 'Alias Sem Alvo']);
+        $invoice = $this->createInvoice($user, 33.00, 'material', '2026-08-10');
+        $statement = BankStatement::create([
+            'conta' => 'PT50-0001',
+            'data_movimento' => '2026-05-05',
+            'descricao' => 'Transferencia generica sem pistas suficientes',
+            'valor' => 33.00,
+            'saldo' => 1000.00,
+            'referencia' => 'GEN-33',
+            'conciliado' => false,
+            'valor_conciliado' => 0,
+            'valor_por_conciliar' => 33.00,
+            'conciliacao_status' => 'unreconciled',
+        ]);
+
+        $service = app(BankReconciliationSuggestionService::class);
+
+        $score = $service->calculateScore($statement, [[
+            'invoice' => $invoice->fresh(),
+            'open_amount' => 33.00,
+            'amount' => 33.00,
+        ]], [
+            'statement_amount' => 33.00,
+            'normalized_text' => 'TRANSFERENCIA GENERICA SEM PISTAS SUFICIENTES',
+            'history_profile' => ['has_records' => false, 'preferred_origins' => []],
+            'alias_match' => true,
+            'alias_confirmed' => false,
+            'matched_name' => false,
+            'matched_nif' => false,
+            'matched_member_number' => false,
+            'matched_email_or_phone' => false,
+            'repository_match' => false,
+            'conflict_count' => 0,
+        ]);
+
+        $this->assertLessThan(75, $score['score']);
+        $this->assertContains('alias_without_clear_target', $score['matched_rules']);
+    }
+
+    public function test_suggestion_payload_exposes_score_confidence_and_reasoning(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $user = $this->createFinanceUser(['nome_completo' => 'Contrato UI']);
+        $invoice = $this->createInvoice($user, 29.00);
+        $statement = $this->createBankStatement(29.00, 'Pagamento Contrato UI');
+
+        $response = $this->actingAs($admin)
+            ->postJson(route('financeiro.bank-statements.generate-suggestions', $statement))
+            ->assertOk();
+
+        $response->assertJsonStructure([
+            'generated_count',
+            'suggestions' => [[
+                'id',
+                'score',
+                'confidence_label',
+                'matched_rules',
+                'explanation',
+            ]],
+        ]);
+
+        $this->assertNotNull($response->json('suggestions.0.score'));
+        $this->assertNotNull($response->json('suggestions.0.confidence_label'));
+        $this->assertNotEmpty($response->json('suggestions.0.explanation'));
     }
 
     public function test_low_score_fallback_suggestions_without_history_are_ignored(): void

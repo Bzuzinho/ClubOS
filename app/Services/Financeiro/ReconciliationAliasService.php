@@ -9,6 +9,30 @@ use Illuminate\Database\Eloquent\Collection;
 
 class ReconciliationAliasService
 {
+    private const GENERIC_ALIAS_TOKENS = [
+        'A',
+        'AO',
+        'COM',
+        'DA',
+        'DE',
+        'DO',
+        'DOS',
+        'DAS',
+        'DOC',
+        'DOCUMENTO',
+        'ID',
+        'IBAN',
+        'MB',
+        'MBWAY',
+        'NIF',
+        'PAGAMENTO',
+        'REF',
+        'REFERENCIA',
+        'SEPA',
+        'TRF',
+        'TRANSFERENCIA',
+    ];
+
     public function __construct(
         private readonly BankAliasNormalizer $normalizer,
         private readonly BankDescriptionParser $descriptionParser,
@@ -90,10 +114,10 @@ class ReconciliationAliasService
             return null;
         }
 
-        $value = $this->resolveStatementAliasValue($bankStatement);
-        $normalizedValue = $this->normalizer->normalize($value);
+        $candidate = $this->resolveSafeAliasCandidate($bankStatement->descricao, 'description_text')
+            ?? $this->resolveSafeAliasCandidate($bankStatement->referencia, 'mb_reference');
 
-        if ($normalizedValue === '') {
+        if ($candidate === null) {
             return null;
         }
 
@@ -102,9 +126,9 @@ class ReconciliationAliasService
         return $this->createAlias([
             'user_id' => $userId,
             'family_id' => $resolvedFamilyId,
-            'type' => 'description_text',
-            'value' => $value,
-            'normalized_value' => $normalizedValue,
+            'type' => $candidate['type'],
+            'value' => $candidate['value'],
+            'normalized_value' => $candidate['normalized'],
             'is_confirmed' => false,
             'confidence' => 50,
             'source' => 'learned_from_reconciliation',
@@ -126,12 +150,14 @@ class ReconciliationAliasService
         $learned = [];
 
         foreach ($candidates as $candidate) {
-            $value = trim((string) ($candidate['value'] ?? ''));
-            $normalizedValue = $this->normalizer->normalize($value);
+            $safeCandidate = $this->resolveSafeAliasCandidate($candidate['value'] ?? null, $candidate['type']);
 
-            if ($normalizedValue === '') {
+            if ($safeCandidate === null) {
                 continue;
             }
+
+            $value = $safeCandidate['value'];
+            $normalizedValue = $safeCandidate['normalized'];
 
             $alias = BankReconciliationAlias::query()
                 ->where('user_id', $userId)
@@ -224,5 +250,73 @@ class ReconciliationAliasService
         $user = User::query()->with('families:id')->find($userId);
 
         return $user?->families->first()?->id;
+    }
+
+    private function resolveSafeAliasCandidate(mixed $value, string $type): ?array
+    {
+        $rawValue = trim((string) $value);
+
+        if ($rawValue === '') {
+            return null;
+        }
+
+        if ($type === 'description_text') {
+            $extractedAlias = $this->descriptionParser->extractAliasAfterDe($rawValue);
+            if ($extractedAlias !== null && $this->isSpecificAliasText($extractedAlias)) {
+                return [
+                    'type' => $type,
+                    'value' => $extractedAlias,
+                    'normalized' => $this->normalizer->normalize($extractedAlias),
+                ];
+            }
+
+            if (!$this->isSpecificAliasText($rawValue)) {
+                return null;
+            }
+        } elseif (!$this->isSpecificReferenceText($rawValue)) {
+            return null;
+        }
+
+        $normalized = $this->normalizer->normalize($rawValue);
+
+        if ($normalized === '') {
+            return null;
+        }
+
+        return [
+            'type' => $type,
+            'value' => $rawValue,
+            'normalized' => $normalized,
+        ];
+    }
+
+    private function isSpecificAliasText(string $value): bool
+    {
+        $normalized = $this->normalizer->normalize($value);
+
+        if ($normalized === '') {
+            return false;
+        }
+
+        $tokens = collect(explode(' ', $normalized))
+            ->filter(fn (string $token) => $token !== '' && !in_array($token, self::GENERIC_ALIAS_TOKENS, true))
+            ->values();
+
+        return $tokens->count() >= 2;
+    }
+
+    private function isSpecificReferenceText(string $value): bool
+    {
+        $normalized = $this->normalizer->normalize($value);
+
+        if ($normalized === '') {
+            return false;
+        }
+
+        if (in_array($normalized, self::GENERIC_ALIAS_TOKENS, true)) {
+            return false;
+        }
+
+        return strlen(str_replace(' ', '', $normalized)) >= 6;
     }
 }

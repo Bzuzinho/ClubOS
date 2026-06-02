@@ -905,6 +905,61 @@ Não avançar para F4.2 nesta alteração documental.
 
 ---
 
+## Sprint F4.2 — Segurança de sugestões bancárias, rejeições e aliases
+
+> Estado: tecnicamente concluída em 2026-06-02. Validações automáticas executadas e concluídas. Validação manual do browser ainda pendente.
+
+### Objetivo
+
+Tornar o motor de sugestões bancárias mais previsível e seguro:
+
+- rejeições devem ser auditáveis e persistentes;
+- sugestões rejeitadas não devem reaparecer em regeneração normal;
+- aliases só devem reforçar score quando o alvo for claramente identificado;
+- confiança/score devem ser visíveis e coerentes na UI;
+- confirmação continua a usar o fluxo canónico atual.
+
+### Regras fechadas nesta sprint
+
+- rejeições ficam registadas com snapshot da alocação e metadados de auditoria;
+- regeneração normal ignora assinaturas rejeitadas;
+- regeneração forçada pode recriar sugestões quando houver ação explícita;
+- aliases genéricos deixam de elevar confiança sem evidência clara do alvo;
+- a UI passa a expor score, confiança, origem por alias/histórico e motivo principal da sugestão;
+- o fluxo financeiro canónico de confirmação não foi alterado.
+
+### Testes automáticos mínimos
+
+Criar testes para validar:
+
+- sugestão rejeitada não reaparece em geração normal;
+- sugestão rejeitada só reaparece com regeneração forçada;
+- alias não sobrepõe rejeição explícita;
+- alias aumenta score apenas para o mesmo alvo;
+- sugestão de valor igual mas utilizador errado não atinge alta confiança sem evidência adicional;
+- confirmação de sugestão rejeitada é bloqueada;
+- confirmação de sugestão em extrato já conciliado continua bloqueada;
+- payload da sugestão expõe score, confiança e motivo principal.
+
+### Testes manuais para o utilizador
+
+1. Abrir a tab Banco e gerar sugestões para uma linha com correspondência óbvia.
+2. Rejeitar a sugestão e confirmar que desaparece da lista.
+3. Gerar novamente sem força e confirmar que a sugestão rejeitada não reaparece.
+4. Repetir com regeneração forçada e confirmar que a sugestão pode voltar apenas por ação explícita.
+5. Observar a lista de sugestões e confirmar que score, confiança, motivo principal e origem por alias/histórico aparecem legíveis.
+6. Confirmar que uma sugestão rejeitada não pode ser confirmada.
+
+### Resultado esperado
+
+O assistente bancário fica mais previsível: rejeições passam a ser respeitadas, aliases deixam de amplificar falsos positivos perigosos e a interface mostra melhor o nível de confiança real da proposta.
+
+### Estado operacional
+
+Sprint F4.2 fica tecnicamente concluída, mas mantém pendente a validação manual no browser antes de qualquer avanço para F4.3.
+
+---
+
 ## Sprint F5 — Movimentos financeiros, despesas e receitas manuais
 
 ### Objetivo

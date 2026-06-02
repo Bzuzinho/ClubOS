@@ -892,6 +892,52 @@ export function BancoTab({
     return `Baixa (${score})`;
   };
 
+  const getSuggestionConfidenceTone = (label?: string | null) => {
+    switch (label) {
+      case 'very_high':
+        return 'border-emerald-200 bg-emerald-50 text-emerald-800';
+      case 'high':
+        return 'border-emerald-200 bg-emerald-50 text-emerald-700';
+      case 'medium':
+        return 'border-amber-200 bg-amber-50 text-amber-700';
+      default:
+        return 'border-slate-200 bg-slate-50 text-slate-600';
+    }
+  };
+
+  const getSuggestionSourceBadges = (suggestion: BankReconciliationSuggestion) => {
+    const rules = new Set(suggestion.matched_rules || []);
+    const badges: string[] = [];
+
+    if (rules.has('confirmed_alias')) {
+      badges.push('Alias confirmado');
+    } else if (rules.has('alias_match')) {
+      badges.push('Alias sugerido');
+    } else if (rules.has('alias_without_clear_target') || rules.has('confirmed_alias_without_clear_target')) {
+      badges.push('Alias a validar');
+    }
+
+    if (rules.has('repository_match') || rules.has('historical_origin_match') || rules.has('similar_payment_history')) {
+      badges.push('Historico');
+    }
+
+    return badges;
+  };
+
+  const getSuggestionMainReason = (suggestion: BankReconciliationSuggestion) => {
+    const explanation = (suggestion.explanation || '').trim();
+
+    if (!explanation) {
+      return 'Sem explicacao adicional.';
+    }
+
+    const firstSentence = explanation.includes('. ')
+      ? `${explanation.split('. ')[0]}.`
+      : explanation;
+
+    return firstSentence;
+  };
+
   const handleAddExtrato = async () => {
     setBankStatementFormError(null);
 
@@ -2793,13 +2839,21 @@ export function BancoTab({
                             <div className="font-semibold">
                               {suggestion.user?.nome_completo || suggestion.family?.nome || 'Contexto nao identificado'}
                             </div>
-                            <div className="text-xs text-muted-foreground mt-1">
-                              Score {suggestion.score} · Confianca {suggestion.confidence_label || 'low'}
+                            <div className="mt-2 flex flex-wrap gap-2 text-xs">
+                              <Badge className={getSuggestionConfidenceTone(suggestion.confidence_label)} variant="outline">
+                                Score {suggestion.score}
+                              </Badge>
+                              <Badge variant="secondary">Confianca {suggestion.confidence_label || 'low'}</Badge>
+                              {getSuggestionSourceBadges(suggestion).map((label) => (
+                                <Badge key={`${suggestion.id}-${label}`} variant="outline">
+                                  {label}
+                                </Badge>
+                              ))}
                             </div>
                           </div>
                           <div className="flex gap-2">
-                            <Badge className="bg-blue-100 text-blue-800">{suggestion.score}</Badge>
-                            <Badge variant="outline">{suggestion.confidence_label || 'low'}</Badge>
+                            <Badge className={getSuggestionConfidenceTone(suggestion.confidence_label)} variant="outline">{suggestion.score}</Badge>
+                            <Badge variant="secondary">{suggestion.confidence_label || 'low'}</Badge>
                           </div>
                         </div>
 
@@ -2829,7 +2883,10 @@ export function BancoTab({
                           <div>Regras: {(suggestion.matched_rules || []).join(', ') || '-'}</div>
                         </div>
 
-                        <div className="text-sm">{suggestion.explanation || 'Sem explicacao adicional.'}</div>
+                        <div className="rounded-md border border-dashed p-3 text-sm text-muted-foreground bg-muted/30">
+                          <div className="text-xs uppercase tracking-wide mb-1">Motivo principal</div>
+                          <div className="text-foreground">{getSuggestionMainReason(suggestion)}</div>
+                        </div>
 
                         <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
                           <Button variant="outline" onClick={() => void handleRejectSuggestion(suggestion)} disabled={suggestionActionId === suggestion.id}>

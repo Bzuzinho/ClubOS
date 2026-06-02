@@ -31,16 +31,20 @@ class BankReconciliationSuggestionService
     public function generateForBankStatement(BankStatement $bankStatement, array $options = []): Collection
     {
         $bankStatement = $bankStatement->fresh();
+        $forceRegeneration = (bool) ($options['force_regeneration'] ?? false);
 
         if (!$bankStatement || $this->isBankStatementFullyReconciled($bankStatement)) {
             return collect();
         }
 
         $existingSuggestions = $this->fetchActiveSuggestions($bankStatement);
-        if (($options['force_regeneration'] ?? false) !== true
-            && $this->shouldReuseExistingSuggestions($existingSuggestions)) {
+        if (!$forceRegeneration && $this->shouldReuseExistingSuggestions($existingSuggestions)) {
             return $existingSuggestions;
         }
+
+        $rejectedAllocationSignatures = $forceRegeneration
+            ? []
+            : $this->fetchRejectedAllocationSignatures($bankStatement);
 
         $statementAmount = $this->resolveRemainingAmount($bankStatement);
         if ($statementAmount <= 0.009) {
@@ -73,6 +77,10 @@ class BankReconciliationSuggestionService
                 }
 
                 $seenSignatures[$signature] = true;
+
+                if (!$forceRegeneration && isset($rejectedAllocationSignatures[$signature])) {
+                    continue;
+                }
 
                 $scoringContext = array_merge($context, [
                     'statement_amount' => $statementAmount,
@@ -256,13 +264,25 @@ class BankReconciliationSuggestionService
         }
 
         if (($context['alias_confirmed'] ?? false) === true) {
-            $score += 35;
-            $rules[] = 'confirmed_alias';
-            $explanations[] = 'Alias bancario confirmado encontrado.';
+            if ($this->hasClearIdentityEvidence($context)) {
+                $score += 35;
+                $rules[] = 'confirmed_alias';
+                $explanations[] = 'Alias bancario confirmado encontrado.';
+            } else {
+                $score -= 10;
+                $rules[] = 'confirmed_alias_without_clear_target';
+                $explanations[] = 'Alias confirmado sem evidencia suficiente do alvo. Requer validacao manual.';
+            }
         } elseif (($context['alias_match'] ?? false) === true) {
-            $score += 15;
-            $rules[] = 'alias_match';
-            $explanations[] = 'Alias bancario sugerido encontrado.';
+            if ($this->hasClearIdentityEvidence($context)) {
+                $score += 15;
+                $rules[] = 'alias_match';
+                $explanations[] = 'Alias bancario sugerido encontrado.';
+            } else {
+                $score -= 10;
+                $rules[] = 'alias_without_clear_target';
+                $explanations[] = 'Alias bancario encontrado sem evidencias adicionais suficientes; requer validacao manual.';
+            }
         }
 
         if (($context['repository_match'] ?? false) === true) {
@@ -487,11 +507,26 @@ class BankReconciliationSuggestionService
 
     public function rejectSuggestion(BankReconciliationSuggestion $suggestion, ?User $actor = null, ?string $reason = null): void
     {
+        $rejectionSnapshot = [
+            'allocation_signature' => $this->makeAllocationSignatureFromAllocations((array) ($suggestion->suggested_allocations ?? [])),
+            'score' => (int) ($suggestion->score ?? 0),
+            'confidence_label' => $suggestion->confidence_label,
+            'matched_rules' => $suggestion->matched_rules,
+            'explanation' => $suggestion->explanation,
+            'reason' => $reason,
+            'rejected_by' => $actor?->id,
+            'rejected_at' => now()->toIso8601String(),
+        ];
+
         $suggestion->forceFill([
             'status' => BankReconciliationSuggestion::STATUS_REJECTED,
             'rejected_by' => $actor?->id,
             'rejected_at' => now(),
             'rejection_reason' => $reason,
+            'metadata' => array_merge((array) ($suggestion->metadata ?? []), [
+                'rejection_snapshot' => $rejectionSnapshot,
+                'allocation_signature' => $rejectionSnapshot['allocation_signature'],
+            ]),
         ]);
         $suggestion->save();
     }
@@ -1246,6 +1281,29 @@ class BankReconciliationSuggestionService
             ->every(fn (BankReconciliationSuggestion $suggestion): bool => (int) ($suggestion->score ?? 0) > 0);
     }
 
+    private function fetchRejectedAllocationSignatures(BankStatement $bankStatement): array
+    {
+        return BankReconciliationSuggestion::query()
+            ->where('bank_statement_id', $bankStatement->id)
+            ->where('status', BankReconciliationSuggestion::STATUS_REJECTED)
+            ->get()
+            ->map(function (BankReconciliationSuggestion $suggestion): ?string {
+                $metadataSignature = trim((string) data_get($suggestion->metadata, 'allocation_signature', ''));
+
+                if ($metadataSignature !== '') {
+                    return $metadataSignature;
+                }
+
+                $suggestedAllocations = is_array($suggestion->suggested_allocations) ? $suggestion->suggested_allocations : [];
+
+                return $this->makeAllocationSignatureFromAllocations($suggestedAllocations);
+            })
+            ->filter()
+            ->unique()
+            ->mapWithKeys(fn (string $signature) => [$signature => true])
+            ->all();
+    }
+
     private function resolveRemainingAmount(BankStatement $bankStatement): float
     {
         if ($bankStatement->valor_por_conciliar !== null) {
@@ -1804,18 +1862,46 @@ class BankReconciliationSuggestionService
 
     private function makeAllocationSignature(array $candidateInvoices): string
     {
-        $parts = collect($candidateInvoices)
-            ->map(function (array $candidate): string {
+        $allocations = collect($candidateInvoices)
+            ->map(function (array $candidate): array {
                 /** @var Invoice $invoice */
                 $invoice = $candidate['invoice'];
 
-                return $invoice->id . ':' . number_format((float) $candidate['amount'], 2, '.', '');
+                return [
+                    'invoice_id' => $invoice->id,
+                    'amount' => (float) $candidate['amount'],
+                ];
+            })
+            ->all();
+
+        return $this->makeAllocationSignatureFromAllocations($allocations);
+    }
+
+    private function makeAllocationSignatureFromAllocations(array $allocations): string
+    {
+        $parts = collect($allocations)
+            ->map(function (array $allocation): string {
+                $invoiceId = (string) ($allocation['invoice_id'] ?? '');
+                $amount = number_format((float) ($allocation['amount'] ?? 0), 2, '.', '');
+
+                return $invoiceId . ':' . $amount;
             })
             ->sort()
             ->values()
             ->all();
 
         return implode('|', $parts);
+    }
+
+    private function hasClearIdentityEvidence(array $context): bool
+    {
+        return (bool) (
+            ($context['repository_match'] ?? false)
+            || ($context['matched_name'] ?? false)
+            || ($context['matched_nif'] ?? false)
+            || ($context['matched_member_number'] ?? false)
+            || ($context['matched_email_or_phone'] ?? false)
+        );
     }
 
     private function isBankStatementFullyReconciled(BankStatement $bankStatement): bool
