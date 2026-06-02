@@ -619,6 +619,11 @@ class BankReconciliationSuggestionFlowTest extends TestCase
             $aprilInvoice->id,
         ], $topSuggestionInvoiceIds);
         $this->assertStringContainsString('abril de 2026', (string) ($response->json('suggestions.0.explanation') ?? ''));
+        $this->assertContains('reference_month_sequence_full', $response->json('suggestions.0.matched_rules'));
+        $this->assertNotContains('exact_single_invoice_amount', $response->json('suggestions.0.matched_rules'));
+        $this->assertSame('abril de 2026', data_get($response->json('suggestions.0.metadata'), 'reference_month_context.reference_month_label'));
+        $this->assertSame(4, (int) data_get($response->json('suggestions.0.metadata'), 'reference_month_context.total_months'));
+        $this->assertSame(4, (int) data_get($response->json('suggestions.0.metadata'), 'reference_month_context.covered_months'));
     }
 
     public function test_reference_month_sequence_partial_coverage_adds_clear_explanation(): void
@@ -662,7 +667,9 @@ class BankReconciliationSuggestionFlowTest extends TestCase
 
         $topSuggestionAllocations = collect($response->json('suggestions.0.suggested_allocations') ?? []);
         $this->assertSame([$januaryInvoice->id], $topSuggestionAllocations->pluck('invoice_id')->all());
-        $this->assertStringContainsString('so cobre 1 mensalidade', (string) ($response->json('suggestions.0.explanation') ?? ''));
+        $this->assertStringContainsString('so cobre 1 de 2 mensalidades', (string) ($response->json('suggestions.0.explanation') ?? ''));
+        $this->assertContains('reference_month_sequence_partial', $response->json('suggestions.0.matched_rules'));
+        $this->assertNotContains('exact_single_invoice_amount', $response->json('suggestions.0.matched_rules'));
     }
 
     public function test_reference_month_sequence_uses_open_amount_for_partial_invoice_and_two_months(): void
@@ -710,6 +717,7 @@ class BankReconciliationSuggestionFlowTest extends TestCase
         $this->assertSame([$januaryPartial->id, $februaryInvoice->id], $allocations->pluck('invoice_id')->all());
         $this->assertSame(20.0, (float) ($allocations->firstWhere('invoice_id', $januaryPartial->id)['amount'] ?? 0));
         $this->assertSame(30.0, (float) ($allocations->firstWhere('invoice_id', $februaryInvoice->id)['amount'] ?? 0));
+        $this->assertContains('reference_month_sequence_full', $response->json('suggestions.0.matched_rules'));
     }
 
     public function test_reference_month_sequence_excludes_future_and_hidden_monthly_invoices(): void
@@ -770,6 +778,7 @@ class BankReconciliationSuggestionFlowTest extends TestCase
         $this->assertSame([$januaryInvoice->id, $februaryInvoice->id], $allocationIds);
         $this->assertNotContains($hiddenMarchInvoice->id, $allocationIds);
         $this->assertNotContains($futureMayInvoice->id, $allocationIds);
+        $this->assertContains('reference_month_sequence_full', $response->json('suggestions.0.matched_rules'));
     }
 
     public function test_reference_month_sequence_without_safe_identity_does_not_reach_high_confidence(): void

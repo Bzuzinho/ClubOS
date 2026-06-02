@@ -1009,6 +1009,38 @@ Sprint F4.2.1 fica tecnicamente concluída, com validação manual no browser pe
 
 ---
 
+## Sprint F4.2.2 — Prioridade da sequência mensal sobre sugestão isolada
+
+> Estado: tecnicamente concluída em 2026-06-02. Validações automáticas executadas e concluídas. Validação manual do browser ainda pendente.
+
+### Objetivo
+
+Garantir que, quando existe mês de referência e várias mensalidades em aberto até esse mês, a sequência cronológica é a sugestão principal e não um ramo isolado por valor exato.
+
+### Regras fechadas nesta sprint
+
+- a sequência mensal tem prioridade sobre sugestões isoladas de valor exato no mesmo contexto;
+- sugestões isoladas concorrentes recebem prioridade inferior quando existe sequência mensal adequada;
+- a sequência mensal continua a respeitar `valor_em_aberto` em faturas parciais;
+- o metadata da sugestão preserva mês de referência, total de mensalidades, cobertura e valor alocado;
+- a confiança continua limitada quando falta identidade segura.
+
+### Testes automáticos mínimos
+
+Cobertos em `BankReconciliationSuggestionFlowTest`:
+
+- 1 mensalidade coberta até abril mostra regra mensal e explicação parcial;
+- 2 mensalidades cobertas sugerem janeiro + fevereiro;
+- 4 mensalidades cobertas sugerem janeiro + fevereiro + março + abril;
+- a sugestão mensal supera o ramo isolado de valor exato quando o target/alocação é igual;
+- sugestões sem identidade segura continuam abaixo de alta confiança.
+
+### Estado operacional
+
+Sprint F4.2.2 fica tecnicamente concluída, com validação manual no browser pendente antes de qualquer avanço para F4.3.
+
+---
+
 ## Sprint F5 — Movimentos financeiros, despesas e receitas manuais
 
 ### Objetivo

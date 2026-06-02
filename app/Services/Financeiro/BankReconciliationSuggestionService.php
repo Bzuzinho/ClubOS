@@ -109,11 +109,14 @@ class BankReconciliationSuggestionService
                     'statement_amount' => $statementAmount,
                     'normalized_text' => $normalizedText,
                     'history_profile' => $historyProfile,
+                    'reference_month_available' => $referenceMonthSequence !== null
+                        && (int) data_get($referenceMonthSequence, '0.reference_month_total_months', 0) > 1,
                 ], $candidateContext);
                 $scoreData = $this->calculateScore($bankStatement, $candidateSet, $scoringContext);
 
                 if (($context['repository_match'] ?? false) !== true
-                    && $scoreData['score'] < self::MIN_SCORE_TO_PERSIST_WITHOUT_HISTORY) {
+                    && $scoreData['score'] < self::MIN_SCORE_TO_PERSIST_WITHOUT_HISTORY
+                    && empty($candidateContext['reference_month_context'])) {
                     continue;
                 }
 
@@ -130,7 +133,17 @@ class BankReconciliationSuggestionService
         }
 
         $sortedSuggestions = $suggestions
-            ->sortByDesc(fn (BankReconciliationSuggestion $suggestion) => $suggestion->score)
+            ->sortBy(function (BankReconciliationSuggestion $suggestion): array {
+                $hasReferenceMonthRule = collect((array) ($suggestion->matched_rules ?? []))
+                    ->contains(fn (string $rule): bool => str_starts_with($rule, 'reference_month_sequence_'));
+
+                return [
+                    (int) $suggestion->score,
+                    $hasReferenceMonthRule ? 1 : 0,
+                    (int) ($suggestion->total_allocated_amount ?? 0),
+                ];
+            })
+            ->reverse()
             ->values();
 
         $this->expireStaleSuggestions($bankStatement, $sortedSuggestions->pluck('id')->all());
@@ -242,6 +255,7 @@ class BankReconciliationSuggestionService
                 'allocation_signature' => $allocationSignature,
                 'normalized_text' => $matchedRules['normalized_text'] ?? $this->normalizeStatementText($bankStatement),
                 'candidate_invoice_ids' => array_column($allocations, 'invoice_id'),
+                'reference_month_context' => $matchedRules['reference_month_context'] ?? $this->extractReferenceMonthContext($candidateInvoices),
             ]),
         ]);
         $suggestion->save();
@@ -259,8 +273,33 @@ class BankReconciliationSuggestionService
         $explanations = [];
         $difference = round($statementAmount - $allocatedAmount, 2);
         $highestOpenInvoice = round((float) collect($candidateInvoices)->max('open_amount'), 2);
+        $referenceMonthContext = $context['reference_month_context'] ?? $this->extractReferenceMonthContext($candidateInvoices);
+        $hasReferenceMonthContext = is_array($referenceMonthContext) && (int) ($referenceMonthContext['total_months'] ?? 0) > 1;
+        $referenceMonthAvailable = (bool) ($context['reference_month_available'] ?? false);
 
-        if (count($candidateInvoices) === 1 && abs($statementAmount - $openAmount) <= 0.009) {
+        if ($referenceMonthAvailable && !$hasReferenceMonthContext) {
+            $score -= 40;
+            $rules[] = 'reference_month_sequence_lower_priority';
+            $explanations[] = 'Existe uma sequencia cronologica mensal mais adequada para este contexto.';
+        }
+
+        if ($hasReferenceMonthContext) {
+            $score += 100;
+            $rules[] = !empty($referenceMonthContext['insufficient'])
+                ? 'reference_month_sequence_partial'
+                : 'reference_month_sequence_full';
+            $explanations[] = (string) ($referenceMonthContext['insufficient']
+                ? sprintf(
+                    'Existem mensalidades em aberto ate %s, mas o valor da linha so cobre %d de %d mensalidades.',
+                    $referenceMonthContext['reference_month_label'] ?? '',
+                    (int) ($referenceMonthContext['covered_months'] ?? 0),
+                    (int) ($referenceMonthContext['total_months'] ?? 0)
+                )
+                : sprintf(
+                    'Valor cobre mensalidades em aberto ate %s.',
+                    $referenceMonthContext['reference_month_label'] ?? ''
+                ));
+        } elseif (count($candidateInvoices) === 1 && abs($statementAmount - $openAmount) <= 0.009) {
             $score += 70;
             $rules[] = 'exact_single_invoice_amount';
             $explanations[] = 'Valor da linha bate exatamente com uma fatura em aberto.';
@@ -401,7 +440,7 @@ class BankReconciliationSuggestionService
         }
 
         $referenceMonthSignal = $this->resolveReferenceMonthSignal($candidateInvoices);
-        if ($referenceMonthSignal !== null) {
+        if (!$hasReferenceMonthContext && $referenceMonthSignal !== null) {
             if ($this->hasClearIdentityEvidence($context) || ($context['repository_match'] ?? false)) {
                 $score += $referenceMonthSignal['is_full'] ? 20 : 12;
                 $rules[] = $referenceMonthSignal['is_full']
@@ -430,6 +469,10 @@ class BankReconciliationSuggestionService
             $score -= 15;
             $rules[] = 'generic_description';
             $explanations[] = 'Descricao demasiado generica sem alias associado.';
+        }
+
+        if ($hasReferenceMonthContext && !$this->hasClearIdentityEvidence($context) && !($context['repository_match'] ?? false)) {
+            $score = min($score, 74);
         }
 
         $score = max(0, min(100, $score));
@@ -731,13 +774,34 @@ class BankReconciliationSuggestionService
         ?array $referenceMonthSequence = null
     ): array
     {
-        $referenceMonthSets = $referenceMonthSequence ? [$referenceMonthSequence] : [];
+        $referenceMonthSets = [];
+        if ($referenceMonthSequence) {
+            $firstReferenceCandidate = $referenceMonthSequence[0] ?? null;
+            $referenceMonthSets[] = [
+                'candidate_set' => $referenceMonthSequence,
+                'context' => [
+                    'reference_month_context' => is_array($firstReferenceCandidate) ? [
+                        'reference_month_key' => $firstReferenceCandidate['reference_month_key'] ?? null,
+                        'reference_month_label' => $firstReferenceCandidate['reference_month_label'] ?? null,
+                        'total_months' => (int) ($firstReferenceCandidate['reference_month_total_months'] ?? count($referenceMonthSequence)),
+                        'covered_months' => (int) ($firstReferenceCandidate['reference_month_covered_months'] ?? count($referenceMonthSequence)),
+                        'total_open_amount' => round((float) ($firstReferenceCandidate['reference_month_total_open_amount'] ?? 0), 2),
+                        'allocated_amount' => round((float) ($firstReferenceCandidate['reference_month_allocated_amount'] ?? 0), 2),
+                        'insufficient' => (bool) ($firstReferenceCandidate['reference_month_insufficient'] ?? false),
+                    ] : null,
+                ],
+            ];
+        }
 
         if (($context['repository_match'] ?? false) === true) {
             return $this->dedupeCandidateSets(array_merge(
                 $this->generateRepositoryCandidateInvoiceSets($candidateInvoices->all(), $statementAmount, $bankStatement),
                 $referenceMonthSets,
             ));
+        }
+
+        if ($referenceMonthSequence && count($referenceMonthSequence) > 1) {
+            return $this->dedupeCandidateSets($referenceMonthSets);
         }
 
         $sets = $referenceMonthSets;
@@ -870,6 +934,7 @@ class BankReconciliationSuggestionService
 
         $remainingAmount = round($statementAmount, 2);
         $selected = [];
+        $remainingOpenTotal = round($monthlyCandidates->sum('open_amount'), 2);
 
         foreach ($monthlyCandidates as $candidate) {
             $openAmount = round((float) ($candidate['open_amount'] ?? 0), 2);
@@ -886,6 +951,14 @@ class BankReconciliationSuggestionService
                 'open_amount' => $openAmount,
                 'amount' => $openAmount,
                 'reason' => '',
+                'reference_month_sequence' => true,
+                'reference_month_key' => $referenceMonthKey,
+                'reference_month_label' => $this->formatReferenceMonthLabel($referenceMonthKey),
+                'reference_month_total_months' => $monthlyCandidates->count(),
+                'reference_month_covered_months' => count($selected) + 1,
+                'reference_month_total_open_amount' => $remainingOpenTotal,
+                'reference_month_allocated_amount' => round($statementAmount, 2),
+                'reference_month_insufficient' => $remainingAmount - $openAmount > 0.009,
             ];
 
             $remainingAmount = round($remainingAmount - $openAmount, 2);
@@ -903,10 +976,17 @@ class BankReconciliationSuggestionService
         $referenceMonthLabel = $this->formatReferenceMonthLabel($referenceMonthKey);
         $reason = $coveredCount >= $totalCount
             ? sprintf('Valor cobre mensalidades em aberto ate %s.', $referenceMonthLabel)
-            : sprintf('Existem mensalidades em aberto ate %s, mas o valor da linha so cobre %d mensalidade(s).', $referenceMonthLabel, $coveredCount);
+            : sprintf('Existem mensalidades em aberto ate %s, mas o valor da linha so cobre %d de %d mensalidades.', $referenceMonthLabel, $coveredCount, $totalCount);
 
-        return array_map(function (array $candidate) use ($reason): array {
+        return array_map(function (array $candidate) use ($reason, $referenceMonthKey, $referenceMonthLabel, $totalCount, $coveredCount, $remainingOpenTotal, $statementAmount): array {
             $candidate['reason'] = $reason;
+            $candidate['reference_month_key'] = $referenceMonthKey;
+            $candidate['reference_month_label'] = $referenceMonthLabel;
+            $candidate['reference_month_total_months'] = $totalCount;
+            $candidate['reference_month_covered_months'] = $coveredCount;
+            $candidate['reference_month_total_open_amount'] = $remainingOpenTotal;
+            $candidate['reference_month_allocated_amount'] = round($statementAmount, 2);
+            $candidate['reference_month_insufficient'] = $coveredCount < $totalCount;
 
             return $candidate;
         }, $selected);
@@ -917,7 +997,12 @@ class BankReconciliationSuggestionService
         $deduped = [];
         $seen = [];
         foreach ($sets as $set) {
-            $signature = $this->makeAllocationSignature($set);
+            $candidateSet = $set['candidate_set'] ?? $set;
+            if (!is_array($candidateSet) || $candidateSet === []) {
+                continue;
+            }
+
+            $signature = $this->makeAllocationSignature($candidateSet);
             if (isset($seen[$signature])) {
                 continue;
             }
@@ -1556,6 +1641,27 @@ class BankReconciliationSuggestionService
         $monthName = array_flip(self::REFERENCE_MONTH_NAMES)[$monthNumber] ?? $date->format('m');
 
         return sprintf('%s de %s', $monthName, $date->format('Y'));
+    }
+
+    private function extractReferenceMonthContext(array $candidateInvoices): ?array
+    {
+        foreach ($candidateInvoices as $candidate) {
+            if (($candidate['reference_month_sequence'] ?? false) !== true) {
+                continue;
+            }
+
+            return [
+                'reference_month_key' => $candidate['reference_month_key'] ?? null,
+                'reference_month_label' => $candidate['reference_month_label'] ?? null,
+                'total_months' => (int) ($candidate['reference_month_total_months'] ?? 0),
+                'covered_months' => (int) ($candidate['reference_month_covered_months'] ?? 0),
+                'total_open_amount' => round((float) ($candidate['reference_month_total_open_amount'] ?? 0), 2),
+                'allocated_amount' => round((float) ($candidate['reference_month_allocated_amount'] ?? 0), 2),
+                'insufficient' => (bool) ($candidate['reference_month_insufficient'] ?? false),
+            ];
+        }
+
+        return null;
     }
 
     /**
