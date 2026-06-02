@@ -234,6 +234,9 @@ export function BancoTab({
   const [importFile, setImportFile] = useState<File | null>(null);
   const [importRawRows, setImportRawRows] = useState<any[][]>([]);
   const [importPreview, setImportPreview] = useState<any[]>([]);
+  const [bankStatementImportError, setBankStatementImportError] = useState<string | null>(null);
+  const [bankStatementImportDuplicateRows, setBankStatementImportDuplicateRows] = useState<Array<Record<string, any>>>([]);
+  const [bankStatementImportRejectedCount, setBankStatementImportRejectedCount] = useState<number | null>(null);
   const [importCentroCusto, setImportCentroCusto] = useState<string>('');
   const [availableColumns, setAvailableColumns] = useState<string[]>([]);
   const [headerRowIndex, setHeaderRowIndex] = useState<number>(0);
@@ -267,6 +270,79 @@ export function BancoTab({
     errors: number;
   } | null>(null);
   const [bulkGeneratingSuggestions, setBulkGeneratingSuggestions] = useState(false);
+
+  const clearBankStatementImportFeedback = () => {
+    setBankStatementImportError(null);
+    setBankStatementImportDuplicateRows([]);
+    setBankStatementImportRejectedCount(null);
+  };
+
+  const firstValidationErrorFromPayload = (payload: any) => {
+    return Object.values(payload?.errors || {})
+      .flat()
+      .find((value) => typeof value === 'string') as string | undefined;
+  };
+
+  const extractImportDuplicateRows = (payload: any): Array<Record<string, any>> => {
+    const pick = (obj: any, path: string) => {
+      return path.split('.').reduce((acc: any, key) => (acc && typeof acc === 'object' ? acc[key] : undefined), obj);
+    };
+
+    const candidates = [
+      pick(payload, 'duplicates'),
+      pick(payload, 'duplicados'),
+      pick(payload, 'rejected'),
+      pick(payload, 'rejeitados'),
+      pick(payload, 'summary.duplicates'),
+      pick(payload, 'summary.rejected'),
+      pick(payload, 'resumo.duplicados'),
+      pick(payload, 'resumo.rejeitados'),
+    ];
+
+    for (const candidate of candidates) {
+      if (Array.isArray(candidate)) {
+        return candidate
+          .map((item) => (item && typeof item === 'object' ? item : { value: item }))
+          .filter((item) => Object.keys(item).length > 0);
+      }
+    }
+
+    return [];
+  };
+
+  const extractImportRejectedCount = (payload: any): number | null => {
+    const pick = (obj: any, path: string) => {
+      return path.split('.').reduce((acc: any, key) => (acc && typeof acc === 'object' ? acc[key] : undefined), obj);
+    };
+
+    const candidates = [
+      pick(payload, 'rejected_count'),
+      pick(payload, 'rejectedCount'),
+      pick(payload, 'rejeitados_count'),
+      pick(payload, 'rejeitadosCount'),
+      pick(payload, 'duplicates_count'),
+      pick(payload, 'duplicatesCount'),
+      pick(payload, 'duplicados_count'),
+      pick(payload, 'duplicadosCount'),
+      pick(payload, 'summary.rejected_count'),
+      pick(payload, 'summary.rejectedCount'),
+      pick(payload, 'summary.duplicates_count'),
+      pick(payload, 'summary.duplicatesCount'),
+      pick(payload, 'resumo.rejeitados_count'),
+      pick(payload, 'resumo.rejeitadosCount'),
+      pick(payload, 'resumo.duplicados_count'),
+      pick(payload, 'resumo.duplicadosCount'),
+    ];
+
+    for (const candidate of candidates) {
+      const parsed = Number(candidate);
+      if (!Number.isNaN(parsed) && parsed >= 0) {
+        return parsed;
+      }
+    }
+
+    return null;
+  };
 
   const getColumnLetter = (index: number) => {
     let letter = '';
@@ -1194,6 +1270,8 @@ export function BancoTab({
   }, [extratos]);
 
   const handleFileSelect = (event: ChangeEvent<HTMLInputElement>) => {
+    clearBankStatementImportFeedback();
+
     const file = event.target.files?.[0];
     if (!file) return;
 
@@ -1254,6 +1332,8 @@ export function BancoTab({
   };
 
   const handleImport = () => {
+    clearBankStatementImportFeedback();
+
     if (!importFile) {
       toast.error('Selecione um ficheiro para importar');
       return;
@@ -1497,12 +1577,45 @@ export function BancoTab({
             }),
           });
 
-          if (!response.ok) {
-            throw new Error('Erro ao guardar extratos');
+          const payload = await response.json().catch(() => null);
+
+          if (response.status === 422) {
+            const message =
+              payload?.message ||
+              payload?.errors?.extratos?.[0] ||
+              firstValidationErrorFromPayload(payload) ||
+              'Não foi possível importar o extrato bancário.';
+            const duplicateRows = extractImportDuplicateRows(payload);
+            const rejectedCount = extractImportRejectedCount(payload);
+
+            setBankStatementImportError(message);
+            setBankStatementImportDuplicateRows(duplicateRows);
+            setBankStatementImportRejectedCount(rejectedCount);
+            toast.error(message);
+            return;
           }
 
-          const data = await response.json();
-          setExtratos(data.extratos || []);
+          if (response.status === 419) {
+            const message = 'A sessão expirou. Atualize a página e tente novamente.';
+            setBankStatementImportError(message);
+            setBankStatementImportDuplicateRows([]);
+            setBankStatementImportRejectedCount(null);
+            toast.error(message);
+            return;
+          }
+
+          if (!response.ok) {
+            const message = payload?.message || 'Não foi possível importar o extrato bancário.';
+            setBankStatementImportError(message);
+            setBankStatementImportDuplicateRows([]);
+            setBankStatementImportRejectedCount(null);
+            toast.error(message);
+            return;
+          }
+
+          clearBankStatementImportFeedback();
+          const data = payload ?? {};
+          setExtratos(data?.extratos || []);
           toast.success(
             `${importedCount} movimentos importados com sucesso${
               errorCount > 0 ? ` (${errorCount} erros)` : ''
@@ -1514,7 +1627,11 @@ export function BancoTab({
           toast.error('Nenhum movimento valido encontrado no ficheiro');
         }
       } catch (error) {
-        toast.error('Erro ao processar o ficheiro');
+        const message = error instanceof Error ? error.message : 'Não foi possível importar o extrato bancário.';
+        setBankStatementImportError(message);
+        setBankStatementImportDuplicateRows([]);
+        setBankStatementImportRejectedCount(null);
+        toast.error(message);
       }
     })();
   };
@@ -1523,6 +1640,7 @@ export function BancoTab({
     setImportFile(null);
     setImportRawRows([]);
     setImportPreview([]);
+    clearBankStatementImportFeedback();
     setImportCentroCusto('');
     setAvailableColumns([]);
     setHeaderRowIndex(0);
@@ -1553,7 +1671,15 @@ export function BancoTab({
         </div>
 
         <div className="flex w-full flex-col gap-2 sm:flex-row md:w-auto">
-          <Dialog open={dialogImportOpen} onOpenChange={setDialogImportOpen}>
+          <Dialog
+            open={dialogImportOpen}
+            onOpenChange={(open) => {
+              setDialogImportOpen(open);
+              if (open) {
+                clearBankStatementImportFeedback();
+              }
+            }}
+          >
             <DialogTrigger asChild>
               <Button variant="outline" onClick={resetImportData} className="w-full sm:w-auto">
                 <FileArrowUp className="mr-2" />
@@ -1655,6 +1781,48 @@ export function BancoTab({
                     <p className="text-xs text-muted-foreground">
                       Nota: O sistema ira procurar automaticamente as colunas ou usar o mapeamento configurado
                     </p>
+                  </div>
+                )}
+
+                {bankStatementImportError && (
+                  <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                    <p>{bankStatementImportError}</p>
+                    {bankStatementImportRejectedCount !== null && (
+                      <p className="mt-1">Linhas rejeitadas: {bankStatementImportRejectedCount}</p>
+                    )}
+                    {bankStatementImportDuplicateRows.length > 0 && (
+                      <div className="mt-2 space-y-1">
+                        <p className="font-medium">Linhas bloqueadas:</p>
+                        <ul className="list-disc pl-5 space-y-1">
+                          {bankStatementImportDuplicateRows.slice(0, 10).map((row, index) => {
+                            const linha = row.linha || row.line || row.row || row.row_number;
+                            const dataMovimento = row.data_movimento || row.data || row.date;
+                            const descricao = row.descricao || row.description;
+                            const valor = row.valor || row.amount;
+                            const referencia = row.referencia || row.reference;
+                            const reason = row.message || row.reason || row.razao || row.motivo;
+
+                            const parts = [
+                              linha !== undefined && linha !== null ? `linha ${linha}` : null,
+                              dataMovimento ? `data ${String(dataMovimento)}` : null,
+                              descricao ? `descricao ${String(descricao)}` : null,
+                              valor !== undefined && valor !== null ? `valor ${String(valor)}` : null,
+                              referencia ? `referencia ${String(referencia)}` : null,
+                              reason ? `motivo ${String(reason)}` : null,
+                            ].filter(Boolean);
+
+                            return (
+                              <li key={`${String(linha || 'linha')}-${index}`} className="text-xs leading-5">
+                                {parts.join(' | ') || JSON.stringify(row)}
+                              </li>
+                            );
+                          })}
+                        </ul>
+                        {bankStatementImportDuplicateRows.length > 10 && (
+                          <p className="text-xs">+ {bankStatementImportDuplicateRows.length - 10} linhas adicionais</p>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
