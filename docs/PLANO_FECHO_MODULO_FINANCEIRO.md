@@ -1193,6 +1193,76 @@ Não avançar para F4.4 nesta alteração documental.
 
 ---
 
+## Sprint F4.4 — Relatórios e auditoria operacional da conciliação bancária
+
+> Estado: tecnicamente concluída em 2026-06-17. Pendente de validação manual no browser. Não avançar para F4.5 nesta sprint.
+
+### Objetivo
+
+Criar uma camada operacional de auditoria para consulta e controlo da conciliação bancária, sem criar novo módulo na sidebar e sem alterar o motor canónico financeiro.
+
+### Escopo entregue
+
+- novo endpoint de leitura paginado: `GET /financeiro/banco/auditoria`;
+- integração na área existente: `Configurações > Financeiro > Conciliação Bancária` com nova subtab `Auditoria`;
+- resumo operacional no topo (totais de linhas, estados, valor alocado, valor por alocar e crédito criado);
+- tabela principal com colunas operacionais de estado, valores, método, alvo, conciliado por/em;
+- ação `Ver detalhe` por linha com alocações (faturas/movimentos/crédito), histórico de desconciliações, flags e estado fiscal quando disponível;
+- paginação server-side com preservação de filtros.
+
+### Regras fechadas nesta sprint
+
+- endpoint mantém leitura pura (sem mutação de pagamentos, alocações ou estado de extratos);
+- filtros disponíveis: estado, intervalo de datas, pesquisa livre (descrição/referência/nome), utilizador/família (se fornecido), método, com/sem crédito e por página;
+- ordenação suportada por `data_movimento` (default `desc`) e `valor`;
+- métodos operacionais expostos: sugestão automática, alocação assistida, despesa a partir de extrato, pagamento manual e outro fluxo;
+- integração de permissões reaproveita `financeiro.dashboard` (`view`);
+- sem alterações em `PaymentAllocationService`, `FinancialSettlementService`, `BankReconciliationService`, `CurrentAccountService`, `MonthlyInvoiceStatusService`, `ReceiptCommitService`, importação XLS e lógica de desconciliação.
+
+### Testes automáticos mínimos
+
+Cobertos em `tests/Feature/Financeiro/BankReconciliationAuditEndpointTest.php`:
+
+- endpoint lista linhas bancárias paginadas;
+- filtros por estado (`conciliado`, `parcial`, `por_conciliar`);
+- filtro por intervalo de datas;
+- pesquisa por descrição/referência;
+- detalhe com alocações de fatura/mensalidade;
+- detalhe com alocações de movimento;
+- detalhe/resumo com crédito criado;
+- metadados de paginação;
+- bloqueio de acesso sem permissão;
+- garantia de não mutação do estado financeiro.
+
+### Validações técnicas executadas
+
+- `composer dump-autoload`;
+- `php artisan migrate --pretend`;
+- `php artisan test --filter=BankReconciliationAliasManagement`;
+- `php artisan test --filter=BankReconciliationSuggestion`;
+- `php artisan test --filter=PaymentAllocation`;
+- `php artisan test --filter=Financeiro`;
+- `npm run build`;
+- `git diff --check`.
+
+### Testes manuais para o utilizador
+
+1. Entrar em `Configurações > Financeiro > Conciliação Bancária > Auditoria`.
+2. Confirmar cards de resumo com e sem filtros.
+3. Testar filtros por estado, datas, pesquisa, método e crédito.
+4. Validar ordenação por data e valor.
+5. Abrir `Ver detalhe` em linhas conciliadas/parciais/por conciliar e confirmar alocações, flags e histórico de desconciliação.
+6. Navegar paginação e alterar tamanho de página mantendo os filtros.
+7. Confirmar acesso negado para perfil sem permissão de `financeiro.dashboard`.
+
+### Estado operacional
+
+Sprint F4.4 fica tecnicamente concluída e pendente apenas de validação manual no browser.
+
+Não avançar para F4.5 nesta sprint.
+
+---
+
 ## Sprint F5 — Movimentos financeiros, despesas e receitas manuais
 
 ### Objetivo

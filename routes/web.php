@@ -38,6 +38,7 @@ use App\Http\Controllers\ConfiguracoesDesportivoController;
 use App\Http\Controllers\LogisticaController;
 use App\Http\Controllers\EquipasController;
 use App\Http\Controllers\Financeiro\BankReconciliationAliasController;
+use App\Http\Controllers\Financeiro\BankReconciliationAuditController;
 use App\Http\Controllers\Financeiro\BankReconciliationSuggestionController;
 use App\Http\Controllers\Financeiro\FiscalDocumentRequestController;
 use App\Http\Controllers\Financeiro\ReceiptImportController;
@@ -329,6 +330,9 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::get('bank-statements/unreconciled', [FinanceiroController::class, 'unreconciledBankStatements'])
             ->middleware('permission.access:financeiro.dashboard,view')
             ->name('bank-statements.unreconciled');
+        Route::get('banco/auditoria', [BankReconciliationAuditController::class, 'index'])
+            ->middleware('permission.access:financeiro.dashboard,view')
+            ->name('bank-reconciliation-audit.index');
         Route::post('bank-statements/{bankStatement}/generate-suggestions', [BankReconciliationSuggestionController::class, 'generateForBankStatement'])
             ->middleware('permission.access:financeiro.dashboard,edit')
             ->whereUuid('bankStatement')

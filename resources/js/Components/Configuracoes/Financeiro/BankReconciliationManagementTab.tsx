@@ -9,6 +9,65 @@ import { Badge } from '@/Components/ui/badge';
 import { toast } from 'sonner';
 import { fetchFinanceiro } from '@/Pages/Financeiro/request';
 
+type ReconciliationState = 'por_conciliar' | 'parcial' | 'conciliado';
+
+interface AuditAllocationRow {
+  tipo: 'invoice' | 'movement' | 'credit' | 'other';
+  id: string;
+  descricao: string;
+  mes?: string | null;
+  valor_alocado: number;
+  estado?: string | null;
+}
+
+interface AuditRow {
+  bank_statement_id: string;
+  data_movimento?: string | null;
+  descricao?: string | null;
+  referencia?: string | null;
+  valor: number;
+  estado_conciliacao: ReconciliationState;
+  valor_alocado: number;
+  valor_por_alocar: number;
+  reconciled_at?: string | null;
+  reconciled_by_name?: string | null;
+  metodo_conciliacao?: string | null;
+  target_summary?: {
+    nome_principal?: string | null;
+    nomes?: string[];
+    faturas_afetadas?: number;
+    movimentos_afetados?: number;
+    valor_credito_criado?: number;
+  } | null;
+  allocations?: AuditAllocationRow[];
+  fiscal_status?: string | null;
+  flags?: {
+    tem_credito?: boolean;
+    tem_desconciliacao?: boolean;
+    tem_documento_fiscal_emitido?: boolean;
+    bloqueado_para_desconciliar?: boolean;
+  } | null;
+  historico_desconciliacoes?: Array<{
+    tipo?: string;
+    payment_id?: string | null;
+    payment_allocation_id?: string | null;
+    cancelled_at?: string | null;
+    cancelled_by_name?: string | null;
+    motivo?: string | null;
+  }>;
+  erros_ou_bloqueios?: string[];
+}
+
+interface AuditSummary {
+  total_linhas: number;
+  total_conciliado: number;
+  total_parcial: number;
+  total_por_conciliar: number;
+  total_alocado: number;
+  total_por_alocar: number;
+  total_credito_criado: number;
+}
+
 interface AliasRow {
   id: string;
   normalized_value?: string | null;
@@ -65,6 +124,13 @@ interface PaginationMeta {
   total: number;
 }
 
+interface AuditApiResponse {
+  rows?: AuditRow[];
+  data?: AuditRow[];
+  summary?: Partial<AuditSummary>;
+  meta?: Partial<PaginationMeta>;
+}
+
 const formatDate = (value?: string | null) => {
   if (!value) return '-';
   const date = new Date(value);
@@ -79,12 +145,25 @@ const formatCurrency = (value?: number | null) => {
 };
 
 export function BankReconciliationManagementTab({ canEdit }: { canEdit: boolean }) {
+  const [activeSubtab, setActiveSubtab] = useState<'aliases' | 'rejeicoes' | 'auditoria'>('aliases');
   const [aliasRows, setAliasRows] = useState<AliasRow[]>([]);
   const [rejectedRows, setRejectedRows] = useState<SuggestionRow[]>([]);
+  const [auditRows, setAuditRows] = useState<AuditRow[]>([]);
   const [aliasMeta, setAliasMeta] = useState<PaginationMeta>({ current_page: 1, last_page: 1, per_page: 20, total: 0 });
   const [rejectedMeta, setRejectedMeta] = useState<PaginationMeta>({ current_page: 1, last_page: 1, per_page: 20, total: 0 });
+  const [auditMeta, setAuditMeta] = useState<PaginationMeta>({ current_page: 1, last_page: 1, per_page: 20, total: 0 });
+  const [auditSummary, setAuditSummary] = useState<AuditSummary>({
+    total_linhas: 0,
+    total_conciliado: 0,
+    total_parcial: 0,
+    total_por_conciliar: 0,
+    total_alocado: 0,
+    total_por_alocar: 0,
+    total_credito_criado: 0,
+  });
   const [aliasesLoading, setAliasesLoading] = useState(false);
   const [rejectedLoading, setRejectedLoading] = useState(false);
+  const [auditLoading, setAuditLoading] = useState(false);
   const [aliasActionId, setAliasActionId] = useState<string | null>(null);
   const [rejectionActionId, setRejectionActionId] = useState<string | null>(null);
 
@@ -98,6 +177,17 @@ export function BankReconciliationManagementTab({ canEdit }: { canEdit: boolean 
   const [rejectedSearch, setRejectedSearch] = useState('');
   const [rejectedPage, setRejectedPage] = useState(1);
   const [rejectedPerPage, setRejectedPerPage] = useState(20);
+
+  const [auditStateFilter, setAuditStateFilter] = useState<'todos' | 'por_conciliar' | 'parcial' | 'conciliado'>('todos');
+  const [auditMethodFilter, setAuditMethodFilter] = useState('all');
+  const [auditSearch, setAuditSearch] = useState('');
+  const [auditDateFrom, setAuditDateFrom] = useState('');
+  const [auditDateTo, setAuditDateTo] = useState('');
+  const [auditHasCredit, setAuditHasCredit] = useState<'all' | 'with' | 'without'>('all');
+  const [auditSortBy, setAuditSortBy] = useState<'data_movimento' | 'valor'>('data_movimento');
+  const [auditSortDirection, setAuditSortDirection] = useState<'asc' | 'desc'>('desc');
+  const [auditPage, setAuditPage] = useState(1);
+  const [auditPerPage, setAuditPerPage] = useState(20);
 
   const sourceOptions = useMemo(() => {
     const values = new Set<string>();
@@ -166,6 +256,52 @@ export function BankReconciliationManagementTab({ canEdit }: { canEdit: boolean 
     }
   }, [rejectedPage, rejectedPerPage, rejectedSearch]);
 
+  const loadAudit = useCallback(async () => {
+    setAuditLoading(true);
+    try {
+      const query = new URLSearchParams();
+      query.set('page', String(auditPage));
+      query.set('per_page', String(auditPerPage));
+      query.set('sort_by', auditSortBy);
+      query.set('sort_direction', auditSortDirection);
+
+      if (auditStateFilter !== 'todos') query.set('estado', auditStateFilter);
+      if (auditMethodFilter !== 'all') query.set('metodo', auditMethodFilter);
+      if (auditSearch.trim() !== '') query.set('search', auditSearch.trim());
+      if (auditDateFrom !== '') query.set('date_from', auditDateFrom);
+      if (auditDateTo !== '') query.set('date_to', auditDateTo);
+      if (auditHasCredit === 'with') query.set('has_credit', '1');
+      if (auditHasCredit === 'without') query.set('has_credit', '0');
+
+      const response = await fetchFinanceiro<AuditApiResponse>(`${route('financeiro.bank-reconciliation-audit.index')}?${query.toString()}`, {
+        fallbackMessage: 'Nao foi possivel carregar auditoria de conciliacao.',
+      });
+
+      const rows = Array.isArray(response.rows) ? response.rows : Array.isArray(response.data) ? response.data : [];
+      setAuditRows(rows);
+      setAuditMeta({
+        current_page: Number(response.meta?.current_page ?? auditPage),
+        last_page: Number(response.meta?.last_page ?? 1),
+        per_page: Number(response.meta?.per_page ?? auditPerPage),
+        total: Number(response.meta?.total ?? 0),
+      });
+      setAuditSummary({
+        total_linhas: Number(response.summary?.total_linhas ?? 0),
+        total_conciliado: Number(response.summary?.total_conciliado ?? 0),
+        total_parcial: Number(response.summary?.total_parcial ?? 0),
+        total_por_conciliar: Number(response.summary?.total_por_conciliar ?? 0),
+        total_alocado: Number(response.summary?.total_alocado ?? 0),
+        total_por_alocar: Number(response.summary?.total_por_alocar ?? 0),
+        total_credito_criado: Number(response.summary?.total_credito_criado ?? 0),
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Nao foi possivel carregar auditoria de conciliacao.';
+      toast.error(message);
+    } finally {
+      setAuditLoading(false);
+    }
+  }, [auditDateFrom, auditDateTo, auditHasCredit, auditMethodFilter, auditPage, auditPerPage, auditSearch, auditSortBy, auditSortDirection, auditStateFilter]);
+
   useEffect(() => {
     setAliasPage(1);
   }, [aliasSearch, aliasStatusFilter, aliasTargetFilter, aliasSourceFilter, aliasPerPage]);
@@ -175,12 +311,40 @@ export function BankReconciliationManagementTab({ canEdit }: { canEdit: boolean 
   }, [rejectedSearch, rejectedPerPage]);
 
   useEffect(() => {
+    setAuditPage(1);
+  }, [auditStateFilter, auditMethodFilter, auditSearch, auditDateFrom, auditDateTo, auditHasCredit, auditPerPage]);
+
+  useEffect(() => {
     void loadAliases();
   }, [loadAliases]);
 
   useEffect(() => {
     void loadRejectedSuggestions();
   }, [loadRejectedSuggestions]);
+
+  useEffect(() => {
+    if (activeSubtab === 'auditoria') {
+      void loadAudit();
+    }
+  }, [activeSubtab, loadAudit]);
+
+  const formatAuditMethod = (value?: string | null) => {
+    if (!value) return '-';
+
+    if (value === 'sugestao_automatica') return 'Sugestao automatica';
+    if (value === 'alocacao_assistida') return 'Alocacao assistida';
+    if (value === 'despesa_extrato') return 'Despesa a partir de extrato';
+    if (value === 'pagamento_manual') return 'Pagamento manual';
+    if (value === 'outro_fluxo') return 'Outro fluxo';
+
+    return value;
+  };
+
+  const formatAuditState = (value: ReconciliationState) => {
+    if (value === 'conciliado') return 'Conciliado';
+    if (value === 'parcial') return 'Parcial';
+    return 'Por conciliar';
+  };
 
   const toggleAlias = useCallback(async (alias: AliasRow) => {
     const activate = !alias.active;
@@ -255,8 +419,22 @@ export function BankReconciliationManagementTab({ canEdit }: { canEdit: boolean 
             Aliases ajudam o sistema a reconhecer transferencias futuras. Rejeicoes impedem que sugestoes erradas reaparecam automaticamente.
           </CardDescription>
         </CardHeader>
+        <CardContent className="pt-0">
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" size="sm" variant={activeSubtab === 'aliases' ? 'default' : 'outline'} onClick={() => setActiveSubtab('aliases')}>
+              Aliases
+            </Button>
+            <Button type="button" size="sm" variant={activeSubtab === 'rejeicoes' ? 'default' : 'outline'} onClick={() => setActiveSubtab('rejeicoes')}>
+              Rejeicoes
+            </Button>
+            <Button type="button" size="sm" variant={activeSubtab === 'auditoria' ? 'default' : 'outline'} onClick={() => setActiveSubtab('auditoria')}>
+              Auditoria
+            </Button>
+          </div>
+        </CardContent>
       </Card>
 
+      {activeSubtab === 'aliases' ? (
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-base">Aliases bancarios</CardTitle>
@@ -417,7 +595,9 @@ export function BankReconciliationManagementTab({ canEdit }: { canEdit: boolean 
           </div>
         </CardContent>
       </Card>
+      ) : null}
 
+      {activeSubtab === 'rejeicoes' ? (
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-base">Rejeicoes de sugestoes</CardTitle>
@@ -541,6 +721,320 @@ export function BankReconciliationManagementTab({ canEdit }: { canEdit: boolean 
           </div>
         </CardContent>
       </Card>
+      ) : null}
+
+      {activeSubtab === 'auditoria' ? (
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">Relatorio de Conciliacao</CardTitle>
+          <CardDescription className="text-sm">Consulta operacional de conciliacoes, alocacoes, creditos e historico de desconciliacoes.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-3 md:grid-cols-4">
+            <div className="space-y-1">
+              <Label>Estado</Label>
+              <Select value={auditStateFilter} onValueChange={(value: 'todos' | 'por_conciliar' | 'parcial' | 'conciliado') => setAuditStateFilter(value)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="todos">Todos</SelectItem>
+                  <SelectItem value="por_conciliar">Por conciliar</SelectItem>
+                  <SelectItem value="parcial">Parcial</SelectItem>
+                  <SelectItem value="conciliado">Conciliado</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1">
+              <Label>Metodo</Label>
+              <Select value={auditMethodFilter} onValueChange={setAuditMethodFilter}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos</SelectItem>
+                  <SelectItem value="sugestao_automatica">Sugestao automatica</SelectItem>
+                  <SelectItem value="alocacao_assistida">Alocacao assistida</SelectItem>
+                  <SelectItem value="despesa_extrato">Despesa a partir de extrato</SelectItem>
+                  <SelectItem value="pagamento_manual">Pagamento manual</SelectItem>
+                  <SelectItem value="outro_fluxo">Outro fluxo</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1">
+              <Label>Data de</Label>
+              <Input type="date" value={auditDateFrom} onChange={(event) => setAuditDateFrom(event.target.value)} />
+            </div>
+
+            <div className="space-y-1">
+              <Label>Data ate</Label>
+              <Input type="date" value={auditDateTo} onChange={(event) => setAuditDateTo(event.target.value)} />
+            </div>
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-4">
+            <div className="space-y-1 md:col-span-2">
+              <Label htmlFor="audit-search">Pesquisa</Label>
+              <Input
+                id="audit-search"
+                value={auditSearch}
+                onChange={(event) => setAuditSearch(event.target.value)}
+                placeholder="descricao, referencia, utilizador, familia"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <Label>Credito</Label>
+              <Select value={auditHasCredit} onValueChange={(value: 'all' | 'with' | 'without') => setAuditHasCredit(value)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Com e sem credito</SelectItem>
+                  <SelectItem value="with">Com credito</SelectItem>
+                  <SelectItem value="without">Sem credito</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1">
+              <Label>Ordenacao</Label>
+              <div className="grid grid-cols-2 gap-2">
+                <Select value={auditSortBy} onValueChange={(value: 'data_movimento' | 'valor') => setAuditSortBy(value)}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="data_movimento">Data</SelectItem>
+                    <SelectItem value="valor">Valor</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select value={auditSortDirection} onValueChange={(value: 'asc' | 'desc') => setAuditSortDirection(value)}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="desc">Desc</SelectItem>
+                    <SelectItem value="asc">Asc</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-7">
+            <Card>
+              <CardContent className="p-3">
+                <div className="text-xs text-muted-foreground">Total de linhas</div>
+                <div className="text-lg font-semibold">{auditSummary.total_linhas}</div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-3">
+                <div className="text-xs text-muted-foreground">Total conciliado</div>
+                <div className="text-lg font-semibold">{auditSummary.total_conciliado}</div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-3">
+                <div className="text-xs text-muted-foreground">Total parcial</div>
+                <div className="text-lg font-semibold">{auditSummary.total_parcial}</div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-3">
+                <div className="text-xs text-muted-foreground">Total por conciliar</div>
+                <div className="text-lg font-semibold">{auditSummary.total_por_conciliar}</div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-3">
+                <div className="text-xs text-muted-foreground">Valor alocado</div>
+                <div className="text-lg font-semibold">{formatCurrency(auditSummary.total_alocado)}</div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-3">
+                <div className="text-xs text-muted-foreground">Valor por alocar</div>
+                <div className="text-lg font-semibold">{formatCurrency(auditSummary.total_por_alocar)}</div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-3">
+                <div className="text-xs text-muted-foreground">Credito criado</div>
+                <div className="text-lg font-semibold">{formatCurrency(auditSummary.total_credito_criado)}</div>
+              </CardContent>
+            </Card>
+          </div>
+
+          <div className="flex gap-2">
+            <Button type="button" onClick={() => void loadAudit()} disabled={auditLoading}>
+              {auditLoading ? 'A carregar...' : 'Atualizar auditoria'}
+            </Button>
+            <div className="w-40">
+              <Select value={String(auditPerPage)} onValueChange={(value) => setAuditPerPage(Number(value))}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Por pagina" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="10">10 por pagina</SelectItem>
+                  <SelectItem value="20">20 por pagina</SelectItem>
+                  <SelectItem value="50">50 por pagina</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="max-h-[460px] overflow-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Data</TableHead>
+                  <TableHead>Descricao / Referencia</TableHead>
+                  <TableHead>Valor</TableHead>
+                  <TableHead>Estado</TableHead>
+                  <TableHead>Valor alocado</TableHead>
+                  <TableHead>Valor por alocar</TableHead>
+                  <TableHead>Metodo</TableHead>
+                  <TableHead>Alvo</TableHead>
+                  <TableHead>Conciliado por</TableHead>
+                  <TableHead>Conciliado em</TableHead>
+                  <TableHead className="text-right">Acoes</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {auditRows.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={11} className="text-center text-muted-foreground">Sem linhas para os filtros atuais.</TableCell>
+                  </TableRow>
+                ) : (
+                  auditRows.map((row) => (
+                    <TableRow key={row.bank_statement_id}>
+                      <TableCell>{formatDate(row.data_movimento || null)}</TableCell>
+                      <TableCell>
+                        <div className="font-medium">{row.descricao || '-'}</div>
+                        <div className="text-xs text-muted-foreground">{row.referencia || '-'}</div>
+                      </TableCell>
+                      <TableCell>{formatCurrency(row.valor)}</TableCell>
+                      <TableCell>
+                        <Badge variant={row.estado_conciliacao === 'conciliado' ? 'default' : row.estado_conciliacao === 'parcial' ? 'secondary' : 'outline'}>
+                          {formatAuditState(row.estado_conciliacao)}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>{formatCurrency(row.valor_alocado)}</TableCell>
+                      <TableCell>{formatCurrency(row.valor_por_alocar)}</TableCell>
+                      <TableCell>{formatAuditMethod(row.metodo_conciliacao)}</TableCell>
+                      <TableCell>
+                        <div className="max-w-[220px] whitespace-normal">{row.target_summary?.nome_principal || '-'}</div>
+                        <div className="text-xs text-muted-foreground">
+                          Mensalidades liquidadas: {row.target_summary?.faturas_afetadas ?? 0} · Movimentos liquidados: {row.target_summary?.movimentos_afetados ?? 0}
+                        </div>
+                      </TableCell>
+                      <TableCell>{row.reconciled_by_name || '-'}</TableCell>
+                      <TableCell>{formatDate(row.reconciled_at || null)}</TableCell>
+                      <TableCell className="text-right">
+                        <details>
+                          <summary className="cursor-pointer text-sm text-primary">Ver detalhe</summary>
+                          <div className="mt-2 space-y-2 rounded border p-2 text-left text-xs">
+                            <div>
+                              <strong>Mensalidades / Faturas e Movimentos</strong>
+                              <div className="mt-1 space-y-1">
+                                {(row.allocations || []).length === 0 ? (
+                                  <div className="text-muted-foreground">Sem alocacoes detalhadas.</div>
+                                ) : (
+                                  (row.allocations || []).map((allocation) => (
+                                    <div key={`${row.bank_statement_id}-${allocation.tipo}-${allocation.id}`}>
+                                      {allocation.tipo} · {allocation.descricao} · {allocation.mes || '-'} · {formatCurrency(allocation.valor_alocado)} · {allocation.estado || '-'}
+                                    </div>
+                                  ))
+                                )}
+                              </div>
+                            </div>
+
+                            <div>
+                              <strong>Credito criado</strong>
+                              <div>{formatCurrency(row.target_summary?.valor_credito_criado ?? 0)}</div>
+                            </div>
+
+                            <div>
+                              <strong>Flags</strong>
+                              <div>
+                                tem_credito: {row.flags?.tem_credito ? 'sim' : 'nao'} · tem_desconciliacao: {row.flags?.tem_desconciliacao ? 'sim' : 'nao'} · tem_documento_fiscal_emitido: {row.flags?.tem_documento_fiscal_emitido ? 'sim' : 'nao'} · bloqueado_para_desconciliar: {row.flags?.bloqueado_para_desconciliar ? 'sim' : 'nao'}
+                              </div>
+                            </div>
+
+                            <div>
+                              <strong>Historico de desconciliacoes</strong>
+                              <div className="mt-1 space-y-1">
+                                {(row.historico_desconciliacoes || []).length === 0 ? (
+                                  <div className="text-muted-foreground">Sem historico registado.</div>
+                                ) : (
+                                  (row.historico_desconciliacoes || []).map((event, index) => (
+                                    <div key={`${row.bank_statement_id}-history-${index}`}>
+                                      {(event.cancelled_at || '-') + ' · ' + (event.cancelled_by_name || '-') + ' · ' + (event.tipo || '-')}
+                                    </div>
+                                  ))
+                                )}
+                              </div>
+                            </div>
+
+                            <div>
+                              <strong>Estado fiscal</strong>
+                              <div>{row.fiscal_status || '-'}</div>
+                            </div>
+
+                            <div>
+                              <strong>Erros / bloqueios</strong>
+                              <div className="mt-1 space-y-1">
+                                {(row.erros_ou_bloqueios || []).length === 0 ? (
+                                  <div className="text-muted-foreground">Sem bloqueios relevantes.</div>
+                                ) : (
+                                  (row.erros_ou_bloqueios || []).map((issue, index) => (
+                                    <div key={`${row.bank_statement_id}-issue-${index}`}>{issue}</div>
+                                  ))
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        </details>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </div>
+
+          <div className="flex items-center justify-between text-sm text-muted-foreground">
+            <span>
+              Pagina {auditMeta.current_page} de {auditMeta.last_page} · {auditMeta.total} linhas
+            </span>
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={auditLoading || auditMeta.current_page <= 1}
+                onClick={() => setAuditPage((page) => Math.max(page - 1, 1))}
+              >
+                Anterior
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={auditLoading || auditMeta.current_page >= auditMeta.last_page}
+                onClick={() => setAuditPage((page) => Math.min(page + 1, auditMeta.last_page || 1))}
+              >
+                Seguinte
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+      ) : null}
     </div>
   );
 }
