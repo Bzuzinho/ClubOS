@@ -153,6 +153,7 @@ export interface BankReconciliationSuggestion {
   total_allocated_amount: number;
   unallocated_amount: number;
   suggested_allocations?: BankReconciliationSuggestionAllocation[] | null;
+  assisted_allocation_context?: BankReconciliationAssistedAllocationContext | null;
   matched_rules?: string[] | null;
   explanation?: string | null;
   rejection_reason?: string | null;
@@ -162,6 +163,33 @@ export interface BankReconciliationSuggestion {
   created_at?: string | null;
   confirmed_at?: string | null;
   rejected_at?: string | null;
+}
+
+export interface BankReconciliationAssistedDefaultInvoiceAllocation {
+  invoice_id: string;
+  amount: number;
+}
+
+export interface BankReconciliationAssistedDefaultMovementAllocation {
+  movement_id: string;
+  amount: number;
+  centro_custo_id?: string | null;
+}
+
+export interface BankReconciliationAssistedAllocationContext {
+  reference_month?: string | null;
+  matched_user_id?: string | null;
+  matched_family_id?: string | null;
+  available_amount: number;
+  eligible_invoices: OpenInvoiceListItem[];
+  eligible_movements: OpenMovementListItem[];
+  can_create_credit: boolean;
+  credit_target_type?: 'user' | 'family' | null;
+  default_allocations?: {
+    invoices?: BankReconciliationAssistedDefaultInvoiceAllocation[];
+    movements?: BankReconciliationAssistedDefaultMovementAllocation[];
+    credit_amount?: number;
+  } | null;
 }
 
 export interface ReceiptImportItemCandidate {
@@ -230,6 +258,7 @@ export interface OpenInvoiceListItem {
   valor_em_aberto: number;
   estado_pagamento: Fatura['estado_pagamento'];
   data_fatura?: string | null;
+  data_vencimento?: string | null;
   vencimento?: string | null;
   mes?: string | null;
   tipo: string;
@@ -250,7 +279,9 @@ export interface OpenMovementListItem {
   valor_total: number;
   valor_pago: number;
   valor_em_aberto: number;
+  estado?: Movimento['estado_pagamento'];
   estado_pagamento: Movimento['estado_pagamento'];
+  data?: string | null;
   data_emissao?: string | null;
   data_vencimento?: string | null;
   centro_custo_id?: string | null;

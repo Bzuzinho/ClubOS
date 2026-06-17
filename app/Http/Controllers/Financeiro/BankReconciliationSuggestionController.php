@@ -10,6 +10,7 @@ use App\Models\Movement;
 use App\Models\Payment;
 use App\Services\Financeiro\BankReconciliationSuggestionService;
 use App\Services\Financeiro\FinancialSettlementService;
+use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -71,6 +72,10 @@ class BankReconciliationSuggestionController extends Controller
             ->orderByDesc('created_at')
             ->paginate($perPage);
 
+        $paginator->setCollection(
+            $paginator->getCollection()->map(fn (BankReconciliationSuggestion $suggestion): array => $this->decorateSuggestion($suggestion))
+        );
+
         return response()->json($paginator);
     }
 
@@ -90,7 +95,9 @@ class BankReconciliationSuggestionController extends Controller
         ]);
 
         return response()->json([
-            'suggestions' => $suggestions->values(),
+            'suggestions' => $suggestions
+                ->map(fn (BankReconciliationSuggestion $suggestion): array => $this->decorateSuggestion($suggestion))
+                ->values(),
             'generated_count' => $suggestions->count(),
         ]);
     }
@@ -181,7 +188,89 @@ class BankReconciliationSuggestionController extends Controller
         $data = $request->validate([
             'create_credit' => ['nullable', 'boolean'],
             'notes' => ['nullable', 'string'],
+            'credit_user_id' => ['nullable', 'exists:users,id'],
+            'credit_family_id' => ['nullable', 'exists:familias,id'],
+            'invoices' => ['nullable', 'array'],
+            'invoices.*.invoice_id' => ['required', 'exists:invoices,id'],
+            'invoices.*.amount' => ['required', 'numeric', 'gt:0'],
+            'invoices.*.notes' => ['nullable', 'string'],
+            'movements' => ['nullable', 'array'],
+            'movements.*.movement_id' => ['required', 'exists:movements,id'],
+            'movements.*.amount' => ['required', 'numeric', 'gt:0'],
+            'movements.*.centro_custo_id' => ['nullable', 'exists:cost_centers,id'],
+            'movements.*.notes' => ['nullable', 'string'],
+            'allocations' => ['nullable', 'array'],
+            'allocations.*.invoice_id' => ['required_with:allocations', 'exists:invoices,id'],
+            'allocations.*.amount' => ['required_with:allocations', 'numeric', 'gt:0'],
+            'allocations.*.notes' => ['nullable', 'string'],
         ]);
+
+        $hasCustomAllocations = !empty($data['invoices']) || !empty($data['movements']) || !empty($data['allocations']);
+
+        if ($hasCustomAllocations) {
+            $suggestion = $suggestion->fresh(['bankStatement', 'user.families', 'family']);
+
+            if (!$suggestion || $suggestion->status !== BankReconciliationSuggestion::STATUS_SUGGESTED) {
+                throw ValidationException::withMessages([
+                    'suggestion' => 'A sugestao ja nao esta disponivel para confirmacao.',
+                ]);
+            }
+
+            $bankStatement = $suggestion->bankStatement?->fresh();
+            if (!$bankStatement || $this->isBankStatementFullyReconciled($bankStatement)) {
+                throw ValidationException::withMessages([
+                    'bank_statement' => 'A linha bancaria ja se encontra totalmente conciliada.',
+                ]);
+            }
+
+            $assistedContext = $this->suggestionService->buildAssistedAllocationContext($suggestion);
+            $eligibleInvoiceIds = collect((array) data_get($assistedContext, 'eligible_invoices', []))
+                ->pluck('id')
+                ->filter()
+                ->all();
+            $eligibleMovementIds = collect((array) data_get($assistedContext, 'eligible_movements', []))
+                ->pluck('id')
+                ->filter()
+                ->all();
+
+            $allocationResult = $this->processAllocations(
+                $bankStatement,
+                $data,
+                $request->user(),
+                [
+                    'map_rule' => 'suggestion_assisted_allocation',
+                    'map_metadata' => [
+                        'manual_allocation' => true,
+                        'suggestion_id' => $suggestion->id,
+                        'score' => (int) $suggestion->score,
+                        'matched_rules' => (array) ($suggestion->matched_rules ?? []),
+                    ],
+                    'notes_fallback' => $suggestion->explanation,
+                    'eligible_invoice_ids' => $eligibleInvoiceIds,
+                    'eligible_movement_ids' => $eligibleMovementIds,
+                    'require_explicit_credit_target' => true,
+                ],
+            );
+
+            $this->suggestionService->finalizeConfirmedSuggestion(
+                $suggestion,
+                $request->user(),
+                $allocationResult['resolved_user_id'],
+                $allocationResult['resolved_family_id'],
+                $bankStatement,
+            );
+
+            return $this->paymentResponse(
+                $allocationResult['payment']->fresh(),
+                $allocationResult['invoice_ids'],
+                $allocationResult['fiscal_requests_before'],
+                [
+                    'suggestion_confirmed' => true,
+                    'assisted_allocation' => true,
+                    'affected_payment_count' => $allocationResult['affected_payment_count'],
+                ],
+            );
+        }
 
         $invoiceIds = collect((array) $suggestion->suggested_allocations)
             ->pluck('invoice_id')
@@ -237,6 +326,38 @@ class BankReconciliationSuggestionController extends Controller
             'allocations.*.notes' => ['nullable', 'string'],
         ]);
 
+        $allocationResult = $this->processAllocations(
+            $bankStatement,
+            $data,
+            $request->user(),
+            [
+                'map_rule' => 'manual_bank_allocation',
+                'map_metadata' => [
+                    'manual_allocation' => true,
+                ],
+                'notes_fallback' => null,
+                'require_explicit_credit_target' => true,
+            ],
+        );
+
+        return $this->paymentResponse($allocationResult['payment'], $allocationResult['invoice_ids'], $allocationResult['fiscal_requests_before'], [
+            'manual_allocation' => true,
+            'affected_payment_count' => $allocationResult['affected_payment_count'],
+        ]);
+    }
+
+    /**
+     * @return array{
+     *   payment: Payment,
+     *   invoice_ids: array<int, string>,
+     *   fiscal_requests_before: int,
+     *   affected_payment_count: int,
+     *   resolved_user_id: ?string,
+     *   resolved_family_id: ?string
+     * }
+     */
+    private function processAllocations(BankStatement $bankStatement, array $data, ?User $actor, array $options = []): array
+    {
         $invoiceAllocations = collect($data['invoices'] ?? $data['allocations'] ?? [])
             ->map(fn (array $allocation) => [
                 'invoice_id' => $allocation['invoice_id'],
@@ -262,6 +383,34 @@ class BankReconciliationSuggestionController extends Controller
             ]);
         }
 
+        $eligibleInvoiceIds = collect((array) ($options['eligible_invoice_ids'] ?? []))
+            ->filter()
+            ->values();
+        if ($eligibleInvoiceIds->isNotEmpty()) {
+            $requestedInvoiceIds = collect($invoiceAllocations)->pluck('invoice_id')->filter()->values();
+            $invalidInvoiceIds = $requestedInvoiceIds->diff($eligibleInvoiceIds);
+
+            if ($invalidInvoiceIds->isNotEmpty()) {
+                throw ValidationException::withMessages([
+                    'invoices' => 'Existem faturas fora do contexto elegivel da sugestao.',
+                ]);
+            }
+        }
+
+        $eligibleMovementIds = collect((array) ($options['eligible_movement_ids'] ?? []))
+            ->filter()
+            ->values();
+        if ($eligibleMovementIds->isNotEmpty()) {
+            $requestedMovementIds = collect($movementAllocations)->pluck('movement_id')->filter()->values();
+            $invalidMovementIds = $requestedMovementIds->diff($eligibleMovementIds);
+
+            if ($invalidMovementIds->isNotEmpty()) {
+                throw ValidationException::withMessages([
+                    'movements' => 'Existem movimentos fora do contexto elegivel da sugestao.',
+                ]);
+            }
+        }
+
         $statementAvailableAmount = round(max((float) ($bankStatement->valor_por_conciliar ?? abs((float) $bankStatement->valor)), 0), 2);
         $requestedTotal = round(
             collect($invoiceAllocations)->sum('amount') + collect($movementAllocations)->sum('amount'),
@@ -285,7 +434,9 @@ class BankReconciliationSuggestionController extends Controller
             ]);
         }
 
-        if ($createCredit && !$creditTargetProvided && round($statementAvailableAmount - $requestedTotal, 2) > 0.009) {
+        $remainingAmount = round($statementAvailableAmount - $requestedTotal, 2);
+        $requireExplicitCreditTarget = (bool) ($options['require_explicit_credit_target'] ?? false);
+        if ($createCredit && $requireExplicitCreditTarget && !$creditTargetProvided && $remainingAmount > 0.009) {
             throw ValidationException::withMessages([
                 'create_credit' => 'O credito excedente exige user_id ou family_id explicito.',
             ]);
@@ -299,24 +450,31 @@ class BankReconciliationSuggestionController extends Controller
         $hasMovements = $movementAllocations !== [];
 
         $payments = collect();
+        $resolvedUserId = $creditUserId;
+        $resolvedFamilyId = $creditFamilyId;
+        $mapRule = (string) ($options['map_rule'] ?? 'manual_bank_allocation');
+        $mapMetadata = (array) ($options['map_metadata'] ?? ['manual_allocation' => true]);
+        $notes = $data['notes'] ?? ($options['notes_fallback'] ?? null);
 
         if ($hasInvoices) {
-            $payments->push($this->financialSettlementService->settleInvoices($invoiceAllocations, [
+            $invoicePayment = $this->financialSettlementService->settleInvoices($invoiceAllocations, [
                 'bank_statement_id' => $bankStatement->id,
                 'method' => 'transferencia',
                 'reference' => $bankStatement->referencia,
                 'description' => $bankStatement->descricao,
-                'notes' => $data['notes'] ?? null,
+                'notes' => $notes,
                 'create_credit' => $createCredit && !$hasMovements,
-                'created_by' => $request->user()?->id,
+                'created_by' => $actor?->id,
                 'source' => Payment::SOURCE_RECONCILIATION,
                 'user_id' => $creditUserId,
                 'family_id' => $creditFamilyId,
-                'map_rule' => 'manual_bank_allocation',
-                'map_metadata' => [
-                    'manual_allocation' => true,
-                ],
-            ]));
+                'map_rule' => $mapRule,
+                'map_metadata' => $mapMetadata,
+            ]);
+
+            $payments->push($invoicePayment);
+            $resolvedUserId = $invoicePayment->user_id ?? $resolvedUserId;
+            $resolvedFamilyId = $invoicePayment->family_id ?? $resolvedFamilyId;
         }
 
         if ($hasMovements) {
@@ -359,22 +517,24 @@ class BankReconciliationSuggestionController extends Controller
                 ->values()
                 ->all();
 
-            $payments->push($this->financialSettlementService->settleFinancialEntries($entryAllocations, [
+            $movementPayment = $this->financialSettlementService->settleFinancialEntries($entryAllocations, [
                 'bank_statement_id' => $bankStatement->id,
                 'method' => 'transferencia',
                 'reference' => $bankStatement->referencia,
                 'description' => $bankStatement->descricao,
-                'notes' => $data['notes'] ?? null,
+                'notes' => $notes,
                 'create_credit' => $createCredit,
-                'created_by' => $request->user()?->id,
+                'created_by' => $actor?->id,
                 'source' => Payment::SOURCE_RECONCILIATION,
                 'user_id' => $creditUserId,
                 'family_id' => $creditFamilyId,
-                'map_rule' => 'manual_bank_allocation',
-                'map_metadata' => [
-                    'manual_allocation' => true,
-                ],
-            ]));
+                'map_rule' => $mapRule,
+                'map_metadata' => $mapMetadata,
+            ]);
+
+            $payments->push($movementPayment);
+            $resolvedUserId = $movementPayment->user_id ?? $resolvedUserId;
+            $resolvedFamilyId = $movementPayment->family_id ?? $resolvedFamilyId;
         }
 
         $latestPayment = $payments->last();
@@ -384,10 +544,29 @@ class BankReconciliationSuggestionController extends Controller
             ]);
         }
 
-        return $this->paymentResponse($latestPayment->fresh(), $invoiceIds->all(), $fiscalRequestsBefore, [
-            'manual_allocation' => true,
+        return [
+            'payment' => $latestPayment->fresh(),
+            'invoice_ids' => $invoiceIds->all(),
+            'fiscal_requests_before' => $fiscalRequestsBefore,
             'affected_payment_count' => $payments->count(),
-        ]);
+            'resolved_user_id' => $resolvedUserId,
+            'resolved_family_id' => $resolvedFamilyId,
+        ];
+    }
+
+    private function decorateSuggestion(BankReconciliationSuggestion $suggestion): array
+    {
+        $payload = $suggestion->toArray();
+        $payload['assisted_allocation_context'] = $this->suggestionService->buildAssistedAllocationContext($suggestion);
+
+        return $payload;
+    }
+
+    private function isBankStatementFullyReconciled(BankStatement $bankStatement): bool
+    {
+        return (bool) ($bankStatement->conciliado)
+            || ($bankStatement->conciliacao_status === 'reconciled')
+            || round((float) ($bankStatement->valor_por_conciliar ?? 0), 2) <= 0.009;
     }
 
     private function paymentResponse(Payment $payment, array $invoiceIds, int $fiscalRequestsBefore, array $summary = []): JsonResponse
