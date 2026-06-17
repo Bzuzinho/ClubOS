@@ -902,7 +902,7 @@ export function BancoTab({
   const getBestScoreLabel = (extratoId: string) => {
     const score = suggestionBestScores[extratoId] || 0;
 
-    if (score <= 0) return 'Sem score';
+    if (score <= 0) return 'Sem confianca';
     if (score >= 90) return `Muito alta (${score})`;
     if (score >= 75) return `Alta (${score})`;
     if (score >= 55) return `Media (${score})`;
@@ -1130,6 +1130,14 @@ export function BancoTab({
   const handleCriarDespesaDoPagamento = async (extrato: ExtratoBancario) => {
     if (!extrato.centro_custo_id) {
       toast.error('A linha bancaria precisa de centro de custo antes de criar a despesa.');
+      return;
+    }
+
+    const confirmed = window.confirm(
+      'Criar despesa a partir desta linha bancaria? Esta operacao cria um movimento financeiro associado e concilia o valor automaticamente.'
+    );
+
+    if (!confirmed) {
       return;
     }
 
@@ -2078,13 +2086,13 @@ export function BancoTab({
 
       <div className="flex flex-col gap-2 rounded-lg border bg-card p-3 md:flex-row md:items-center md:justify-between">
         <div>
-          <p className="text-sm font-medium">Sugestoes de conciliacao</p>
+          <p className="text-sm font-medium">Sugestoes bancarias</p>
           <p className="text-xs text-muted-foreground">
-            Analisa linhas nao conciliadas e cria propostas assistidas com score de confianca.
+            Analisa linhas por conciliar e cria propostas assistidas com nivel de confianca.
           </p>
           {bulkSuggestionSummary && (
             <p className="mt-1 text-xs text-muted-foreground">
-              {bulkSuggestionSummary.analyzed_count} analisadas, {bulkSuggestionSummary.suggestions_created} sugestoes, {bulkSuggestionSummary.high_confidence_count} de alta confianca, {bulkSuggestionSummary.unmatched_count} sem correspondencia, {bulkSuggestionSummary.errors} erros.
+              {bulkSuggestionSummary.analyzed_count} analisadas, {bulkSuggestionSummary.suggestions_created} sugestoes, {bulkSuggestionSummary.high_confidence_count} com confianca alta, {bulkSuggestionSummary.unmatched_count} sem correspondencia e {bulkSuggestionSummary.errors} erros.
             </p>
           )}
         </div>
@@ -2149,7 +2157,7 @@ export function BancoTab({
                     <span className="text-right">€{reconciledAmount.toFixed(2)}</span>
                     <span className="text-muted-foreground">Por conciliar</span>
                     <span className="text-right">€{remainingAmount.toFixed(2)}</span>
-                    <span className="text-muted-foreground">Melhor score</span>
+                    <span className="text-muted-foreground">Confianca da sugestao</span>
                     <span className="text-right">{getBestScoreLabel(extrato.id)}</span>
                   </div>
 
@@ -2256,7 +2264,7 @@ export function BancoTab({
                   <TableHead className="sticky top-0 bg-card z-20 text-xs md:text-sm whitespace-nowrap">Por Conciliar</TableHead>
                   <TableHead className="sticky top-0 bg-card z-20 text-xs md:text-sm whitespace-nowrap">Centro Custo</TableHead>
                   <TableHead className="sticky top-0 bg-card z-20 text-xs md:text-sm whitespace-nowrap">Estado</TableHead>
-                  <TableHead className="sticky top-0 bg-card z-20 text-xs md:text-sm whitespace-nowrap">Melhor score</TableHead>
+                  <TableHead className="sticky top-0 bg-card z-20 text-xs md:text-sm whitespace-nowrap">Confianca da sugestao</TableHead>
                   <TableHead className="sticky top-0 bg-card z-20 text-xs md:text-sm text-right whitespace-nowrap">Acoes</TableHead>
                 </TableRow>
               </TableHeader>
@@ -2801,7 +2809,7 @@ export function BancoTab({
         <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Sugestoes de Conciliacao Assistida</DialogTitle>
-            <DialogDescription>Analise o score, a explicacao e confirme ou rejeite as sugestoes para esta linha bancaria.</DialogDescription>
+            <DialogDescription>Analise a confianca, o motivo principal e confirme ou rejeite as sugestoes para esta linha bancaria.</DialogDescription>
           </DialogHeader>
 
           {selectedSuggestionExtrato ? (
@@ -2859,7 +2867,7 @@ export function BancoTab({
                             </div>
                             <div className="mt-2 flex flex-wrap gap-2 text-xs">
                               <Badge className={getSuggestionConfidenceTone(suggestion.confidence_label)} variant="outline">
-                                Score {suggestion.score}
+                                Confianca {suggestion.score}
                               </Badge>
                               <Badge variant="secondary">Confianca {suggestion.confidence_label || 'low'}</Badge>
                               {getSuggestionSourceBadges(suggestion).map((label) => (
@@ -2869,10 +2877,7 @@ export function BancoTab({
                               ))}
                             </div>
                           </div>
-                          <div className="flex gap-2">
-                            <Badge className={getSuggestionConfidenceTone(suggestion.confidence_label)} variant="outline">{suggestion.score}</Badge>
-                            <Badge variant="secondary">{suggestion.confidence_label || 'low'}</Badge>
-                          </div>
+                          <div />
                         </div>
 
                         <div className="space-y-2 text-sm">
@@ -2898,7 +2903,7 @@ export function BancoTab({
                         <div className="grid gap-2 text-xs text-muted-foreground md:grid-cols-3">
                           <div>Total alocado: €{toNumber(suggestion.total_allocated_amount).toFixed(2)}</div>
                           <div>Excedente/credito: €{toNumber(suggestion.unallocated_amount).toFixed(2)}</div>
-                          <div>Regras: {(suggestion.matched_rules || []).join(', ') || '-'}</div>
+                          <div>Criterios considerados: {(suggestion.matched_rules || []).join(', ') || '-'}</div>
                         </div>
 
                         {suggestion.assisted_allocation_context ? (
@@ -2910,7 +2915,7 @@ export function BancoTab({
                               <div>Movimentos elegiveis: {(suggestion.assisted_allocation_context.eligible_movements || []).length}</div>
                             </div>
                             <div className="text-xs text-muted-foreground">
-                              O score identifica o contexto mais provavel. A alocacao final continua editavel antes da confirmacao.
+                              O nivel de confianca identifica o contexto mais provavel. A alocacao final continua editavel antes da confirmacao.
                             </div>
                           </div>
                         ) : null}
