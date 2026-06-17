@@ -9,6 +9,8 @@ use Illuminate\Database\Eloquent\Collection;
 
 class ReconciliationAliasService
 {
+    public const DISABLED_SOURCE_PREFIX = 'disabled::';
+
     private const GENERIC_ALIAS_TOKENS = [
         'A',
         'AO',
@@ -213,6 +215,11 @@ class ReconciliationAliasService
         }
 
         return BankReconciliationAlias::query()
+            ->where(function ($query): void {
+                $query
+                    ->whereNull('source')
+                    ->orWhere('source', 'not like', self::DISABLED_SOURCE_PREFIX . '%');
+            })
             ->with(['user', 'family'])
             ->get()
             ->filter(function (BankReconciliationAlias $alias) use ($normalizedDescription, $normalizedAlias) {
@@ -238,6 +245,60 @@ class ReconciliationAliasService
                     + (int) ($alias->usage_count ?? $alias->match_count ?? 0);
             })
             ->values();
+    }
+
+    public function isAliasActive(BankReconciliationAlias $alias): bool
+    {
+        $source = trim((string) ($alias->source ?? ''));
+
+        return $source === '' || !str_starts_with($source, self::DISABLED_SOURCE_PREFIX);
+    }
+
+    public function deactivateAlias(BankReconciliationAlias $alias): BankReconciliationAlias
+    {
+        if (!$this->isAliasActive($alias)) {
+            return $alias;
+        }
+
+        $currentSource = trim((string) ($alias->source ?? 'manual'));
+        $encodedSource = self::DISABLED_SOURCE_PREFIX . ($currentSource !== '' ? $currentSource : 'manual');
+
+        $alias->forceFill([
+            'source' => mb_substr($encodedSource, 0, 50),
+        ])->save();
+
+        return $alias->refresh();
+    }
+
+    public function reactivateAlias(BankReconciliationAlias $alias): BankReconciliationAlias
+    {
+        if ($this->isAliasActive($alias)) {
+            return $alias;
+        }
+
+        $source = trim((string) ($alias->source ?? ''));
+        $restoredSource = trim((string) preg_replace('/^' . preg_quote(self::DISABLED_SOURCE_PREFIX, '/') . '/', '', $source));
+
+        $alias->forceFill([
+            'source' => $restoredSource !== '' ? mb_substr($restoredSource, 0, 50) : 'manual',
+        ])->save();
+
+        return $alias->refresh();
+    }
+
+    public function normalizeSourceForDisplay(BankReconciliationAlias $alias): ?string
+    {
+        $source = trim((string) ($alias->source ?? ''));
+
+        if ($source === '') {
+            return null;
+        }
+
+        if (str_starts_with($source, self::DISABLED_SOURCE_PREFIX)) {
+            $source = trim((string) preg_replace('/^' . preg_quote(self::DISABLED_SOURCE_PREFIX, '/') . '/', '', $source));
+        }
+
+        return $source !== '' ? $source : null;
     }
 
     private function resolveStatementAliasValue(BankStatement $bankStatement): string

@@ -304,6 +304,47 @@ class BankReconciliationSuggestionController extends Controller
         ]);
     }
 
+    public function clearRejection(Request $request, BankReconciliationSuggestion $suggestion): JsonResponse
+    {
+        $data = $request->validate([
+            'reason' => ['nullable', 'string'],
+        ]);
+
+        if ($suggestion->status !== BankReconciliationSuggestion::STATUS_REJECTED) {
+            throw ValidationException::withMessages([
+                'suggestion' => 'A sugestao selecionada nao esta rejeitada.',
+            ]);
+        }
+
+        $metadata = (array) ($suggestion->metadata ?? []);
+        $clearLog = (array) data_get($metadata, 'rejection_clears', []);
+        $clearLog[] = [
+            'cleared_at' => now()->toIso8601String(),
+            'cleared_by' => $request->user()?->id,
+            'reason' => $data['reason'] ?? null,
+            'previous_rejected_at' => optional($suggestion->rejected_at)->toIso8601String(),
+            'previous_rejected_by' => $suggestion->rejected_by,
+            'previous_rejection_reason' => $suggestion->rejection_reason,
+        ];
+
+        $suggestion->update([
+            'status' => BankReconciliationSuggestion::STATUS_EXPIRED,
+            'rejected_by' => null,
+            'rejected_at' => null,
+            'rejection_reason' => null,
+            'metadata' => array_merge($metadata, [
+                'rejection_clears' => $clearLog,
+                'last_rejection_cleared_at' => now()->toIso8601String(),
+                'last_rejection_cleared_by' => $request->user()?->id,
+            ]),
+        ]);
+
+        return response()->json([
+            'suggestion' => $this->decorateSuggestion($suggestion->fresh(['bankStatement', 'user', 'family', 'rejectedBy'])),
+            'rejection_cleared' => true,
+        ]);
+    }
+
     public function allocate(Request $request, BankStatement $bankStatement): JsonResponse
     {
         $data = $request->validate([

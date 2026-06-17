@@ -17,6 +17,7 @@ import { Checkbox } from '@/Components/ui/checkbox';
 import { Plus, PencilSimple, Trash, FloppyDisk } from '@phosphor-icons/react';
 import { toast } from 'sonner';
 import { AccessControlBootstrap } from '@/types/access-control';
+import { BankReconciliationManagementTab } from '@/Components/Configuracoes/Financeiro/BankReconciliationManagementTab';
 
 const UserTypePermissionSettings = lazy(() => import('@/Components/Configuracoes/Permissions/UserTypePermissionSettings').then((module) => ({ default: module.UserTypePermissionSettings })));
 const ConfiguracoesDesportivoIndex = lazy(() => import('@/Pages/Configuracoes/Desportivo/Index'));
@@ -778,6 +779,10 @@ export default function SettingsIndex({
         || accessPermissions.some((permission) => permission.permission_node_id === 'financeiro.importacao_recibos' && permission.can_view);
     const canEditReceiptImports = page.props.auth?.user?.perfil === 'admin'
         || accessPermissions.some((permission) => permission.permission_node_id === 'financeiro.importacao_recibos' && permission.can_edit);
+    const hasFinanceiroDashboardViewPermission = page.props.auth?.user?.perfil === 'admin'
+        || accessPermissions.some((permission) => permission.permission_node_id === 'financeiro.dashboard' && permission.can_view);
+    const canEditFinanceiroDashboard = page.props.auth?.user?.perfil === 'admin'
+        || accessPermissions.some((permission) => permission.permission_node_id === 'financeiro.dashboard' && permission.can_edit);
 
     useEffect(() => {
         if (clubSettings?.logo_url) {
@@ -1801,6 +1806,9 @@ export default function SettingsIndex({
                                 <TabsTrigger value="financeiro-tipos-fatura">Itens de Fatura</TabsTrigger>
                                 <TabsTrigger value="financeiro-centros-custos">Centros de Custos</TabsTrigger>
                                 <TabsTrigger value="financeiro-metodos-pagamento">Métodos de Pagamento</TabsTrigger>
+                                {hasFinanceiroDashboardViewPermission ? (
+                                    <TabsTrigger value="financeiro-conciliacao-bancaria">Conciliação Bancária</TabsTrigger>
+                                ) : null}
                                 {hasReceiptImportViewPermission ? (
                                     <TabsTrigger value="financeiro-importacao-recibos">Importar Recibos</TabsTrigger>
                                 ) : null}
@@ -2011,6 +2019,14 @@ export default function SettingsIndex({
                         </Card>
                         ) : null}
                         </TabsContent>
+
+                        {hasFinanceiroDashboardViewPermission ? (
+                        <TabsContent value="financeiro-conciliacao-bancaria" className={nestedScrollableTabContentClass}>
+                        {currentFinanceiroTab === 'financeiro-conciliacao-bancaria' ? (
+                        <BankReconciliationManagementTab canEdit={canEditFinanceiroDashboard} />
+                        ) : null}
+                        </TabsContent>
+                        ) : null}
 
                         {hasReceiptImportViewPermission ? (
                         <TabsContent value="financeiro-importacao-recibos" className={nestedScrollableTabContentClass}>

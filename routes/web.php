@@ -296,6 +296,9 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('financeiro/bank-reconciliation-suggestions', [BankReconciliationSuggestionController::class, 'index'])
         ->middleware(['module.access:financeiro', 'permission.access:financeiro.dashboard,view'])
         ->name('financeiro.bank-reconciliation-suggestions.index');
+    Route::get('financeiro/bank-aliases', [BankReconciliationAliasController::class, 'index'])
+        ->middleware(['module.access:financeiro', 'permission.access:financeiro.dashboard,view'])
+        ->name('financeiro.bank-aliases.index');
 
     Route::resource('financeiro', FinanceiroController::class)
         ->middleware('module.access:financeiro')
@@ -341,19 +344,26 @@ Route::middleware(['auth', 'verified'])->group(function () {
             ->middleware('permission.access:financeiro.dashboard,edit')
             ->whereUuid('suggestion')
             ->name('bank-reconciliation-suggestions.reject');
+        Route::post('bank-reconciliation-suggestions/{suggestion}/clear-rejection', [BankReconciliationSuggestionController::class, 'clearRejection'])
+            ->middleware('permission.access:financeiro.dashboard,edit')
+            ->whereUuid('suggestion')
+            ->name('bank-reconciliation-suggestions.clear-rejection');
         Route::post('bank-statements/{bankStatement}/allocate', [BankReconciliationSuggestionController::class, 'allocate'])
             ->middleware('permission.access:financeiro.dashboard,edit')
             ->whereUuid('bankStatement')
             ->name('bank-statements.allocate');
-        Route::get('bank-aliases', [BankReconciliationAliasController::class, 'index'])
-            ->middleware('permission.access:financeiro.dashboard,view')
-            ->name('bank-aliases.index');
         Route::post('bank-aliases', [BankReconciliationAliasController::class, 'store'])
             ->middleware('permission.access:financeiro.dashboard,edit')
             ->name('bank-aliases.store');
         Route::patch('bank-aliases/{alias}', [BankReconciliationAliasController::class, 'update'])
             ->middleware('permission.access:financeiro.dashboard,edit')
             ->name('bank-aliases.update');
+        Route::post('bank-aliases/{alias}/deactivate', [BankReconciliationAliasController::class, 'deactivate'])
+            ->middleware('permission.access:financeiro.dashboard,edit')
+            ->name('bank-aliases.deactivate');
+        Route::post('bank-aliases/{alias}/reactivate', [BankReconciliationAliasController::class, 'reactivate'])
+            ->middleware('permission.access:financeiro.dashboard,edit')
+            ->name('bank-aliases.reactivate');
         Route::delete('bank-aliases/{alias}', [BankReconciliationAliasController::class, 'destroy'])
             ->middleware('permission.access:financeiro.dashboard,delete')
             ->name('bank-aliases.destroy');

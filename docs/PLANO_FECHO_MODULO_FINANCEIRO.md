@@ -1117,6 +1117,61 @@ Não avançar para F4.3 nesta alteração.
 
 ---
 
+## Sprint F4.3 — Gestão visual de aliases bancários e rejeições
+
+> Estado: tecnicamente concluída em 2026-06-17. Pendente de validação manual orientada no browser.
+
+### Objetivo
+
+Dar visibilidade operacional aos mecanismos de aprendizagem da conciliação bancária, sem criar novo módulo na sidebar e sem alterar o motor canónico de pagamentos/alocação/desconciliação.
+
+### Escopo entregue
+
+- nova subtab `Conciliação Bancária` em `Configurações > Financeiro`;
+- secção `Aliases bancários` com listagem, pesquisa, filtros e ações de desativar/reativar;
+- secção `Rejeições de sugestões` com listagem operacional e ação de limpar rejeição;
+- endpoints backend dedicados para ações de gestão;
+- paginação server-side nas duas grelhas (aliases e rejeições), com controlo de página e tamanho por página;
+- proteção por permissões já existentes de `financeiro.dashboard`.
+
+### Regras fechadas nesta sprint
+
+- aliases desativados deixam de ser considerados pelo motor de sugestões;
+- desativação/reativação de alias usa marcação segura no campo `source` (prefixo técnico), sem migration nova e sem apagar registos;
+- listagem de aliases passa a expor contexto operacional: normalizado/original, alvo, confiança, origem, utilizações e última utilização;
+- listagem de rejeições reutiliza o endpoint de sugestões por `status=rejected` com dados da linha bancária, score, motivo e auditoria de rejeição;
+- limpar rejeição não apaga histórico: converte estado para `expired`, limpa flags de rejeição ativa e regista trilho em `metadata.rejection_clears`.
+
+### Testes automáticos mínimos
+
+Cobertos em `tests/Feature/Financeiro/BankReconciliationAliasManagementTest.php`:
+
+- listagem de aliases com ativos e inativos;
+- desativar alias impede novas sugestões por alias e reativar volta a permitir;
+- listagem de rejeições inclui contexto da linha bancária;
+- limpar rejeição permite regeneração normal da sugestão;
+- alias inexistente não permite desativar/reativar (`404`);
+- rejeição inexistente não permite limpeza (`404`);
+- utilizador sem permissões não acede a Configurações nem aos endpoints de gestão.
+
+### Testes manuais para o utilizador
+
+1. Entrar em `Configurações > Financeiro > Conciliação Bancária`.
+2. Em `Aliases bancários`, validar filtros por estado/tipo/origem e pesquisa por descrição/nome.
+3. Desativar um alias conhecido e confirmar mensagem de sucesso.
+4. Gerar sugestão numa linha que dependia desse alias e confirmar que deixa de aparecer por esse caminho.
+5. Reativar o alias e repetir geração para confirmar reaparecimento.
+6. Em `Rejeições de sugestões`, confirmar colunas de data/descrição/valor/alvo/score/motivo/rejeitado em/por.
+7. Limpar uma rejeição e regenerar sugestões na linha para validar retorno controlado.
+
+### Estado operacional
+
+Sprint F4.3 fica tecnicamente concluída e pronta para validação manual.
+
+Não avançar para F4.4 nesta sprint.
+
+---
+
 ## Sprint F5 — Movimentos financeiros, despesas e receitas manuais
 
 ### Objetivo
