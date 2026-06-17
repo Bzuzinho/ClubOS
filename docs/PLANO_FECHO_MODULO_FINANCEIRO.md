@@ -1195,7 +1195,7 @@ Não avançar para F4.4 nesta alteração documental.
 
 ## Sprint F4.4 — Relatórios e auditoria operacional da conciliação bancária
 
-> Estado: tecnicamente concluída em 2026-06-17. Pendente de validação manual no browser. Não avançar para F4.5 nesta sprint.
+> Estado: validada manualmente no browser em 2026-06-17 e fechada operacionalmente. Não avançar para F4.5 nesta sprint.
 
 ### Objetivo
 
@@ -1257,7 +1257,7 @@ Cobertos em `tests/Feature/Financeiro/BankReconciliationAuditEndpointTest.php`:
 
 ### Estado operacional
 
-Sprint F4.4 fica tecnicamente concluída e pendente apenas de validação manual no browser.
+Sprint F4.4 fica validada manualmente no browser e fechada operacionalmente.
 
 Não avançar para F4.5 nesta sprint.
 
