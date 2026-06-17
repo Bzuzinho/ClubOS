@@ -225,6 +225,7 @@ export function BancoTab({
   const [selectedExtrato, setSelectedExtrato] = useState<ExtratoBancario | null>(null);
   const [selectedSuggestionExtrato, setSelectedSuggestionExtrato] = useState<ExtratoBancario | null>(null);
   const [selectedReconciliationExtrato, setSelectedReconciliationExtrato] = useState<ExtratoBancario | null>(null);
+  const [selectedAssistedSuggestion, setSelectedAssistedSuggestion] = useState<BankReconciliationSuggestion | null>(null);
   const [editingExtrato, setEditingExtrato] = useState<ExtratoBancario | null>(null);
   const [userPickerOpen, setUserPickerOpen] = useState(false);
   const [userSearchTerm, setUserSearchTerm] = useState('');
@@ -741,6 +742,11 @@ export function BancoTab({
   };
 
   const handleConfirmSuggestion = async (suggestion: BankReconciliationSuggestion) => {
+    if (suggestion.assisted_allocation_context) {
+      openAssistedSuggestionDialog(suggestion);
+      return;
+    }
+
     setSuggestionActionId(suggestion.id);
 
     try {
@@ -831,6 +837,18 @@ export function BancoTab({
 
   const openReconciliationDialog = (extrato: ExtratoBancario) => {
     setSelectedReconciliationExtrato(extrato);
+    setSelectedAssistedSuggestion(null);
+    setReconciliationDialogOpen(true);
+  };
+
+  const openAssistedSuggestionDialog = (suggestion: BankReconciliationSuggestion) => {
+    if (!selectedSuggestionExtrato) {
+      return;
+    }
+
+    setSelectedAssistedSuggestion(suggestion);
+    setSelectedReconciliationExtrato(selectedSuggestionExtrato);
+    setSuggestionsDialogOpen(false);
     setReconciliationDialogOpen(true);
   };
 
@@ -2883,6 +2901,20 @@ export function BancoTab({
                           <div>Regras: {(suggestion.matched_rules || []).join(', ') || '-'}</div>
                         </div>
 
+                        {suggestion.assisted_allocation_context ? (
+                          <div className="rounded-md border p-3 text-sm space-y-2">
+                            <div className="font-medium">Alocacao assistida disponivel</div>
+                            <div className="grid gap-2 text-xs text-muted-foreground md:grid-cols-3">
+                              <div>Mes referencia: {suggestion.assisted_allocation_context.reference_month || '-'}</div>
+                              <div>Faturas elegiveis: {(suggestion.assisted_allocation_context.eligible_invoices || []).length}</div>
+                              <div>Movimentos elegiveis: {(suggestion.assisted_allocation_context.eligible_movements || []).length}</div>
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                              O score identifica o contexto mais provavel. A alocacao final continua editavel antes da confirmacao.
+                            </div>
+                          </div>
+                        ) : null}
+
                         <div className="rounded-md border border-dashed p-3 text-sm text-muted-foreground bg-muted/30">
                           <div className="text-xs uppercase tracking-wide mb-1">Motivo principal</div>
                           <div className="text-foreground">{getSuggestionMainReason(suggestion)}</div>
@@ -2892,9 +2924,18 @@ export function BancoTab({
                           <Button variant="outline" onClick={() => void handleRejectSuggestion(suggestion)} disabled={suggestionActionId === suggestion.id}>
                             Rejeitar
                           </Button>
-                          <Button onClick={() => void handleConfirmSuggestion(suggestion)} disabled={suggestionActionId === suggestion.id}>
-                            Confirmar sugestao
-                          </Button>
+                          {suggestion.assisted_allocation_context ? (
+                            <Button
+                              onClick={() => openAssistedSuggestionDialog(suggestion)}
+                              disabled={suggestionActionId === suggestion.id}
+                            >
+                              Abrir alocacao assistida
+                            </Button>
+                          ) : (
+                            <Button onClick={() => void handleConfirmSuggestion(suggestion)} disabled={suggestionActionId === suggestion.id}>
+                              Confirmar sugestao
+                            </Button>
+                          )}
                         </div>
                       </Card>
                     ))}
@@ -2909,18 +2950,22 @@ export function BancoTab({
         open={reconciliationDialogOpen}
         statement={selectedReconciliationExtrato}
         centrosCusto={centrosCusto}
+        assistedContext={selectedAssistedSuggestion?.assisted_allocation_context || null}
+        assistedSuggestion={selectedAssistedSuggestion ? { id: selectedAssistedSuggestion.id } : null}
         buildRouteUrl={buildRouteUrl}
         buildJsonHeaders={buildJsonHeaders}
         onOpenChange={(open) => {
           setReconciliationDialogOpen(open);
           if (!open) {
             setSelectedReconciliationExtrato(null);
+            setSelectedAssistedSuggestion(null);
           }
         }}
         onCompleted={(statementId) => {
           setSuggestionCache((current) => ({ ...current, [statementId]: [] }));
           setSuggestionCounts((current) => ({ ...current, [statementId]: 0 }));
           setSuggestionBestScores((current) => ({ ...current, [statementId]: 0 }));
+          setSelectedAssistedSuggestion(null);
           refreshFinanceiroData();
         }}
       />

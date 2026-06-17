@@ -12,7 +12,7 @@ import { Label } from '@/Components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/Components/ui/select';
 import { Textarea } from '@/Components/ui/textarea';
 
-import { CentroCusto, ExtratoBancario, OpenInvoiceListItem, OpenMovementListItem } from './types';
+import { BankReconciliationSuggestion, BankReconciliationAssistedAllocationContext, CentroCusto, ExtratoBancario, OpenInvoiceListItem, OpenMovementListItem } from './types';
 
 type CreditTarget =
   | { key: string; kind: 'user'; id: string; label: string }
@@ -22,6 +22,8 @@ interface BankStatementReconciliationDialogProps {
   open: boolean;
   statement: ExtratoBancario | null;
   centrosCusto: CentroCusto[];
+  assistedContext?: BankReconciliationAssistedAllocationContext | null;
+  assistedSuggestion?: Pick<BankReconciliationSuggestion, 'id'> | null;
   buildRouteUrl: (name: string, params?: string | number | Record<string, unknown>, query?: Record<string, string>) => string;
   buildJsonHeaders: () => Record<string, string>;
   onCompleted: (statementId: string) => void;
@@ -56,10 +58,39 @@ const formatDateLabel = (value?: string | null) => {
   return Number.isNaN(parsed.getTime()) ? value : format(parsed, 'dd/MM/yyyy');
 };
 
+const formatReferenceMonthLabel = (value?: string | null): string => {
+  if (!value) return '-';
+
+  const match = /^(\d{4})-(\d{2})$/.exec(value.trim());
+  if (!match) return value;
+
+  const monthNames = [
+    'janeiro',
+    'fevereiro',
+    'marco',
+    'abril',
+    'maio',
+    'junho',
+    'julho',
+    'agosto',
+    'setembro',
+    'outubro',
+    'novembro',
+    'dezembro',
+  ];
+
+  const monthIndex = Number(match[2]) - 1;
+  const month = monthNames[monthIndex] ?? value;
+
+  return `${month} ${match[1]}`;
+};
+
 export function BankStatementReconciliationDialog({
   open,
   statement,
   centrosCusto,
+  assistedContext,
+  assistedSuggestion,
   buildRouteUrl,
   buildJsonHeaders,
   onCompleted,
@@ -94,10 +125,62 @@ export function BankStatementReconciliationDialog({
     setCreateCredit(false);
     setCreditTarget('');
     setNotes('');
-  }, [open, statement]);
+
+    if (assistedContext) {
+      const seededInvoices = Array.isArray(assistedContext.eligible_invoices)
+        ? assistedContext.eligible_invoices
+        : [];
+      const seededMovements = Array.isArray(assistedContext.eligible_movements)
+        ? assistedContext.eligible_movements
+        : [];
+
+      setOpenInvoices(seededInvoices);
+      setOpenMovements(seededMovements);
+      setInvoiceTotal(seededInvoices.length);
+      setMovementTotal(seededMovements.length);
+
+      const seededInvoiceAllocations = Object.fromEntries(
+        (assistedContext.default_allocations?.invoices || []).map((allocation) => [
+          allocation.invoice_id,
+          Number(allocation.amount || 0).toFixed(2),
+        ]),
+      );
+      setInvoiceAllocations(seededInvoiceAllocations);
+
+      const seededMovementAllocations = Object.fromEntries(
+        (assistedContext.default_allocations?.movements || []).map((allocation) => [
+          allocation.movement_id,
+          Number(allocation.amount || 0).toFixed(2),
+        ]),
+      );
+      setMovementAllocations(seededMovementAllocations);
+
+      const seededCostCenters = Object.fromEntries(
+        (assistedContext.default_allocations?.movements || [])
+          .filter((allocation) => allocation.centro_custo_id)
+          .map((allocation) => [allocation.movement_id, allocation.centro_custo_id as string]),
+      );
+      setMovementCostCenters((current) => ({ ...current, ...seededCostCenters }));
+
+      const hasDefaultCredit = Number(assistedContext.default_allocations?.credit_amount || 0) > 0.009;
+      setCreateCredit(hasDefaultCredit);
+      if (assistedContext.credit_target_type) {
+        const contextTargetId = assistedContext.credit_target_type === 'user'
+          ? assistedContext.matched_user_id
+          : assistedContext.matched_family_id;
+        if (contextTargetId) {
+          setCreditTarget(`${assistedContext.credit_target_type}:${contextTargetId}`);
+        }
+      }
+    }
+  }, [open, statement, assistedContext]);
 
   useEffect(() => {
     if (!open || !statement) {
+      return;
+    }
+
+    if (assistedContext) {
       return;
     }
 
@@ -106,7 +189,7 @@ export function BankStatementReconciliationDialog({
     }, 300);
 
     return () => window.clearTimeout(timeout);
-  }, [open, statement, searchTerm]);
+  }, [open, statement, searchTerm, assistedContext]);
 
   const statementAvailableAmount = statement
     ? Math.abs(toNumber(statement.valor_por_conciliar, Math.abs(toNumber(statement.valor))))
@@ -291,7 +374,11 @@ export function BankStatementReconciliationDialog({
     setSubmitting(true);
 
     try {
-      const response = await fetch(buildRouteUrl('financeiro.bank-statements.allocate', statement.id), {
+      const submitRoute = assistedSuggestion
+        ? buildRouteUrl('financeiro.bank-reconciliation-suggestions.confirm', assistedSuggestion.id)
+        : buildRouteUrl('financeiro.bank-statements.allocate', statement.id);
+
+      const response = await fetch(submitRoute, {
         method: 'POST',
         headers: buildJsonHeaders(),
         credentials: 'same-origin',
@@ -319,13 +406,21 @@ export function BankStatementReconciliationDialog({
       const payload = await response.json();
 
       if ((payload?.summary?.new_fiscal_requests || 0) > 0) {
-        toast.success('Conciliacao manual concluida. Foram criados pedidos fiscais para as faturas liquidadas.');
+        toast.success(assistedSuggestion
+          ? 'Sugestao confirmada com alocacao assistida. Foram criados pedidos fiscais para as faturas liquidadas.'
+          : 'Conciliacao manual concluida. Foram criados pedidos fiscais para as faturas liquidadas.');
       } else if (payload?.summary?.created_credit) {
-        toast.success('Conciliacao manual concluida com credito associado.');
+        toast.success(assistedSuggestion
+          ? 'Sugestao confirmada com alocacao assistida e credito associado.'
+          : 'Conciliacao manual concluida com credito associado.');
       } else if (payload?.summary?.bank_statement_partial) {
-        toast.success('Conciliacao manual registada. A linha bancaria ficou parcial.');
+        toast.success(assistedSuggestion
+          ? 'Sugestao confirmada com alocacao assistida. A linha bancaria ficou parcial.'
+          : 'Conciliacao manual registada. A linha bancaria ficou parcial.');
       } else {
-        toast.success('Conciliacao manual registada com sucesso.');
+        toast.success(assistedSuggestion
+          ? 'Sugestao confirmada com alocacao assistida.'
+          : 'Conciliacao manual registada com sucesso.');
       }
 
       onCompleted(statement.id);
@@ -392,7 +487,9 @@ export function BankStatementReconciliationDialog({
                 placeholder="Pesquisar por nome, NIF, numero de socio ou familia"
               />
               <div className="text-xs text-muted-foreground">
-                Pesquisa opcional com debounce e resultados paginados. Sem filtro, o dialogo carrega ate 25 faturas e 25 movimentos em aberto.
+                {assistedContext
+                  ? 'Contexto assistido aplicado a partir da sugestao selecionada. Ajuste os valores elegiveis antes de confirmar.'
+                  : 'Pesquisa opcional com debounce e resultados paginados. Sem filtro, o dialogo carrega ate 25 faturas e 25 movimentos em aberto.'}
               </div>
             </div>
 
@@ -400,7 +497,11 @@ export function BankStatementReconciliationDialog({
               <Card className="p-4 space-y-3">
                 <div className="flex items-center justify-between gap-3">
                   <div>
-                    <h3 className="font-semibold">Mensalidades / Faturas em aberto</h3>
+                    <h3 className="font-semibold">
+                      {assistedContext
+                        ? `Mensalidades / Faturas em aberto ate ${formatReferenceMonthLabel(assistedContext.reference_month)}`
+                        : 'Mensalidades / Faturas em aberto'}
+                    </h3>
                     <p className="text-xs text-muted-foreground">
                       {visibleInvoiceCount} de {invoiceTotal} resultado(s) carregados
                     </p>
@@ -643,7 +744,7 @@ export function BankStatementReconciliationDialog({
                 Cancelar
               </Button>
               <Button onClick={() => void handleSubmit()} disabled={submitting}>
-                Conciliar
+                {assistedSuggestion ? 'Confirmar sugestao assistida' : 'Conciliar'}
               </Button>
             </DialogFooter>
           </div>

@@ -6,6 +6,7 @@ use App\Models\BankReconciliationSuggestion;
 use App\Models\BankStatement;
 use App\Models\Familia;
 use App\Models\Invoice;
+use App\Models\Movement;
 use App\Models\Payment;
 use App\Models\PaymentAllocation;
 use App\Models\User;
@@ -558,33 +559,104 @@ class BankReconciliationSuggestionService
                 ],
             ]);
 
-            $suggestion->forceFill([
-                'status' => BankReconciliationSuggestion::STATUS_CONFIRMED,
-                'confirmed_by' => $actor?->id,
-                'confirmed_at' => now(),
-                'rejected_by' => null,
-                'rejected_at' => null,
-                'rejection_reason' => null,
-            ]);
-            $suggestion->save();
-
-            BankReconciliationSuggestion::query()
-                ->where('bank_statement_id', $bankStatement->id)
-                ->whereKeyNot($suggestion->id)
-                ->where('status', BankReconciliationSuggestion::STATUS_SUGGESTED)
-                ->update([
-                    'status' => BankReconciliationSuggestion::STATUS_EXPIRED,
-                ]);
-
-            $this->reconciliationAliasService->learnFromConfirmedReconciliation(
-                $bankStatement,
+            $this->finalizeConfirmedSuggestion(
+                $suggestion,
+                $actor,
                 $payment->user_id,
                 $payment->family_id,
-                $actor?->id,
+                $bankStatement,
             );
 
             return $payment->fresh(['allocations.invoice', 'credits', 'bankStatement']);
         });
+    }
+
+    public function finalizeConfirmedSuggestion(
+        BankReconciliationSuggestion $suggestion,
+        ?User $actor,
+        ?string $resolvedUserId,
+        ?string $resolvedFamilyId,
+        BankStatement $bankStatement,
+    ): void {
+        $suggestion->forceFill([
+            'status' => BankReconciliationSuggestion::STATUS_CONFIRMED,
+            'confirmed_by' => $actor?->id,
+            'confirmed_at' => now(),
+            'rejected_by' => null,
+            'rejected_at' => null,
+            'rejection_reason' => null,
+        ]);
+        $suggestion->save();
+
+        BankReconciliationSuggestion::query()
+            ->where('bank_statement_id', $bankStatement->id)
+            ->whereKeyNot($suggestion->id)
+            ->where('status', BankReconciliationSuggestion::STATUS_SUGGESTED)
+            ->update([
+                'status' => BankReconciliationSuggestion::STATUS_EXPIRED,
+            ]);
+
+        $this->reconciliationAliasService->learnFromConfirmedReconciliation(
+            $bankStatement,
+            $resolvedUserId,
+            $resolvedFamilyId,
+            $actor?->id,
+        );
+    }
+
+    public function buildAssistedAllocationContext(BankReconciliationSuggestion $suggestion): ?array
+    {
+        $suggestion = $suggestion->fresh([
+            'bankStatement',
+            'user:id,nome_completo,name',
+            'user.families:id,nome',
+            'family:id,nome',
+        ]);
+
+        $bankStatement = $suggestion?->bankStatement?->fresh();
+        if (!$suggestion || !$bankStatement || $this->isBankStatementFullyReconciled($bankStatement)) {
+            return null;
+        }
+
+        $availableAmount = round(max((float) ($bankStatement->valor_por_conciliar ?? abs((float) $bankStatement->valor)), 0), 2);
+        if ($availableAmount <= 0.009) {
+            return null;
+        }
+
+        $referenceMonth = $this->resolveAssistedReferenceMonth($suggestion, $bankStatement);
+        $userId = $suggestion->user_id;
+        $familyId = $suggestion->family_id;
+
+        if (!$userId && !$familyId) {
+            $seedInvoiceId = collect((array) $suggestion->suggested_allocations)
+                ->pluck('invoice_id')
+                ->filter()
+                ->first();
+
+            if ($seedInvoiceId) {
+                $seedInvoice = Invoice::query()->with(['user.families:id,nome'])->find($seedInvoiceId);
+                $userId = $seedInvoice?->user_id;
+                $familyId = $seedInvoice?->user?->families?->first()?->id;
+            }
+        }
+
+        $eligibleInvoices = $this->fetchEligibleInvoicesForAssistedAllocation($userId, $familyId, $referenceMonth);
+        $eligibleMovements = $this->fetchEligibleMovementsForAssistedAllocation($userId, $familyId);
+        $defaultAllocations = $this->buildDefaultAssistedAllocations($availableAmount, $eligibleInvoices, $eligibleMovements);
+
+        $creditTargetType = $userId ? 'user' : ($familyId ? 'family' : null);
+
+        return [
+            'reference_month' => $referenceMonth,
+            'matched_user_id' => $userId,
+            'matched_family_id' => $familyId,
+            'available_amount' => $availableAmount,
+            'eligible_invoices' => $eligibleInvoices,
+            'eligible_movements' => $eligibleMovements,
+            'can_create_credit' => $creditTargetType !== null,
+            'credit_target_type' => $creditTargetType,
+            'default_allocations' => $defaultAllocations,
+        ];
     }
 
     public function rejectSuggestion(BankReconciliationSuggestion $suggestion, ?User $actor = null, ?string $reason = null): void
@@ -719,6 +791,245 @@ class BankReconciliationSuggestionService
         }
 
         return array_values($contexts);
+    }
+
+    private function resolveAssistedReferenceMonth(BankReconciliationSuggestion $suggestion, BankStatement $bankStatement): string
+    {
+        $metadataMonth = data_get($suggestion->metadata, 'reference_month_context.reference_month_key');
+
+        if (is_string($metadataMonth) && preg_match('/^\d{4}-\d{2}$/', $metadataMonth) === 1) {
+            return $metadataMonth;
+        }
+
+        if ($bankStatement->data_movimento) {
+            return Carbon::parse($bankStatement->data_movimento)->format('Y-m');
+        }
+
+        return now()->format('Y-m');
+    }
+
+    private function fetchEligibleInvoicesForAssistedAllocation(?string $userId, ?string $familyId, string $referenceMonth): array
+    {
+        $query = Invoice::query()
+            ->with([
+                'user:id,nome_completo,name',
+                'user.families:id,nome',
+                'costCenter:id,nome',
+            ])
+            ->withSum([
+                'paymentAllocations as confirmed_payment_allocations_sum' => function ($paymentAllocationQuery): void {
+                    $paymentAllocationQuery->where('status', PaymentAllocation::STATUS_CONFIRMED);
+                },
+            ], 'amount')
+            ->where('oculta', false)
+            ->whereIn('estado_pagamento', ['pendente', 'vencido', 'parcial']);
+
+        if ($familyId) {
+            $query->whereHas('user.families', function ($familyQuery) use ($familyId): void {
+                $familyQuery->where('familias.id', $familyId);
+            });
+        } elseif ($userId) {
+            $query->where('user_id', $userId);
+        } else {
+            return [];
+        }
+
+        return $query
+            ->orderBy('data_vencimento')
+            ->orderBy('data_emissao')
+            ->orderBy('id')
+            ->get()
+            ->map(function (Invoice $invoice) use ($referenceMonth): ?array {
+                $openAmount = $this->getInvoiceOutstandingAmount($invoice);
+                if ($openAmount <= 0.009) {
+                    return null;
+                }
+
+                $monthKey = $this->resolveInvoiceMonthKey($invoice);
+                $isMonthly = $this->isMonthlyInvoice($invoice);
+
+                if ($isMonthly && $monthKey !== null && $monthKey > $referenceMonth) {
+                    return null;
+                }
+
+                $family = $invoice->user?->families?->first();
+
+                return [
+                    'id' => $invoice->id,
+                    'user_id' => $invoice->user_id,
+                    'user_name' => $invoice->user?->nome_completo ?? $invoice->user?->name,
+                    'family_id' => $family?->id,
+                    'family_name' => $family?->nome,
+                    'valor_total' => round((float) $invoice->valor_total, 2),
+                    'valor_pago' => round(max((float) $invoice->valor_total - $openAmount, 0), 2),
+                    'valor_em_aberto' => round($openAmount, 2),
+                    'estado_pagamento' => $invoice->estado_pagamento,
+                    'data_fatura' => optional($invoice->data_fatura)->toDateString(),
+                    'data_vencimento' => optional($invoice->data_vencimento)->toDateString(),
+                    'vencimento' => optional($invoice->data_vencimento)->toDateString(),
+                    'mes' => $invoice->mes,
+                    'tipo' => $invoice->tipo,
+                    'centro_custo_id' => $invoice->centro_custo_id,
+                    'centro_custo_name' => $invoice->costCenter?->nome,
+                    'is_monthly' => $isMonthly,
+                    'month_key' => $monthKey,
+                ];
+            })
+            ->filter()
+            ->sortBy(fn (array $invoice): array => [
+                $invoice['month_key'] ?? '9999-12',
+                $invoice['vencimento'] ?? '9999-12-31',
+                $invoice['id'],
+            ])
+            ->values()
+            ->map(function (array $invoice): array {
+                unset($invoice['month_key']);
+
+                return $invoice;
+            })
+            ->all();
+    }
+
+    private function fetchEligibleMovementsForAssistedAllocation(?string $userId, ?string $familyId): array
+    {
+        $query = Movement::query()
+            ->with([
+                'user:id,nome_completo,name,numero_socio,nif',
+                'user.families:id,nome',
+                'user.centrosCusto:id,nome',
+                'centroCusto:id,nome',
+                'latestFinancialEntry:id,origem_id,origem_tipo,valor_em_aberto,valor_pago,centro_custo_id,created_at',
+            ])
+            ->where(function ($movementQuery): void {
+                $movementQuery
+                    ->where('classificacao', 'receita')
+                    ->orWhere('tipo', 'receita');
+            })
+            ->whereIn('estado_pagamento', ['pendente', 'parcial']);
+
+        if ($userId) {
+            $query->where('user_id', $userId);
+        }
+
+        if ($familyId) {
+            $query->whereHas('user.families', function ($familyQuery) use ($familyId): void {
+                $familyQuery->where('familias.id', $familyId);
+            });
+        }
+
+        return $query
+            ->orderBy('data_vencimento')
+            ->orderBy('data_emissao')
+            ->orderBy('id')
+            ->get()
+            ->map(function (Movement $movement): ?array {
+                $financialEntry = $movement->latestFinancialEntry;
+                $entryOpenAmount = $financialEntry ? max((float) ($financialEntry->valor_em_aberto ?? 0), 0) : null;
+                $movementOpenAmount = round(max(abs((float) $movement->valor_total) - (float) ($financialEntry->valor_pago ?? 0), 0), 2);
+                $openAmount = $entryOpenAmount !== null ? round($entryOpenAmount, 2) : $movementOpenAmount;
+
+                if ($openAmount <= 0.009) {
+                    return null;
+                }
+
+                $defaultCostCenterId = $movement->centro_custo_id
+                    ?: $financialEntry?->centro_custo_id
+                    ?: $movement->user?->centrosCusto?->sortByDesc(fn ($center) => (float) ($center->pivot->peso ?? 1))->first()?->id;
+                $family = $movement->user?->families?->first();
+
+                return [
+                    'id' => $movement->id,
+                    'user_id' => $movement->user_id,
+                    'user_name' => $movement->user?->nome_completo ?? $movement->user?->name ?? $movement->nome_manual,
+                    'family_id' => $family?->id,
+                    'family_name' => $family?->nome,
+                    'financial_entry_id' => $financialEntry?->id,
+                    'descricao' => $movement->observacoes ?: $movement->nome_manual ?: ('Movimento ' . $movement->tipo),
+                    'tipo' => $movement->tipo,
+                    'classificacao' => $movement->classificacao,
+                    'estado' => $movement->estado_pagamento,
+                    'valor_total' => round((float) $movement->valor_total, 2),
+                    'valor_pago' => round(max((float) ($movement->valor_total ?? 0) - $openAmount, 0), 2),
+                    'valor_em_aberto' => $openAmount,
+                    'estado_pagamento' => $movement->estado_pagamento,
+                    'data' => optional($movement->data_emissao)->toDateString() ?: optional($movement->data_vencimento)->toDateString(),
+                    'data_emissao' => optional($movement->data_emissao)->toDateString(),
+                    'data_vencimento' => optional($movement->data_vencimento)->toDateString(),
+                    'centro_custo_id' => $movement->centro_custo_id,
+                    'default_centro_custo_id' => $defaultCostCenterId,
+                    'requires_centro_custo' => empty($defaultCostCenterId),
+                    'centro_custo_name' => $movement->centroCusto?->nome,
+                ];
+            })
+            ->filter()
+            ->values()
+            ->all();
+    }
+
+    private function buildDefaultAssistedAllocations(float $availableAmount, array $eligibleInvoices, array $eligibleMovements): array
+    {
+        $remainingAmount = round(max($availableAmount, 0), 2);
+        $invoiceDefaults = [];
+        $movementDefaults = [];
+
+        foreach ($eligibleInvoices as $invoice) {
+            if ($remainingAmount <= 0.009) {
+                break;
+            }
+
+            $openAmount = round((float) ($invoice['valor_em_aberto'] ?? 0), 2);
+            if ($openAmount <= 0.009) {
+                continue;
+            }
+
+            $amount = round(min($openAmount, $remainingAmount), 2);
+            if ($amount <= 0.009) {
+                continue;
+            }
+
+            $invoiceDefaults[] = [
+                'invoice_id' => $invoice['id'],
+                'amount' => $amount,
+            ];
+            $remainingAmount = round(max($remainingAmount - $amount, 0), 2);
+        }
+
+        foreach ($eligibleMovements as $movement) {
+            if ($remainingAmount <= 0.009) {
+                break;
+            }
+
+            $openAmount = round((float) ($movement['valor_em_aberto'] ?? 0), 2);
+            if ($openAmount <= 0.009) {
+                continue;
+            }
+
+            $amount = round(min($openAmount, $remainingAmount), 2);
+            if ($amount <= 0.009) {
+                continue;
+            }
+
+            $movementDefaults[] = [
+                'movement_id' => $movement['id'],
+                'amount' => $amount,
+                'centro_custo_id' => $movement['default_centro_custo_id'] ?? $movement['centro_custo_id'] ?? null,
+            ];
+            $remainingAmount = round(max($remainingAmount - $amount, 0), 2);
+        }
+
+        return [
+            'invoices' => $invoiceDefaults,
+            'movements' => $movementDefaults,
+            'credit_amount' => round(max($remainingAmount, 0), 2),
+        ];
+    }
+
+    private function isMonthlyInvoice(Invoice $invoice): bool
+    {
+        $tipo = Str::of((string) ($invoice->tipo ?? ''))->lower()->ascii()->value();
+        $origemTipo = Str::of((string) ($invoice->origem_tipo ?? ''))->lower()->ascii()->value();
+
+        return str_contains($tipo, 'mens') || str_contains($origemTipo, 'mens');
     }
 
     private function fetchOpenInvoicesForContext(
@@ -2102,11 +2413,6 @@ class BankReconciliationSuggestionService
         }
 
         return false;
-    }
-
-    private function isMonthlyInvoice(Invoice $invoice): bool
-    {
-        return stripos((string) $invoice->tipo, 'mens') !== false;
     }
 
     private function isCurrentOrOverdueMonthlyInvoice(Invoice $invoice, ?Carbon $statementDate): bool

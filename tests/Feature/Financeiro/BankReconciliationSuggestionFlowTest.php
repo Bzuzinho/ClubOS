@@ -13,6 +13,7 @@ use App\Models\FiscalDocumentRequest;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\MapaConciliacao;
+use App\Models\Movement;
 use App\Models\Payment;
 use App\Models\PaymentAllocation;
 use App\Models\User;
@@ -1229,12 +1230,259 @@ class BankReconciliationSuggestionFlowTest extends TestCase
                 'confidence_label',
                 'matched_rules',
                 'explanation',
+                'assisted_allocation_context' => [
+                    'reference_month',
+                    'matched_user_id',
+                    'matched_family_id',
+                    'available_amount',
+                    'eligible_invoices',
+                    'eligible_movements',
+                    'can_create_credit',
+                    'credit_target_type',
+                    'default_allocations',
+                ],
             ]],
         ]);
 
         $this->assertNotNull($response->json('suggestions.0.score'));
         $this->assertNotNull($response->json('suggestions.0.confidence_label'));
         $this->assertNotEmpty($response->json('suggestions.0.explanation'));
+    }
+
+    public function test_custom_assisted_confirmation_allocates_invoice_movement_and_credit(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $user = $this->createFinanceUser(['nome_completo' => 'Assistida Completa']);
+        $invoice = $this->createInvoice($user, 30.00, 'mensalidade', '2026-04-10', [
+            'mes' => '2026-04',
+            'data_fatura' => '2026-04-01',
+            'data_emissao' => '2026-04-01',
+        ]);
+        $movement = $this->createOpenMovement($user, 20.00);
+        $statement = $this->createBankStatement(60.00, 'Transferencia Assistida Completa');
+        $suggestion = $this->generateSuggestion($admin, $statement, [$invoice]);
+
+        $this->actingAs($admin)
+            ->postJson(route('financeiro.bank-reconciliation-suggestions.confirm', $suggestion), [
+                'invoices' => [[
+                    'invoice_id' => $invoice->id,
+                    'amount' => 30.00,
+                ]],
+                'movements' => [[
+                    'movement_id' => $movement->id,
+                    'amount' => 20.00,
+                    'centro_custo_id' => $movement->centro_custo_id,
+                ]],
+                'create_credit' => true,
+                'credit_user_id' => $user->id,
+                'notes' => 'Confirmacao assistida',
+            ])
+            ->assertOk()
+            ->assertJsonPath('summary.suggestion_confirmed', true)
+            ->assertJsonPath('summary.assisted_allocation', true)
+            ->assertJsonPath('summary.created_credit', true);
+
+        $suggestion->refresh();
+        $invoice->refresh();
+        $movement->refresh();
+
+        $this->assertSame(BankReconciliationSuggestion::STATUS_CONFIRMED, $suggestion->status);
+        $this->assertSame('pago', $invoice->estado_pagamento);
+        $this->assertContains($movement->estado_pagamento, ['parcial', 'pago']);
+
+        $this->assertDatabaseHas('payment_allocations', [
+            'invoice_id' => $invoice->id,
+            'amount' => 30.00,
+            'status' => PaymentAllocation::STATUS_CONFIRMED,
+        ]);
+
+        $this->assertDatabaseHas('account_credits', [
+            'user_id' => $user->id,
+            'amount' => 10.00,
+            'status' => AccountCredit::STATUS_AVAILABLE,
+        ]);
+    }
+
+    public function test_custom_assisted_confirmation_rejects_invoice_outside_eligible_context(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $user = $this->createFinanceUser(['nome_completo' => 'Contexto Elegivel']);
+        $otherUser = $this->createFinanceUser(['nome_completo' => 'Contexto Invalido']);
+        $invoice = $this->createInvoice($user, 25.00);
+        $invalidInvoice = $this->createInvoice($otherUser, 25.00);
+        $statement = $this->createBankStatement(25.00, 'Transferencia Contexto Elegivel');
+        $suggestion = $this->generateSuggestion($admin, $statement, [$invoice]);
+
+        $this->actingAs($admin)
+            ->postJson(route('financeiro.bank-reconciliation-suggestions.confirm', $suggestion), [
+                'invoices' => [[
+                    'invoice_id' => $invalidInvoice->id,
+                    'amount' => 25.00,
+                ]],
+            ])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('invoices');
+    }
+
+    public function test_assisted_context_includes_monthly_invoices_until_reference_month_and_partial_defaults(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $user = $this->createFinanceUser(['nome_completo' => 'Assistida Referencia Abril']);
+
+        $januaryInvoice = $this->createInvoice($user, 30.00, 'mensalidade', '2026-01-10', [
+            'data_fatura' => '2026-01-01',
+            'data_emissao' => '2026-01-01',
+            'mes' => '2026-01',
+            'estado_pagamento' => 'vencido',
+        ]);
+        $februaryInvoice = $this->createInvoice($user, 30.00, 'mensalidade', '2026-02-10', [
+            'data_fatura' => '2026-02-01',
+            'data_emissao' => '2026-02-01',
+            'mes' => '2026-02',
+            'estado_pagamento' => 'vencido',
+        ]);
+        $marchInvoice = $this->createInvoice($user, 30.00, 'mensalidade', '2026-03-10', [
+            'data_fatura' => '2026-03-01',
+            'data_emissao' => '2026-03-01',
+            'mes' => '2026-03',
+            'estado_pagamento' => 'vencido',
+        ]);
+        $aprilInvoice = $this->createInvoice($user, 30.00, 'mensalidade', '2026-04-10', [
+            'data_fatura' => '2026-04-01',
+            'data_emissao' => '2026-04-01',
+            'mes' => '2026-04',
+            'estado_pagamento' => 'pendente',
+        ]);
+
+        $statement = $this->createBankStatement(30.00, 'Transferencia Assistida Referencia Abril', 'Mensalidade abril 2026');
+
+        $response = $this->actingAs($admin)
+            ->postJson(route('financeiro.bank-statements.generate-suggestions', $statement))
+            ->assertOk();
+
+        $context = data_get($response->json('suggestions.0'), 'assisted_allocation_context');
+
+        $this->assertIsArray($context);
+        $this->assertSame('2026-04', data_get($context, 'reference_month'));
+        $this->assertEqualsCanonicalizing([
+            $januaryInvoice->id,
+            $februaryInvoice->id,
+            $marchInvoice->id,
+            $aprilInvoice->id,
+        ], collect((array) data_get($context, 'eligible_invoices', []))->pluck('id')->all());
+
+        $defaultInvoices = collect((array) data_get($context, 'default_allocations.invoices', []));
+        $this->assertSame([$januaryInvoice->id], $defaultInvoices->pluck('invoice_id')->all());
+        $this->assertSame(30.0, (float) ($defaultInvoices->first()['amount'] ?? 0));
+        $this->assertSame(0.0, (float) data_get($context, 'default_allocations.credit_amount', -1));
+    }
+
+    public function test_assisted_context_includes_open_movements_and_custom_confirmation_allocates_both(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $user = $this->createFinanceUser(['nome_completo' => 'Assistida Fatura Movimento']);
+
+        $invoice = $this->createInvoice($user, 120.00, 'mensalidade', '2026-04-10', [
+            'mes' => '2026-04',
+            'data_fatura' => '2026-04-01',
+            'data_emissao' => '2026-04-01',
+            'estado_pagamento' => 'vencido',
+        ]);
+        $movement = $this->createOpenMovement($user, 20.00);
+
+        $statement = $this->createBankStatement(150.00, 'Transferencia Assistida Fatura Movimento', 'Mensalidade abril 2026');
+        $suggestion = $this->generateSuggestion($admin, $statement, [$invoice]);
+
+        $showResponse = $this->actingAs($admin)
+            ->getJson(route('financeiro.bank-reconciliation-suggestions.index', [
+                'bank_statement_id' => $statement->id,
+                'status' => BankReconciliationSuggestion::STATUS_SUGGESTED,
+                'per_page' => 5,
+            ]))
+            ->assertOk();
+
+        $listedSuggestion = collect((array) $showResponse->json('data'))->firstWhere('id', $suggestion->id);
+        $this->assertNotNull($listedSuggestion);
+        $this->assertContains($movement->id, collect((array) data_get($listedSuggestion, 'assisted_allocation_context.eligible_movements', []))->pluck('id')->all());
+
+        $this->actingAs($admin)
+            ->postJson(route('financeiro.bank-reconciliation-suggestions.confirm', $suggestion), [
+                'invoices' => [[
+                    'invoice_id' => $invoice->id,
+                    'amount' => 120.00,
+                ]],
+                'movements' => [[
+                    'movement_id' => $movement->id,
+                    'amount' => 20.00,
+                    'centro_custo_id' => $movement->centro_custo_id,
+                ]],
+                'create_credit' => true,
+                'credit_user_id' => $user->id,
+                'notes' => 'Alocacao assistida fatura+movimento+credito',
+            ])
+            ->assertOk()
+            ->assertJsonPath('summary.suggestion_confirmed', true)
+            ->assertJsonPath('summary.assisted_allocation', true)
+            ->assertJsonPath('summary.created_credit', true);
+
+        $statement->refresh();
+
+        $this->assertDatabaseHas('payment_allocations', [
+            'invoice_id' => $invoice->id,
+            'amount' => 120.00,
+            'status' => PaymentAllocation::STATUS_CONFIRMED,
+        ]);
+        $this->assertDatabaseHas('payment_allocations', [
+            'invoice_id' => null,
+            'amount' => 20.00,
+            'status' => PaymentAllocation::STATUS_CONFIRMED,
+        ]);
+        $this->assertDatabaseHas('account_credits', [
+            'user_id' => $user->id,
+            'amount' => 10.00,
+            'status' => AccountCredit::STATUS_AVAILABLE,
+        ]);
+        $this->assertContains($statement->conciliacao_status, ['partial', 'reconciled']);
+    }
+
+    public function test_custom_assisted_confirmation_rejects_amounts_above_open_or_statement_value(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $user = $this->createFinanceUser(['nome_completo' => 'Assistida Limites']);
+
+        $invoice = $this->createInvoice($user, 30.00, 'mensalidade', '2026-04-10', [
+            'mes' => '2026-04',
+            'data_fatura' => '2026-04-01',
+            'data_emissao' => '2026-04-01',
+        ]);
+        $movement = $this->createOpenMovement($user, 20.00);
+        $statement = $this->createBankStatement(40.00, 'Transferencia Assistida Limites', 'Mensalidade abril 2026');
+        $suggestion = $this->generateSuggestion($admin, $statement, [$invoice]);
+
+        $this->actingAs($admin)
+            ->postJson(route('financeiro.bank-reconciliation-suggestions.confirm', $suggestion), [
+                'invoices' => [[
+                    'invoice_id' => $invoice->id,
+                    'amount' => 31.00,
+                ]],
+            ])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('allocations');
+
+        $this->actingAs($admin)
+            ->postJson(route('financeiro.bank-reconciliation-suggestions.confirm', $suggestion), [
+                'invoices' => [[
+                    'invoice_id' => $invoice->id,
+                    'amount' => 25.00,
+                ]],
+                'movements' => [[
+                    'movement_id' => $movement->id,
+                    'amount' => 20.00,
+                    'centro_custo_id' => $movement->centro_custo_id,
+                ]],
+            ])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('allocations');
     }
 
     public function test_low_score_fallback_suggestions_without_history_are_ignored(): void
@@ -1680,6 +1928,30 @@ class BankReconciliationSuggestionFlowTest extends TestCase
         }
 
         return $invoice;
+    }
+
+    private function createOpenMovement(User $user, float $amount, array $overrides = []): Movement
+    {
+        $costCenter = CostCenter::query()->firstOrCreate(
+            ['codigo' => 'CC-RECON'],
+            [
+                'nome' => 'Centro Reconciliacao',
+                'tipo' => 'departamento',
+                'ativo' => true,
+            ],
+        );
+
+        return Movement::create(array_merge([
+            'user_id' => $user->id,
+            'classificacao' => 'receita',
+            'data_emissao' => '2026-04-01',
+            'data_vencimento' => '2026-04-10',
+            'valor_total' => $amount,
+            'estado_pagamento' => 'pendente',
+            'centro_custo_id' => $costCenter->id,
+            'tipo' => 'outro',
+            'observacoes' => 'Movimento aberto para teste assistido',
+        ], $overrides));
     }
 
     private function createBankStatement(float $amount, string $description, ?string $reference = null): BankStatement

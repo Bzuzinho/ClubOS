@@ -1041,6 +1041,66 @@ Sprint F4.2.2 fica tecnicamente concluída, com validação manual no browser pe
 
 ---
 
+## Sprint F4.2.3 — Alocação assistida de transferência para mensalidades, movimentos e crédito
+
+> Estado: tecnicamente concluída em 2026-06-17. Validações automáticas executadas e concluídas. Validação manual do browser ainda pendente.
+
+### Correção de interpretação funcional
+
+A sugestão bancária deixa de ser uma decisão fechada sobre uma única mensalidade.
+
+Quando existe correspondência com utilizador/família, a sugestão passa a expor contexto assistido completo e editável:
+
+- mensalidades/faturas elegíveis até ao mês de referência;
+- movimentos de receita em aberto elegíveis do mesmo contexto;
+- opção de crédito em conta corrente para remanescente.
+
+### Objetivo
+
+Permitir que o operador distribua o valor da transferência antes da confirmação final:
+
+- alocar total ou parcialmente por mensalidade/fatura;
+- combinar mensalidades/faturas com movimentos;
+- guardar excedente como crédito quando aplicável;
+- confirmar tudo no fluxo canónico já existente.
+
+### Regras fechadas nesta sprint
+
+- `assisted_allocation_context` da sugestão inclui `reference_month`, `available_amount`, `eligible_invoices`, `eligible_movements`, `can_create_credit`, `credit_target_type` e `default_allocations`;
+- `eligible_invoices` inclui faturas abertas não ocultas do utilizador/família, com mensalidades limitadas a `mes <= mes de referencia`, ordenadas da mais antiga para a mais recente;
+- `eligible_movements` inclui movimentos de receita em aberto associados ao utilizador/família, com `valor_em_aberto` real;
+- `default_allocations` consome cronologicamente sem ultrapassar `valor_por_conciliar` nem `valor_em_aberto`;
+- na UI de sugestões, quando existe contexto assistido, a confirmação direta deixa de fechar a sugestão automaticamente e abre o diálogo assistido editável;
+- a confirmação customizada mantém validações de elegibilidade e limites, e continua a delegar para o fluxo canónico (`FinancialSettlementService`), sem criar `Payment`/`PaymentAllocation` manualmente fora do serviço.
+
+### Testes automáticos mínimos
+
+Cobertos em `BankReconciliationSuggestionFlowTest`:
+
+- contexto assistido de abril inclui mensalidades janeiro-fevereiro-março-abril;
+- default em cenário de €30 aloca apenas janeiro e não excede o valor disponível;
+- contexto assistido inclui simultaneamente `eligible_invoices` e `eligible_movements`;
+- confirmação customizada permite alocação conjunta de faturas+movimentos+crédito remanescente;
+- confirmação customizada rejeita alocações acima do valor em aberto da linha e acima do valor da transferência;
+- bloqueios de extrato já conciliado e sugestão rejeitada mantidos por regressão.
+
+### Testes manuais para o utilizador
+
+1. Em Banco, abrir uma sugestão com contexto assistido e confirmar que o botão principal abre “alocação assistida”.
+2. Num cenário abril com mensalidades janeiro-abril abertas e transferência de €30, confirmar lista completa e default só na mais antiga.
+3. No mesmo cenário com €120, confirmar pré-alocação cronológica e possibilidade de ajuste manual por linha.
+4. Num cenário com €150 e elegíveis €120 (mensalidades) + €20 (movimento), confirmar que é possível alocar ambos e guardar €10 como crédito.
+5. Tentar alocar acima do disponível/acima do valor em aberto e confirmar bloqueio com erro de validação.
+6. Confirmar que a reconciliação final reflete estado parcial/conciliado correto no extrato.
+
+### Estado operacional
+
+Sprint F4.2.3 fica tecnicamente concluída e pendente apenas de validação manual orientada no browser.
+
+Não avançar para F4.3 nesta alteração.
+
+---
+
 ## Sprint F5 — Movimentos financeiros, despesas e receitas manuais
 
 ### Objetivo
