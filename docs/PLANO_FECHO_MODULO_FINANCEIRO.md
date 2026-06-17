@@ -1265,7 +1265,7 @@ Não avançar para F4.5 nesta sprint.
 
 ## Sprint F4.5 — Exportação e fecho operacional da conciliação bancária
 
-> Estado: tecnicamente concluída em 2026-06-17; pendente de validação manual no browser. Não avançar para F4.6 nesta sprint.
+> Estado: validada manualmente no browser em 2026-06-17 e fechada operacionalmente. Não avançar para F4.6 nesta sprint.
 
 ### Objetivo
 
@@ -1338,7 +1338,7 @@ Cobertos em `tests/Feature/Financeiro/BankReconciliationAuditEndpointTest.php`:
 
 ### Estado operacional
 
-Sprint F4.5 fica tecnicamente concluída e pendente de validação manual no browser.
+Sprint F4.5 fica validada manualmente no browser e fechada operacionalmente.
 
 Não avançar para F4.6 nesta sprint.
 
