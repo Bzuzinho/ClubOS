@@ -1119,7 +1119,7 @@ Não avançar para F4.3 nesta alteração.
 
 ## Sprint F4.3 — Gestão visual de aliases bancários e rejeições
 
-> Estado: tecnicamente concluída em 2026-06-17. Pendente de validação manual orientada no browser.
+> Estado: tecnicamente concluída e validada manualmente no browser em 2026-06-17. Sprint fechada operacionalmente.
 
 ### Objetivo
 
@@ -1164,11 +1164,32 @@ Cobertos em `tests/Feature/Financeiro/BankReconciliationAliasManagementTest.php`
 6. Em `Rejeições de sugestões`, confirmar colunas de data/descrição/valor/alvo/score/motivo/rejeitado em/por.
 7. Limpar uma rejeição e regenerar sugestões na linha para validar retorno controlado.
 
+### Validação manual confirmada
+
+- Configurações > Financeiro > Conciliação Bancária abre corretamente: OK.
+- Aliases aparecem com paginação server-side: OK.
+- Pesquisa/filtros de aliases funcionam: OK.
+- Alterar tamanho de página em aliases funciona: OK.
+- Desativar alias funciona: OK.
+- Alias desativado deixa de influenciar novas sugestões: OK.
+- Reativar alias funciona: OK.
+- Rejeições aparecem com paginação server-side: OK.
+- Pesquisa/filtros de rejeições funcionam: OK.
+- Limpar rejeição permite que a sugestão volte a ser gerada: OK.
+- Utilizador sem permissão não acede: OK.
+
 ### Estado operacional
 
-Sprint F4.3 fica tecnicamente concluída e pronta para validação manual.
+Sprint F4.3 fica fechada operacionalmente.
 
-Não avançar para F4.4 nesta sprint.
+Conclusão desta sprint:
+
+- a gestão de aliases e rejeições passa a estar visível em Configurações > Financeiro > Conciliação Bancária;
+- aliases podem ser consultados, filtrados, paginados, desativados e reativados;
+- rejeições podem ser consultadas, filtradas, paginadas e limpas/revertidas;
+- o motor de pagamentos, alocação, desconciliação, importação XLS e conta corrente não foi alterado.
+
+Não avançar para F4.4 nesta alteração documental.
 
 ---
 
