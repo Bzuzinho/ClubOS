@@ -1346,7 +1346,7 @@ Não avançar para F4.6 nesta sprint.
 
 ## Sprint F4.6 — Fecho final / hardening operacional
 
-> Estado: tecnicamente concluída em 2026-06-17, pendente de validação manual final no browser. Não avançar para F4.7 nesta sprint.
+> Estado: validada manualmente no browser em 2026-06-17 e fechada operacionalmente. Bloco F4 fechado operacionalmente. Não avançar para F4.7 nesta sprint.
 
 ### Objetivo
 
@@ -1373,9 +1373,26 @@ Executar hardening final do módulo financeiro sem criar novas funcionalidades g
 - sem alterações em `ReceiptCommitService.php`;
 - sem alterações de regras contabilísticas/cálculo financeiro canónico.
 
+### Validação manual confirmada no browser (2026-06-17)
+
+- Banco > alocação assistida apresenta confirmação explícita antes de confirmar alocação: OK.
+- Textos estão em linguagem operacional: OK.
+- Não aparecem termos técnicos como payload, metadata, signature ou hash na UI principal: OK.
+- Botões ficam protegidos contra submissão repetida: OK.
+- Mensagens de erro são claras: OK.
+- Configurações > Financeiro > Conciliação Bancária mantém estados vazios claros em aliases, rejeições e auditoria: OK.
+- Ações perigosas mantêm confirmação: OK.
+- Paginação/filtros continuam funcionais: OK.
+- Exportação CSV continua funcional: OK.
+- Confirmar sugestão válida continua a criar alocação correta: OK.
+- Desativar/reativar alias continua funcional: OK.
+- Limpar rejeição continua funcional: OK.
+
 ### Estado operacional
 
-Sprint F4.6 fica tecnicamente concluída e preparada para fecho do bloco F4, pendente apenas de validação manual final orientada no browser.
+Sprint F4.6 fica validada manualmente no browser e fechada operacionalmente.
+
+O bloco F4 — Banco e conciliação bancária — fica fechado operacionalmente. As alterações foram de hardening, consistência UX, microcopy, confirmações e documentação. O motor de pagamentos, alocação, desconciliação, importação XLS, conta corrente, geração de mensalidades e serviços financeiros canónicos não foi alterado. Não foram criadas migrations.
 
 Não avançar para F4.7 nesta sprint.
 
