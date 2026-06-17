@@ -15,6 +15,8 @@ use Illuminate\Support\Facades\DB;
 
 class BankReconciliationAuditService
 {
+    public const EXPORT_LIMIT = 5000;
+
     public const STATE_ALL = 'todos';
     public const STATE_UNRECONCILED = 'por_conciliar';
     public const STATE_PARTIAL = 'parcial';
@@ -29,12 +31,7 @@ class BankReconciliationAuditService
     public function paginate(array $filters = []): array
     {
         $perPage = max(5, min((int) ($filters['per_page'] ?? 20), 200));
-        $requestedSortBy = (string) ($filters['sort_by'] ?? 'data_movimento');
-        $sortBy = in_array($requestedSortBy, ['data_movimento', 'valor'], true)
-            ? $requestedSortBy
-            : 'data_movimento';
-        $requestedSortDirection = strtolower((string) ($filters['sort_direction'] ?? 'desc'));
-        $sortDirection = $requestedSortDirection === 'asc' ? 'asc' : 'desc';
+        [$sortBy, $sortDirection] = $this->resolveSort($filters);
 
         $query = $this->buildBaseQuery($filters);
         $summary = $this->buildSummary(clone $query);
@@ -62,6 +59,54 @@ class BankReconciliationAuditService
             ],
             'summary' => $summary,
         ];
+    }
+
+    public function exportRows(array $filters = []): array
+    {
+        [$sortBy, $sortDirection] = $this->resolveSort($filters);
+        $limit = max(1, min((int) ($filters['export_limit'] ?? self::EXPORT_LIMIT), self::EXPORT_LIMIT));
+
+        $query = $this->buildBaseQuery($filters);
+        $summary = $this->buildSummary(clone $query);
+
+        if ($sortBy === 'valor') {
+            $query->orderBy('valor', $sortDirection);
+        } else {
+            $query->orderBy('data_movimento', $sortDirection);
+        }
+
+        $items = $query->limit($limit)->get();
+        $rows = $this->decorateRows($items);
+        $totalFiltered = (int) ($summary['total_linhas'] ?? 0);
+
+        return [
+            'rows' => $rows,
+            'summary' => $summary,
+            'meta' => [
+                'total_filtered' => $totalFiltered,
+                'exported_rows' => $rows->count(),
+                'limit' => $limit,
+                'truncated' => $totalFiltered > $rows->count(),
+            ],
+        ];
+    }
+
+    public function supportsXlsxExport(): bool
+    {
+        return class_exists('Maatwebsite\\Excel\\Facades\\Excel')
+            && class_exists('Maatwebsite\\Excel\\ExcelServiceProvider');
+    }
+
+    private function resolveSort(array $filters): array
+    {
+        $requestedSortBy = (string) ($filters['sort_by'] ?? 'data_movimento');
+        $sortBy = in_array($requestedSortBy, ['data_movimento', 'valor'], true)
+            ? $requestedSortBy
+            : 'data_movimento';
+        $requestedSortDirection = strtolower((string) ($filters['sort_direction'] ?? 'desc'));
+        $sortDirection = $requestedSortDirection === 'asc' ? 'asc' : 'desc';
+
+        return [$sortBy, $sortDirection];
     }
 
     private function buildBaseQuery(array $filters): Builder

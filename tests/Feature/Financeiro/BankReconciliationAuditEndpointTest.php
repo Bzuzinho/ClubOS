@@ -13,6 +13,7 @@ use App\Models\UserType;
 use App\Services\Financeiro\FinancialSettlementService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Testing\TestResponse;
 use Tests\TestCase;
 
 class BankReconciliationAuditEndpointTest extends TestCase
@@ -326,6 +327,269 @@ class BankReconciliationAuditEndpointTest extends TestCase
         $this->assertSame($paymentsBefore, $paymentsAfter);
         $this->assertSame($allocationsBefore, $allocationsAfter);
         $this->assertSame($statusBefore, $statusAfter);
+    }
+
+    public function test_csv_export_respects_state_filter(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $user = $this->createFinanceUser(['nome_completo' => 'Export Estado']);
+
+        $reconciled = $this->createBankStatement(55.00, 'Export reconciliado', '2026-06-05');
+        $open = $this->createBankStatement(45.00, 'Export aberto', '2026-06-06');
+
+        $invoice = $this->createInvoice($user, 55.00, '2026-06-10');
+        $this->settleInvoiceWithStatement($admin, $invoice, $reconciled, 55.00);
+
+        $response = $this->actingAs($admin)
+            ->get(route('financeiro.bank-reconciliation-audit.export', [
+                'format' => 'csv',
+                'estado' => 'conciliado',
+            ]))
+            ->assertOk();
+
+        $rows = $this->readCsvBody($response);
+        $this->assertNotEmpty($rows);
+        $this->assertTrue(collect($rows)->every(fn (array $row) => ($row['Estado de conciliacao'] ?? null) === 'conciliado'));
+        $this->assertFalse(collect($rows)->contains(fn (array $row) => ($row['Descricao'] ?? null) === $open->descricao));
+    }
+
+    public function test_csv_export_respects_date_range_filter(): void
+    {
+        $admin = User::factory()->admin()->create();
+
+        $inside = $this->createBankStatement(22.00, 'Export data dentro', '2026-06-12');
+        $outside = $this->createBankStatement(22.00, 'Export data fora', '2026-05-12');
+
+        $response = $this->actingAs($admin)
+            ->get(route('financeiro.bank-reconciliation-audit.export', [
+                'format' => 'csv',
+                'date_from' => '2026-06-01',
+                'date_to' => '2026-06-30',
+            ]))
+            ->assertOk();
+
+        $rows = collect($this->readCsvBody($response));
+
+        $this->assertTrue($rows->contains(fn (array $row) => ($row['Descricao'] ?? null) === $inside->descricao));
+        $this->assertFalse($rows->contains(fn (array $row) => ($row['Descricao'] ?? null) === $outside->descricao));
+    }
+
+    public function test_csv_export_respects_search_filter(): void
+    {
+        $admin = User::factory()->admin()->create();
+
+        $target = $this->createBankStatement(31.00, 'Export pesquisa aurora', '2026-06-10', 'EXP-REF-777');
+        $this->createBankStatement(31.00, 'Export pesquisa outro', '2026-06-10', 'EXP-REF-111');
+
+        $response = $this->actingAs($admin)
+            ->get(route('financeiro.bank-reconciliation-audit.export', [
+                'format' => 'csv',
+                'search' => 'aurora',
+            ]))
+            ->assertOk();
+
+        $rows = collect($this->readCsvBody($response));
+
+        $this->assertTrue($rows->contains(fn (array $row) => ($row['Descricao'] ?? null) === $target->descricao));
+        $this->assertFalse($rows->contains(fn (array $row) => ($row['Referencia'] ?? null) === 'EXP-REF-111'));
+    }
+
+    public function test_csv_export_ignores_pagination_and_exports_all_filtered_rows(): void
+    {
+        $admin = User::factory()->admin()->create();
+
+        for ($index = 1; $index <= 18; $index++) {
+            $this->createBankStatement(
+                amount: 20.00 + $index,
+                description: 'Export full set ' . $index,
+                date: sprintf('2026-06-%02d', min($index, 28)),
+            );
+        }
+
+        $response = $this->actingAs($admin)
+            ->get(route('financeiro.bank-reconciliation-audit.export', [
+                'format' => 'csv',
+                'search' => 'Export full set',
+                'per_page' => 5,
+                'page' => 2,
+            ]))
+            ->assertOk();
+
+        $rows = $this->readCsvBody($response);
+
+        $this->assertCount(18, $rows);
+    }
+
+    public function test_csv_export_includes_main_fields_and_csv_headers(): void
+    {
+        $admin = User::factory()->admin()->create();
+
+        $this->createBankStatement(27.00, 'Export cabecalhos', '2026-06-18', 'EXP-HDR-1');
+
+        $response = $this->actingAs($admin)
+            ->get(route('financeiro.bank-reconciliation-audit.export', [
+                'format' => 'csv',
+            ]))
+            ->assertOk()
+            ->assertHeader('content-type', 'text/csv; charset=UTF-8');
+
+        $rows = $this->readCsvBody($response);
+        $this->assertNotEmpty($rows);
+
+        $firstRow = $rows[0];
+        $this->assertArrayHasKey('Data do movimento', $firstRow);
+        $this->assertArrayHasKey('Descricao', $firstRow);
+        $this->assertArrayHasKey('Referencia', $firstRow);
+        $this->assertArrayHasKey('Valor', $firstRow);
+        $this->assertArrayHasKey('Estado de conciliacao', $firstRow);
+        $this->assertArrayHasKey('Valor alocado', $firstRow);
+        $this->assertArrayHasKey('Valor por alocar', $firstRow);
+        $this->assertArrayHasKey('Metodo de conciliacao', $firstRow);
+        $this->assertArrayHasKey('Alvo / utilizador / familia', $firstRow);
+        $this->assertArrayHasKey('Conciliado por', $firstRow);
+        $this->assertArrayHasKey('Conciliado em', $firstRow);
+        $this->assertArrayHasKey('Mensalidades/Faturas liquidadas', $firstRow);
+        $this->assertArrayHasKey('Movimentos liquidados', $firstRow);
+        $this->assertArrayHasKey('Credito criado', $firstRow);
+        $this->assertArrayHasKey('Documento fiscal emitido', $firstRow);
+        $this->assertArrayHasKey('Bloqueado para desconciliar', $firstRow);
+        $this->assertArrayHasKey('Historico de desconciliacao / observacao', $firstRow);
+    }
+
+    public function test_csv_summary_export_returns_operational_totals(): void
+    {
+        $admin = User::factory()->admin()->create();
+
+        $this->createBankStatement(40.00, 'Export resumo 1', '2026-06-11');
+        $this->createBankStatement(41.00, 'Export resumo 2', '2026-06-12');
+
+        $response = $this->actingAs($admin)
+            ->get(route('financeiro.bank-reconciliation-audit.export-summary', [
+                'date_from' => '2026-06-01',
+                'date_to' => '2026-06-30',
+            ]))
+            ->assertOk()
+            ->assertHeader('content-type', 'text/csv; charset=UTF-8');
+
+        $summaryRows = collect($this->readCsvPairs($response));
+
+        $this->assertNotEmpty($summaryRows);
+        $this->assertTrue($summaryRows->contains(fn (array $row) => ($row['Metrica'] ?? null) === 'Total de linhas no filtro'));
+        $this->assertTrue($summaryRows->contains(fn (array $row) => ($row['Metrica'] ?? null) === 'Total por conciliar'));
+        $this->assertTrue($summaryRows->contains(fn (array $row) => ($row['Metrica'] ?? null) === 'Total alocado'));
+        $this->assertTrue($summaryRows->contains(fn (array $row) => ($row['Metrica'] ?? null) === 'Data/hora da exportacao'));
+        $this->assertTrue($summaryRows->contains(fn (array $row) => ($row['Metrica'] ?? null) === 'Utilizador que exportou'));
+    }
+
+    public function test_user_without_permissions_cannot_export_audit_csv(): void
+    {
+        UserType::create([
+            'codigo' => 'user',
+            'nome' => 'user',
+            'descricao' => 'Utilizador sem acesso export',
+            'ativo' => true,
+            'menu_visibility_configured' => true,
+        ]);
+
+        $user = User::factory()->create(['perfil' => 'user']);
+
+        $response = $this->actingAs($user)
+            ->get(route('financeiro.bank-reconciliation-audit.export', [
+                'format' => 'csv',
+            ]));
+
+        $this->assertContains($response->status(), [403, 404]);
+    }
+
+    public function test_csv_export_does_not_change_payments_allocations_or_statement_status(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $member = $this->createFinanceUser(['nome_completo' => 'Sem Mutacao Export']);
+
+        $statement = $this->createBankStatement(35.00, 'Sem mutacao export', '2026-06-18');
+        $invoice = $this->createInvoice($member, 35.00, '2026-06-10');
+        $this->settleInvoiceWithStatement($admin, $invoice, $statement, 35.00);
+
+        $paymentsBefore = (int) DB::table('payments')->count();
+        $allocationsBefore = (int) DB::table('payment_allocations')->count();
+        $statusBefore = (string) BankStatement::query()->findOrFail($statement->id)->conciliacao_status;
+
+        $this->actingAs($admin)
+            ->get(route('financeiro.bank-reconciliation-audit.export', [
+                'format' => 'csv',
+                'search' => 'Sem mutacao export',
+            ]))
+            ->assertOk();
+
+        $paymentsAfter = (int) DB::table('payments')->count();
+        $allocationsAfter = (int) DB::table('payment_allocations')->count();
+        $statusAfter = (string) BankStatement::query()->findOrFail($statement->id)->conciliacao_status;
+
+        $this->assertSame($paymentsBefore, $paymentsAfter);
+        $this->assertSame($allocationsBefore, $allocationsAfter);
+        $this->assertSame($statusBefore, $statusAfter);
+    }
+
+    private function readCsvBody(TestResponse $response): array
+    {
+        $pairs = $this->readCsv($response);
+        if ($pairs === []) {
+            return [];
+        }
+
+        $headers = array_shift($pairs);
+        if (!is_array($headers) || $headers === []) {
+            return [];
+        }
+
+        $records = [];
+        foreach ($pairs as $line) {
+            if (!is_array($line)) {
+                continue;
+            }
+
+            $records[] = array_combine($headers, array_pad($line, count($headers), '')) ?: [];
+        }
+
+        return $records;
+    }
+
+    private function readCsvPairs(TestResponse $response): array
+    {
+        $pairs = $this->readCsv($response);
+        if ($pairs === []) {
+            return [];
+        }
+
+        $headers = array_shift($pairs);
+        if (!is_array($headers) || count($headers) !== 2) {
+            return [];
+        }
+
+        $records = [];
+        foreach ($pairs as $line) {
+            if (!is_array($line)) {
+                continue;
+            }
+
+            $records[] = [
+                $headers[0] => (string) ($line[0] ?? ''),
+                $headers[1] => (string) ($line[1] ?? ''),
+            ];
+        }
+
+        return $records;
+    }
+
+    private function readCsv(TestResponse $response): array
+    {
+        $content = $response->streamedContent();
+        if (str_starts_with((string) $content, "\xEF\xBB\xBF")) {
+            $content = substr((string) $content, 3);
+        }
+        $lines = array_filter(array_map('trim', preg_split('/\r\n|\r|\n/', $content) ?: []));
+
+        return array_values(array_map(static fn (string $line) => str_getcsv($line, ';'), $lines));
     }
 
     private function settleInvoiceWithStatement(User $admin, Invoice $invoice, BankStatement $statement, float $amount): void

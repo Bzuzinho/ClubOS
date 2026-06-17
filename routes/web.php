@@ -333,6 +333,12 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::get('banco/auditoria', [BankReconciliationAuditController::class, 'index'])
             ->middleware('permission.access:financeiro.dashboard,view')
             ->name('bank-reconciliation-audit.index');
+        Route::get('banco/auditoria/export', [BankReconciliationAuditController::class, 'export'])
+            ->middleware('permission.access:financeiro.dashboard,view')
+            ->name('bank-reconciliation-audit.export');
+        Route::get('banco/auditoria/export-summary', [BankReconciliationAuditController::class, 'exportSummary'])
+            ->middleware('permission.access:financeiro.dashboard,view')
+            ->name('bank-reconciliation-audit.export-summary');
         Route::post('bank-statements/{bankStatement}/generate-suggestions', [BankReconciliationSuggestionController::class, 'generateForBankStatement'])
             ->middleware('permission.access:financeiro.dashboard,edit')
             ->whereUuid('bankStatement')

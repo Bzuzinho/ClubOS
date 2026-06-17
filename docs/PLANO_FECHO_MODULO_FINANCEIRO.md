@@ -1263,6 +1263,87 @@ Não avançar para F4.5 nesta sprint.
 
 ---
 
+## Sprint F4.5 — Exportação e fecho operacional da conciliação bancária
+
+> Estado: tecnicamente concluída em 2026-06-17; pendente de validação manual no browser. Não avançar para F4.6 nesta sprint.
+
+### Objetivo
+
+Permitir exportar a auditoria bancária filtrada para formato operacional e adicionar uma camada leve de conferência por período, sem bloquear operações financeiras nem alterar o motor canónico.
+
+### Escopo entregue
+
+- endpoint de exportação detalhada com filtros da auditoria: `GET /financeiro/banco/auditoria/export?format=csv`;
+- endpoint de exportação de resumo operacional por período: `GET /financeiro/banco/auditoria/export-summary`;
+- exportação detalhada ignora paginação visual e exporta todas as linhas filtradas até limite seguro (`5000` linhas);
+- resumo operacional inclui totais por estado, totais monetários, data/hora, utilizador exportador, período e sinalização de truncagem por limite;
+- subtab `Auditoria` em `Configurações > Financeiro > Conciliação Bancária` passou a incluir:
+   - botão `Exportar CSV`;
+   - botão `Exportar resumo CSV`;
+   - informação operacional de que o export usa todas as linhas filtradas e não apenas a página atual;
+   - estado de loading e mensagens de erro simples;
+   - card de fecho operacional leve com indicador `Período pronto para conferência` ou `Período com pendências` quando o intervalo de datas está preenchido;
+- suporte XLSX permanece desativado porque não existe biblioteca de exportação Excel instalada de forma segura no projeto (`maatwebsite/excel` ausente no `composer.json`).
+
+### Regras fechadas nesta sprint
+
+- filtros reaproveitados no export: estado, intervalo de datas, pesquisa, método, com/sem crédito, utilizador/família (quando usados), ordenação;
+- permissões reaproveitam `permission.access:financeiro.dashboard,view`;
+- export não altera dados financeiros;
+- sem alterações em:
+   - `PaymentAllocationService.php`;
+   - `FinancialSettlementService.php`;
+   - `BankReconciliationService.php`;
+   - `CurrentAccountService.php`;
+   - `MonthlyInvoiceStatusService.php`;
+   - `ReceiptCommitService.php`;
+   - importação XLS, desconciliação, sugestões, aliases/rejeições, geração de mensalidades.
+
+### Testes automáticos mínimos
+
+Cobertos em `tests/Feature/Financeiro/BankReconciliationAuditEndpointTest.php`:
+
+- export CSV respeita filtro por estado;
+- export CSV respeita intervalo de datas;
+- export CSV respeita pesquisa;
+- export CSV exporta todas as linhas filtradas e não apenas a página atual;
+- export CSV inclui cabeçalhos/campos principais;
+- resumo operacional é exportável em CSV separado;
+- utilizador sem permissão não consegue exportar;
+- export CSV não altera `payments`, `payment_allocations` nem `bank_statements`.
+
+### Validações técnicas executadas
+
+- `composer dump-autoload`;
+- `php artisan migrate --pretend`;
+- `php artisan test --filter=BankReconciliationAudit`;
+- `php artisan test --filter=BankReconciliationAliasManagement`;
+- `php artisan test --filter=BankReconciliationSuggestion`;
+- `php artisan test --filter=PaymentAllocation`;
+- `php artisan test --filter=Financeiro`;
+- `npm run build`;
+- `git diff --check`.
+
+### Testes manuais para o utilizador
+
+1. Entrar em `Configurações > Financeiro > Conciliação Bancária > Auditoria`.
+2. Aplicar filtros de estado, datas, pesquisa, método e crédito.
+3. Clicar `Exportar CSV` e confirmar que o ficheiro contém as linhas filtradas completas.
+4. Confirmar no CSV os campos operacionais principais (estado, alocado/por alocar, método, alvo, conciliado por/em, faturas/movimentos, crédito, fiscal, bloqueios e histórico).
+5. Clicar `Exportar resumo CSV` e confirmar totais do período e metadados de exportação.
+6. Preencher datas e validar indicador de período:
+    - `Período pronto para conferência` quando `total_parcial = 0` e `total_por_conciliar = 0`;
+    - `Período com pendências` nos restantes cenários.
+7. Confirmar que perfis sem permissão de `financeiro.dashboard` não conseguem exportar.
+
+### Estado operacional
+
+Sprint F4.5 fica tecnicamente concluída e pendente de validação manual no browser.
+
+Não avançar para F4.6 nesta sprint.
+
+---
+
 ## Sprint F5 — Movimentos financeiros, despesas e receitas manuais
 
 ### Objetivo

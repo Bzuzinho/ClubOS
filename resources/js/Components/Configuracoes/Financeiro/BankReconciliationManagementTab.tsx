@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/Components/ui/table';
 import { Badge } from '@/Components/ui/badge';
 import { toast } from 'sonner';
-import { fetchFinanceiro } from '@/Pages/Financeiro/request';
+import { fetchFinanceiro, getFinanceiroFetchErrorMessage, getFinanceiroJsonHeaders } from '@/Pages/Financeiro/request';
 
 type ReconciliationState = 'por_conciliar' | 'parcial' | 'conciliado';
 
@@ -129,6 +129,13 @@ interface AuditApiResponse {
   data?: AuditRow[];
   summary?: Partial<AuditSummary>;
   meta?: Partial<PaginationMeta>;
+  export?: {
+    max_rows?: number;
+    supports?: {
+      csv?: boolean;
+      xlsx?: boolean;
+    };
+  };
 }
 
 const formatDate = (value?: string | null) => {
@@ -164,6 +171,12 @@ export function BankReconciliationManagementTab({ canEdit }: { canEdit: boolean 
   const [aliasesLoading, setAliasesLoading] = useState(false);
   const [rejectedLoading, setRejectedLoading] = useState(false);
   const [auditLoading, setAuditLoading] = useState(false);
+  const [auditExporting, setAuditExporting] = useState<'csv' | 'xlsx' | 'summary_csv' | null>(null);
+  const [auditExportCapabilities, setAuditExportCapabilities] = useState({
+    supportsCsv: true,
+    supportsXlsx: false,
+    maxRows: 5000,
+  });
   const [aliasActionId, setAliasActionId] = useState<string | null>(null);
   const [rejectionActionId, setRejectionActionId] = useState<string | null>(null);
 
@@ -188,6 +201,31 @@ export function BankReconciliationManagementTab({ canEdit }: { canEdit: boolean 
   const [auditSortDirection, setAuditSortDirection] = useState<'asc' | 'desc'>('desc');
   const [auditPage, setAuditPage] = useState(1);
   const [auditPerPage, setAuditPerPage] = useState(20);
+
+  const buildAuditQuery = useCallback(
+    ({ includePagination }: { includePagination: boolean }) => {
+      const query = new URLSearchParams();
+
+      if (includePagination) {
+        query.set('page', String(auditPage));
+        query.set('per_page', String(auditPerPage));
+      }
+
+      query.set('sort_by', auditSortBy);
+      query.set('sort_direction', auditSortDirection);
+
+      if (auditStateFilter !== 'todos') query.set('estado', auditStateFilter);
+      if (auditMethodFilter !== 'all') query.set('metodo', auditMethodFilter);
+      if (auditSearch.trim() !== '') query.set('search', auditSearch.trim());
+      if (auditDateFrom !== '') query.set('date_from', auditDateFrom);
+      if (auditDateTo !== '') query.set('date_to', auditDateTo);
+      if (auditHasCredit === 'with') query.set('has_credit', '1');
+      if (auditHasCredit === 'without') query.set('has_credit', '0');
+
+      return query;
+    },
+    [auditDateFrom, auditDateTo, auditHasCredit, auditMethodFilter, auditPage, auditPerPage, auditSearch, auditSortBy, auditSortDirection, auditStateFilter],
+  );
 
   const sourceOptions = useMemo(() => {
     const values = new Set<string>();
@@ -259,19 +297,7 @@ export function BankReconciliationManagementTab({ canEdit }: { canEdit: boolean 
   const loadAudit = useCallback(async () => {
     setAuditLoading(true);
     try {
-      const query = new URLSearchParams();
-      query.set('page', String(auditPage));
-      query.set('per_page', String(auditPerPage));
-      query.set('sort_by', auditSortBy);
-      query.set('sort_direction', auditSortDirection);
-
-      if (auditStateFilter !== 'todos') query.set('estado', auditStateFilter);
-      if (auditMethodFilter !== 'all') query.set('metodo', auditMethodFilter);
-      if (auditSearch.trim() !== '') query.set('search', auditSearch.trim());
-      if (auditDateFrom !== '') query.set('date_from', auditDateFrom);
-      if (auditDateTo !== '') query.set('date_to', auditDateTo);
-      if (auditHasCredit === 'with') query.set('has_credit', '1');
-      if (auditHasCredit === 'without') query.set('has_credit', '0');
+      const query = buildAuditQuery({ includePagination: true });
 
       const response = await fetchFinanceiro<AuditApiResponse>(`${route('financeiro.bank-reconciliation-audit.index')}?${query.toString()}`, {
         fallbackMessage: 'Nao foi possivel carregar auditoria de conciliacao.',
@@ -294,13 +320,116 @@ export function BankReconciliationManagementTab({ canEdit }: { canEdit: boolean 
         total_por_alocar: Number(response.summary?.total_por_alocar ?? 0),
         total_credito_criado: Number(response.summary?.total_credito_criado ?? 0),
       });
+      setAuditExportCapabilities({
+        supportsCsv: response.export?.supports?.csv !== false,
+        supportsXlsx: response.export?.supports?.xlsx === true,
+        maxRows: Number(response.export?.max_rows ?? 5000),
+      });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Nao foi possivel carregar auditoria de conciliacao.';
       toast.error(message);
     } finally {
       setAuditLoading(false);
     }
-  }, [auditDateFrom, auditDateTo, auditHasCredit, auditMethodFilter, auditPage, auditPerPage, auditSearch, auditSortBy, auditSortDirection, auditStateFilter]);
+  }, [auditPage, auditPerPage, buildAuditQuery]);
+
+  const extractFilenameFromHeader = (headerValue: string | null, fallback: string) => {
+    if (!headerValue) return fallback;
+
+    const utf8Match = headerValue.match(/filename\*=UTF-8''([^;]+)/i);
+    if (utf8Match?.[1]) {
+      return decodeURIComponent(utf8Match[1].trim());
+    }
+
+    const basicMatch = headerValue.match(/filename="?([^";]+)"?/i);
+    if (basicMatch?.[1]) {
+      return basicMatch[1].trim();
+    }
+
+    return fallback;
+  };
+
+  const downloadAuditExport = useCallback(async (format: 'csv' | 'xlsx') => {
+    setAuditExporting(format);
+
+    try {
+      const query = buildAuditQuery({ includePagination: false });
+      query.set('format', format);
+
+      const response = await fetch(`${route('financeiro.bank-reconciliation-audit.export')}?${query.toString()}`, {
+        method: 'GET',
+        headers: getFinanceiroJsonHeaders({ includeContentType: false }),
+        credentials: 'same-origin',
+      });
+
+      if (!response.ok) {
+        throw new Error(await getFinanceiroFetchErrorMessage(response, 'Nao foi possivel exportar auditoria.'));
+      }
+
+      const blob = await response.blob();
+      const fallbackName = format === 'xlsx'
+        ? 'conciliacao-bancaria-auditoria.xlsx'
+        : 'conciliacao-bancaria-auditoria.csv';
+      const filename = extractFilenameFromHeader(response.headers.get('content-disposition'), fallbackName);
+
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      link.click();
+      URL.revokeObjectURL(url);
+
+      if (response.headers.get('x-export-truncated') === '1') {
+        const limit = Number(response.headers.get('x-export-limit') ?? auditExportCapabilities.maxRows);
+        toast.warning(`Exportacao limitada a ${limit} linhas para proteger operacao.`);
+      } else {
+        toast.success(format === 'xlsx' ? 'Exportacao Excel concluida.' : 'Exportacao CSV concluida.');
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Nao foi possivel exportar auditoria.';
+      toast.error(message);
+    } finally {
+      setAuditExporting(null);
+    }
+  }, [auditExportCapabilities.maxRows, buildAuditQuery]);
+
+  const downloadAuditSummaryCsv = useCallback(async () => {
+    setAuditExporting('summary_csv');
+
+    try {
+      const query = buildAuditQuery({ includePagination: false });
+
+      const response = await fetch(`${route('financeiro.bank-reconciliation-audit.export-summary')}?${query.toString()}`, {
+        method: 'GET',
+        headers: getFinanceiroJsonHeaders({ includeContentType: false }),
+        credentials: 'same-origin',
+      });
+
+      if (!response.ok) {
+        throw new Error(await getFinanceiroFetchErrorMessage(response, 'Nao foi possivel exportar resumo operacional.'));
+      }
+
+      const blob = await response.blob();
+      const filename = extractFilenameFromHeader(
+        response.headers.get('content-disposition'),
+        'conciliacao-bancaria-auditoria-resumo.csv',
+      );
+
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      link.click();
+      URL.revokeObjectURL(url);
+
+      toast.success('Resumo operacional exportado com sucesso.');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Nao foi possivel exportar resumo operacional.';
+      toast.error(message);
+    } finally {
+      setAuditExporting(null);
+    }
+  }, [buildAuditQuery]);
 
   useEffect(() => {
     setAliasPage(1);
@@ -869,10 +998,59 @@ export function BankReconciliationManagementTab({ canEdit }: { canEdit: boolean 
             </Card>
           </div>
 
+          <Card>
+            <CardContent className="p-3 text-sm">
+              <div className="font-medium">Fecho operacional do periodo</div>
+              <div className="text-muted-foreground">
+                Para fechar o periodo, exporte a auditoria filtrada e confirme que nao existem linhas por conciliar.
+              </div>
+              {auditDateFrom !== '' || auditDateTo !== '' ? (
+                <div className="mt-2">
+                  {auditSummary.total_por_conciliar === 0 && auditSummary.total_parcial === 0 ? (
+                    <Badge variant="default">Periodo pronto para conferencia</Badge>
+                  ) : (
+                    <Badge variant="secondary">Periodo com pendencias</Badge>
+                  )}
+                </div>
+              ) : (
+                <div className="mt-2 text-xs text-muted-foreground">Preencha data de e/ou data ate para avaliar conferencia do periodo.</div>
+              )}
+            </CardContent>
+          </Card>
+
           <div className="flex gap-2">
             <Button type="button" onClick={() => void loadAudit()} disabled={auditLoading}>
               {auditLoading ? 'A carregar...' : 'Atualizar auditoria'}
             </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => void downloadAuditExport('csv')}
+              disabled={auditExporting !== null || !auditExportCapabilities.supportsCsv}
+            >
+              {auditExporting === 'csv' ? 'A exportar CSV...' : 'Exportar CSV'}
+            </Button>
+            {auditExportCapabilities.supportsXlsx ? (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => void downloadAuditExport('xlsx')}
+                disabled={auditExporting !== null}
+              >
+                {auditExporting === 'xlsx' ? 'A exportar Excel...' : 'Exportar Excel'}
+              </Button>
+            ) : null}
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => void downloadAuditSummaryCsv()}
+              disabled={auditExporting !== null}
+            >
+              {auditExporting === 'summary_csv' ? 'A exportar resumo...' : 'Exportar resumo CSV'}
+            </Button>
+            <span className="self-center text-xs text-muted-foreground">
+              Exporta todas as linhas filtradas, nao apenas a pagina atual.
+            </span>
             <div className="w-40">
               <Select value={String(auditPerPage)} onValueChange={(value) => setAuditPerPage(Number(value))}>
                 <SelectTrigger>
