@@ -148,7 +148,14 @@ const formatDate = (value?: string | null) => {
 
 const formatCurrency = (value?: number | null) => {
   if (typeof value !== 'number' || Number.isNaN(value)) return '-';
-  return `EUR ${value.toFixed(2)}`;
+  return `€${value.toFixed(2)}`;
+};
+
+const formatAllocationType = (type?: string | null) => {
+  if (type === 'invoice') return 'Mensalidade/Fatura';
+  if (type === 'movement') return 'Movimento';
+  if (type === 'credit') return 'Credito criado';
+  return 'Outro';
 };
 
 export function BankReconciliationManagementTab({ canEdit }: { canEdit: boolean }) {
@@ -479,8 +486,8 @@ export function BankReconciliationManagementTab({ canEdit }: { canEdit: boolean 
     const activate = !alias.active;
     const confirmation = window.confirm(
       activate
-        ? 'Reativar este alias para voltar a ser usado nas proximas sugestoes?'
-        : 'Desativar este alias para evitar correspondencias futuras?'
+        ? 'Reativar este alias bancario para voltar a ser usado nas proximas sugestoes?'
+        : 'Desativar este alias bancario para evitar correspondencias futuras?'
     );
 
     if (!confirmation) return;
@@ -529,7 +536,7 @@ export function BankReconciliationManagementTab({ canEdit }: { canEdit: boolean 
         }
       );
 
-      toast.success('Rejeicao limpa. A sugestao pode voltar a ser gerada.');
+      toast.success('Sugestao rejeitada limpa. A sugestao pode voltar a ser gerada.');
       await loadRejectedSuggestions();
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Nao foi possivel limpar rejeicao.';
@@ -543,18 +550,18 @@ export function BankReconciliationManagementTab({ canEdit }: { canEdit: boolean 
     <div className="space-y-4">
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle className="text-lg">Conciliacao Bancaria</CardTitle>
+          <CardTitle className="text-lg">Conciliação Bancária</CardTitle>
           <CardDescription className="text-sm">
-            Aliases ajudam o sistema a reconhecer transferencias futuras. Rejeicoes impedem que sugestoes erradas reaparecam automaticamente.
+            Aliases bancários ajudam o sistema a reconhecer transferencias futuras. Sugestoes rejeitadas impedem que propostas erradas reaparecam automaticamente.
           </CardDescription>
         </CardHeader>
         <CardContent className="pt-0">
           <div className="flex flex-wrap gap-2">
             <Button type="button" size="sm" variant={activeSubtab === 'aliases' ? 'default' : 'outline'} onClick={() => setActiveSubtab('aliases')}>
-              Aliases
+              Aliases bancarios
             </Button>
             <Button type="button" size="sm" variant={activeSubtab === 'rejeicoes' ? 'default' : 'outline'} onClick={() => setActiveSubtab('rejeicoes')}>
-              Rejeicoes
+              Sugestoes rejeitadas
             </Button>
             <Button type="button" size="sm" variant={activeSubtab === 'auditoria' ? 'default' : 'outline'} onClick={() => setActiveSubtab('auditoria')}>
               Auditoria
@@ -729,7 +736,7 @@ export function BankReconciliationManagementTab({ canEdit }: { canEdit: boolean 
       {activeSubtab === 'rejeicoes' ? (
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="text-base">Rejeicoes de sugestoes</CardTitle>
+          <CardTitle className="text-base">Sugestoes rejeitadas</CardTitle>
           <CardDescription className="text-sm">Visualize rejeicoes ativas e limpe quando precisar de permitir nova geracao.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -772,7 +779,7 @@ export function BankReconciliationManagementTab({ canEdit }: { canEdit: boolean 
                   <TableHead>Descricao bancaria</TableHead>
                   <TableHead>Valor</TableHead>
                   <TableHead>Alvo sugerido</TableHead>
-                  <TableHead>Score</TableHead>
+                  <TableHead>Confianca</TableHead>
                   <TableHead>Motivo</TableHead>
                   <TableHead>Rejeitado em</TableHead>
                   <TableHead>Rejeitado por</TableHead>
@@ -855,8 +862,8 @@ export function BankReconciliationManagementTab({ canEdit }: { canEdit: boolean 
       {activeSubtab === 'auditoria' ? (
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="text-base">Relatorio de Conciliacao</CardTitle>
-          <CardDescription className="text-sm">Consulta operacional de conciliacoes, alocacoes, creditos e historico de desconciliacoes.</CardDescription>
+          <CardTitle className="text-base">Auditoria</CardTitle>
+          <CardDescription className="text-sm">Consulta operacional de conciliacoes, valor alocado, valor por alocar, credito criado e historico de desconciliacoes.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid gap-3 md:grid-cols-4">
@@ -1117,14 +1124,14 @@ export function BankReconciliationManagementTab({ canEdit }: { canEdit: boolean 
                           <summary className="cursor-pointer text-sm text-primary">Ver detalhe</summary>
                           <div className="mt-2 space-y-2 rounded border p-2 text-left text-xs">
                             <div>
-                              <strong>Mensalidades / Faturas e Movimentos</strong>
+                              <strong>Mensalidades/Faturas e Movimentos</strong>
                               <div className="mt-1 space-y-1">
                                 {(row.allocations || []).length === 0 ? (
                                   <div className="text-muted-foreground">Sem alocacoes detalhadas.</div>
                                 ) : (
                                   (row.allocations || []).map((allocation) => (
                                     <div key={`${row.bank_statement_id}-${allocation.tipo}-${allocation.id}`}>
-                                      {allocation.tipo} · {allocation.descricao} · {allocation.mes || '-'} · {formatCurrency(allocation.valor_alocado)} · {allocation.estado || '-'}
+                                      {formatAllocationType(allocation.tipo)} · {allocation.descricao} · {allocation.mes || '-'} · {formatCurrency(allocation.valor_alocado)} · {allocation.estado || '-'}
                                     </div>
                                   ))
                                 )}
@@ -1137,9 +1144,9 @@ export function BankReconciliationManagementTab({ canEdit }: { canEdit: boolean 
                             </div>
 
                             <div>
-                              <strong>Flags</strong>
+                              <strong>Indicadores operacionais</strong>
                               <div>
-                                tem_credito: {row.flags?.tem_credito ? 'sim' : 'nao'} · tem_desconciliacao: {row.flags?.tem_desconciliacao ? 'sim' : 'nao'} · tem_documento_fiscal_emitido: {row.flags?.tem_documento_fiscal_emitido ? 'sim' : 'nao'} · bloqueado_para_desconciliar: {row.flags?.bloqueado_para_desconciliar ? 'sim' : 'nao'}
+                                Credito criado: {row.flags?.tem_credito ? 'sim' : 'nao'} · Com desconciliacoes: {row.flags?.tem_desconciliacao ? 'sim' : 'nao'} · Documento fiscal emitido: {row.flags?.tem_documento_fiscal_emitido ? 'sim' : 'nao'} · Bloqueado para desconciliar: {row.flags?.bloqueado_para_desconciliar ? 'sim' : 'nao'}
                               </div>
                             </div>
 

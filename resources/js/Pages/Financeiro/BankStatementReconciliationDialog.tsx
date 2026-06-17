@@ -371,6 +371,16 @@ export function BankStatementReconciliationDialog({
 
     const resolvedCreditTarget = creditTargets.find((candidate) => candidate.key === creditTarget) ?? null;
 
+    if (assistedSuggestion) {
+      const confirmation = window.confirm(
+        `Confirmar alocacao assistida desta linha bancaria?\n\nValor alocado: ${formatCurrency(allocatedTotal)}\nValor por alocar: ${formatCurrency(remainingAmount)}`
+      );
+
+      if (!confirmation) {
+        return;
+      }
+    }
+
     setSubmitting(true);
 
     try {
@@ -474,7 +484,7 @@ export function BankStatementReconciliationDialog({
               <div className="mt-3 flex items-center gap-2">
                 <span className="text-xs uppercase tracking-wide text-muted-foreground">Estado</span>
                 <Badge variant="outline">
-                  {status === 'reconciled' ? 'conciliado' : status === 'partial' ? 'parcial' : 'por conciliar'}
+                  {status === 'reconciled' ? 'Conciliado' : status === 'partial' ? 'Parcial' : 'Por conciliar'}
                 </Badge>
               </div>
             </Card>
@@ -499,14 +509,14 @@ export function BankStatementReconciliationDialog({
                   <div>
                     <h3 className="font-semibold">
                       {assistedContext
-                        ? `Mensalidades / Faturas em aberto ate ${formatReferenceMonthLabel(assistedContext.reference_month)}`
-                        : 'Mensalidades / Faturas em aberto'}
+                        ? `Mensalidades/Faturas em aberto ate ${formatReferenceMonthLabel(assistedContext.reference_month)}`
+                        : 'Mensalidades/Faturas em aberto'}
                     </h3>
                     <p className="text-xs text-muted-foreground">
                       {visibleInvoiceCount} de {invoiceTotal} resultado(s) carregados
                     </p>
                   </div>
-                  <Badge variant="outline">Backend: valor_em_aberto</Badge>
+                  <Badge variant="outline">Valor por alocar controlado</Badge>
                 </div>
 
                 {hasMoreInvoices ? (
@@ -711,11 +721,11 @@ export function BankStatementReconciliationDialog({
 
               <div className="grid gap-3 md:grid-cols-3 text-sm">
                 <div>
-                  <div className="text-xs uppercase tracking-wide text-muted-foreground">Total alocado</div>
+                  <div className="text-xs uppercase tracking-wide text-muted-foreground">Valor alocado</div>
                   <div className="mt-1 font-semibold">{formatCurrency(allocatedTotal)}</div>
                 </div>
                 <div>
-                  <div className="text-xs uppercase tracking-wide text-muted-foreground">Restante</div>
+                  <div className="text-xs uppercase tracking-wide text-muted-foreground">Valor por alocar</div>
                   <div className={`mt-1 font-semibold ${remainingAmount > 0.009 ? 'text-amber-600' : 'text-emerald-600'}`}>
                     {formatCurrency(remainingAmount)}
                   </div>
@@ -744,7 +754,7 @@ export function BankStatementReconciliationDialog({
                 Cancelar
               </Button>
               <Button onClick={() => void handleSubmit()} disabled={submitting}>
-                {assistedSuggestion ? 'Confirmar sugestao assistida' : 'Conciliar'}
+                {assistedSuggestion ? 'Confirmar alocacao assistida' : 'Conciliar'}
               </Button>
             </DialogFooter>
           </div>

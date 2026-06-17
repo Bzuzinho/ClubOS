@@ -1344,6 +1344,43 @@ Não avançar para F4.6 nesta sprint.
 
 ---
 
+## Sprint F4.6 — Fecho final / hardening operacional
+
+> Estado: tecnicamente concluída em 2026-06-17, pendente de validação manual final no browser. Não avançar para F4.7 nesta sprint.
+
+### Objetivo
+
+Executar hardening final do módulo financeiro sem criar novas funcionalidades grandes, garantindo consistência visual/linguística, estados vazios, mensagens operacionais de erro, loading states, permissões e proteção de rotas.
+
+### Escopo executado
+
+- auditoria final de rotas F4 em `routes/web.php` (sugestões, aliases, rejeições, auditoria e exportação);
+- revisão de permissões em backend e UI para `financeiro.dashboard` e `financeiro.importacao_recibos`;
+- uniformização de microcopy e labels operacionais em Banco e Configurações > Financeiro > Conciliação Bancária;
+- confirmação explícita para ações perigosas:
+   - criar despesa a partir de extrato;
+   - confirmar alocação assistida;
+- limpeza de detalhe técnico na UI de auditoria para foco operacional.
+
+### Regras mantidas nesta sprint
+
+- sem migrations;
+- sem alterações em `PaymentAllocationService.php`;
+- sem alterações em `FinancialSettlementService.php`;
+- sem alterações em `BankReconciliationService.php`;
+- sem alterações em `CurrentAccountService.php`;
+- sem alterações em `MonthlyInvoiceStatusService.php`;
+- sem alterações em `ReceiptCommitService.php`;
+- sem alterações de regras contabilísticas/cálculo financeiro canónico.
+
+### Estado operacional
+
+Sprint F4.6 fica tecnicamente concluída e preparada para fecho do bloco F4, pendente apenas de validação manual final orientada no browser.
+
+Não avançar para F4.7 nesta sprint.
+
+---
+
 ## Sprint F5 — Movimentos financeiros, despesas e receitas manuais
 
 ### Objetivo
