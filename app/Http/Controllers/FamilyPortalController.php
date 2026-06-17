@@ -275,6 +275,7 @@ class FamilyPortalController extends Controller
             'perfil_tipos' => $this->resolveProfileTypes($user, $accessControl),
             'athlete_portal_url' => $this->userIsAtleta($user, $accessControl) ? route('dashboard') : null,
             'has_family' => $familyService->userHasFamily($user),
+            'can_manage_family' => $familyService->userCanManageFamily($user),
             'modulos_visiveis' => $accessControl['visibleMenuModules'] ?? [],
         ]);
     }

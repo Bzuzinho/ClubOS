@@ -183,6 +183,9 @@ export default function MembrosListTab({ members, userTypes }: Props) {
                         </SelectContent>
                     </Select>
                 </div>
+                <p className="mt-2 text-[11px] text-muted-foreground">
+                    Nesta lista mostramos o tipo de utilizador. O perfil e permissões são geridos na tab Configuração da ficha do membro.
+                </p>
             </Card>
 
             {filteredUsers.length > 0 ? (
@@ -307,7 +310,7 @@ export default function MembrosListTab({ members, userTypes }: Props) {
                         <UsersIcon size={40} className="mx-auto text-muted-foreground mb-3" weight="duotone" />
                         <h3 className="text-base font-semibold mb-1.5">Nenhum membro encontrado</h3>
                         <p className="text-muted-foreground mb-3 text-xs">
-                            Tente ajustar os filtros ou criar um novo membro.
+                            Ajuste os filtros de estado/tipo ou pesquise por nome, número de sócio e email.
                         </p>
                         <Link href={route('membros.create')}>
                             <Button size="sm" className="h-8 text-xs">

@@ -55,6 +55,12 @@ export function ConfigurationTab({ user, onChange, isAdmin, isCreating = false }
 
   return (
     <div className="space-y-1">
+      <Card className="p-2">
+        <p className="text-xs text-muted-foreground">
+          Esta tab gere Perfil e parâmetros de configuração (RGPD, afiliação, transporte e documentos). O Tipo de utilizador é definido em Dados Pessoais.
+        </p>
+      </Card>
+
       {/* Acesso à Plataforma */}
       <Card className="p-2">
         <h3 className="text-xs font-semibold mb-1.5 flex items-center gap-1">
@@ -95,6 +101,10 @@ export function ConfigurationTab({ user, onChange, isAdmin, isCreating = false }
               </Select>
             </div>
           </div>
+
+          <p className="text-xs text-muted-foreground">
+            Perfil controla acesso e permissões. Ajustes aqui impactam visibilidade de áreas administrativas.
+          </p>
 
           {isCreating && (
             <div>

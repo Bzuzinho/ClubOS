@@ -15,6 +15,8 @@ use App\Models\Invoice;
 use App\Models\Movement;
 use App\Models\PaymentAllocation;
 use App\Services\Communication\InternalCommunicationService;
+use App\Services\AccessControl\UserTypeAccessControlService;
+use App\Services\Family\FamilyService;
 use App\Services\Financeiro\CurrentAccountService;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -295,6 +297,10 @@ class MembrosController extends Controller
 
     public function show(User $member): Response
     {
+        $viewer = request()->user();
+        $accessControlService = app(UserTypeAccessControlService::class);
+        $familyService = app(FamilyService::class);
+
         $memberKey = (string) (
             $member->getRouteKey()
             ?? $member->getOriginal('id')
@@ -444,8 +450,22 @@ class MembrosController extends Controller
             'pivot_guardians' => $member->encarregados()->pluck('users.id')->all(),
         ]);
 
+        $canManageFamilyRelations = $viewer
+            ? $accessControlService->canAccessPermission($viewer, 'membros.ficha', 'edit')
+            : false;
+
         return Inertia::render('Membros/Show', [
             'member' => $memberData,
+            'permissions' => [
+                'can_view' => $viewer ? $accessControlService->canAccessPermission($viewer, 'membros.ficha', 'view') : false,
+                'can_edit' => $viewer ? $accessControlService->canAccessPermission($viewer, 'membros.ficha', 'edit') : false,
+                'can_delete' => $viewer ? $accessControlService->canAccessPermission($viewer, 'membros.ficha', 'delete') : false,
+            ],
+            'family_context' => $this->buildFamilyContext(
+                $member,
+                $canManageFamilyRelations,
+                $familyService,
+            ),
             'allUsers' => $allUsers,
             'internalCommunications' => [
                 'received' => $this->internalCommunicationService->receivedFeed($memberKey),
@@ -466,6 +486,102 @@ class MembrosController extends Controller
                 ->select('id', 'nome', 'ativo')
                 ->get(),
         ]);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function buildFamilyContext(User $member, bool $canManageFamilyRelations, FamilyService $familyService): array
+    {
+        $guardians = collect($member->encarregados ?? [])
+            ->map(fn ($guardian) => $this->resolveRelatedUser($guardian))
+            ->filter(fn ($guardian) => $guardian instanceof User)
+            ->map(fn (User $guardian) => [
+                'id' => $guardian->id,
+                'nome_completo' => trim((string) ($guardian->nome_completo ?: $guardian->name)) ?: 'Sem nome',
+                'numero_socio' => $guardian->numero_socio,
+                'estado' => $guardian->estado,
+                'tipo_membro' => is_array($guardian->tipo_membro) ? $guardian->tipo_membro : (array) $guardian->tipo_membro,
+                'email' => $guardian->email_utilizador ?: $guardian->email,
+                'contacto' => $guardian->contacto_telefonico ?: $guardian->contacto ?: $guardian->telemovel,
+            ])
+            ->values();
+
+        $dependents = collect($member->educandos ?? [])
+            ->map(fn ($educando) => $this->resolveRelatedUser($educando))
+            ->filter(fn ($educando) => $educando instanceof User)
+            ->map(fn (User $educando) => [
+                'id' => $educando->id,
+                'nome_completo' => trim((string) ($educando->nome_completo ?: $educando->name)) ?: 'Sem nome',
+                'numero_socio' => $educando->numero_socio,
+                'estado' => $educando->estado,
+                'tipo_membro' => is_array($educando->tipo_membro) ? $educando->tipo_membro : (array) $educando->tipo_membro,
+            ])
+            ->values();
+
+        $families = collect($familyService->actualFamiliesForUser($member) ?? [])
+            ->map(function ($family) {
+                $members = collect($family->members ?? [])
+                    ->map(fn (User $familyMember) => [
+                        'id' => $familyMember->id,
+                        'nome_completo' => trim((string) ($familyMember->nome_completo ?: $familyMember->name)) ?: 'Sem nome',
+                        'numero_socio' => $familyMember->numero_socio,
+                        'estado' => $familyMember->estado,
+                        'papel_na_familia' => $familyMember->pivot?->papel_na_familia,
+                        'tipo_membro' => is_array($familyMember->tipo_membro) ? $familyMember->tipo_membro : (array) $familyMember->tipo_membro,
+                    ])
+                    ->values();
+
+                return [
+                    'id' => $family->id,
+                    'nome' => $family->nome,
+                    'ativo' => (bool) $family->ativo,
+                    'papel_do_membro' => optional(
+                        collect($family->members ?? [])->firstWhere('id', $family->responsavel_user_id)
+                    )->pivot?->papel_na_familia,
+                    'members' => $members,
+                ];
+            })
+            ->values();
+
+        $memberTypeCodes = collect(is_array($member->tipo_membro) ? $member->tipo_membro : (array) $member->tipo_membro)
+            ->map(fn ($value) => strtolower((string) $value))
+            ->values();
+
+        $isGuardianProfile = $memberTypeCodes->contains('encarregado_educacao') || $dependents->isNotEmpty();
+        $isDependentProfile = $memberTypeCodes->contains('atleta') || $guardians->isNotEmpty() || (bool) $member->menor;
+
+        return [
+            'is_guardian_profile' => $isGuardianProfile,
+            'is_dependent_profile' => $isDependentProfile,
+            'guardians' => $guardians->all(),
+            'dependents' => $dependents->all(),
+            'families' => $families->all(),
+            'summary' => [
+                'guardians_count' => $guardians->count(),
+                'dependents_count' => $dependents->count(),
+                'families_count' => $families->count(),
+                'family_members_count' => (int) $families->sum(fn (array $family) => count($family['members'] ?? [])),
+            ],
+            'can_manage_family_relations' => $canManageFamilyRelations,
+        ];
+    }
+
+    private function resolveRelatedUser(mixed $candidate): ?User
+    {
+        if ($candidate instanceof User) {
+            return $candidate;
+        }
+
+        if (is_array($candidate)) {
+            $candidate = $candidate['id'] ?? null;
+        }
+
+        if (!is_string($candidate) && !is_int($candidate)) {
+            return null;
+        }
+
+        return User::query()->find($candidate);
     }
 
     public function edit(User $member): Response

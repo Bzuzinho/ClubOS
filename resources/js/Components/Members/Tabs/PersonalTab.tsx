@@ -94,6 +94,26 @@ export function PersonalTab({ user, allUsers, onChange, isAdmin, userTypes = [],
     }
   };
 
+  const handleRemoveGuardian = (index: number, guardianName?: string) => {
+    if (!window.confirm(`Remover a relação com ${guardianName || 'este encarregado'}?`)) {
+      return;
+    }
+
+    const currentGuardians = user.encarregado_educacao || [];
+    onChange('encarregado_educacao', currentGuardians.filter((_: string, i: number) => i !== index));
+    toast.success('Relação removida. Guarde para confirmar.');
+  };
+
+  const handleRemoveEducando = (index: number, educandoName?: string) => {
+    if (!window.confirm(`Remover a relação com ${educandoName || 'este educando'}?`)) {
+      return;
+    }
+
+    const currentEducandos = user.educandos || [];
+    onChange('educandos', currentEducandos.filter((_: string, i: number) => i !== index));
+    toast.success('Relação removida. Guarde para confirmar.');
+  };
+
   const handleUploadClick = () => {
     if (fileInputRef.current) {
       fileInputRef.current.click();
@@ -161,6 +181,12 @@ export function PersonalTab({ user, allUsers, onChange, isAdmin, userTypes = [],
 
   return (
     <div className="space-y-1">
+      <Card className="p-2">
+        <p className="text-xs text-muted-foreground">
+          Dados Pessoais concentram identidade, contacto e tipo de utilizador. Perfil e permissões ficam na tab Configuração.
+        </p>
+      </Card>
+
       {/* Linha 1: Perfil e Tipo de Membro */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-1">
         {/* Perfil e Dados Básicos */}
@@ -536,6 +562,12 @@ export function PersonalTab({ user, allUsers, onChange, isAdmin, userTypes = [],
 
         {/* Relações Familiares */}
         <div className="space-y-1">
+          <Card className="p-2">
+            <p className="text-xs text-muted-foreground">
+              Relações familiares nesta tab seguem o estado operacional atual (arrays legacy sincronizados com pivot). Esta sprint não altera a fonte de verdade.
+            </p>
+          </Card>
+
           {/* Encarregado de Educação */}
           {user.menor && (
             <Card className="p-2">
@@ -565,10 +597,7 @@ export function PersonalTab({ user, allUsers, onChange, isAdmin, userTypes = [],
                             variant="ghost"
                             size="icon"
                             className="h-6 w-6 text-destructive"
-                            onClick={() => {
-                              const currentGuardians = user.encarregado_educacao || [];
-                              onChange('encarregado_educacao', currentGuardians.filter((_: string, i: number) => i !== index));
-                            }}
+                            onClick={() => handleRemoveGuardian(index, guardian.nome_completo)}
                           >
                             ×
                           </Button>
@@ -578,7 +607,7 @@ export function PersonalTab({ user, allUsers, onChange, isAdmin, userTypes = [],
                   })}
                 </div>
               ) : (
-                <p className="text-xs text-muted-foreground">Nenhum encarregado associado</p>
+                <p className="text-xs text-muted-foreground">Sem encarregado associado. Adicione um responsável para completar a relação familiar.</p>
               )}
             </Card>
           )}
@@ -612,10 +641,7 @@ export function PersonalTab({ user, allUsers, onChange, isAdmin, userTypes = [],
                             variant="ghost"
                             size="icon"
                             className="h-6 w-6 text-destructive"
-                            onClick={() => {
-                              const currentEducandos = user.educandos || [];
-                              onChange('educandos', currentEducandos.filter((_: string, i: number) => i !== index));
-                            }}
+                            onClick={() => handleRemoveEducando(index, educando.nome_completo)}
                           >
                             ×
                           </Button>
@@ -625,7 +651,7 @@ export function PersonalTab({ user, allUsers, onChange, isAdmin, userTypes = [],
                   })}
                 </div>
               ) : (
-                <p className="text-xs text-muted-foreground">Nenhum educando associado</p>
+                <p className="text-xs text-muted-foreground">Sem educandos associados. Adicione educandos para disponibilizar visão consolidada no Portal Família.</p>
               )}
             </Card>
           )}

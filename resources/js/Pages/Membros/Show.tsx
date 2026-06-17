@@ -12,6 +12,7 @@ import { PersonalTab } from '@/Components/Members/Tabs/PersonalTab';
 import { FinancialTab } from '@/Components/Members/Tabs/FinancialTab';
 import { SportsTab } from '@/Components/Members/Tabs/SportsTab';
 import { ConfigurationTab } from '@/Components/Members/Tabs/ConfigurationTab';
+import { FamilyTab } from '@/Components/Members/Tabs/FamilyTab';
 import CommunicationsTab from './CommunicationsTab';
 
 interface User {
@@ -30,6 +31,25 @@ interface User {
 
 interface Props {
     member: User;
+    family_context?: {
+        is_guardian_profile: boolean;
+        is_dependent_profile: boolean;
+        guardians: any[];
+        dependents: any[];
+        families: any[];
+        summary?: {
+            guardians_count?: number;
+            dependents_count?: number;
+            families_count?: number;
+            family_members_count?: number;
+        };
+        can_manage_family_relations: boolean;
+    };
+    permissions?: {
+        can_view?: boolean;
+        can_edit?: boolean;
+        can_delete?: boolean;
+    };
     allUsers: User[];
     internalCommunications: {
         received: any[];
@@ -53,7 +73,7 @@ interface PageProps {
     };
 }
 
-type MemberTab = 'dashboard' | 'personal' | 'financial' | 'sports' | 'configuration' | 'communications';
+type MemberTab = 'dashboard' | 'personal' | 'family' | 'financial' | 'sports' | 'configuration' | 'communications';
 
 const resolveMemberTab = (value: string | undefined, showSportsTab: boolean): MemberTab => {
     switch ((value || '').toLowerCase()) {
@@ -65,6 +85,9 @@ const resolveMemberTab = (value: string | undefined, showSportsTab: boolean): Me
         case 'financial':
         case 'financeiro':
             return 'financial';
+        case 'family':
+        case 'familia':
+            return 'family';
         case 'sports':
         case 'desportivo':
             return showSportsTab ? 'sports' : 'dashboard';
@@ -205,12 +228,13 @@ const buildMemberUpdatePayload = (user: User) => ({
     declaracao_transporte: user.declaracao_transporte || '',
 });
 
-export default function Show({ member, allUsers, internalCommunications, userTypes, ageGroups, faturas, movimentos, monthlyFees, costCenters }: Props) {
+export default function Show({ member, family_context, permissions, allUsers, internalCommunications, userTypes, ageGroups, faturas, movimentos, monthlyFees, costCenters }: Props) {
     const page = usePage<PageProps>();
     const [user, setUser] = useState<User>(() => normalizeMember(member));
     const [hasChanges, setHasChanges] = useState(false);
     const query = page.props.ziggy?.query;
     const showSportsTab = (member.tipo_membro?.includes('atleta') || false);
+    const canEditMember = Boolean(permissions?.can_edit);
     const initialTab = resolveMemberTab(query?.tab, showSportsTab);
 
     useEffect(() => {
@@ -243,6 +267,11 @@ export default function Show({ member, allUsers, internalCommunications, userTyp
 
     const handleSave: FormEventHandler = (e) => {
         e.preventDefault();
+        if (!canEditMember) {
+            toast.error('Sem permissão para editar este membro.');
+            return;
+        }
+
         const payload = buildMemberUpdatePayload(user);
 
         if (import.meta.env.DEV) {
@@ -326,13 +355,16 @@ export default function Show({ member, allUsers, internalCommunications, userTyp
                             </svg>
                             Cancelar
                         </Button>
-                        <Button size="sm" onClick={handleSave} disabled={!hasChanges} className="h-8 text-xs">
+                        <Button size="sm" onClick={handleSave} disabled={!canEditMember || !hasChanges} className="h-8 text-xs">
                             <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                             </svg>
                             Guardar
                         </Button>
                     </div>
+                    {!canEditMember && (
+                        <p className="text-xs text-amber-700">Sem permissão de edição. Os dados estão em modo de consulta.</p>
+                    )}
                 </div>
             }
         >
@@ -341,15 +373,18 @@ export default function Show({ member, allUsers, internalCommunications, userTyp
             <div className={moduleViewportClass}>
             <Card className="flex min-h-0 flex-1 flex-col p-2 sm:p-3 bg-white border-0">
                 <Tabs defaultValue={resolveMemberTab(query?.tab, currentShowSportsTab)} className={moduleTabsClass}>
-                    <TabsList className={`grid w-full shrink-0 h-auto gap-1 p-1 ${currentShowSportsTab ? 'grid-cols-2 sm:grid-cols-6' : 'grid-cols-2 sm:grid-cols-5'}`}>
+                    <TabsList className={`grid w-full shrink-0 h-auto gap-1 p-1 ${currentShowSportsTab ? 'grid-cols-2 sm:grid-cols-7' : 'grid-cols-2 sm:grid-cols-6'}`}>
                             <TabsTrigger value="dashboard" className="text-xs px-2 py-1.5 whitespace-normal leading-tight text-center min-h-8">
                                 Dashboard
                             </TabsTrigger>
                             <TabsTrigger value="personal" className="text-xs px-2 py-1.5 whitespace-normal leading-tight text-center min-h-8">
-                                Pessoal
+                                Dados Pessoais
                             </TabsTrigger>
                             <TabsTrigger value="financial" className="text-xs px-2 py-1.5 whitespace-normal leading-tight text-center min-h-8">
                                 Financeiro
+                            </TabsTrigger>
+                            <TabsTrigger value="family" className="text-xs px-2 py-1.5 whitespace-normal leading-tight text-center min-h-8">
+                                Família
                             </TabsTrigger>
                             {currentShowSportsTab && (
                                 <TabsTrigger value="sports" className="text-xs px-2 py-1.5 whitespace-normal leading-tight text-center min-h-8">
@@ -373,10 +408,17 @@ export default function Show({ member, allUsers, internalCommunications, userTyp
                         <PersonalTab 
                             user={user}
                             onChange={handleChange}
-                            isAdmin={true}
+                            isAdmin={canEditMember}
                             allUsers={allUsers}
                             userTypes={userTypes}
                             onNavigateToUser={(userId) => router.visit(route('membros.show', userId))}
+                        />
+                    </TabsContent>
+
+                    <TabsContent value="family" className={`${moduleTabbedContentClass} space-y-2 bg-white p-0 rounded-lg`}>
+                        <FamilyTab
+                            familyContext={family_context}
+                            onOpenMember={(userId) => router.visit(route('membros.show', userId))}
                         />
                     </TabsContent>
 
@@ -384,7 +426,7 @@ export default function Show({ member, allUsers, internalCommunications, userTyp
                         <FinancialTab 
                             user={user}
                             onChange={handleChange}
-                            isAdmin={true}
+                            isAdmin={canEditMember}
                             faturas={faturas}
                             movimentos={movimentos}
                             monthlyFees={monthlyFees}
@@ -397,7 +439,7 @@ export default function Show({ member, allUsers, internalCommunications, userTyp
                             <SportsTab 
                                 user={user as any}
                                 onChange={handleChange}
-                                isAdmin={true}
+                                isAdmin={canEditMember}
                             />
                         </TabsContent>
                     )}
@@ -406,7 +448,7 @@ export default function Show({ member, allUsers, internalCommunications, userTyp
                         <ConfigurationTab 
                             user={user}
                             onChange={handleChange}
-                            isAdmin={true}
+                            isAdmin={canEditMember}
                         />
                     </TabsContent>
 
@@ -423,7 +465,7 @@ export default function Show({ member, allUsers, internalCommunications, userTyp
             </Card>
             </div>
 
-            {hasChanges && (
+            {hasChanges && canEditMember && (
                 <div className="fixed bottom-2 right-2 sm:bottom-4 sm:right-4 bg-accent text-accent-foreground p-2 rounded-lg shadow-lg border">
                     <p className="text-xs font-medium">Alterações não guardadas</p>
                 </div>

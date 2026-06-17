@@ -131,6 +131,15 @@ Recomendação futura:
 
 O modelo `users` continua a concentrar muitos campos. Algumas áreas já estão separadas em tabelas especializadas, como dados financeiros, documentos, tipos, relações e centros de custo.
 
+No fecho técnico da Sprint M1 (hardening operacional de Membros/Famílias/EE), ficou explícita a dívida estrutural que deve ser tratada numa sprint própria de consolidação de dados:
+
+- `users` continua sobrecarregado com dados pessoais, configuração e metadados operacionais;
+- não existem tabelas dedicadas `dados_pessoais` e `dados_configuracao` nesta fase;
+- coexistem três superfícies de relação familiar (`user_guardian`, `user_relationships` e arrays legacy em `users`), o que aumenta o risco de inconsistência;
+- a Sprint M1 foi limitada a estabilização UX/permissões/microcopy e não alterou a fonte de verdade relacional.
+
+Recomendação explícita: abrir sprint estrutural dedicada para convergir dados de membro/família para um modelo único e reduzir acoplamento no `users`.
+
 É importante manter a regra:
 
 - identidade e autenticação em `users`;
@@ -228,6 +237,8 @@ Relatórios prioritários:
 
 | Data | Módulo | Desenvolvimento / análise | Evidência | Percentagem antes | Percentagem depois | Pendências |
 |---|---|---|---|---:|---:|---|
+| 2026-06-17 | Membros / Família | Sprint M1 — ajuste incremental: ficha administrativa de membro com nova tab `Família` em modo consultivo. A ficha passa a expor contexto familiar consolidado (`guardians`, `dependents`, famílias agregadas e contagens) para navegação entre membros sem alterar a fonte de verdade relacional nem criar novo fluxo de escrita. | `app/Http/Controllers/MembrosController.php`, `resources/js/Pages/Membros/Show.tsx`, `resources/js/Components/Members/Tabs/FamilyTab.tsx`, `tests/Feature/Membros/MembrosFamilyContextTabPayloadTest.php` | 76% | 77% | Mantém-se a pendência estrutural de convergência de relações (`user_guardian` + `user_relationships` + arrays legacy) para sprint dedicada; esta entrega é apenas de visibilidade/consulta. |
+| 2026-06-17 | Membros / Família | Sprint M1 — hardening operacional do módulo Membros/Famílias/Encarregados de Educação (sem mudanças estruturais). Foram aplicadas melhorias de microcopy/estados vazios, clarificação funcional entre `Tipo de utilizador` (Dados Pessoais) e `Perfil/permissões` (Configuração), remoção de hardcoded de edição na ficha com uso de permissões reais já existentes, confirmações de remoção em relações EE/educando e mensagens operacionais no Portal Família quando não há gestão permitida ou membros visíveis. | `app/Http/Controllers/MembrosController.php`, `app/Http/Controllers/FamilyPortalController.php`, `resources/js/Pages/Membros/Show.tsx`, `resources/js/Pages/Membros/ListTab.tsx`, `resources/js/Components/Members/Tabs/PersonalTab.tsx`, `resources/js/Components/Members/Tabs/ConfigurationTab.tsx`, `resources/js/Pages/Portal/Family.tsx`, `docs/ESTADO_VIVO_DESENVOLVIMENTO.md` | 75% | 76% | Dívida estrutural mantida por decisão da sprint: `users` sobrecarregado, ausência de `dados_pessoais`/`dados_configuracao` dedicadas e coexistência `user_guardian` + `user_relationships` + arrays legacy. Requer sprint própria de consolidação. |
 | 2026-05-19 | Global | Criação do ficheiro vivo de estado de desenvolvimento | Análise estática do repositório GitHub online | — | 60%–65% global | Executar validações runtime e atualizar por commit/PR. |
 | 2026-05-20 | Financeiro | Sprint F1 — verdade financeira canónica tecnicamente concluída. Foram bloqueadas escritas diretas perigosas em faturas/mensalidades e movimentos; fluxos de liquidação/conciliação passam pelos serviços canónicos. | `FinanceiroController.php`, `ManualExpenseService.php`, `PaymentAllocationFlowTest.php` | 70% | 72% | Validação manual no browser ainda pendente. F2 deve corrigir bugs técnicos críticos e reforçar guardas fora da superfície HTTP principal. |
 | 2026-05-20 | Financeiro | Sprint F1.1 — liquidação manual canónica com métodos de pagamento configuráveis. O backend passou a validar métodos ativos e a exigir linha bancária quando configurado; o frontend Financeiro e Configurações passaram a consumir a lista configurável. | `PaymentAllocationService.php`, `FinanceiroController.php`, `ConfiguracoesController.php`, `resources/js/Pages/Financeiro/FaturasTab.tsx`, `resources/js/Pages/Configuracoes/Index.tsx`, `tests/Feature/Financeiro/PaymentAllocationFlowTest.php`, `tests/Feature/Financeiro/FinanceDashboardFlowTest.php`, `tests/Feature/Configuracoes/PaymentMethodCrudTest.php` | 72% | 74% | Falta validação manual de UX no modal de pagamento e na gestão de métodos em Configurações. |

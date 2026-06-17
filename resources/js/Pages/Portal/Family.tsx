@@ -136,6 +136,7 @@ interface FamilyPortalProps {
     comunicados_relevantes: AlertItem[];
     is_also_admin: boolean;
     has_family?: boolean;
+    can_manage_family?: boolean;
     is_encarregado_educacao: boolean;
     is_also_athlete: boolean;
     athlete_portal_url?: string | null;
@@ -251,6 +252,7 @@ export default function Family() {
         communicationAlerts,
         clubSettings,
         is_also_admin,
+        can_manage_family = false,
         is_also_athlete,
         athlete_portal_url,
     } = props;
@@ -326,6 +328,11 @@ export default function Family() {
     };
 
     const associateMember = (memberId: string | number, papelNaFamilia: 'educando' | 'familiar' | 'encarregado_educacao') => {
+        if (!can_manage_family) {
+            setSearchError('Sem permissão para gerir associações familiares.');
+            return;
+        }
+
         setSubmittingMemberId(memberId);
         router.post('/portal/familia/membros', {
             member_id: memberId,
@@ -443,7 +450,7 @@ export default function Family() {
                                     </button>
                                 )) : (
                                     <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-500 md:col-span-2">
-                                        Nenhum membro associado.
+                                        Não existem membros familiares visíveis para o seu perfil.
                                     </div>
                                 )}
                             </div>
@@ -466,6 +473,12 @@ export default function Family() {
                     </div>
 
                         <PortalSection title="Associar membro" description="Pesquise utilizadores existentes e associe-os à família com o papel correto.">
+                            {!can_manage_family ? (
+                                <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+                                    Sem permissão para gerir associações familiares. Pode consultar membros e indicadores, mas não pode criar relações.
+                                </div>
+                            ) : null}
+
                             <div className="rounded-[24px] border border-slate-200 bg-slate-50/70 p-4">
                                 <div className="flex flex-col gap-3 md:flex-row">
                                     <div className="flex-1">
@@ -487,7 +500,7 @@ export default function Family() {
                                         <button
                                             type="button"
                                             onClick={() => void runMemberSearch()}
-                                            disabled={searchingMembers}
+                                            disabled={searchingMembers || !can_manage_family}
                                             className="inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-2.5 text-sm font-semibold text-blue-700 transition hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60 md:w-auto"
                                         >
                                             <Search className="h-4 w-4" />
@@ -513,7 +526,7 @@ export default function Family() {
                                                     <button
                                                         type="button"
                                                         onClick={() => associateMember(member.id, 'educando')}
-                                                        disabled={submittingMemberId === member.id}
+                                                            disabled={submittingMemberId === member.id || !can_manage_family}
                                                         className="inline-flex items-center gap-1 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
                                                     >
                                                         <UserPlus className="h-3.5 w-3.5" />
@@ -522,7 +535,7 @@ export default function Family() {
                                                     <button
                                                         type="button"
                                                         onClick={() => associateMember(member.id, 'encarregado_educacao')}
-                                                        disabled={submittingMemberId === member.id}
+                                                            disabled={submittingMemberId === member.id || !can_manage_family}
                                                         className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700 transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
                                                     >
                                                         Encarregado
@@ -530,7 +543,7 @@ export default function Family() {
                                                     <button
                                                         type="button"
                                                         onClick={() => associateMember(member.id, 'familiar')}
-                                                        disabled={submittingMemberId === member.id}
+                                                            disabled={submittingMemberId === member.id || !can_manage_family}
                                                         className="rounded-xl border border-slate-200 bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-60"
                                                     >
                                                         Familiar
@@ -579,7 +592,7 @@ export default function Family() {
                                     </div>
                                 )) : (
                                     <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
-                                        Sem pagamentos pendentes.
+                                        Sem pagamentos pendentes para os membros familiares visíveis.
                                     </div>
                                 )}
                             </div>
