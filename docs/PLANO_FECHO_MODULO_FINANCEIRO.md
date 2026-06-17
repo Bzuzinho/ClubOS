@@ -1043,7 +1043,7 @@ Sprint F4.2.2 fica tecnicamente concluída, com validação manual no browser pe
 
 ## Sprint F4.2.3 — Alocação assistida de transferência para mensalidades, movimentos e crédito
 
-> Estado: tecnicamente concluída em 2026-06-17. Validações automáticas executadas e concluídas. Validação manual do browser ainda pendente.
+> Estado: tecnicamente concluída e validada manualmente no browser em 2026-06-17. Sprint fechada operacionalmente.
 
 ### Correção de interpretação funcional
 
@@ -1093,9 +1093,25 @@ Cobertos em `BankReconciliationSuggestionFlowTest`:
 5. Tentar alocar acima do disponível/acima do valor em aberto e confirmar bloqueio com erro de validação.
 6. Confirmar que a reconciliação final reflete estado parcial/conciliado correto no extrato.
 
+### Validação manual confirmada
+
+- No Banco, abrir sugestão com contexto assistido abre alocação assistida e não confirmação fechada: OK.
+- Cenário abril com janeiro-abril em aberto e transferência de 30: lista as 4 mensalidades e default só na mais antiga: OK.
+- Cenário abril com 120: lista as 4 mensalidades e permite ajuste manual por linha: OK.
+- Cenário com 150, mensalidades 120 + movimento 20: permite alocar ambos e guardar 10 em crédito: OK.
+- Tentar alocar acima do valor da transferência e acima do valor em aberto da linha confirma bloqueios: OK.
+- Estado final do extrato partial/reconciled após confirmação assistida: OK.
+
 ### Estado operacional
 
-Sprint F4.2.3 fica tecnicamente concluída e pendente apenas de validação manual orientada no browser.
+Sprint F4.2.3 fica fechada operacionalmente.
+
+Conclusão desta sprint:
+
+- a sugestão bancária deixou de ser uma decisão fechada;
+- a sugestão passou a apresentar destinos elegíveis e permitir distribuição manual da transferência;
+- a alocação pode consumir mensalidades, movimentos e crédito remanescente;
+- o fluxo continua canónico e não reescreve pagamentos, desconciliação, importação XLS ou conta corrente.
 
 Não avançar para F4.3 nesta alteração.
 
