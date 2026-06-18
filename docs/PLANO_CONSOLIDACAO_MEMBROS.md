@@ -1,5 +1,20 @@
 # Plano Técnico de Consolidação Estrutural dos Dados do Membro (Sprint M2.0)
 
+## Atualização M2.1 (2026-06-18)
+
+Fundação estrutural concluída sem alteração funcional do runtime:
+- criadas as tabelas `dados_pessoais` e `dados_configuracao` em relação `hasOne` com `users`;
+- criados os models `DadosPessoais` e `DadosConfiguracao` com casts e relação `belongsTo(User)`;
+- adicionadas relações `dadosPessoais()` e `dadosConfiguracao()` em `User`;
+- adicionados testes de estrutura/relações (unique por `user_id`, cascade delete, casts e garantia de manutenção dos campos em `users`).
+
+Mantido por decisão da sprint:
+- `users` continua fonte operacional (sem switch de leitura/escrita);
+- sem backfill;
+- sem alterações em controllers, frontend, importação de membros e portal família;
+- sem alterações em relações familiares (`user_guardian`, `user_relationships`, `familias`/`familia_user`);
+- sem alterações em Financeiro e Desportivo.
+
 ## 1. Contexto
 
 A Sprint M1 fechou o hardening operacional do módulo Membros/Famílias/EE (UX, tab Família, estados vazios, permissões visuais e clarificação funcional entre tipo de utilizador e perfil/permissões), mas manteve dívida estrutural de dados.
@@ -366,6 +381,8 @@ Recomendação M2.x:
 - criar tabelas dados_pessoais e dados_configuracao;
 - criar models e relações hasOne em User;
 - sem mudança de UI.
+
+Estado M2.1 nesta entrega: concluída (fundação estrutural criada, sem mudança funcional).
 
 ### Sprint M2.2
 - backfill de dados users -> novas tabelas;

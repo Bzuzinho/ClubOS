@@ -166,6 +166,16 @@ class User extends Authenticatable
         return $this->hasOne(DadosFinanceiros::class, 'user_id');
     }
 
+    public function dadosPessoais(): HasOne
+    {
+        return $this->hasOne(DadosPessoais::class, 'user_id');
+    }
+
+    public function dadosConfiguracao(): HasOne
+    {
+        return $this->hasOne(DadosConfiguracao::class, 'user_id');
+    }
+
     public function centrosCusto(): BelongsToMany
     {
         return $this->belongsToMany(CostCenter::class, 'centro_custo_user', 'user_id', 'centro_custo_id')
