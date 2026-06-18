@@ -1,5 +1,26 @@
 # Plano Técnico de Consolidação Estrutural dos Dados do Membro (Sprint M2.0)
 
+## Atualização M2.4 (2026-06-18)
+
+Validação visual/técnica e preparação operacional de produção concluídas, sem alterações funcionais:
+- adicionados testes de superfície para a ficha de membro (show/edit) cobrindo cenários A-D da leitura com fallback e segurança de leitura sem escrita indireta;
+- adicionados testes para Portal Perfil e Portal Família validando fallback em leitura, estabilidade de payload e ausência de persistência acidental via `forceFill` transitório;
+- auditoria de escrita reforçada para `store`, `update`, `import`, `sync`, comandos e controladores de portal sem introdução de escrita em `dados_pessoais`/`dados_configuracao` fora dos fluxos já esperados (backfill controlado);
+- criado runbook específico de preparação para deploy/rollback da consolidação de dados do membro (sem execução em produção).
+
+Validações executadas nesta sprint:
+- `php artisan test --filter=MemberDataReadVisualSafetyTest` — 4/4 ✓
+- `php artisan test --filter=PortalMemberDataReadSafetyTest` — 2/2 ✓
+- regressão focada `--filter="MemberDataReadFallbackTest|PortalProfileFamilyAccessTest|PortalFamilyCurrentAccountTest|MembrosCurrentAccountSurfaceTest|MembrosFamilyContextTabPayloadTest"` — 31/31 ✓
+
+Mantido por decisão da sprint:
+- sem cutover de escrita;
+- `users` continua fonte operacional de escrita;
+- sem alterações em migrations, financeiro, desportivo, importação e relações familiares;
+- sem deploy e sem comandos em produção.
+
+Próxima sprint recomendada: M2.5 — cutover controlado de escrita (dual-write ou escrita nas novas tabelas com fallback para `users`).
+
 ## Atualização M2.3 (2026-06-18)
 
 Cutover controlado de leitura com fallback implementado:
@@ -27,7 +48,7 @@ Validações executadas:
 - `npm run build` ✓
 - `git diff --check` ✓
 
-Próxima sprint recomendada: M2.4 — cutover controlado de escrita (dual-write ou escrita nas novas tabelas com fallback para `users`).
+Próxima sprint recomendada: M2.5 — cutover controlado de escrita (dual-write ou escrita nas novas tabelas com fallback para `users`).
 
 Backfill real desbloqueado de forma controlada, mantendo `users` como fonte operacional:
 - comando `php artisan members:backfill-data-structure` atualizado para dry-run por defeito e escrita real apenas com as 3 guardas obrigatórias: `--commit`, `--unlock-write` e `--confirm=BACKFILL_MEMBER_DATA`;
@@ -459,12 +480,15 @@ Estado M2.1 nesta entrega: concluída (fundação estrutural criada, sem mudanç
 - mudar leituras para novas tabelas com fallback users legacy.
 
 ### Sprint M2.4
-- mudar escritas para novas tabelas (users recebe apenas campos mínimos/transitórios).
+- validação visual/técnica de leitura com fallback, segurança de não escrita indireta e preparação de deploy/rollback.
 
 ### Sprint M2.5
-- consolidação das relações familiares na fonte canónica definida (familias/familia_user), mantendo compatibilidade controlada.
+- mudar escritas para novas tabelas (users recebe apenas campos mínimos/transitórios).
 
 ### Sprint M2.6
+- consolidação das relações familiares na fonte canónica definida (familias/familia_user), mantendo compatibilidade controlada.
+
+### Sprint M2.7
 - remover dependências legacy (arrays users e eventual camada secundária) apenas após validação e auditoria sem divergências.
 
 ## 10. Estratégia de Compatibilidade
@@ -554,9 +578,10 @@ Estado M2.1 nesta entrega: concluída (fundação estrutural criada, sem mudanç
 - M2.1: fundação estrutural (tabelas/models/relações).
 - M2.2: backfill + comandos de auditoria/migração (dry-run por defeito).
 - M2.3: switch de leitura com fallback.
-- M2.4: switch de escrita.
-- M2.5: consolidação relacional familiar.
-- M2.6: remoção controlada de legado após validação.
+- M2.4: validação visual/técnica e preparação operacional (deploy/rollback).
+- M2.5: switch de escrita.
+- M2.6: consolidação relacional familiar.
+- M2.7: remoção controlada de legado após validação.
 
 ## 15. Decisões Pendentes
 
