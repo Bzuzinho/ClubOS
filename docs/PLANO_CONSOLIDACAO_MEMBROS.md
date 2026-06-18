@@ -1,5 +1,26 @@
 # Plano Técnico de Consolidação Estrutural dos Dados do Membro (Sprint M2.0)
 
+## Atualização M2.2.1 (2026-06-18)
+
+Backfill real desbloqueado de forma controlada, mantendo `users` como fonte operacional:
+- comando `php artisan members:backfill-data-structure` atualizado para dry-run por defeito e escrita real apenas com as 3 guardas obrigatórias: `--commit`, `--unlock-write` e `--confirm=BACKFILL_MEMBER_DATA`;
+- opção `--allow-updates` adicionada e bloqueada nesta sprint com mensagem explícita: "Atualização de registos existentes ainda não está permitida nesta sprint.";
+- opções `--chunk=100` e `--report-path=` adicionadas para processamento por lotes e geração de relatório JSON sem dados sensíveis completos;
+- serviço `MemberDataMigrationService` passou a suportar commit real controlado (apenas criação de registos em falta), gravação de `migrated_from_users_at` e `migration_source_hash`, tratamento de erros por utilizador e resumo estruturado final;
+- testes de feature expandidos para cobrir guardas, idempotência, não sobrescrita, `--user-id`, `--limit`, `--json`, `--report-path`, metadados de migração e auditoria pós-backfill.
+
+Validação local/desenvolvimento executada nesta sprint:
+- auditoria antes do commit real: `missing_dados_pessoais=83`, `missing_dados_configuracao=83`;
+- commit real local executado com guardas explícitas e relatório em `storage/app/member-data-backfill-report.json`;
+- auditoria após commit real: `users_with_dados_pessoais=83`, `users_with_dados_configuracao=83`, `missing_dados_pessoais=0`, `missing_dados_configuracao=0`, `conflicts_dados_pessoais=0`, `conflicts_dados_configuracao=0`.
+
+Mantido por decisão da sprint:
+- sem cutover de leitura;
+- sem cutover de escrita de runtime;
+- `users` continua fonte operacional;
+- sem alterações em UI, controllers funcionais, imports, relações familiares, Financeiro e Desportivo;
+- sem atualização de produção/servidor.
+
 ## Atualização M2.2 (2026-06-18)
 
 Auditoria e simulação de backfill concluídas sem escrita real:

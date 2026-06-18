@@ -2,9 +2,13 @@
 
 namespace App\Services\Members;
 
+use App\Models\DadosConfiguracao;
+use App\Models\DadosPessoais;
 use App\Models\User;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Schema;
 
 class MemberDataMigrationService
@@ -17,16 +21,8 @@ class MemberDataMigrationService
         $userId = $this->normalizeUserId($filters['user_id'] ?? null);
         $limit = $this->normalizeLimit($filters['limit'] ?? null);
 
-        $usersColumns = Schema::hasTable('users') ? Schema::getColumnListing('users') : [];
-        $usersColumnsMap = array_fill_keys($usersColumns, true);
-
-        $query = User::query()
-            ->with(['dadosPessoais', 'dadosConfiguracao'])
-            ->orderBy('id');
-
-        if ($userId !== null) {
-            $query->whereKey($userId);
-        }
+        $usersColumnsMap = $this->buildUsersColumnsMap();
+        $query = $this->buildUsersQuery($userId);
 
         $analyses = [];
         $processed = 0;
@@ -61,29 +57,34 @@ class MemberDataMigrationService
         $audit = $this->buildAuditReport($filters);
         $users = $audit['users'];
 
-        $wouldCreateDadosPessoais = 0;
-        $wouldUpdateDadosPessoais = 0;
-        $wouldCreateDadosConfiguracao = 0;
-        $wouldUpdateDadosConfiguracao = 0;
+        $summary = $this->baseBackfillSummary($audit['summary']['total_users'], true, false);
 
         foreach ($users as &$user) {
             $personalAction = $this->plannedAction($user['personal_analysis']);
             $configurationAction = $this->plannedAction($user['configuration_analysis']);
 
             if ($personalAction === 'create') {
-                $wouldCreateDadosPessoais++;
+                $summary['created_dados_pessoais']++;
             }
 
-            if ($personalAction === 'update') {
-                $wouldUpdateDadosPessoais++;
+            if (($user['personal_analysis']['existing']['exists'] ?? false) === true) {
+                $summary['skipped_existing_dados_pessoais']++;
             }
 
             if ($configurationAction === 'create') {
-                $wouldCreateDadosConfiguracao++;
+                $summary['created_dados_configuracao']++;
             }
 
-            if ($configurationAction === 'update') {
-                $wouldUpdateDadosConfiguracao++;
+            if (($user['configuration_analysis']['existing']['exists'] ?? false) === true) {
+                $summary['skipped_existing_dados_configuracao']++;
+            }
+
+            if (($user['personal_analysis']['has_payload'] ?? false) === false) {
+                $summary['skipped_empty_payload_dados_pessoais']++;
+            }
+
+            if (($user['configuration_analysis']['has_payload'] ?? false) === false) {
+                $summary['skipped_empty_payload_dados_configuracao']++;
             }
 
             $user['dry_run'] = [
@@ -93,19 +94,114 @@ class MemberDataMigrationService
         }
         unset($user);
 
-        $summary = $audit['summary'];
-        $summary['would_create_dados_pessoais'] = $wouldCreateDadosPessoais;
-        $summary['would_update_dados_pessoais'] = $wouldUpdateDadosPessoais;
-        $summary['would_create_dados_configuracao'] = $wouldCreateDadosConfiguracao;
-        $summary['would_update_dados_configuracao'] = $wouldUpdateDadosConfiguracao;
+        $summary['conflicts_dados_pessoais'] = $audit['summary']['conflicts_dados_pessoais'];
+        $summary['conflicts_dados_configuracao'] = $audit['summary']['conflicts_dados_configuracao'];
+        $summary['would_create_dados_pessoais'] = $summary['created_dados_pessoais'];
+        $summary['would_create_dados_configuracao'] = $summary['created_dados_configuracao'];
+        $summary['would_update_dados_pessoais'] = 0;
+        $summary['would_update_dados_configuracao'] = 0;
 
         return [
             'mode' => 'dry-run',
             'generated_at' => $audit['generated_at'],
             'filters' => $audit['filters'],
+            'options' => [
+                'allow_updates' => false,
+                'chunk' => $this->normalizeChunk($filters['chunk'] ?? null),
+            ],
             'summary' => $summary,
             'users' => $users,
         ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function executeBackfillCommit(array $filters = []): array
+    {
+        $userId = $this->normalizeUserId($filters['user_id'] ?? null);
+        $limit = $this->normalizeLimit($filters['limit'] ?? null);
+        $chunkSize = $this->normalizeChunk($filters['chunk'] ?? null);
+        $allowUpdates = (bool) ($filters['allow_updates'] ?? false);
+
+        $usersColumnsMap = $this->buildUsersColumnsMap();
+        $summary = $this->baseBackfillSummary(0, false, true);
+        $processedUsers = [];
+        $errors = [];
+
+        $query = $this->buildUsersQuery($userId);
+        $chunk = [];
+        $processedCount = 0;
+
+        foreach ($query->cursor() as $user) {
+            if ($limit !== null && $processedCount >= $limit) {
+                break;
+            }
+
+            $chunk[] = $user;
+            $processedCount++;
+
+            if (count($chunk) < $chunkSize) {
+                continue;
+            }
+
+            $this->processBackfillChunk($chunk, $usersColumnsMap, $summary, $processedUsers, $errors, $allowUpdates);
+            $chunk = [];
+        }
+
+        if ($chunk !== []) {
+            $this->processBackfillChunk($chunk, $usersColumnsMap, $summary, $processedUsers, $errors, $allowUpdates);
+        }
+
+        $summary['errors'] = count($errors);
+
+        return [
+            'mode' => 'commit',
+            'timestamp' => now()->toIso8601String(),
+            'environment' => app()->environment(),
+            'dry_run' => false,
+            'committed' => true,
+            'filters' => [
+                'user_id' => $userId,
+                'limit' => $limit,
+            ],
+            'options' => [
+                'chunk' => $chunkSize,
+                'allow_updates' => $allowUpdates,
+            ],
+            'summary' => $summary,
+            'users' => $processedUsers,
+            'errors' => $errors,
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $report
+     */
+    public function writeBackfillReportFile(array $report, string $path): string
+    {
+        $targetPath = trim($path);
+
+        if ($targetPath === '') {
+            throw new \InvalidArgumentException('report-path vazio.');
+        }
+
+        $resolvedPath = str_starts_with($targetPath, DIRECTORY_SEPARATOR)
+            ? $targetPath
+            : base_path($targetPath);
+
+        $directory = dirname($resolvedPath);
+
+        if (!File::exists($directory)) {
+            File::makeDirectory($directory, 0755, true);
+        }
+
+        File::put(
+            $resolvedPath,
+            json_encode($report, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
+        );
+
+        return $targetPath;
     }
 
     /**
@@ -605,6 +701,14 @@ class MemberDataMigrationService
     private function normalizeComparableValue(mixed $value): mixed
     {
         if ($value instanceof Carbon) {
+            if (
+                (int) $value->format('H') === 0
+                && (int) $value->format('i') === 0
+                && (int) $value->format('s') === 0
+            ) {
+                return $value->format('Y-m-d');
+            }
+
             return $value->format('Y-m-d H:i:s');
         }
 
@@ -623,7 +727,27 @@ class MemberDataMigrationService
         if (is_string($value)) {
             $trimmed = trim($value);
 
-            return $trimmed === '' ? null : $trimmed;
+            if ($trimmed === '') {
+                return null;
+            }
+
+            try {
+                $date = Carbon::parse($trimmed);
+
+                if (
+                    (int) $date->format('H') === 0
+                    && (int) $date->format('i') === 0
+                    && (int) $date->format('s') === 0
+                ) {
+                    return $date->format('Y-m-d');
+                }
+
+                return $date->format('Y-m-d H:i:s');
+            } catch (\Throwable) {
+                // Mantem comparacao textual para valores nao relacionados a data.
+            }
+
+            return $trimmed;
         }
 
         return $value;
@@ -839,6 +963,21 @@ class MemberDataMigrationService
         return $limit > 0 ? $limit : null;
     }
 
+    private function normalizeChunk(mixed $value): int
+    {
+        if ($value === null || $value === '') {
+            return 100;
+        }
+
+        if (!is_numeric($value)) {
+            return 100;
+        }
+
+        $chunk = (int) $value;
+
+        return $chunk > 0 ? $chunk : 100;
+    }
+
     /**
      * @param  array<string, mixed>  $analysis
      */
@@ -857,5 +996,210 @@ class MemberDataMigrationService
         }
 
         return 'noop';
+    }
+
+    /**
+     * @return array<string, bool>
+     */
+    private function buildUsersColumnsMap(): array
+    {
+        $usersColumns = Schema::hasTable('users') ? Schema::getColumnListing('users') : [];
+
+        return array_fill_keys($usersColumns, true);
+    }
+
+    private function buildUsersQuery(?string $userId)
+    {
+        $query = User::query()
+            ->with(['dadosPessoais', 'dadosConfiguracao'])
+            ->orderBy('id');
+
+        if ($userId !== null) {
+            $query->whereKey($userId);
+        }
+
+        return $query;
+    }
+
+    /**
+     * @param  array<int, User>  $chunk
+     * @param  array<string, bool>  $usersColumnsMap
+     * @param  array<string, mixed>  $summary
+     * @param  array<int, array<string, mixed>>  $processedUsers
+     * @param  array<int, array<string, mixed>>  $errors
+     */
+    private function processBackfillChunk(
+        array $chunk,
+        array $usersColumnsMap,
+        array &$summary,
+        array &$processedUsers,
+        array &$errors,
+        bool $allowUpdates
+    ): void {
+        foreach ($chunk as $user) {
+            $summary['total_users']++;
+
+            try {
+                $analysis = $this->analyzeUser($user, $usersColumnsMap);
+
+                $userResult = DB::transaction(function () use ($analysis, $allowUpdates, &$summary): array {
+                    return $this->processBackfillUser($analysis, $summary, $allowUpdates);
+                });
+
+                $processedUsers[] = $userResult;
+            } catch (\Throwable $exception) {
+                $summary['errors']++;
+
+                $errors[] = [
+                    'user_id' => (string) $user->id,
+                    'message' => $exception->getMessage(),
+                    'type' => get_class($exception),
+                ];
+            }
+        }
+    }
+
+    /**
+     * @param  array<string, mixed>  $analysis
+     * @param  array<string, mixed>  $summary
+     * @return array<string, mixed>
+     */
+    private function processBackfillUser(array $analysis, array &$summary, bool $allowUpdates): array
+    {
+        $userId = (string) $analysis['user_id'];
+
+        $personalResult = $this->applyBackfillForScope(
+            $analysis['personal_analysis'],
+            $userId,
+            'dados_pessoais',
+            $summary,
+            $allowUpdates
+        );
+
+        $configurationResult = $this->applyBackfillForScope(
+            $analysis['configuration_analysis'],
+            $userId,
+            'dados_configuracao',
+            $summary,
+            $allowUpdates
+        );
+
+        return [
+            'user_id' => $userId,
+            'dados_pessoais' => $personalResult,
+            'dados_configuracao' => $configurationResult,
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $scopeAnalysis
+     * @param  array<string, mixed>  $summary
+     * @return array<string, mixed>
+     */
+    private function applyBackfillForScope(
+        array $scopeAnalysis,
+        string $userId,
+        string $scope,
+        array &$summary,
+        bool $allowUpdates
+    ): array {
+        $hasPayload = (bool) ($scopeAnalysis['has_payload'] ?? false);
+        $exists = (bool) (($scopeAnalysis['existing'] ?? [])['exists'] ?? false);
+        $isConflict = (bool) (($scopeAnalysis['existing'] ?? [])['is_conflict'] ?? false);
+        $sourceHash = (string) ($scopeAnalysis['source_hash'] ?? '');
+        $conflictFields = [];
+
+        if ($isConflict) {
+            $differences = (array) (($scopeAnalysis['existing'] ?? [])['differences'] ?? []);
+            foreach ($differences as $difference) {
+                if (!isset($difference['field'])) {
+                    continue;
+                }
+
+                $conflictFields[] = (string) $difference['field'];
+            }
+        }
+
+        if ($scope === 'dados_pessoais' && $isConflict) {
+            $summary['conflicts_dados_pessoais']++;
+        }
+
+        if ($scope === 'dados_configuracao' && $isConflict) {
+            $summary['conflicts_dados_configuracao']++;
+        }
+
+        if (!$hasPayload) {
+            if ($scope === 'dados_pessoais') {
+                $summary['skipped_empty_payload_dados_pessoais']++;
+            } else {
+                $summary['skipped_empty_payload_dados_configuracao']++;
+            }
+
+            return [
+                'action' => 'skipped_empty_payload',
+                'source_hash' => $sourceHash,
+                'conflict_fields' => [],
+            ];
+        }
+
+        if ($exists) {
+            if ($scope === 'dados_pessoais') {
+                $summary['skipped_existing_dados_pessoais']++;
+            } else {
+                $summary['skipped_existing_dados_configuracao']++;
+            }
+
+            if ($allowUpdates) {
+                throw new \RuntimeException('Atualização de registos existentes ainda não está permitida nesta sprint.');
+            }
+
+            return [
+                'action' => 'skipped_existing',
+                'source_hash' => $sourceHash,
+                'conflict_fields' => $conflictFields,
+            ];
+        }
+
+        $payload = (array) ($scopeAnalysis['payload'] ?? []);
+        $record = array_merge($payload, [
+            'user_id' => $userId,
+            'migrated_from_users_at' => now(),
+            'migration_source_hash' => $sourceHash,
+        ]);
+
+        if ($scope === 'dados_pessoais') {
+            DadosPessoais::query()->create($record);
+            $summary['created_dados_pessoais']++;
+        } else {
+            DadosConfiguracao::query()->create($record);
+            $summary['created_dados_configuracao']++;
+        }
+
+        return [
+            'action' => 'created',
+            'source_hash' => $sourceHash,
+            'conflict_fields' => [],
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function baseBackfillSummary(int $totalUsers, bool $dryRun, bool $committed): array
+    {
+        return [
+            'total_users' => $totalUsers,
+            'created_dados_pessoais' => 0,
+            'created_dados_configuracao' => 0,
+            'skipped_existing_dados_pessoais' => 0,
+            'skipped_existing_dados_configuracao' => 0,
+            'skipped_empty_payload_dados_pessoais' => 0,
+            'skipped_empty_payload_dados_configuracao' => 0,
+            'conflicts_dados_pessoais' => 0,
+            'conflicts_dados_configuracao' => 0,
+            'errors' => 0,
+            'dry_run' => $dryRun,
+            'committed' => $committed,
+        ];
     }
 }
