@@ -1,5 +1,19 @@
 # Plano Técnico de Consolidação Estrutural dos Dados do Membro (Sprint M2.0)
 
+## Atualização M2.2 (2026-06-18)
+
+Auditoria e simulação de backfill concluídas sem escrita real:
+- criado serviço dedicado `app/Services/Members/MemberDataMigrationService.php` para mapear payloads, normalizar dados, calcular assinatura (`migration_source_hash`) e detetar conflitos/paridade;
+- criado comando `php artisan members:audit-data-structure` com opções `--user-id`, `--limit` e `--json`;
+- criado comando `php artisan members:backfill-data-structure` em dry-run por defeito com `--user-id`, `--limit` e `--json`;
+- opção `--commit` permanece bloqueada nesta sprint e termina com código operacional de bloqueio sem escrever dados;
+- adicionados testes dedicados para comandos e serviço em `tests/Feature/Membros/MemberDataBackfillCommandTest.php`.
+
+Mantido por decisão da sprint:
+- `users` continua fonte operacional (sem switch de leitura/escrita);
+- sem backfill real em `dados_pessoais`/`dados_configuracao`;
+- sem alterações de UI, controllers funcionais, imports de membros, relações familiares, Financeiro e Desportivo.
+
 ## Atualização M2.1 (2026-06-18)
 
 Fundação estrutural concluída sem alteração funcional do runtime:
@@ -385,7 +399,9 @@ Recomendação M2.x:
 Estado M2.1 nesta entrega: concluída (fundação estrutural criada, sem mudança funcional).
 
 ### Sprint M2.2
-- backfill de dados users -> novas tabelas;
+- comandos de auditoria de estrutura e simulação de backfill (dry-run);
+- deteção de conflito/paridade com `migration_source_hash`;
+- `--commit` bloqueado por segurança nesta sprint (sem escrita real).
 - comandos artisan:
   - auditoria de consistência;
   - plano de migração em dry-run;
