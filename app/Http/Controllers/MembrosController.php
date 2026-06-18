@@ -18,6 +18,7 @@ use App\Services\Communication\InternalCommunicationService;
 use App\Services\AccessControl\UserTypeAccessControlService;
 use App\Services\Family\FamilyService;
 use App\Services\Financeiro\CurrentAccountService;
+use App\Services\Members\MemberDataReadService;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -331,6 +332,10 @@ class MembrosController extends Controller
             $memberData['data_nascimento'] = $member->data_nascimento->format('Y-m-d');
         }
 
+        // M2.3 — camada de leitura canónica com fallback (não altera escrita)
+        $member->loadMissing(['dadosPessoais', 'dadosConfiguracao']);
+        $memberData = app(MemberDataReadService::class)->mergedMemberPayload($member, $memberData);
+
         $legacyEducandoIds = $this->normalizeRelationIds($member->getAttribute('educandos'));
         $legacyGuardianIds = $this->normalizeRelationIds($member->getAttribute('encarregado_educacao'));
 
@@ -586,10 +591,12 @@ class MembrosController extends Controller
 
     public function edit(User $member): Response
     {
+        // M2.3 — carregar relações de leitura + restantes relações
+        $member->load(['dadosPessoais', 'dadosConfiguracao', 'dadosFinanceiros', 'centrosCusto', 'userTypes', 'ageGroup', 'encarregados', 'educandos']);
+
         if ($member->data_nascimento) {
             $member->data_nascimento = $member->data_nascimento->format('Y-m-d');
         }
-        $member->load(['dadosFinanceiros', 'centrosCusto']);
         $member->tipo_mensalidade = $member->dadosFinanceiros?->mensalidade_id ?? $member->tipo_mensalidade;
         $member->discount_type = $member->dadosFinanceiros?->discount_type;
         $member->discount_value = $member->dadosFinanceiros?->discount_value !== null
@@ -624,7 +631,7 @@ class MembrosController extends Controller
             })->values();
         }
         return Inertia::render('Membros/Edit', [
-            'member' => $member->load(['userTypes', 'ageGroup', 'encarregados', 'educandos', 'dadosFinanceiros', 'centrosCusto']),
+            'member' => app(MemberDataReadService::class)->mergedMemberPayload($member, $member->toArray()),
             'userTypes' => UserType::where('ativo', true)->get(),
             'ageGroups' => AgeGroup::all(),
             'guardians' => User::whereJsonContains('tipo_membro', 'encarregado_educacao')

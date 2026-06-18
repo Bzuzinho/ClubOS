@@ -10,6 +10,7 @@ use App\Services\AccessControl\UserTypeAccessControlService;
 use App\Services\Family\FamilyService;
 use App\Services\Financeiro\CurrentAccountService;
 use App\Services\Loja\StoreProfileResolver;
+use App\Services\Members\MemberDataReadService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
@@ -49,8 +50,15 @@ class PortalProfileController extends Controller
                 'athleteSportsData.escalao:id,nome',
                 'dadosFinanceiros:id,user_id,mensalidade_id',
                 'dadosFinanceiros.mensalidade:id,designacao',
+                'dadosPessoais',
+                'dadosConfiguracao',
             ])
             ->findOrFail($requestedMemberId);
+
+        // M2.3 — aplicar camada de leitura canónica com fallback (sem escrita)
+        // false booleano é valor válido — não filtrar com array_filter simples
+        $mergedReadData = app(MemberDataReadService::class)->mergedMemberPayload($targetMember, []);
+        $targetMember->forceFill(array_filter($mergedReadData, static fn ($v) => $v !== null));
 
         $accessControl = $accessControlService->getCurrentUserAccess($viewer);
 

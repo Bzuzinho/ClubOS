@@ -1,6 +1,33 @@
 # Plano Técnico de Consolidação Estrutural dos Dados do Membro (Sprint M2.0)
 
-## Atualização M2.2.1 (2026-06-18)
+## Atualização M2.3 (2026-06-18)
+
+Cutover controlado de leitura com fallback implementado:
+- criado serviço dedicado `app/Services/Members/MemberDataReadService.php` com métodos `personalPayload()`, `configurationPayload()`, `mergedMemberPayload()`, `valueFromPersonal()` e `valueFromConfiguration()`;
+- leitura preferencial de `dados_pessoais` e `dados_configuracao` com fallback automático para `users` quando os campos estão ausentes ou vazios;
+- regras de fallback respeitam: `false` booleano é valor válido, `"0"` é valor válido, `null` e string vazia caem para fallback;
+- aplicado em `MembrosController` nos métodos `show` e `edit` via `mergedMemberPayload()`;
+- aplicado em `PortalProfileController.show` via `forceFill` transiente (sem persistência);
+- `FamilyPortalController`, `PortalPageController`, `DashboardController` não alterados (apenas leem nome para exibição);
+- criados 18 testes em `tests/Feature/Membros/MemberDataReadFallbackTest.php` cobrindo os 16 cenários definidos na sprint + 2 casos adicionais (string "0" válida, campo null com fallback).
+
+Garantias mantidas por decisão da sprint:
+- sem cutover de escrita — `users` continua fonte operacional para todos os updates;
+- sem alterações em `store`, `update`, `import`, relações familiares, Financeiro e Desportivo;
+- sem alterações em migrations, models, commands ou MemberDataMigrationService;
+- sem alterações em frontend/resources/js;
+- sem deploy ou comandos no servidor de produção;
+- auditoria pré/pós idêntica: 83 dados_pessoais, 83 dados_configuracao, 0 conflitos.
+
+Validações executadas:
+- `composer dump-autoload` ✓
+- `php artisan members:audit-data-structure` — 83/83, 0 conflitos ✓
+- `php artisan test --filter=MemberDataReadFallback` — 18/18 ✓
+- suite completa `--filter="MemberDataBackfill|MemberDataStructure|Membro|Member|User|Family|Portal|Financeiro"` — 371/371 ✓
+- `npm run build` ✓
+- `git diff --check` ✓
+
+Próxima sprint recomendada: M2.4 — cutover controlado de escrita (dual-write ou escrita nas novas tabelas com fallback para `users`).
 
 Backfill real desbloqueado de forma controlada, mantendo `users` como fonte operacional:
 - comando `php artisan members:backfill-data-structure` atualizado para dry-run por defeito e escrita real apenas com as 3 guardas obrigatórias: `--commit`, `--unlock-write` e `--confirm=BACKFILL_MEMBER_DATA`;
