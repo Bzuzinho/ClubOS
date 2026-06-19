@@ -1,5 +1,31 @@
 # Plano Técnico de Consolidação Estrutural dos Dados do Membro (Sprint M2.0)
 
+## Atualização M2.5 (2026-06-19)
+
+Cutover controlado de escrita com dual-write temporário implementado:
+- criado `app/Services/Members/MemberDataWriteService.php` para centralizar escrita em `dados_pessoais` e `dados_configuracao` com sincronização legacy em `users`;
+- `MembrosController@store` e `MembrosController@update` passaram a invocar o serviço de escrita após o fluxo atual de validação/upload/sync existente;
+- `PortalProfileController@update` passou a aplicar o mesmo serviço para edições de perfil, mantendo o comportamento atual do endpoint;
+- criação automática de linhas em `dados_pessoais` e `dados_configuracao` quando ausentes;
+- atualização seletiva apenas de campos presentes no payload (sem limpar campos ausentes);
+- preservação de `false` e `"0"` como valores válidos;
+- manutenção de `perfil/role`, `email/email_utilizador`, `estado`, `numero_socio`, `password` e fluxo de autenticação em `users`;
+- atualização compatível de `migration_source_hash` e preenchimento de `migrated_from_users_at` em criações novas.
+
+Validações de sprint executadas:
+- `php artisan members:audit-data-structure` (baseline sem conflitos de estrutura)
+- `php artisan test --filter=DatabaseSafety`
+- `php artisan test --filter=MemberDataWriteCutover` (novo teste dedicado)
+
+Mantido por decisão da sprint:
+- sem alterações em migrations;
+- sem alterações em UI/frontend (`resources/js`);
+- sem alterações em Financeiro, Desportivo, imports e relações familiares;
+- sem execução de comandos destrutivos;
+- sem deploy e sem execução em produção.
+
+Próxima sprint recomendada: M2.6 — validação operacional ampliada do dual-write e preparação de redução gradual das dependências legacy em `users`.
+
 ## Atualização M2.4 (2026-06-18)
 
 Validação visual/técnica e preparação operacional de produção concluídas, sem alterações funcionais:
@@ -483,7 +509,7 @@ Estado M2.1 nesta entrega: concluída (fundação estrutural criada, sem mudanç
 - validação visual/técnica de leitura com fallback, segurança de não escrita indireta e preparação de deploy/rollback.
 
 ### Sprint M2.5
-- mudar escritas para novas tabelas (users recebe apenas campos mínimos/transitórios).
+- escrita principal em `dados_pessoais` e `dados_configuracao` com dual-write temporário para campos legacy em `users`.
 
 ### Sprint M2.6
 - consolidação das relações familiares na fonte canónica definida (familias/familia_user), mantendo compatibilidade controlada.

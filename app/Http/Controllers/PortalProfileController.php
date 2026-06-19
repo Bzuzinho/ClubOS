@@ -11,6 +11,7 @@ use App\Services\Family\FamilyService;
 use App\Services\Financeiro\CurrentAccountService;
 use App\Services\Loja\StoreProfileResolver;
 use App\Services\Members\MemberDataReadService;
+use App\Services\Members\MemberDataWriteService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
@@ -102,6 +103,7 @@ class PortalProfileController extends Controller
         StoreProfileResolver $profileResolver,
         FamilyService $familyService,
         UserTypeAccessControlService $accessControlService,
+        MemberDataWriteService $memberDataWriteService,
     ): RedirectResponse {
         /** @var User $viewer */
         $viewer = $request->user();
@@ -146,6 +148,13 @@ class PortalProfileController extends Controller
         if (array_key_exists('data_nascimento', $data) && $data['data_nascimento']) {
             $data['menor'] = now()->parse((string) $data['data_nascimento'])->age < 18;
         }
+
+        if (array_key_exists('nome_completo', $data) && $data['nome_completo']) {
+            $data['name'] = $data['nome_completo'];
+        }
+
+        $targetMember->refresh();
+        $memberDataWriteService->persistFromMemberRequest($targetMember, $data, (string) $targetMember->id);
 
         $targetMember->fill($data);
         $targetMember->save();

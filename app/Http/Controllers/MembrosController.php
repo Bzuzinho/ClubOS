@@ -19,6 +19,7 @@ use App\Services\AccessControl\UserTypeAccessControlService;
 use App\Services\Family\FamilyService;
 use App\Services\Financeiro\CurrentAccountService;
 use App\Services\Members\MemberDataReadService;
+use App\Services\Members\MemberDataWriteService;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -35,7 +36,10 @@ use Carbon\Carbon;
 
 class MembrosController extends Controller
 {
-    public function __construct(private readonly InternalCommunicationService $internalCommunicationService)
+    public function __construct(
+        private readonly InternalCommunicationService $internalCommunicationService,
+        private readonly MemberDataWriteService $memberDataWriteService,
+    )
     {
     }
 
@@ -235,6 +239,9 @@ class MembrosController extends Controller
             }
             
             $member = User::create($data);
+            $member->refresh();
+
+            $this->memberDataWriteService->persistFromMemberRequest($member, $data, (string) $member->id);
 
             if ($this->hasFinancialDataPayload($data)) {
                 $financeData = DadosFinanceiros::firstOrNew(['user_id' => $member->id]);
@@ -731,6 +738,9 @@ class MembrosController extends Controller
             $data = $this->syncAuthIdentityFields($data, $member);
 
             $member->update($data);
+            $member->refresh();
+
+            $this->memberDataWriteService->persistFromMemberRequest($member, $data, $memberKey);
 
             if ($this->hasFinancialDataPayload($data)) {
                 $financeData = DadosFinanceiros::firstOrNew(['user_id' => $member->id]);
