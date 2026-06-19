@@ -106,7 +106,7 @@ class AuthenticatedModuleWarmupService
             if ($originalUser) {
                 Auth::guard('web')->setUser($originalUser);
             } else {
-                Auth::guard('web')->logout();
+                Auth::guard('web')->forgetUser();
             }
         }
     }
