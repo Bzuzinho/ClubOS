@@ -24,5 +24,8 @@
         <env name="MAIL_MAILER" value="array"/>
         <env name="QUEUE_CONNECTION" value="sync"/>
         <env name="SESSION_DRIVER" value="array"/>
+        <env name="DB_PROTECT_DESTRUCTIVE_COMMANDS" value="false"/>
+        <env name="DB_ALLOW_DESTRUCTIVE_COMMANDS" value="true"/>
+        <env name="DB_DESTRUCTIVE_CONFIRMATION" value=""/>
     </php>
 </phpunit>

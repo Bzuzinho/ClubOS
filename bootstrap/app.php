@@ -15,7 +15,12 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withCommands([
+        \App\Console\Commands\DatabaseSafety\MigrateFreshGuardedCommand::class,
+        \App\Console\Commands\DatabaseSafety\MigrateRefreshGuardedCommand::class,
+        \App\Console\Commands\DatabaseSafety\MigrateResetGuardedCommand::class,
+        \App\Console\Commands\DatabaseSafety\DbWipeGuardedCommand::class,
         \App\Console\Commands\SetupCommand::class,
+        \App\Console\Commands\DevResetDatabaseCommand::class,
         \App\Console\Commands\BackfillFinanceiroIntegracoes::class,
         \App\Console\Commands\AuditarTrainingSessions::class,
         \App\Console\Commands\MigrarPresencasLegacy::class,
