@@ -508,7 +508,11 @@ class MemberDataMigrationService
         }
 
         if ($type === 'postal_code' && !preg_match('/^\d{4}-\d{3}$/', $normalizedString)) {
-            $this->markSuspicious($suspiciousValues, $scope, $targetField, $sourceField, $userId, $value, 'suspicious_postal_code');
+            $reason = $this->looksLikeForeignPostalCode($normalizedString)
+                ? 'foreign_or_non_pt_postal_code'
+                : 'suspicious_postal_code';
+
+            $this->markSuspicious($suspiciousValues, $scope, $targetField, $sourceField, $userId, $value, $reason);
         }
 
         if ($type === 'sexo' && !in_array(mb_strtolower($normalizedString), ['masculino', 'feminino', 'male', 'female', 'm', 'f'], true)) {
@@ -516,6 +520,22 @@ class MemberDataMigrationService
         }
 
         return $normalizedString;
+    }
+
+    private function looksLikeForeignPostalCode(string $value): bool
+    {
+        $normalized = mb_strtoupper(trim($value));
+        $normalized = preg_replace('/\s+/', ' ', $normalized) ?? $normalized;
+
+        if (preg_match('/\d{1,2}\/\d{1,2}\/\d{2,4}/', $normalized)) {
+            return false;
+        }
+
+        if (preg_match('/^\d{4}-\d{3}$/', $normalized)) {
+            return false;
+        }
+
+        return (bool) preg_match('/^[A-Z]{1,2}\d[A-Z\d]?\s*-?\s*[A-Z0-9]{3}$/', $normalized);
     }
 
     private function normalizeBoolean(mixed $value): ?bool
@@ -795,7 +815,12 @@ class MemberDataMigrationService
             if ($configuration['has_payload']) {
                 $usersWithConfigurationPayload++;
                 $this->collectDuplicate($possibleDuplicates['signature_dados_configuracao'], $configuration['source_hash'], $analysis['user_id']);
-                $this->collectDuplicate($possibleDuplicates['afiliacao_numero'], $configuration['payload']['afiliacao_numero'] ?? null, $analysis['user_id']);
+                $this->collectDuplicate(
+                    $possibleDuplicates['afiliacao_numero'],
+                    $configuration['payload']['afiliacao_numero'] ?? null,
+                    $analysis['user_id'],
+                    ['ignore_placeholders' => true]
+                );
             }
 
             if ($personal['existing']['exists']) {
@@ -877,8 +902,9 @@ class MemberDataMigrationService
 
     /**
      * @param  array<string, array<int, string>>  $bucket
+     * @param  array<string, mixed>  $options
      */
-    private function collectDuplicate(array &$bucket, mixed $value, string $userId): void
+    private function collectDuplicate(array &$bucket, mixed $value, string $userId, array $options = []): void
     {
         if (!is_scalar($value) || trim((string) $value) === '') {
             return;
@@ -886,11 +912,37 @@ class MemberDataMigrationService
 
         $key = mb_strtolower(trim((string) $value));
 
+        if (($options['ignore_placeholders'] ?? false) && $this->isDuplicatePlaceholderValue($key)) {
+            return;
+        }
+
         if (!isset($bucket[$key])) {
             $bucket[$key] = [];
         }
 
         $bucket[$key][] = $userId;
+    }
+
+    private function isDuplicatePlaceholderValue(string $value): bool
+    {
+        $normalized = str_replace(['.', '-', '_'], ' ', mb_strtolower(trim($value)));
+        $normalized = preg_replace('/\s+/', ' ', $normalized) ?? $normalized;
+
+        return in_array($normalized, [
+            'nao federado',
+            'não federado',
+            'sem federacao',
+            'sem federação',
+            'sem numero',
+            'sem número',
+            'n a',
+            'n/a',
+            'na',
+            'não',
+            'nao',
+            'none',
+            'null',
+        ], true);
     }
 
     /**
