@@ -47,10 +47,37 @@ class MembrosController extends Controller
     {
         // members list — 60s TTL, invalidated on store/update/destroy
         $members = Cache::remember('membros:list', 60, fn () =>
-            User::select([
-                'id', 'numero_socio', 'nome_completo', 'email_utilizador',
-                'foto_perfil', 'estado', 'tipo_membro', 'ativo_desportivo', 'escalao', 'created_at',
-            ])->orderBy('nome_completo')->get()
+            User::query()
+                ->with(['dadosPessoais:id,user_id,nome_completo'])
+                ->select([
+                    'id',
+                    'numero_socio',
+                    'nome_completo',
+                    'name',
+                    'email_utilizador',
+                    'foto_perfil',
+                    'estado',
+                    'tipo_membro',
+                    'ativo_desportivo',
+                    'escalao',
+                    'created_at',
+                ])
+                ->get()
+                ->map(function (User $member): User {
+                    $canonicalName = trim((string) ($member->dadosPessoais?->nome_completo ?? ''));
+
+                    if ($canonicalName !== '') {
+                        $member->setAttribute('nome_completo', $canonicalName);
+                    } elseif (blank($member->nome_completo) && filled($member->name)) {
+                        $member->setAttribute('nome_completo', $member->name);
+                    }
+
+                    unset($member->dadosPessoais, $member->name);
+
+                    return $member;
+                })
+                ->sortBy(static fn (User $member) => mb_strtolower((string) ($member->nome_completo ?? '')))
+                ->values()
         );
 
         $userTypes = Cache::remember('membros:user_types', 300, fn () =>
