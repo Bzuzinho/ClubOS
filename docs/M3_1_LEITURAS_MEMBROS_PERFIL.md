@@ -1,165 +1,71 @@
-# M3.1 — Leituras legacy em Membros e Portal Profile
+# M3.1 — Leituras legacy em Membros e Perfil
 
 ## Objetivo
 
-Mapear, sem alterar comportamento, onde `MembrosController` e `PortalProfileController` ainda dependem de campos funcionais de membro lidos diretamente de `users`, tendo como referência a camada canónica já existente em `MemberDataReadService` e `MemberDataWriteService`.
+Mapear os primeiros pontos onde a aplicação ainda lê campos funcionais de membro a partir de users, antes de qualquer refatoração funcional.
 
 ## Ficheiros analisados
 
-- `app/Http/Controllers/MembrosController.php`
-- `app/Http/Controllers/PortalProfileController.php`
-- `app/Services/Members/MemberDataReadService.php`
-- `app/Services/Members/MemberDataWriteService.php`
+- app/Http/Controllers/MembrosController.php
+- app/Http/Controllers/PortalProfileController.php
+- app/Services/Members/MemberDataReadService.php
+- app/Services/Members/MemberDataWriteService.php
 
-## Resumo das dependências encontradas
+## Estado atual
 
-### 1. `MembrosController`
+### MembrosController
 
-Estado geral: leitura mista, mas a superfície principal de ficha/edição já passa por `MemberDataReadService`.
+O fluxo show já usa MemberDataReadService e mergedMemberPayload, pelo que a ficha de membro já recebe dados consolidados com fallback.
 
-#### Já usa `MemberDataReadService`
+O método index ainda usa User::select diretamente com campos funcionais como nome_completo, mantendo dependência de users para nome/listagem/ordenação.
 
-- `show()` aplica `mergedMemberPayload()` sobre `$member->toArray()` antes de renderizar a ficha.
-- `edit()` devolve `member` já consolidado via `mergedMemberPayload()`.
+Ainda existem leituras auxiliares diretas em users, sobretudo:
+- listagem index;
+- payload allUsers;
+- contexto familiar;
+- nomes/contactos de relações.
 
-#### Leitura direta legacy a refatorar
+Nesta fase, estado, numero_socio, perfil, email de autenticação e campos operacionais continuam aceitáveis em users.
 
-- `index()` seleciona e ordena diretamente por `users.nome_completo` para a listagem de membros.
-- `buildFamilyContext()` usa diretamente:
-  - `nome_completo` com fallback para `name` em guardiões, educandos e membros de família;
-  - `contacto`, `telemovel` e `contacto_telefonico` para contacto de guardião.
-- `sendAccessEmail()` volta a ler `nome_completo` de `users` para sincronizar `name` ao enviar acessos.
+### PortalProfileController
 
-#### Compatibilidade / fallback aceitável temporariamente
+O fluxo show carrega dadosPessoais e dadosConfiguracao, aplica MemberDataReadService e faz forceFill no modelo.
 
-- Fallbacks de relações legacy em `show()` para `encarregados` e `educandos` usam `select('nome_completo', 'name', ...)` apenas para reconstrução visual de relações antigas quando o payload já consolidado não traz dados.
-- Leituras de `name` como identidade de autenticação/display continuam aceitáveis nesta fase, desde que não substituam a migração dos campos funcionais de membro.
+O buildProfilePayload ainda lê propriedades diretamente do modelo User, incluindo nif, morada, codigo_postal, localidade, nacionalidade, sexo, contacto, email_secundario e num_federacao.
 
-#### Escrita já coberta por `MemberDataWriteService`
+Esta leitura é aceitável temporariamente porque ocorre depois do forceFill, mas deve ser refatorada numa fase posterior para receber um payload explícito, em vez de depender do modelo mutado em memória.
 
-- `store()` chama `persistFromMemberRequest()` após `User::create()`.
-- `update()` chama `persistFromMemberRequest()` após `refresh()` do modelo.
+## Primeiro alvo recomendado
 
-### 2. `PortalProfileController`
+O primeiro alvo funcional da M3.1 deve ser MembrosController@index.
 
-Estado geral: a controller já injeta a leitura canónica no `show()`, mas o payload final ainda consome vários campos diretamente de `User` em `buildProfilePayload()`.
-
-#### Já usa `MemberDataReadService`
-
-- `show()` carrega `dadosPessoais` e `dadosConfiguracao` e faz `forceFill()` com o resultado de `mergedMemberPayload()`.
-
-#### Leitura direta legacy a refatorar
-
-Em `buildProfilePayload()`, continuam a existir leituras diretas dos seguintes campos funcionais:
-
-- `data_nascimento`
-- `nif`
-- `morada`
-- `codigo_postal`
-- `localidade`
-- `nacionalidade`
-- `sexo`
-- `contacto`
-- `email_secundario`
-- `rgpd`
-- `num_federacao`
-
-Leituras relacionadas com alias legacy do mesmo domínio funcional:
-
-- `cc` como alias legacy de `documento_identificacao`
-- `data_rgpd` como data legacy de consentimento RGPD
-- `consentimento` como alias legacy de consentimento de imagem
-- `declaracao_de_transporte` como alias legacy de declaração de transporte
-
-Observação importante: apesar de `forceFill()` reduzir risco visual imediato, o payload continua acoplado às chaves antigas de `users` e aos aliases legacy gerados por `mergedMemberPayload()`. O acoplamento não desapareceu; apenas ficou mascarado por preenchimento prévio do modelo.
-
-#### Compatibilidade / fallback aceitável temporariamente
-
-- `displayName()` usa `nome_completo ?: name`, o que continua aceitável como fallback de apresentação enquanto `name` permanecer o identificador de autenticação.
-- Leituras de `numero_socio`, `estado`, `foto_perfil`, `tipo_membro`, `menor` e dados desportivos/financeiros não entram neste mapeamento M3.1 porque não são os campos funcionais alvo desta sprint.
-
-#### Escrita já coberta por `MemberDataWriteService`
-
-- `update()` chama `persistFromMemberRequest()` antes de `fill()` e `save()` em `users`.
-
-## Classificação das ocorrências por campo
-
-| Campo / grupo | Local | Classificação | Nota |
-|---|---|---|---|
-| `nome_completo` | `MembrosController::show()` e `edit()` | já usa `MemberDataReadService` | via `mergedMemberPayload()` |
-| `nome_completo` | `MembrosController::index()` | leitura direta legacy a refatorar | listagem e ordenação ainda em `users` |
-| `nome_completo` | `MembrosController::buildFamilyContext()` | leitura direta legacy a refatorar | guardiões/educandos/famílias |
-| `nome_completo` | `PortalProfileController::displayName()` | compatibilidade/fallback aceitável temporariamente | fallback `name` ainda é aceitável |
-| `data_nascimento` | `MembrosController::show()` e `edit()` | já usa `MemberDataReadService` | normalizado no payload consolidado |
-| `data_nascimento` | `PortalProfileController::buildProfilePayload()` | leitura direta legacy a refatorar | payload editável e secção pessoal |
-| `sexo` | `PortalProfileController::buildProfilePayload()` | leitura direta legacy a refatorar | payload editável e secção pessoal |
-| `nif` | `PortalProfileController::buildProfilePayload()` | leitura direta legacy a refatorar | payload editável e secção pessoal |
-| `documento_identificacao` | `PortalProfileController::buildProfilePayload()` via `cc` | leitura direta legacy a refatorar | alias legacy do mesmo campo |
-| `nacionalidade` | `PortalProfileController::buildProfilePayload()` | leitura direta legacy a refatorar | payload editável e secção pessoal |
-| `morada` | `PortalProfileController::buildProfilePayload()` | leitura direta legacy a refatorar | payload editável e secção pessoal |
-| `codigo_postal` | `PortalProfileController::buildProfilePayload()` | leitura direta legacy a refatorar | payload editável e secção pessoal |
-| `localidade` | `PortalProfileController::buildProfilePayload()` | leitura direta legacy a refatorar | payload editável e secção pessoal |
-| `contacto` | `MembrosController::buildFamilyContext()` | leitura direta legacy a refatorar | usa cadeia `contacto_telefonico/contacto/telemovel` |
-| `contacto` | `PortalProfileController::buildProfilePayload()` | leitura direta legacy a refatorar | payload editável e secção pessoal |
-| `email_secundario` | `PortalProfileController::buildProfilePayload()` | leitura direta legacy a refatorar | payload editável e secção pessoal |
-| `rgpd` | `PortalProfileController::buildProfilePayload()` | leitura direta legacy a refatorar | booleano e data legacy ainda lidos no payload |
-| `consentimento_imagem` | `PortalProfileController::buildProfilePayload()` via `consentimento` | leitura direta legacy a refatorar | alias legacy |
-| `declaracao_transporte` | `PortalProfileController::buildProfilePayload()` via `declaracao_de_transporte` | leitura direta legacy a refatorar | alias legacy |
-| `num_federacao` / `afiliacao_numero` | `PortalProfileController::buildProfilePayload()` | leitura direta legacy a refatorar | secções editável, documentos e desporto |
-
-## Campos da lista alvo sem ocorrência nestes ficheiros
-
-Nestes quatro ficheiros não foram encontradas ocorrências relevantes de leitura direta para:
-
-- `tipo_documento`
-- `validade_documento`
-- `naturalidade`
-- `distrito`
-- `concelho`
-- `contacto_alternativo`
-- `tipo_utilizador`
-- `observacoes`
-- `consentimento_rgpd`
-- `afiliacao_federativa`
-- `certificado_medico_ficheiro`
-- `termos_aceites`
-- `receber_comunicacoes`
-- `acesso_portal_ativo`
-
-Classificação: falso positivo para o recorte desta análise, porque fazem parte do universo M3 mas não apareceram nestas duas controllers como leitura direta atual.
-
-## Primeiro alvo recomendado de refatoração
-
-Primeiro alvo M3.1 recomendado: `PortalProfileController::buildProfilePayload()`.
-
-Razões:
-
-1. Já existe pré-condição técnica favorável: a controller já carrega `dadosPessoais` e `dadosConfiguracao` e já chama `MemberDataReadService` no `show()`.
-2. O impacto é local e bem delimitado ao payload do portal, sem tocar ainda em `MembrosController` nem em fluxos administrativos maiores.
-3. Concentra várias leituras legacy do mesmo domínio num único ponto de montagem de resposta.
-4. Permite reduzir rapidamente o acoplamento a aliases legacy como `cc`, `rgpd`, `consentimento` e `declaracao_de_transporte`.
-
-Sequência sugerida após esta análise:
-
-1. introduzir em `buildProfilePayload()` consumo explícito do payload composto em vez de leituras diretas de `User`;
-2. só depois atacar `MembrosController::index()` e `buildFamilyContext()`;
-3. manter `displayName()` e `name` como fallback temporário de identidade.
+Motivo:
+- é uma leitura simples;
+- é visível ao utilizador;
+- ainda depende de users para nome_completo;
+- pode ficar desatualizada se no futuro os dados pessoais deixarem de ser sincronizados para users.
 
 ## Riscos
 
-- O `forceFill()` atual em `PortalProfileController` pode dar falsa sensação de cutover completo, porque o código continua dependente de nomes/aliases legacy.
-- Refatorar o portal sem preservar os aliases esperados pelo frontend pode introduzir regressões visuais em formulários e cartões do perfil.
-- `MembrosController::index()` usa `nome_completo` para ordenação/listagem; mudar esta leitura exigirá confirmar impacto de performance e ordenação quando o nome vier do payload composto.
-- Relações familiares ainda combinam dados relacionais novos com reconstrução legacy local; mexer cedo nessa zona amplia o risco funcional.
-
-## Testes a correr antes e depois
-
-- `php artisan test tests/Feature/Membros/MemberDataReadFallbackTest.php`
-- `php artisan test tests/Feature/Membros/MemberDataWriteCutoverTest.php`
-- `php artisan test tests/Feature/Membros/MemberDataReadVisualSafetyTest.php`
+- Se a listagem continuar a ler users, alterações futuras apenas em dados_pessoais podem não refletir na lista.
+- forceFill em PortalProfileController é compatível, mas esconde a origem dos dados.
+- Relações familiares ainda usam nomes/contactos via User e devem continuar com fallback até existir payload dedicado.
 
 ## Regra de segurança
 
-Não remover colunas de `users` nesta fase.
+Não remover colunas de users nesta fase.
 
-`users` continua a ser tabela de autenticação, compatibilidade legacy e fallback até nova validação da M3.
+Qualquer alteração deve preservar fallback e compatibilidade com produção.
+
+## Testes recomendados
+
+- php artisan test tests/Feature/Membros/MemberDataReadFallbackTest.php
+- php artisan test tests/Feature/Membros/MemberDataReadVisualSafetyTest.php
+- php artisan test tests/Feature/Membros/MemberDataWriteCutoverTest.php
+- php artisan test tests/Feature/Membros/MembrosFamilyContextTabPayloadTest.php
+
+## Decisão
+
+M3.1 documental fecha com este mapeamento.
+
+A próxima tarefa funcional deverá refatorar apenas MembrosController@index, mantendo comportamento e cache.
