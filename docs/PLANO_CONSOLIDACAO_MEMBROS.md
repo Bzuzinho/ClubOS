@@ -1,5 +1,23 @@
 # Plano Técnico de Consolidação Estrutural dos Dados do Membro (Sprint M2.0)
 
+## Atualização M2.6 (2026-06-19)
+
+Validação operacional do dual-write da M2.5 concluída, sem introdução de nova lógica de negócio:
+- criado o teste dedicado `tests/Feature/Membros/MemberDataDualWriteOperationalValidationTest.php` para validar escrita dual-write da ficha e portal, persistência em `dados_pessoais`/`dados_configuracao`, sincronização legacy em `users` quando aplicável, fallback pós-escrita e idempotência;
+- validação explícita de não regressão sobre superfícies fora do escopo (Financeiro, Desportivo e relações Família) durante update da ficha;
+- auditoria pós-update validada sem regressão de conflitos para o utilizador alvo do teste;
+- criado runbook operacional de rollout/rollback da M2.6 em `docs/deploy/MEMBERS_M2_6_DUAL_WRITE_ROLLOUT_RUNBOOK.md`, incluindo comandos permitidos/proibidos, checklist, backfill controlado e critérios de sucesso/abortar.
+
+Garantias mantidas por decisão da sprint:
+- sem alterações de UI/frontend (`resources/js`);
+- sem alterações em migrations, imports, modelos ou comandos destrutivos;
+- sem alterações em Financeiro, Desportivo e relações familiares;
+- sem deploy e sem execução em produção;
+- `users` mantém campos legacy e sincronização temporária;
+- `dados_pessoais` e `dados_configuracao` continuam destino principal da escrita.
+
+Próxima sprint recomendada: M2.7 — rollout controlado em ambiente alvo e/ou preparação de redução gradual de dependências legacy em `users` (conforme decisão operacional).
+
 ## Atualização M2.5 (2026-06-19)
 
 Cutover controlado de escrita com dual-write temporário implementado:
@@ -24,7 +42,7 @@ Mantido por decisão da sprint:
 - sem execução de comandos destrutivos;
 - sem deploy e sem execução em produção.
 
-Próxima sprint recomendada: M2.6 — validação operacional ampliada do dual-write e preparação de redução gradual das dependências legacy em `users`.
+Próxima sprint recomendada: M2.7 — rollout controlado em ambiente alvo ou preparação para redução de dependências legacy em `users`.
 
 ## Atualização M2.4 (2026-06-18)
 
