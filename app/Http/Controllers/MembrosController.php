@@ -562,40 +562,52 @@ class MembrosController extends Controller
         $guardians = collect($member->encarregados ?? [])
             ->map(fn ($guardian) => $this->resolveRelatedUser($guardian))
             ->filter(fn ($guardian) => $guardian instanceof User)
-            ->map(fn (User $guardian) => [
-                'id' => $guardian->id,
-                'nome_completo' => trim((string) ($guardian->nome_completo ?: $guardian->name)) ?: 'Sem nome',
-                'numero_socio' => $guardian->numero_socio,
-                'estado' => $guardian->estado,
-                'tipo_membro' => is_array($guardian->tipo_membro) ? $guardian->tipo_membro : (array) $guardian->tipo_membro,
-                'email' => $guardian->email_utilizador ?: $guardian->email,
-                'contacto' => $guardian->contacto_telefonico ?: $guardian->contacto ?: $guardian->telemovel,
-            ])
+            ->map(function (User $guardian) {
+                $guardian->loadMissing('dadosPessoais');
+
+                return [
+                    'id' => $guardian->id,
+                    'nome_completo' => $this->canonicalMemberName($guardian),
+                    'numero_socio' => $guardian->numero_socio,
+                    'estado' => $guardian->estado,
+                    'tipo_membro' => is_array($guardian->tipo_membro) ? $guardian->tipo_membro : (array) $guardian->tipo_membro,
+                    'email' => $guardian->email_utilizador ?: $guardian->email,
+                    'contacto' => $this->canonicalMemberContact($guardian),
+                ];
+            })
             ->values();
 
         $dependents = collect($member->educandos ?? [])
             ->map(fn ($educando) => $this->resolveRelatedUser($educando))
             ->filter(fn ($educando) => $educando instanceof User)
-            ->map(fn (User $educando) => [
-                'id' => $educando->id,
-                'nome_completo' => trim((string) ($educando->nome_completo ?: $educando->name)) ?: 'Sem nome',
-                'numero_socio' => $educando->numero_socio,
-                'estado' => $educando->estado,
-                'tipo_membro' => is_array($educando->tipo_membro) ? $educando->tipo_membro : (array) $educando->tipo_membro,
-            ])
+            ->map(function (User $educando) {
+                $educando->loadMissing('dadosPessoais');
+
+                return [
+                    'id' => $educando->id,
+                    'nome_completo' => $this->canonicalMemberName($educando),
+                    'numero_socio' => $educando->numero_socio,
+                    'estado' => $educando->estado,
+                    'tipo_membro' => is_array($educando->tipo_membro) ? $educando->tipo_membro : (array) $educando->tipo_membro,
+                ];
+            })
             ->values();
 
         $families = collect($familyService->actualFamiliesForUser($member) ?? [])
             ->map(function ($family) {
                 $members = collect($family->members ?? [])
-                    ->map(fn (User $familyMember) => [
-                        'id' => $familyMember->id,
-                        'nome_completo' => trim((string) ($familyMember->nome_completo ?: $familyMember->name)) ?: 'Sem nome',
-                        'numero_socio' => $familyMember->numero_socio,
-                        'estado' => $familyMember->estado,
-                        'papel_na_familia' => $familyMember->pivot?->papel_na_familia,
-                        'tipo_membro' => is_array($familyMember->tipo_membro) ? $familyMember->tipo_membro : (array) $familyMember->tipo_membro,
-                    ])
+                    ->map(function (User $familyMember) {
+                        $familyMember->loadMissing('dadosPessoais');
+
+                        return [
+                            'id' => $familyMember->id,
+                            'nome_completo' => $this->canonicalMemberName($familyMember),
+                            'numero_socio' => $familyMember->numero_socio,
+                            'estado' => $familyMember->estado,
+                            'papel_na_familia' => $familyMember->pivot?->papel_na_familia,
+                            'tipo_membro' => is_array($familyMember->tipo_membro) ? $familyMember->tipo_membro : (array) $familyMember->tipo_membro,
+                        ];
+                    })
                     ->values();
 
                 return [
@@ -631,6 +643,38 @@ class MembrosController extends Controller
             ],
             'can_manage_family_relations' => $canManageFamilyRelations,
         ];
+    }
+
+    private function canonicalMemberName(User $user): string
+    {
+        $personalName = trim((string) ($user->dadosPessoais?->nome_completo ?? ''));
+
+        if ($personalName !== '') {
+            return $personalName;
+        }
+
+        $legacyName = trim((string) ($user->nome_completo ?: $user->name));
+
+        return $legacyName !== '' ? $legacyName : 'Sem nome';
+    }
+
+    private function canonicalMemberContact(User $user): ?string
+    {
+        $personalContact = trim((string) ($user->dadosPessoais?->contacto ?? ''));
+
+        if ($personalContact !== '') {
+            return $personalContact;
+        }
+
+        foreach ([$user->contacto, $user->contacto_telefonico, $user->telemovel] as $contact) {
+            $normalized = trim((string) $contact);
+
+            if ($normalized !== '') {
+                return $normalized;
+            }
+        }
+
+        return null;
     }
 
     private function resolveRelatedUser(mixed $candidate): ?User
