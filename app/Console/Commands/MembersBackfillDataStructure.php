@@ -15,6 +15,7 @@ class MembersBackfillDataStructure extends Command
         {--commit : Permite escrita real apenas com guardas explicitas}
         {--unlock-write : Guarda de seguranca para escrita real}
         {--confirm= : Confirmacao obrigatoria para escrita real}
+        {--production-ack= : Confirmacao adicional obrigatoria para escrita em producao}
         {--allow-updates : Opcao reservada (bloqueada nesta sprint)}
         {--report-path= : Caminho para guardar relatorio JSON}';
 
@@ -25,6 +26,7 @@ class MembersBackfillDataStructure extends Command
         $commitRequested = (bool) $this->option('commit');
         $unlockWrite = (bool) $this->option('unlock-write');
         $confirmToken = is_string($this->option('confirm')) ? trim((string) $this->option('confirm')) : '';
+        $productionAck = is_string($this->option('production-ack')) ? trim((string) $this->option('production-ack')) : '';
         $allowUpdates = (bool) $this->option('allow-updates');
         $isJson = (bool) $this->option('json');
 
@@ -44,8 +46,10 @@ class MembersBackfillDataStructure extends Command
             return 2;
         }
 
-        if ($commitRequested && !$this->isWritableEnvironment()) {
-            $message = 'Backfill real so e permitido em ambiente local/desenvolvimento/codespaces.';
+        if ($commitRequested && !$this->isWritableEnvironment($productionAck)) {
+            $message = app()->environment('production')
+                ? 'Backfill real em producao requer --production-ack=PRODUCTION_MEMBER_BACKFILL.'
+                : 'Backfill real so e permitido em ambiente local/desenvolvimento/codespaces.';
 
             if ($isJson) {
                 $this->line(json_encode([
@@ -53,6 +57,9 @@ class MembersBackfillDataStructure extends Command
                     'message' => $message,
                     'mode' => 'environment_blocked',
                     'environment' => app()->environment(),
+                    'required_production_ack' => app()->environment('production')
+                        ? '--production-ack=PRODUCTION_MEMBER_BACKFILL'
+                        : null,
                 ], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
             } else {
                 $this->error($message);
@@ -74,6 +81,9 @@ class MembersBackfillDataStructure extends Command
                         '--unlock-write',
                         '--confirm=BACKFILL_MEMBER_DATA',
                     ],
+                    'required_production_ack' => app()->environment('production')
+                        ? '--production-ack=PRODUCTION_MEMBER_BACKFILL'
+                        : null,
                 ], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
             } else {
                 $this->error($message);
@@ -118,7 +128,9 @@ class MembersBackfillDataStructure extends Command
             'Backfill da estrutura de dados do membro (%s)',
             $report['dry_run'] ? 'dry-run' : 'commit'
         ));
+
         $this->newLine();
+
         $this->table(
             ['Metrica', 'Valor'],
             [
@@ -143,6 +155,7 @@ class MembersBackfillDataStructure extends Command
         }
 
         $this->newLine();
+
         if ($report['dry_run']) {
             $this->info('Dry-run concluido sem escrita em dados_pessoais/dados_configuracao.');
         } else {
@@ -152,8 +165,13 @@ class MembersBackfillDataStructure extends Command
         return self::SUCCESS;
     }
 
-    private function isWritableEnvironment(): bool
+    private function isWritableEnvironment(string $productionAck = ''): bool
     {
-        return app()->environment(['local', 'development', 'testing', 'codespaces']);
+        if (app()->environment(['local', 'development', 'testing', 'codespaces'])) {
+            return true;
+        }
+
+        return app()->environment('production')
+            && $productionAck === 'PRODUCTION_MEMBER_BACKFILL';
     }
 }
