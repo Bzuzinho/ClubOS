@@ -5,10 +5,10 @@ set -euo pipefail
 
 # ===== Config =====
 VM_USER="${VM_USER:-ubuntu}"
-VM_HOST="${VM_HOST:-clubmanager-vm}"
+VM_HOST="${VM_HOST:-129.159.13.211}"
 VM_APP_DIR="${VM_APP_DIR:-/var/www/clubmanager}"
 SSH_KEY="${SSH_KEY:-${HOME}/.ssh/id_ed25519}"
-SSH_ALIAS="clubmanager-vm"
+SSH_ALIAS="${SSH_ALIAS:-bscn-vnic-prod}"
 SSH_CONFIG="${HOME}/.ssh/config"
 KNOWN_HOSTS="${HOME}/.ssh/known_hosts"
 REMOTE_BACKEND_SCRIPT="/usr/local/bin/clubmanager-deploy-backend.sh"
@@ -33,7 +33,12 @@ echo "==> VM:   ${VM_USER}@${VM_HOST}:${VM_APP_DIR}"
 
 # ===== Helper: run ssh via alias (BatchMode, 15s timeout) =====
 vm_ssh() {
-  ssh -o BatchMode=yes -o ConnectTimeout=15 "${SSH_ALIAS}" "$@"
+  ssh \
+    -o BatchMode=yes \
+    -o ConnectTimeout=15 \
+    -o StrictHostKeyChecking=accept-new \
+    -i "${SSH_KEY}" \
+    "${VM_USER}@${VM_HOST}" "$@"
 }
 
 read_local_env_value() {
@@ -307,7 +312,7 @@ PUB_KEY_CONTENT="$(cat "${SSH_KEY}.pub")"
 echo "    Tentar instalar chave pública na VM ..."
 if ssh -o BatchMode=yes -o ConnectTimeout=15 \
      -o StrictHostKeyChecking=accept-new \
-     -i "${SSH_KEY}" "${VM_USER}@${VM_HOST}" \
+     "${VM_USER}@${VM_HOST}" \
      "mkdir -p ~/.ssh && chmod 700 ~/.ssh && \
       grep -qxF '${PUB_KEY_CONTENT}' ~/.ssh/authorized_keys 2>/dev/null || \
       echo '${PUB_KEY_CONTENT}' >> ~/.ssh/authorized_keys && \
@@ -530,3 +535,5 @@ fi
 echo ""
 echo "✅ Deploy completo OK."
 echo "🌍 Abre: http://${VM_HOST}"
+echo "   VM: ${VM_USER}@${VM_HOST}"
+echo "   App: ${VM_APP_DIR}"
