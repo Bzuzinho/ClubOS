@@ -33,6 +33,7 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 use Illuminate\Support\Str;
 use Carbon\Carbon;
+use Carbon\CarbonInterface;
 
 class MembrosController extends Controller
 {
@@ -390,15 +391,41 @@ class MembrosController extends Controller
                 ->sortBy(fn (User $user) => array_search((string) $user->getKey(), $legacyGuardianIds, true))
                 ->values();
         }
-        $allUsers = User::select(
-            'id',
-            'nome_completo',
-            'numero_socio',
-            'tipo_membro',
-            'foto_perfil',
-            'menor',
-            'data_nascimento'
-        )->get();
+        $allUsers = User::query()
+            ->with(['dadosPessoais:id,user_id,nome_completo,data_nascimento'])
+            ->select(
+                'id',
+                'name',
+                'nome_completo',
+                'numero_socio',
+                'tipo_membro',
+                'foto_perfil',
+                'menor',
+                'data_nascimento'
+            )
+            ->get()
+            ->map(function (User $user): array {
+                $canonicalName = trim((string) ($user->dadosPessoais?->nome_completo ?? ''));
+
+                if ($canonicalName === '') {
+                    $canonicalName = trim((string) ($user->nome_completo ?: $user->name));
+                }
+
+                $birthDate = $user->dadosPessoais?->data_nascimento ?? $user->data_nascimento;
+
+                return [
+                    'id' => $user->id,
+                    'nome_completo' => $canonicalName,
+                    'numero_socio' => $user->numero_socio,
+                    'tipo_membro' => $user->tipo_membro,
+                    'foto_perfil' => $user->foto_perfil,
+                    'menor' => $user->menor,
+                    'data_nascimento' => $birthDate instanceof CarbonInterface
+                        ? $birthDate->format('Y-m-d')
+                        : $birthDate,
+                ];
+            })
+            ->values();
 
         $currentAccountService = app(CurrentAccountService::class);
 
