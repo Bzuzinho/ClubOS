@@ -266,7 +266,7 @@ class MembrosController extends Controller
                 $data['declaracao_transporte'] = $this->storeFile($data['declaracao_transporte'], 'members/transport');
             }
             
-            $member = User::create($data);
+            $member = User::create($this->legacyUserPayloadForMemberWrite($data));
             $member->refresh();
 
             $this->memberDataWriteService->persistFromMemberRequest($member, $data, (string) $member->id);
