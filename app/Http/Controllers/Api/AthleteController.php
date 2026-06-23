@@ -49,7 +49,9 @@ class AthleteController extends Controller
      */
     public function show(User $athlete): JsonResponse
     {
-        $athlete->loadMissing(['athleteSportsData.escalao']);
+        $athlete->loadMissing(['athleteSportsData.escalao', 'dadosPessoais']);
+
+        $birthDate = $athlete->dadosPessoais?->data_nascimento ?? $athlete->data_nascimento;
 
         return response()->json([
             'id' => $athlete->id,
@@ -61,7 +63,7 @@ class AthleteController extends Controller
                 : [],
             'tipo_membro' => $athlete->tipo_membro,
             'data_atestado_medico' => $athlete->athleteSportsData?->data_atestado_medico,
-            'data_nascimento' => $athlete->data_nascimento,
+            'data_nascimento' => $birthDate,
             'telefone' => $athlete->telefone,
         ]);
     }
