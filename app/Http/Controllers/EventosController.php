@@ -184,14 +184,20 @@ class EventosController extends Controller
             return Cache::remember('eventos:users', 60, fn () => $this->buildUsersPayload(false));
         }
 
-        return User::with(['athleteSportsData:id,user_id,escalao_id'])
+        return User::with([
+            'athleteSportsData:id,user_id,escalao_id',
+            'dadosPessoais:id,user_id,nome_completo',
+        ])
             ->where('estado', 'ativo')
-            ->get(['id', 'nome_completo', 'perfil', 'email', 'numero_socio', 'estado', 'tipo_membro', 'escalao'])
+            ->get(['id', 'name', 'nome_completo', 'perfil', 'email', 'numero_socio', 'estado', 'tipo_membro', 'escalao'])
             ->map(function (User $user) {
                 if ((!is_array($user->escalao) || count($user->escalao) === 0) && $user->athleteSportsData?->escalao_id) {
                     $user->escalao = [(string) $user->athleteSportsData->escalao_id];
                 }
-                unset($user->athleteSportsData);
+
+                $user->nome_completo = trim((string) ($user->dadosPessoais?->nome_completo ?: $user->nome_completo ?: $user->name)) ?: 'Utilizador';
+
+                unset($user->athleteSportsData, $user->dadosPessoais);
 
                 return $user;
             });
