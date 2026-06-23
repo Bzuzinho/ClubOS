@@ -24,9 +24,7 @@ class EquipasController extends Controller
     public function create(): Response
     {
         return Inertia::render('Desportivo/Teams/Create', [
-            'treinadores' => User::whereJsonContains('tipo_membro', 'treinador')
-                ->where('status', 'ativo')
-                ->get(['id', 'nome_completo']),
+            'treinadores' => $this->trainerOptions(),
         ]);
     }
 
@@ -49,10 +47,21 @@ class EquipasController extends Controller
     {
         return Inertia::render('Desportivo/Teams/Edit', [
             'team' => $team,
-            'treinadores' => User::whereJsonContains('tipo_membro', 'treinador')
-                ->where('status', 'ativo')
-                ->get(['id', 'nome_completo']),
+            'treinadores' => $this->trainerOptions(),
         ]);
+    }
+
+    private function trainerOptions()
+    {
+        return User::with('dadosPessoais:id,user_id,nome_completo')
+            ->whereJsonContains('tipo_membro', 'treinador')
+            ->where('status', 'ativo')
+            ->get(['id', 'name', 'nome_completo'])
+            ->map(fn (User $user) => [
+                'id' => $user->id,
+                'nome_completo' => trim((string) ($user->dadosPessoais?->nome_completo ?: $user->nome_completo ?: $user->name)) ?: 'Utilizador',
+            ])
+            ->values();
     }
 
     public function update(UpdateTeamRequest $request, Team $team): RedirectResponse
