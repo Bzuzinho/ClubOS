@@ -835,7 +835,7 @@ class MembrosController extends Controller
             
             $data = $this->syncAuthIdentityFields($data, $member);
 
-            $member->update($data);
+            $member->update($this->legacyUserPayloadForMemberWrite($data));
             $member->refresh();
 
             $this->memberDataWriteService->persistFromMemberRequest($member, $data, $memberKey);
@@ -1009,6 +1009,39 @@ class MembrosController extends Controller
         }
 
         return $data;
+    }
+
+    private function legacyUserPayloadForMemberWrite(array $data): array
+    {
+        return array_filter([
+            'name' => $data['name'] ?? null,
+            'email' => $data['email'] ?? null,
+            'email_utilizador' => $data['email_utilizador'] ?? null,
+            'password' => $data['password'] ?? null,
+            'foto_perfil' => $data['foto_perfil'] ?? null,
+            'cartao_federacao' => $data['cartao_federacao'] ?? null,
+            'arquivo_rgpd' => $data['arquivo_rgpd'] ?? null,
+            'arquivo_consentimento' => $data['arquivo_consentimento'] ?? null,
+            'arquivo_afiliacao' => $data['arquivo_afiliacao'] ?? null,
+            'declaracao_transporte' => $data['declaracao_transporte'] ?? null,
+            'menor' => $data['menor'] ?? null,
+            'estado' => $data['estado'] ?? null,
+            'perfil' => $data['perfil'] ?? null,
+            'numero_socio' => $data['numero_socio'] ?? null,
+            'tipo_membro' => $data['tipo_membro'] ?? null,
+            'escalao' => $data['escalao'] ?? null,
+            'ativo_desportivo' => $data['ativo_desportivo'] ?? null,
+            'data_inscricao' => $data['data_inscricao'] ?? null,
+            'data_atestado_medico' => $data['data_atestado_medico'] ?? null,
+            'informacoes_medicas' => $data['informacoes_medicas'] ?? null,
+            'telefone' => $data['telefone'] ?? null,
+            'estado_civil' => $data['estado_civil'] ?? null,
+            'notas' => $data['notas'] ?? null,
+            'ocupacao' => $data['ocupacao'] ?? null,
+            'empresa' => $data['empresa'] ?? null,
+            'escola' => $data['escola'] ?? null,
+            'numero_irmaos' => $data['numero_irmaos'] ?? null,
+        ], static fn ($value) => $value !== null);
     }
 
     private function hasFinancialDataPayload(array $data): bool
