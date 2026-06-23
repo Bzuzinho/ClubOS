@@ -156,8 +156,24 @@ class PortalProfileController extends Controller
         $targetMember->refresh();
         $memberDataWriteService->persistFromMemberRequest($targetMember, $data, (string) $targetMember->id);
 
-        $targetMember->fill($data);
-        $targetMember->save();
+        $legacyUserPayload = [];
+
+        if (array_key_exists('name', $data)) {
+            $legacyUserPayload['name'] = $data['name'];
+        }
+
+        if (array_key_exists('foto_perfil', $data)) {
+            $legacyUserPayload['foto_perfil'] = $data['foto_perfil'];
+        }
+
+        if (array_key_exists('menor', $data)) {
+            $legacyUserPayload['menor'] = $data['menor'];
+        }
+
+        if ($legacyUserPayload !== []) {
+            $targetMember->fill($legacyUserPayload);
+            $targetMember->save();
+        }
 
         return redirect()->route('portal.profile', $targetMember->id === $viewer->id ? [] : ['member' => $targetMember->id]);
     }
