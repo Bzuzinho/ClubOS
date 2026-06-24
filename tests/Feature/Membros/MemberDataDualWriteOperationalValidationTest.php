@@ -25,7 +25,7 @@ class MemberDataDualWriteOperationalValidationTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_member_profile_update_keeps_dual_write_parity_read_consistency_and_non_target_modules_unchanged(): void
+    public function test_member_profile_update_keeps_canonical_write_with_legacy_fallback_and_non_target_modules_unchanged(): void
     {
         $admin = User::factory()->admin()->create();
         $guardian = User::factory()->create(['perfil' => 'encarregado_educacao']);
@@ -196,14 +196,14 @@ class MemberDataDualWriteOperationalValidationTest extends TestCase
         $this->assertFalse((bool) $config->declaracao_transporte);
 
         $this->assertSame('Operacional Depois', $member->name);
-        $this->assertSame('Operacional Depois', $member->nome_completo);
+        $this->assertSame('Operacional Antes', $member->nome_completo);
 
         if (Schema::hasColumn('users', 'contacto')) {
-            $this->assertSame('919111222', (string) $member->contacto);
+            $this->assertSame('910000001', (string) $member->contacto);
         }
 
         if (Schema::hasColumn('users', 'email_secundario')) {
-            $this->assertSame('sec.operacional@example.test', (string) $member->email_secundario);
+            $this->assertSame('legacy.sec@example.test', (string) $member->email_secundario);
         }
 
         $legacyObservationColumns = array_values(array_filter(['observacoes', 'notas'], static fn (string $col): bool => Schema::hasColumn('users', $col)));
@@ -281,7 +281,7 @@ class MemberDataDualWriteOperationalValidationTest extends TestCase
         DadosPessoais::query()->where('user_id', $member->id)->delete();
 
         $result = app(MemberDataReadService::class)->personalPayload($member->fresh());
-        $this->assertSame('Rua dual write', $result['morada']);
+        $this->assertSame('Rua legacy personal', $result['morada']);
     }
 
     public function test_read_fallback_still_works_when_configuration_row_is_removed_after_update(): void
@@ -305,10 +305,10 @@ class MemberDataDualWriteOperationalValidationTest extends TestCase
         DadosConfiguracao::query()->where('user_id', $member->id)->delete();
 
         $result = app(MemberDataReadService::class)->configurationPayload($member->fresh());
-        $this->assertTrue((bool) $result['consentimento_rgpd']);
+        $this->assertFalse((bool) $result['consentimento_rgpd']);
     }
 
-    public function test_portal_profile_update_keeps_dual_write_for_member_personal_data(): void
+    public function test_portal_profile_update_writes_canonical_personal_data_and_keeps_legacy_personal_columns_unchanged(): void
     {
         $member = User::factory()->create([
             'nome_completo' => 'Portal Operacional Antes',
@@ -345,10 +345,10 @@ class MemberDataDualWriteOperationalValidationTest extends TestCase
         $member->refresh();
         $personal = DadosPessoais::query()->where('user_id', $member->id)->firstOrFail();
 
-        $this->assertSame('Portal Operacional Depois', $member->nome_completo);
+        $this->assertSame('Portal Operacional Antes', $member->nome_completo);
         $this->assertSame('Portal Operacional Depois', $member->name);
-        $this->assertSame('999888777', $member->nif);
-        $this->assertSame('Morada Portal Depois', $member->morada);
+        $this->assertSame('123123123', $member->nif);
+        $this->assertSame('Morada Portal Antes', $member->morada);
 
         $this->assertSame('Portal Operacional Depois', $personal->nome_completo);
         $this->assertSame('999888777', $personal->nif);

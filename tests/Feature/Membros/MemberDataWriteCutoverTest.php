@@ -18,7 +18,7 @@ class MemberDataWriteCutoverTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_update_creates_missing_personal_and_configuration_rows_and_keeps_legacy_users_synced(): void
+    public function test_update_creates_missing_personal_and_configuration_rows_and_preserves_legacy_fallback_contract(): void
     {
         $admin = User::factory()->admin()->create();
         $member = User::factory()->create([
@@ -89,7 +89,7 @@ class MemberDataWriteCutoverTest extends TestCase
         $this->assertTrue((bool) $config->afiliacao_federativa);
         $this->assertTrue((bool) $config->declaracao_transporte);
 
-        $this->assertSame('Membro Atualizado', $member->nome_completo);
+        $this->assertSame('Membro Original', $member->nome_completo);
         $this->assertSame('Membro Atualizado', $member->name);
         $this->assertSame('membro.original@example.test', $member->email_utilizador);
         $this->assertSame('membro.original@example.test', $member->email);
@@ -317,7 +317,7 @@ class MemberDataWriteCutoverTest extends TestCase
 
         $result = app(MemberDataReadService::class)->personalPayload($member->fresh());
 
-        $this->assertSame('Morada Nova', $result['morada']);
+        $this->assertSame('Morada Users', $result['morada']);
     }
 
     public function test_fallback_remains_functional_if_dados_configuracao_row_is_removed_after_update(): void
@@ -344,10 +344,10 @@ class MemberDataWriteCutoverTest extends TestCase
 
         $result = app(MemberDataReadService::class)->configurationPayload($member->fresh());
 
-        $this->assertTrue((bool) $result['consentimento_rgpd']);
+        $this->assertFalse((bool) $result['consentimento_rgpd']);
     }
 
-    public function test_portal_profile_update_applies_dual_write_for_personal_data(): void
+    public function test_portal_profile_update_writes_canonical_personal_data_and_keeps_legacy_personal_columns_unchanged(): void
     {
         $member = User::factory()->create([
             'nome_completo' => 'Portal Antes',
@@ -384,10 +384,10 @@ class MemberDataWriteCutoverTest extends TestCase
         $member->refresh();
         $personal = DadosPessoais::query()->where('user_id', $member->id)->firstOrFail();
 
-        $this->assertSame('Portal Depois', $member->nome_completo);
+        $this->assertSame('Portal Antes', $member->nome_completo);
         $this->assertSame('Portal Depois', $member->name);
-        $this->assertSame('999888777', $member->nif);
-        $this->assertSame('Morada Portal Depois', $member->morada);
+        $this->assertSame('123123123', $member->nif);
+        $this->assertSame('Morada Portal Antes', $member->morada);
         $this->assertSame('Portal Depois', $personal->nome_completo);
         $this->assertSame('999888777', $personal->nif);
         $this->assertSame('Morada Portal Depois', $personal->morada);

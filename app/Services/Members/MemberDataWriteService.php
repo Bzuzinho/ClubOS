@@ -109,37 +109,20 @@ final class MemberDataWriteService
 
     /** @var array<string, list<string>> */
     private const PERSONAL_LEGACY_USER_MAP = [
-        'nome_completo' => ['nome_completo', 'name'],
-        'data_nascimento' => ['data_nascimento'],
-        'sexo' => ['sexo'],
-        'nif' => ['nif'],
-        'documento_identificacao' => ['cc', 'documento_identificacao'],
         'tipo_documento' => ['tipo_documento'],
         'validade_documento' => ['data_validade_cc', 'validade_documento'],
-        'nacionalidade' => ['nacionalidade'],
         'naturalidade' => ['naturalidade'],
-        'morada' => ['morada'],
-        'codigo_postal' => ['codigo_postal'],
-        'localidade' => ['localidade'],
         'distrito' => ['distrito'],
         'concelho' => ['concelho'],
-        'contacto' => ['contacto', 'telefone'],
-        'contacto_alternativo' => ['contacto_alternativo', 'contacto_telefonico'],
-        'email_secundario' => ['email_secundario'],
         'tipo_utilizador' => ['tipo_utilizador'],
         'observacoes' => ['observacoes', 'notas'],
     ];
 
     /** @var array<string, list<string>> */
     private const CONFIG_LEGACY_USER_MAP = [
-        'consentimento_rgpd' => ['rgpd'],
         'consentimento_rgpd_data' => ['data_rgpd'],
-        'consentimento_imagem' => ['consentimento'],
         'consentimento_imagem_data' => ['data_consentimento'],
-        'declaracao_transporte' => ['declaracao_de_transporte'],
         'declaracao_transporte_ficheiro' => ['declaracao_transporte'],
-        'afiliacao_federativa' => ['afiliacao'],
-        'afiliacao_numero' => ['num_federacao'],
         'afiliacao_data' => ['data_afiliacao'],
         'afiliacao_ficheiro' => ['arquivo_afiliacao'],
         'ficha_inscricao_ficheiro' => ['ficha_inscricao_ficheiro'],
