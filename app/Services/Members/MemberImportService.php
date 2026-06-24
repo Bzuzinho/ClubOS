@@ -19,6 +19,11 @@ class MemberImportService
 {
     private const PREVIEW_LIMIT = 20;
 
+    public function __construct(
+        private readonly MemberDataWriteService $memberDataWriteService,
+    ) {
+    }
+
     /**
      * @param  array<int, array<string, mixed>>  $rows
      * @param  array<string, string|null>  $mapping
@@ -350,7 +355,11 @@ class MemberImportService
         $payload['password'] = Hash::make('password123');
         $payload = $this->syncAuthIdentityFields($payload);
 
-        $member = User::create(Arr::except($payload, ['tipo_mensalidade']));
+        $legacyUserPayload = $this->legacyUserPayloadForImportedMember($payload);
+
+        $member = User::create($legacyUserPayload);
+
+        $this->memberDataWriteService->persistFromMemberRequest($member, $payload, (string) $member->id);
 
         if (array_key_exists('tipo_mensalidade', $normalized)) {
             $financeData = DadosFinanceiros::firstOrNew(['user_id' => $member->id]);
@@ -371,7 +380,37 @@ class MemberImportService
             $member->save();
         }
 
-        return $member;
+        return $member->refresh();
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     * @return array<string, mixed>
+     */
+    private function legacyUserPayloadForImportedMember(array $payload): array
+    {
+        return Arr::only($payload, [
+            'name',
+            'email',
+            'email_utilizador',
+            'password',
+            'numero_socio',
+            'estado',
+            'perfil',
+            'tipo_membro',
+            'escalao',
+            'ativo_desportivo',
+            'data_inscricao',
+            'data_atestado_medico',
+            'informacoes_medicas',
+            'menor',
+            'foto_perfil',
+            'cartao_federacao',
+            'arquivo_rgpd',
+            'arquivo_consentimento',
+            'arquivo_afiliacao',
+            'declaracao_transporte',
+        ]);
     }
 
     private function syncAuthIdentityFields(array $data): array
