@@ -4,6 +4,7 @@ namespace App\Services\Financeiro;
 
 use App\Models\FiscalDocumentRequest;
 use App\Models\Invoice;
+use App\Services\Members\MemberFiscalDataResolver;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Carbon;
 use Illuminate\Validation\ValidationException;
@@ -15,6 +16,10 @@ class FiscalDocumentRequestService
     public const DELETE_WITH_DOCUMENT_MESSAGE = 'Nao e possivel apagar um pedido com documento Wintouch registado. Deve ser cancelado/anulado.';
 
     public const CANCEL_WITHOUT_DOCUMENT_MESSAGE = 'So e possivel cancelar/anular pedidos com documento Wintouch registado.';
+
+    public function __construct(
+        private readonly MemberFiscalDataResolver $memberFiscalDataResolver,
+    ) {}
 
     public function findActiveForInvoice($invoice, ?string $provider = null, ?string $documentType = null): ?FiscalDocumentRequest
     {
@@ -262,6 +267,16 @@ class FiscalDocumentRequestService
     private function buildInvoicePayload(Invoice $invoice): array
     {
         $user = $invoice->user;
+        $fiscalData = $user
+            ? $this->memberFiscalDataResolver->resolve($user)
+            : [
+                'nome' => null,
+                'nif' => null,
+                'morada' => null,
+                'codigo_postal' => null,
+                'localidade' => null,
+            ];
+
         $lineItems = $invoice->items
             ->map(fn ($item) => [
                 'description' => $item->descricao,
@@ -277,20 +292,15 @@ class FiscalDocumentRequestService
             ->filter()
             ->implode('; ')));
 
-        $addressParts = array_filter([
-            $user?->morada,
-            trim((string) implode(' ', array_filter([$user?->codigo_postal, $user?->localidade]))),
-        ]);
-
         return [
             'user_id' => $invoice->user_id,
             'amount' => $invoice->valor_total,
             'paid_at' => $invoice->data_pagamento,
             'due_at' => $invoice->data_vencimento,
-            'customer_name' => $user?->nome_completo ?: $user?->name,
-            'customer_tax_number' => $user?->nif,
+            'customer_name' => $fiscalData['nome'],
+            'customer_tax_number' => $fiscalData['nif'],
             'customer_email' => $user?->email,
-            'customer_address' => !empty($addressParts) ? implode("\n", $addressParts) : null,
+            'customer_address' => $this->resolveAddress($fiscalData),
             'description' => $description !== '' ? $description : 'Pedido de documento fiscal pendente.',
             'internal_reference' => $invoice->referencia_pagamento ?: $invoice->id,
             'cost_center_id' => $invoice->centro_custo_id,
@@ -301,6 +311,24 @@ class FiscalDocumentRequestService
                 'line_items' => $lineItems,
             ],
         ];
+    }
+
+    private function resolveAddress(array $fiscalData): ?string
+    {
+        $streetAddress = isset($fiscalData['morada'])
+            ? trim((string) $fiscalData['morada'])
+            : '';
+
+        $postalLocalityLine = trim((string) implode(' ', array_filter([
+            isset($fiscalData['codigo_postal']) ? trim((string) $fiscalData['codigo_postal']) : '',
+            isset($fiscalData['localidade']) ? trim((string) $fiscalData['localidade']) : '',
+        ])));
+
+        $addressParts = array_filter([$streetAddress, $postalLocalityLine]);
+
+        return ! empty($addressParts)
+            ? implode("\n", $addressParts)
+            : null;
     }
 
     private function resolveInitialStatus(array $payload, ?string $requestedStatus = null): array

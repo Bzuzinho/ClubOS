@@ -4,6 +4,7 @@ namespace Tests\Feature\Financeiro;
 
 use App\Models\BankStatement;
 use App\Models\CostCenter;
+use App\Models\DadosPessoais;
 use App\Models\FiscalDocumentRequest;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
@@ -30,6 +31,92 @@ class FiscalDocumentRequestFlowTest extends TestCase
         $this->assertSame(FiscalDocumentRequest::STATUS_PENDING, $request->status);
         $this->assertSame('123456789', $request->customer_tax_number);
         $this->assertSame('Mensalidade maio', $request->description);
+    }
+
+    public function test_create_from_invoice_uses_dados_pessoais_fiscal_data_before_users_legacy_data(): void
+    {
+        $invoice = $this->createInvoice();
+        $user = $invoice->user;
+
+        $user->update([
+            'nome_completo' => 'Nome Legacy User',
+            'name' => 'Legacy Name Fallback',
+            'nif' => '299999999',
+            'morada' => 'Rua Legacy 1',
+            'codigo_postal' => '9000-900',
+            'localidade' => 'Porto Legacy',
+        ]);
+
+        DadosPessoais::query()->create([
+            'user_id' => $user->id,
+            'nome_completo' => 'Nome Canonico Dados Pessoais',
+            'nif' => '211111111',
+            'morada' => 'Rua Canonica 123',
+            'codigo_postal' => '1000-100',
+            'localidade' => 'Lisboa Canonica',
+        ]);
+
+        $request = app(FiscalDocumentRequestService::class)->createFromInvoice($invoice->fresh(['user', 'items']));
+
+        $this->assertSame('Nome Canonico Dados Pessoais', $request->customer_name);
+        $this->assertSame('211111111', $request->customer_tax_number);
+        $this->assertSame("Rua Canonica 123\n1000-100 Lisboa Canonica", $request->customer_address);
+        $this->assertNotSame(FiscalDocumentRequest::STATUS_ERROR_DATA, $request->status);
+    }
+
+    public function test_create_from_invoice_falls_back_to_users_legacy_fiscal_data(): void
+    {
+        $invoice = $this->createInvoice();
+        $user = $invoice->user;
+
+        DadosPessoais::query()->where('user_id', $user->id)->delete();
+
+        $user->update([
+            'nome_completo' => 'Nome Legacy Prioritario',
+            'nif' => '233333333',
+            'morada' => 'Rua Legacy Fallback 10',
+            'codigo_postal' => '2000-200',
+            'localidade' => 'Santarém',
+        ]);
+
+        $request = app(FiscalDocumentRequestService::class)->createFromInvoice($invoice->fresh(['user', 'items']));
+
+        $this->assertSame('Nome Legacy Prioritario', $request->customer_name);
+        $this->assertSame('233333333', $request->customer_tax_number);
+        $this->assertSame("Rua Legacy Fallback 10\n2000-200 Santarém", $request->customer_address);
+        $this->assertNotSame(FiscalDocumentRequest::STATUS_ERROR_DATA, $request->status);
+    }
+
+    public function test_create_from_invoice_reports_missing_nif_using_resolver_result(): void
+    {
+        $invoice = $this->createInvoice();
+        $user = $invoice->user;
+
+        $user->update([
+            'nome_completo' => 'Socio Sem NIF',
+            'nif' => null,
+            'morada' => 'Rua Sem NIF 10',
+            'codigo_postal' => '3000-300',
+            'localidade' => 'Coimbra',
+        ]);
+
+        DadosPessoais::query()->updateOrCreate(
+            ['user_id' => $user->id],
+            [
+                'nome_completo' => 'Socio Sem NIF Canonico',
+                'nif' => null,
+                'morada' => 'Rua Sem NIF Canonica 20',
+                'codigo_postal' => '4000-400',
+                'localidade' => 'Porto',
+            ],
+        );
+
+        $request = app(FiscalDocumentRequestService::class)->createFromInvoice($invoice->fresh(['user', 'items']));
+
+        $this->assertSame('Socio Sem NIF Canonico', $request->customer_name);
+        $this->assertNull($request->customer_tax_number);
+        $this->assertSame(FiscalDocumentRequest::STATUS_ERROR_DATA, $request->status);
+        $this->assertStringContainsString('NIF do cliente em falta.', (string) $request->last_error);
     }
 
     public function test_it_avoids_duplicates_for_the_same_invoice(): void
