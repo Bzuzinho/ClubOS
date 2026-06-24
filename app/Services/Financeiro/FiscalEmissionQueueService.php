@@ -5,12 +5,13 @@ namespace App\Services\Financeiro;
 use App\Models\FiscalDocumentRequest;
 use App\Models\FinancialEntry;
 use App\Models\Invoice;
-use App\Models\User;
+use App\Services\Members\MemberFiscalDataResolver;
 
 class FiscalEmissionQueueService
 {
     public function __construct(
         private readonly FiscalDocumentRequestService $fiscalDocumentRequestService,
+        private readonly MemberFiscalDataResolver $memberFiscalDataResolver,
     ) {
     }
 
@@ -55,6 +56,15 @@ class FiscalEmissionQueueService
             ->first();
 
         $user = $financialEntry->usuario;
+        $fiscalData = $user
+            ? $this->memberFiscalDataResolver->resolve($user)
+            : [
+                'nome' => null,
+                'nif' => null,
+                'morada' => null,
+                'codigo_postal' => null,
+                'localidade' => null,
+            ];
         $request = $reusableRequest ?? new FiscalDocumentRequest();
         $request->fill([
             'invoice_id' => $options['invoice_id'] ?? null,
@@ -64,19 +74,19 @@ class FiscalEmissionQueueService
             'financial_entry_id' => $financialEntry->id,
             'provider' => $options['provider'] ?? FiscalDocumentRequest::PROVIDER_WINTOUCH,
             'document_type' => $options['document_type'] ?? FiscalDocumentRequest::DOCUMENT_TYPE_RECEIPT,
-            'status' => $this->resolveInitialStatus($financialEntry, $user),
+            'status' => $this->resolveInitialStatus($financialEntry, $fiscalData),
             'priority' => $options['priority'] ?? FiscalDocumentRequest::PRIORITY_NORMAL,
             'amount' => abs((float) $financialEntry->valor),
             'paid_at' => $options['paid_at'] ?? $financialEntry->data_pagamento,
             'due_at' => $options['due_at'] ?? $financialEntry->data,
-            'customer_name' => $user?->nome_completo ?: $user?->name ?: $financialEntry->entidade_nome,
-            'customer_tax_number' => $user?->nif,
+            'customer_name' => $fiscalData['nome'] ?: $financialEntry->entidade_nome,
+            'customer_tax_number' => $fiscalData['nif'],
             'customer_email' => $user?->email,
-            'customer_address' => $this->resolveAddress($user),
+            'customer_address' => $this->resolveAddress($fiscalData),
             'description' => $financialEntry->descricao,
             'internal_reference' => $financialEntry->documento_ref ?: $financialEntry->id,
             'cost_center_id' => $financialEntry->centro_custo_id,
-            'last_error' => $this->resolveLastError($financialEntry, $user),
+            'last_error' => $this->resolveLastError($financialEntry, $fiscalData),
             'notes' => $options['notes'] ?? null,
             'metadata' => array_merge((array) ($request->metadata ?? []), [
                 'financial_entry_tipo' => $financialEntry->tipo,
@@ -95,38 +105,37 @@ class FiscalEmissionQueueService
         return $request->refresh();
     }
 
-    private function resolveAddress(?User $user): ?string
+    private function resolveAddress(array $fiscalData): ?string
     {
-        if (!$user) {
-            return null;
-        }
-
         $parts = array_filter([
-            $user->morada,
-            trim((string) implode(' ', array_filter([$user->codigo_postal, $user->localidade]))),
+            $fiscalData['morada'] ?? null,
+            trim((string) implode(' ', array_filter([
+                $fiscalData['codigo_postal'] ?? null,
+                $fiscalData['localidade'] ?? null,
+            ]))),
         ]);
 
         return $parts === [] ? null : implode("\n", $parts);
     }
 
-    private function resolveInitialStatus(FinancialEntry $financialEntry, ?User $user): string
+    private function resolveInitialStatus(FinancialEntry $financialEntry, array $fiscalData): string
     {
-        if (!$user?->nif || !($user?->nome_completo ?: $user?->name ?: $financialEntry->entidade_nome)) {
+        if (!($fiscalData['nif'] ?? null) || !(($fiscalData['nome'] ?? null) ?: $financialEntry->entidade_nome)) {
             return FiscalDocumentRequest::STATUS_ERROR_DATA;
         }
 
         return FiscalDocumentRequest::STATUS_PENDING;
     }
 
-    private function resolveLastError(FinancialEntry $financialEntry, ?User $user): ?string
+    private function resolveLastError(FinancialEntry $financialEntry, array $fiscalData): ?string
     {
         $errors = [];
 
-        if (!($user?->nome_completo ?: $user?->name ?: $financialEntry->entidade_nome)) {
+        if (!(($fiscalData['nome'] ?? null) ?: $financialEntry->entidade_nome)) {
             $errors[] = 'Nome do cliente em falta.';
         }
 
-        if (!$user?->nif) {
+        if (!($fiscalData['nif'] ?? null)) {
             $errors[] = 'NIF do cliente em falta.';
         }
 
