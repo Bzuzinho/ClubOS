@@ -39,7 +39,6 @@ class User extends Authenticatable
         'menor',
         'escalao',
         'ativo_desportivo',
-        'data_validade_cc',
         'foto_perfil',
         'encarregado_educacao',
         'educandos',

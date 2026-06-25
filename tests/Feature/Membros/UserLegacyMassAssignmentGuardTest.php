@@ -37,6 +37,13 @@ class UserLegacyMassAssignmentGuardTest extends TestCase
         }
     }
 
+    public function test_user_model_does_not_allow_mass_assignment_for_data_validade_cc(): void
+    {
+        $user = new User();
+
+        $this->assertFalse($user->isFillable('data_validade_cc'));
+    }
+
     public function test_user_model_still_allows_operational_auth_fields(): void
     {
         $user = new User();
