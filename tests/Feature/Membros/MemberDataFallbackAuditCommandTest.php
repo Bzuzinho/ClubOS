@@ -194,17 +194,140 @@ class MemberDataFallbackAuditCommandTest extends TestCase
         $this->assertSame(0, $configurationOnly['summary']['users_with_any_personal_fallback']);
     }
 
+    public function test_fail_on_fallback_returns_success_when_there_is_no_fallback(): void
+    {
+        $user = User::factory()->create([
+            'name' => 'Guard Rail Success User',
+            'contacto' => '910001001',
+        ]);
+
+        $this->createCompleteCanonicalPersonalData($user, [
+            'nome_completo' => $user->name,
+            'contacto' => '910001001',
+        ]);
+
+        $this->assertSame(0, Artisan::call('members:audit-data-fallback', [
+            '--user-id' => (string) $user->id,
+            '--only' => 'personal',
+            '--fail-on-fallback' => true,
+        ]));
+    }
+
+    public function test_fail_on_fallback_returns_failure_when_personal_fallback_exists(): void
+    {
+        $user = User::factory()->create([
+            'name' => 'Guard Rail Personal Fallback User',
+            'contacto' => '910001002',
+        ]);
+
+        DadosPessoais::query()->create([
+            'user_id' => $user->id,
+            'nome_completo' => $user->name,
+            'contacto' => null,
+        ]);
+
+        $this->assertSame(1, Artisan::call('members:audit-data-fallback', [
+            '--user-id' => (string) $user->id,
+            '--only' => 'personal',
+            '--fail-on-fallback' => true,
+        ]));
+    }
+
+    public function test_fail_on_fallback_returns_failure_when_configuration_fallback_exists(): void
+    {
+        $user = User::factory()->create([
+            'name' => 'Guard Rail Configuration Fallback User',
+            'rgpd' => true,
+        ]);
+
+        DadosConfiguracao::query()->create([
+            'user_id' => $user->id,
+            'consentimento_rgpd' => null,
+        ]);
+
+        $this->assertSame(1, Artisan::call('members:audit-data-fallback', [
+            '--user-id' => (string) $user->id,
+            '--only' => 'configuration',
+            '--fail-on-fallback' => true,
+        ]));
+    }
+
+    public function test_fail_on_fallback_ignores_empty_fields(): void
+    {
+        $user = User::factory()->create([
+            'name' => 'Guard Rail Empty Fields User',
+            'contacto' => null,
+        ]);
+
+        $this->createCompleteCanonicalPersonalData($user, [
+            'nome_completo' => $user->name,
+            'contacto' => null,
+        ]);
+
+        $this->assertSame(0, Artisan::call('members:audit-data-fallback', [
+            '--user-id' => (string) $user->id,
+            '--only' => 'personal',
+            '--fail-on-fallback' => true,
+        ]));
+    }
+
+    public function test_fail_on_fallback_json_includes_passed_false_and_failure_reason(): void
+    {
+        $user = User::factory()->create([
+            'name' => 'Guard Rail JSON Failure User',
+            'contacto' => '910001003',
+        ]);
+
+        DadosPessoais::query()->create([
+            'user_id' => $user->id,
+            'nome_completo' => $user->name,
+            'contacto' => null,
+        ]);
+
+        $report = $this->runJsonCommand([
+            '--user-id' => (string) $user->id,
+            '--only' => 'personal',
+            '--fail-on-fallback' => true,
+        ], expectedExitCode: 1);
+
+        $this->assertFalse($report['passed']);
+        $this->assertIsString($report['failure_reason']);
+        $this->assertNotSame('', trim($report['failure_reason']));
+    }
+
+    public function test_fail_on_fallback_json_includes_passed_true(): void
+    {
+        $user = User::factory()->create([
+            'name' => 'Guard Rail JSON Success User',
+            'contacto' => '910001004',
+        ]);
+
+        $this->createCompleteCanonicalPersonalData($user, [
+            'nome_completo' => $user->name,
+            'contacto' => '910001004',
+        ]);
+
+        $report = $this->runJsonCommand([
+            '--user-id' => (string) $user->id,
+            '--only' => 'personal',
+            '--fail-on-fallback' => true,
+        ], expectedExitCode: 0);
+
+        $this->assertTrue($report['passed']);
+        $this->assertNull($report['failure_reason']);
+    }
+
     /**
      * @param array<string, mixed> $options
      * @return array<string, mixed>
      */
-    private function runJsonCommand(array $options = []): array
+    private function runJsonCommand(array $options = [], int $expectedExitCode = 0): array
     {
         $result = Artisan::call('members:audit-data-fallback', array_merge([
             '--json' => true,
         ], $options));
 
-        $this->assertSame(0, $result);
+        $this->assertSame($expectedExitCode, $result);
 
         $decoded = json_decode(trim(Artisan::output()), true);
         $this->assertIsArray($decoded);
@@ -228,5 +351,30 @@ class MemberDataFallbackAuditCommandTest extends TestCase
             'rgpd' => array_key_exists('rgpd', $raw) && $raw['rgpd'] !== null ? (int) $raw['rgpd'] : null,
             'updated_at' => $raw['updated_at'] ?? null,
         ];
+    }
+
+    /**
+     * @param array<string, mixed> $overrides
+     */
+    private function createCompleteCanonicalPersonalData(User $user, array $overrides = []): void
+    {
+        DadosPessoais::query()->create(array_merge([
+            'user_id' => $user->id,
+            'nome_completo' => 'Canonical Name',
+            'data_nascimento' => '2000-01-01',
+            'sexo' => 'M',
+            'nif' => '999999990',
+            'documento_identificacao' => 'CC123456',
+            'validade_documento' => '2030-01-01',
+            'nacionalidade' => 'PT',
+            'morada' => 'Rua Canonica 1',
+            'codigo_postal' => '1000-001',
+            'localidade' => 'Lisboa',
+            'contacto' => '910000000',
+            'contacto_alternativo' => '910000111',
+            'email_secundario' => 'canonical@example.com',
+            'tipo_utilizador' => 'atleta',
+            'observacoes' => 'canonical',
+        ], $overrides));
     }
 }

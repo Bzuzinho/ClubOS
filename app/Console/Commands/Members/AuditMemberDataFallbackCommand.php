@@ -13,6 +13,7 @@ final class AuditMemberDataFallbackCommand extends Command
 {
     protected $signature = 'members:audit-data-fallback
         {--json : Devolve o relatorio em JSON}
+        {--fail-on-fallback : Falha com codigo 1 se existir fallback legacy em uso}
         {--user-id= : Audita apenas um utilizador}
         {--limit= : Limita o numero de users analisados}
         {--only= : Filtra area: personal|configuration}
@@ -79,18 +80,22 @@ final class AuditMemberDataFallbackCommand extends Command
             ->get();
 
         $report = $this->buildReport($users, $includePersonal, $includeConfiguration);
+        [$guardRailPassed, $guardRailFailureReason] = $this->evaluateGuardRail($report);
+
+        $report['passed'] = $guardRailPassed;
+        $report['failure_reason'] = $guardRailFailureReason;
 
         $this->writeReportFileIfRequested($report);
 
         if ((bool) $this->option('json')) {
             $this->line($this->toJson($report));
 
-            return self::SUCCESS;
+            return $this->exitCodeForGuardRail($guardRailPassed);
         }
 
-        $this->renderHumanReadableReport($report, $includePersonal, $includeConfiguration);
+        $this->renderHumanReadableReport($report, $includePersonal, $includeConfiguration, $guardRailPassed);
 
-        return self::SUCCESS;
+        return $this->exitCodeForGuardRail($guardRailPassed);
     }
 
     private function buildQuery(): Builder
@@ -276,7 +281,7 @@ final class AuditMemberDataFallbackCommand extends Command
         return $metrics;
     }
 
-    private function renderHumanReadableReport(array $report, bool $includePersonal, bool $includeConfiguration): void
+    private function renderHumanReadableReport(array $report, bool $includePersonal, bool $includeConfiguration, bool $guardRailPassed): void
     {
         $summary = $report['summary'];
 
@@ -315,6 +320,45 @@ final class AuditMemberDataFallbackCommand extends Command
             $this->newLine();
             $this->line('Relatorio JSON gravado em: ' . $this->resolveReportPath(trim((string) $this->option('report-path'))));
         }
+
+        if ((bool) $this->option('fail-on-fallback')) {
+            $this->newLine();
+
+            if ($guardRailPassed) {
+                $this->info('Guard rail OK: nenhum fallback legacy em uso.');
+
+                return;
+            }
+
+            $this->error('Guard rail falhou: ainda existem valores lidos por fallback legacy em users.');
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $report
+     * @return array{0: bool, 1: string|null}
+     */
+    private function evaluateGuardRail(array $report): array
+    {
+        $summary = $report['summary'] ?? [];
+
+        $personalFallbackValues = (int) ($summary['personal_fallback_values'] ?? 0);
+        $configurationFallbackValues = (int) ($summary['configuration_fallback_values'] ?? 0);
+
+        if ($personalFallbackValues === 0 && $configurationFallbackValues === 0) {
+            return [true, null];
+        }
+
+        return [false, 'Guard rail falhou: ainda existem valores lidos por fallback legacy em users.'];
+    }
+
+    private function exitCodeForGuardRail(bool $guardRailPassed): int
+    {
+        if (!(bool) $this->option('fail-on-fallback')) {
+            return self::SUCCESS;
+        }
+
+        return $guardRailPassed ? self::SUCCESS : self::FAILURE;
     }
 
     /**
