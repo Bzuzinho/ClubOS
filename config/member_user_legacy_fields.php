@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 return [
-    'version' => 'M4.6-F1',
+    'version' => 'M4.6-F2',
     'generated_context' => [
         'fallback_guard_required' => 'members:audit-data-fallback --fail-on-fallback',
         'structure_audit_required' => 'members:audit-data-structure',
@@ -42,7 +42,6 @@ return [
                 'contacto_telefonico',
                 'nif',
                 'cc',
-                'data_validade_cc',
                 'nacionalidade',
                 'email_secundario',
                 'estado_civil',
@@ -144,7 +143,6 @@ return [
         'contacto_telefonico' => 'member_personal_legacy',
         'nif' => 'member_personal_legacy',
         'cc' => 'member_personal_legacy',
-        'data_validade_cc' => 'member_personal_legacy',
         'nacionalidade' => 'member_personal_legacy',
         'email_secundario' => 'member_personal_legacy',
         'estado_civil' => 'member_personal_legacy',

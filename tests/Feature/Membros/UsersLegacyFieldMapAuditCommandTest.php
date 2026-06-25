@@ -42,7 +42,7 @@ final class UsersLegacyFieldMapAuditCommandTest extends TestCase
         $this->assertTrue($payload['passed']);
     }
 
-    public function test_command_reports_missing_configured_columns_without_failing(): void
+    public function test_command_reports_no_missing_configured_columns_for_current_schema(): void
     {
         $exitCode = Artisan::call('members:audit-users-legacy-field-map', [
             '--json' => true,
@@ -54,7 +54,9 @@ final class UsersLegacyFieldMapAuditCommandTest extends TestCase
 
         $this->assertArrayHasKey('missing_configured_columns', $payload);
         $this->assertIsArray($payload['missing_configured_columns']);
-        $this->assertContains('data_validade_cc', $payload['missing_configured_columns']);
+        $this->assertSame([], $payload['missing_configured_columns']);
+        $this->assertSame([], $payload['unknown_columns']);
+        $this->assertTrue($payload['passed']);
     }
 
     public function test_config_maps_every_category_to_fields_and_field_to_category_is_consistent(): void
