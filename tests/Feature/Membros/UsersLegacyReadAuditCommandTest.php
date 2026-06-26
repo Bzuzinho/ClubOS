@@ -165,6 +165,23 @@ PHP);
         );
     }
 
+    public function test_command_reports_no_personal_profile_findings_for_portal_profile_controller_path(): void
+    {
+        $exitCode = Artisan::call('members:audit-users-legacy-read', [
+            '--json' => true,
+            '--path' => ['app/Http/Controllers/PortalProfileController.php'],
+        ]);
+
+        $this->assertSame(0, $exitCode);
+
+        $payload = $this->decodeArtisanJsonOutput(Artisan::output());
+        $personalFindings = collect($payload['findings'] ?? [])->filter(
+            fn (array $finding): bool => ($finding['remediation_group'] ?? null) === 'member_personal_profile'
+        );
+
+        $this->assertCount(0, $personalFindings);
+    }
+
     public function test_command_returns_json_with_summary(): void
     {
         $exitCode = Artisan::call('members:audit-users-legacy-read', [

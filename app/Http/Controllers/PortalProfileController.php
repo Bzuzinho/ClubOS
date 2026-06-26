@@ -34,6 +34,7 @@ class PortalProfileController extends Controller
         StoreProfileResolver $profileResolver,
         FamilyService $familyService,
         UserTypeAccessControlService $accessControlService,
+        MemberDataReadService $memberDataReadService,
         MemberDocumentDataResolver $memberDocumentDataResolver,
     ): Response {
         /** @var User $viewer */
@@ -60,7 +61,7 @@ class PortalProfileController extends Controller
 
         // M2.3 — aplicar camada de leitura canónica com fallback (sem escrita)
         // false booleano é valor válido — não filtrar com array_filter simples
-        $mergedReadData = app(MemberDataReadService::class)->mergedMemberPayload($targetMember, []);
+        $mergedReadData = $memberDataReadService->mergedMemberPayload($targetMember, []);
         $targetMember->forceFill(array_filter($mergedReadData, static fn ($v) => $v !== null));
 
         $accessControl = $accessControlService->getCurrentUserAccess($viewer);
@@ -70,6 +71,7 @@ class PortalProfileController extends Controller
                 $targetMember,
                 $viewer,
                 $this->canEditPortalProfile($viewer, $targetMember, $profileResolver, $familyService, $accessControlService),
+                $memberDataReadService,
                 $memberDocumentDataResolver,
             ),
             'viewer' => [
@@ -181,13 +183,20 @@ class PortalProfileController extends Controller
         return redirect()->route('portal.profile', $targetMember->id === $viewer->id ? [] : ['member' => $targetMember->id]);
     }
 
-    private function buildProfilePayload(User $member, User $viewer, bool $canEdit, MemberDocumentDataResolver $memberDocumentDataResolver): array
+    private function buildProfilePayload(
+        User $member,
+        User $viewer,
+        bool $canEdit,
+        MemberDataReadService $memberDataReadService,
+        MemberDocumentDataResolver $memberDocumentDataResolver,
+    ): array
     {
         $isAthlete = $this->hasMemberType($member, 'atleta');
         $isSocio = $this->hasMemberType($member, 'socio');
         $isGuardian = $this->hasMemberType($member, 'encarregado_educacao') || $this->hasMemberType($member, 'encarregado');
         $memberTypeLabels = $this->memberTypeLabels($member);
         $memberTypeLabel = implode(' · ', $memberTypeLabels);
+        $personal = $memberDataReadService->personalPayload($member);
         $profileDocuments = $memberDocumentDataResolver->profileDocuments($member);
         $attestationStatus = $this->dateStatus($profileDocuments['atestado']['valid_until'] ?? null, true);
         $ageGroup = $this->resolveAgeGroupLabel($member);
@@ -213,17 +222,17 @@ class PortalProfileController extends Controller
                 ? route('portal.profile')
                 : route('portal.profile', ['member' => $member->id]),
             'editable' => [
-                'nome_completo' => $this->displayName($member),
-                'data_nascimento' => $member->data_nascimento?->format('Y-m-d'),
-                'nif' => $member->nif,
-                'cc' => $member->cc,
-                'morada' => $member->morada,
-                'codigo_postal' => $member->codigo_postal,
-                'localidade' => $member->localidade,
-                'nacionalidade' => $member->nacionalidade,
-                'sexo' => in_array($member->sexo, ['masculino', 'feminino'], true) ? $member->sexo : null,
-                'contacto' => $member->contacto ?: $member->telemovel ?: $member->contacto_telefonico,
-                'email_secundario' => $member->email_secundario,
+                'nome_completo' => $personal['nome_completo'] ?? $this->displayName($member),
+                'data_nascimento' => $personal['data_nascimento'] ?? null,
+                'nif' => $personal['nif'] ?? null,
+                'cc' => $personal['documento_identificacao'] ?? null,
+                'morada' => $personal['morada'] ?? null,
+                'codigo_postal' => $personal['codigo_postal'] ?? null,
+                'localidade' => $personal['localidade'] ?? null,
+                'nacionalidade' => $personal['nacionalidade'] ?? null,
+                'sexo' => in_array($personal['sexo'] ?? null, ['masculino', 'feminino'], true) ? $personal['sexo'] : null,
+                'contacto' => $personal['contacto'] ?? null,
+                'email_secundario' => $personal['email_secundario'] ?? null,
                 'num_federacao' => $profileDocuments['federacao']['numero'] ?? null,
                 'numero_pmb' => $member->numero_pmb,
                 'data_inscricao' => $member->data_inscricao?->format('Y-m-d'),
@@ -235,17 +244,17 @@ class PortalProfileController extends Controller
                 $attestationStatus['code'] === 'expiring' ? ['label' => 'Atestado a caducar', 'tone' => 'warning'] : null,
             ])),
             'personal' => [
-                ['label' => 'Nome completo', 'value' => $this->displayValue($this->displayName($member))],
-                ['label' => 'Data de nascimento', 'value' => $this->displayValue($this->formatDate($member->data_nascimento))],
-                ['label' => 'NIF', 'value' => $this->displayValue($member->nif)],
-                ['label' => 'CC', 'value' => $this->displayValue($member->cc)],
-                ['label' => 'Morada', 'value' => $this->displayValue($member->morada)],
-                ['label' => 'Código postal', 'value' => $this->displayValue($member->codigo_postal)],
-                ['label' => 'Localidade', 'value' => $this->displayValue($member->localidade)],
-                ['label' => 'Nacionalidade', 'value' => $this->displayValue($member->nacionalidade)],
-                ['label' => 'Sexo', 'value' => $this->displayValue($this->humanizeSex($member->sexo))],
-                ['label' => 'Contacto', 'value' => $this->displayValue($member->contacto ?: $member->telemovel ?: $member->contacto_telefonico)],
-                ['label' => 'Email secundário', 'value' => $this->displayValue($member->email_secundario)],
+                ['label' => 'Nome completo', 'value' => $this->displayValue($personal['nome_completo'] ?? $this->displayName($member))],
+                ['label' => 'Data de nascimento', 'value' => $this->displayValue($this->formatDate($personal['data_nascimento'] ?? null))],
+                ['label' => 'NIF', 'value' => $this->displayValue($personal['nif'] ?? null)],
+                ['label' => 'CC', 'value' => $this->displayValue($personal['documento_identificacao'] ?? null)],
+                ['label' => 'Morada', 'value' => $this->displayValue($personal['morada'] ?? null)],
+                ['label' => 'Código postal', 'value' => $this->displayValue($personal['codigo_postal'] ?? null)],
+                ['label' => 'Localidade', 'value' => $this->displayValue($personal['localidade'] ?? null)],
+                ['label' => 'Nacionalidade', 'value' => $this->displayValue($personal['nacionalidade'] ?? null)],
+                ['label' => 'Sexo', 'value' => $this->displayValue($this->humanizeSex($personal['sexo'] ?? null))],
+                ['label' => 'Contacto', 'value' => $this->displayValue($personal['contacto'] ?? null)],
+                ['label' => 'Email secundário', 'value' => $this->displayValue($personal['email_secundario'] ?? null)],
             ],
             'status' => [
                 ['label' => 'Estado', 'value' => $this->humanizeState($member->estado)],
