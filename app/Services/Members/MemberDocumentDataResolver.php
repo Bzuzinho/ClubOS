@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services\Members;
 
 use App\Models\User;
+use DateTimeInterface;
 use Illuminate\Support\Collection;
 
 final class MemberDocumentDataResolver
@@ -23,48 +24,88 @@ final class MemberDocumentDataResolver
     public function resolve(User $user): array
     {
         $configuration = $this->memberDataReadService->configurationPayload($user);
+        $memberDocumentPayload = $this->memberDocumentPayload($user);
         $documentPaths = $this->documentPaths($user);
 
         return [
             'is_athlete' => $this->isAthlete($user),
             'documents' => [
                 'rgpd' => [
-                    'isValidated' => (bool) ($configuration['consentimento_rgpd'] ?? false),
-                    'validatedAt' => $configuration['consentimento_rgpd_data'] ?? null,
+                    'isValidated' => (bool) $memberDocumentPayload['rgpd'],
+                    'validatedAt' => $memberDocumentPayload['data_rgpd'],
                     'validUntil' => null,
-                    'path' => $documentPaths['rgpd'],
+                    'path' => $memberDocumentPayload['arquivo_rgpd'],
                 ],
                 'consentimento' => [
-                    'isValidated' => (bool) (($configuration['consentimento_imagem'] ?? false) || ($configuration['declaracao_transporte'] ?? false)),
-                    'validatedAt' => $configuration['consentimento_imagem_data'] ?? null,
+                    'isValidated' => (bool) ($memberDocumentPayload['consentimento'] || $memberDocumentPayload['declaracao_de_transporte']),
+                    'validatedAt' => $memberDocumentPayload['data_consentimento'],
                     'validUntil' => null,
-                    'path' => $documentPaths['consentimento'],
+                    'path' => $memberDocumentPayload['arquivo_consentimento'],
                 ],
                 'atestado' => [
-                    'isValidated' => filled($this->legacyAttribute($user, 'data_atestado_medico')),
-                    'validatedAt' => $this->legacyAttribute($user, 'data_atestado_medico'),
-                    'validUntil' => $this->legacyAttribute($user, 'data_atestado_medico'),
+                    'isValidated' => filled($memberDocumentPayload['data_atestado_medico']),
+                    'validatedAt' => $memberDocumentPayload['data_atestado_medico'],
+                    'validUntil' => $memberDocumentPayload['data_atestado_medico'],
                     'path' => $documentPaths['atestado'],
                 ],
                 'cartao_federacao' => [
-                    'isValidated' => filled($this->legacyAttribute($user, 'cartao_federacao')) || filled($configuration['afiliacao_numero'] ?? null),
-                    'validatedAt' => $configuration['afiliacao_data'] ?? null,
+                    'isValidated' => filled($memberDocumentPayload['cartao_federacao']) || filled($configuration['afiliacao_numero'] ?? null),
+                    'validatedAt' => $memberDocumentPayload['data_afiliacao'],
                     'validUntil' => null,
-                    'path' => $documentPaths['cartao_federacao'],
+                    'path' => $memberDocumentPayload['cartao_federacao'],
                 ],
                 'declaracao_transporte' => [
-                    'isValidated' => (bool) ($configuration['declaracao_transporte'] ?? false),
-                    'validatedAt' => $configuration['consentimento_imagem_data'] ?? ($configuration['declaracao_transporte_data'] ?? null),
+                    'isValidated' => (bool) $memberDocumentPayload['declaracao_de_transporte'],
+                    'validatedAt' => $memberDocumentPayload['data_consentimento'] ?? ($configuration['declaracao_transporte_data'] ?? null),
                     'validUntil' => null,
-                    'path' => $documentPaths['declaracao_transporte'],
+                    'path' => $memberDocumentPayload['declaracao_transporte'],
                 ],
                 'afiliacao' => [
-                    'isValidated' => (bool) ($configuration['afiliacao_federativa'] ?? false),
-                    'validatedAt' => $configuration['afiliacao_data'] ?? null,
+                    'isValidated' => (bool) $memberDocumentPayload['afiliacao'],
+                    'validatedAt' => $memberDocumentPayload['data_afiliacao'],
                     'validUntil' => null,
-                    'path' => $documentPaths['afiliacao'],
+                    'path' => $memberDocumentPayload['arquivo_afiliacao'],
                 ],
             ],
+        ];
+    }
+
+    /**
+     * @return array{
+     *   rgpd:bool,
+     *   data_rgpd:mixed,
+     *   arquivo_rgpd:?string,
+     *   consentimento:bool,
+     *   data_consentimento:mixed,
+     *   arquivo_consentimento:?string,
+     *   declaracao_de_transporte:bool,
+     *   declaracao_transporte:?string,
+     *   afiliacao:bool,
+     *   data_afiliacao:mixed,
+     *   arquivo_afiliacao:?string,
+     *   cartao_federacao:?string,
+     *   data_atestado_medico:?string
+     * }
+     */
+    public function memberDocumentPayload(User $user): array
+    {
+        $configuration = $this->memberDataReadService->configurationPayload($user);
+        $documentPaths = $this->documentPaths($user);
+
+        return [
+            'rgpd' => (bool) ($configuration['consentimento_rgpd'] ?? false),
+            'data_rgpd' => $configuration['consentimento_rgpd_data'] ?? null,
+            'arquivo_rgpd' => $documentPaths['rgpd'],
+            'consentimento' => (bool) ($configuration['consentimento_imagem'] ?? false),
+            'data_consentimento' => $configuration['consentimento_imagem_data'] ?? null,
+            'arquivo_consentimento' => $documentPaths['consentimento'],
+            'declaracao_de_transporte' => (bool) ($configuration['declaracao_transporte'] ?? false),
+            'declaracao_transporte' => $documentPaths['declaracao_transporte'],
+            'afiliacao' => (bool) ($configuration['afiliacao_federativa'] ?? false),
+            'data_afiliacao' => $configuration['afiliacao_data'] ?? null,
+            'arquivo_afiliacao' => $documentPaths['afiliacao'],
+            'cartao_federacao' => $documentPaths['cartao_federacao'],
+            'data_atestado_medico' => $this->normalizeLegacyDate($this->legacyAttribute($user, 'data_atestado_medico')),
         ];
     }
 
@@ -147,6 +188,15 @@ final class MemberDocumentDataResolver
             $first = Collection::make($value)->first(fn (mixed $item) => is_string($item) && $item !== '');
 
             return is_string($first) ? $first : null;
+        }
+
+        return is_string($value) && $value !== '' ? $value : null;
+    }
+
+    private function normalizeLegacyDate(mixed $value): ?string
+    {
+        if ($value instanceof DateTimeInterface) {
+            return $value->format('Y-m-d');
         }
 
         return is_string($value) && $value !== '' ? $value : null;

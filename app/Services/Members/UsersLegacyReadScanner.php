@@ -602,14 +602,16 @@ final class UsersLegacyReadScanner
         $findings = [];
 
         foreach ($blockedFields as $field) {
-            $regex = '/\$[a-zA-Z_][a-zA-Z0-9_]*\s*\[\s*["\']' . preg_quote($field, '/') . '["\']\s*\]/';
+            $regex = '/\$(?<variable>[a-zA-Z_][a-zA-Z0-9_]*)\s*\[\s*["\']' . preg_quote($field, '/') . '["\']\s*\]/';
 
             $matches = [];
             preg_match_all($regex, $content, $matches, PREG_OFFSET_CAPTURE);
 
-            foreach ($matches[0] ?? [] as $match) {
+            foreach ($matches[0] ?? [] as $index => $match) {
                 $offset = (int) ($match[1] ?? 0);
-                if (!$this->hasUsersContext($content, $offset)) {
+                $variable = strtolower((string) ($matches['variable'][$index][0] ?? ''));
+
+                if (!$this->isLikelyUserArrayVariable($variable) || !$this->hasUsersContext($content, $offset)) {
                     continue;
                 }
 
@@ -633,6 +635,21 @@ final class UsersLegacyReadScanner
         $window = substr($content, $windowStart, $windowLength);
 
         return preg_match('/\b(users|User::|App\\\\Models\\\\User|\$user|\$member|\$atleta)\b/i', $window) === 1;
+    }
+
+    private function isLikelyUserArrayVariable(string $variable): bool
+    {
+        if ($variable === '') {
+            return false;
+        }
+
+        foreach (['user', 'member', 'membro', 'athlete', 'atleta', 'guardian', 'educando'] as $needle) {
+            if (str_contains($variable, $needle)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

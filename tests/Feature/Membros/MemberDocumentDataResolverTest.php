@@ -110,6 +110,31 @@ final class MemberDocumentDataResolverTest extends TestCase
         $this->assertSame('legacy/afiliacao-fallback.pdf', $paths['afiliacao']);
     }
 
+    public function test_document_paths_prefer_canonical_configuration_values_when_available(): void
+    {
+        $user = User::factory()->create([
+            'declaracao_transporte' => 'legacy/declaracao-transporte.pdf',
+            'arquivo_afiliacao' => 'legacy/afiliacao-fallback.pdf',
+            'cartao_federacao' => null,
+            'arquivo_atestado_medico' => 'legacy/atestado-fallback.pdf',
+        ]);
+
+        DadosConfiguracao::query()->create([
+            'user_id' => $user->id,
+            'declaracao_transporte_ficheiro' => 'canonical/declaracao-transporte.pdf',
+            'afiliacao_ficheiro' => 'canonical/afiliacao.pdf',
+            'certificado_medico_ficheiro' => 'canonical/atestado.pdf',
+        ]);
+
+        $paths = app(MemberDocumentDataResolver::class)->documentPaths($user->fresh());
+
+        $this->assertSame('canonical/declaracao-transporte.pdf', $paths['declaracao_transporte']);
+        $this->assertSame('canonical/declaracao-transporte.pdf', $paths['consentimento']);
+        $this->assertSame('canonical/afiliacao.pdf', $paths['afiliacao']);
+        $this->assertSame('canonical/afiliacao.pdf', $paths['cartao_federacao']);
+        $this->assertSame('canonical/atestado.pdf', $paths['atestado']);
+    }
+
     public function test_resolver_does_not_persist_anything(): void
     {
         $user = User::factory()->create([

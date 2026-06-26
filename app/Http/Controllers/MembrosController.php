@@ -19,6 +19,7 @@ use App\Services\AccessControl\UserTypeAccessControlService;
 use App\Services\Family\FamilyService;
 use App\Services\Financeiro\CurrentAccountService;
 use App\Services\Members\MemberDataReadService;
+use App\Services\Members\MemberDocumentDataResolver;
 use App\Services\Members\MemberDataWriteService;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -40,6 +41,7 @@ class MembrosController extends Controller
     public function __construct(
         private readonly InternalCommunicationService $internalCommunicationService,
         private readonly MemberDataWriteService $memberDataWriteService,
+        private readonly MemberDocumentDataResolver $memberDocumentDataResolver,
     )
     {
     }
@@ -370,6 +372,7 @@ class MembrosController extends Controller
         // M2.3 — camada de leitura canónica com fallback (não altera escrita)
         $member->loadMissing(['dadosPessoais', 'dadosConfiguracao']);
         $memberData = app(MemberDataReadService::class)->mergedMemberPayload($member, $memberData);
+        $memberData = array_merge($memberData, $this->memberDocumentDataResolver->memberDocumentPayload($member));
 
         $legacyEducandoIds = $this->normalizeRelationIds($member->getAttribute('educandos'));
         $legacyGuardianIds = $this->normalizeRelationIds($member->getAttribute('encarregado_educacao'));
@@ -735,8 +738,13 @@ class MembrosController extends Controller
                 ];
             })->values();
         }
+        $memberDocumentPayload = $this->memberDocumentDataResolver->memberDocumentPayload($member);
+
         return Inertia::render('Membros/Edit', [
-            'member' => app(MemberDataReadService::class)->mergedMemberPayload($member, $member->toArray()),
+            'member' => array_merge(
+                app(MemberDataReadService::class)->mergedMemberPayload($member, $member->toArray()),
+                $memberDocumentPayload,
+            ),
             'userTypes' => UserType::where('ativo', true)->get(),
             'ageGroups' => AgeGroup::all(),
             'guardians' => User::whereJsonContains('tipo_membro', 'encarregado_educacao')
@@ -807,29 +815,31 @@ class MembrosController extends Controller
             } elseif (array_key_exists('foto_perfil', $data)) {
                 unset($data['foto_perfil']);
             }
+
+            $memberDocumentPayload = $this->memberDocumentDataResolver->memberDocumentPayload($member);
             
             if (isset($data['cartao_federacao']) && $this->isBase64($data['cartao_federacao'])) {
-                $this->deleteFile($member->cartao_federacao);
+                $this->deleteFile($memberDocumentPayload['cartao_federacao']);
                 $data['cartao_federacao'] = $this->storeFile($data['cartao_federacao'], 'members/federation_cards');
             }
             
             if (isset($data['arquivo_rgpd']) && $this->isBase64($data['arquivo_rgpd'])) {
-                $this->deleteFile($member->arquivo_rgpd);
+                $this->deleteFile($memberDocumentPayload['arquivo_rgpd']);
                 $data['arquivo_rgpd'] = $this->storeFile($data['arquivo_rgpd'], 'members/gdpr');
             }
             
             if (isset($data['arquivo_consentimento']) && $this->isBase64($data['arquivo_consentimento'])) {
-                $this->deleteFile($member->arquivo_consentimento);
+                $this->deleteFile($memberDocumentPayload['arquivo_consentimento']);
                 $data['arquivo_consentimento'] = $this->storeFile($data['arquivo_consentimento'], 'members/consent');
             }
             
             if (isset($data['arquivo_afiliacao']) && $this->isBase64($data['arquivo_afiliacao'])) {
-                $this->deleteFile($member->arquivo_afiliacao);
+                $this->deleteFile($memberDocumentPayload['arquivo_afiliacao']);
                 $data['arquivo_afiliacao'] = $this->storeFile($data['arquivo_afiliacao'], 'members/affiliation');
             }
             
             if (isset($data['declaracao_transporte']) && $this->isBase64($data['declaracao_transporte'])) {
-                $this->deleteFile($member->declaracao_transporte);
+                $this->deleteFile($memberDocumentPayload['declaracao_transporte']);
                 $data['declaracao_transporte'] = $this->storeFile($data['declaracao_transporte'], 'members/transport');
             }
             
@@ -921,14 +931,16 @@ class MembrosController extends Controller
             // Detach from all guardian/educando relationships
             $member->encarregados()->detach();
             $member->educandos()->detach();
+
+            $memberDocumentPayload = $this->memberDocumentDataResolver->memberDocumentPayload($member);
             
             // Delete all associated files
             $this->deleteFile($member->foto_perfil);
-            $this->deleteFile($member->cartao_federacao);
-            $this->deleteFile($member->arquivo_rgpd);
-            $this->deleteFile($member->arquivo_consentimento);
-            $this->deleteFile($member->arquivo_afiliacao);
-            $this->deleteFile($member->declaracao_transporte);
+            $this->deleteFile($memberDocumentPayload['cartao_federacao']);
+            $this->deleteFile($memberDocumentPayload['arquivo_rgpd']);
+            $this->deleteFile($memberDocumentPayload['arquivo_consentimento']);
+            $this->deleteFile($memberDocumentPayload['arquivo_afiliacao']);
+            $this->deleteFile($memberDocumentPayload['declaracao_transporte']);
             
             $member->delete();
 

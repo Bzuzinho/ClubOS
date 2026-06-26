@@ -77,6 +77,62 @@ final class UsersLegacyReadAuditCommandTest extends TestCase
         $this->assertContains('morada', $fields);
     }
 
+    public function test_scanner_ignores_generic_array_payload_access_even_with_member_context(): void
+    {
+        $scanner = app(UsersLegacyReadScanner::class);
+
+        $filePath = base_path('storage/app/read-guard-test/GenericArrayPayload.php');
+        File::ensureDirectoryExists(dirname($filePath));
+        File::put($filePath, <<<'PHP'
+<?php
+
+function mutate(\App\Models\User $member, array $data): void
+{
+    $data['declaracao_transporte'] = 'members/transport/file.pdf';
+}
+PHP);
+
+        try {
+            $result = $scanner->scan([
+                'storage/app/read-guard-test',
+            ], []);
+        } finally {
+            File::delete($filePath);
+            File::deleteDirectory(dirname($filePath));
+        }
+
+        $this->assertSame([], $result['findings']);
+    }
+
+    public function test_scanner_detects_member_array_payload_access(): void
+    {
+        $scanner = app(UsersLegacyReadScanner::class);
+
+        $filePath = base_path('storage/app/read-guard-test/MemberArrayPayload.php');
+        File::ensureDirectoryExists(dirname($filePath));
+        File::put($filePath, <<<'PHP'
+<?php
+
+function inspect(\App\Models\User $member, array $memberData): string
+{
+    return (string) $memberData['arquivo_rgpd'];
+}
+PHP);
+
+        try {
+            $result = $scanner->scan([
+                'storage/app/read-guard-test',
+            ], []);
+        } finally {
+            File::delete($filePath);
+            File::deleteDirectory(dirname($filePath));
+        }
+
+        $this->assertSame(1, $result['summary']['findings_count']);
+        $this->assertSame('arquivo_rgpd', $result['findings'][0]['field']);
+        $this->assertSame("\$row['field']", $result['findings'][0]['pattern']);
+    }
+
     public function test_scanner_ignores_allowlisted_member_data_read_service(): void
     {
         $scanner = app(UsersLegacyReadScanner::class);
