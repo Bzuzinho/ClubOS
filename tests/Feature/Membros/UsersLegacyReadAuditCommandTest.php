@@ -100,9 +100,112 @@ final class UsersLegacyReadAuditCommandTest extends TestCase
         $payload = $this->decodeArtisanJsonOutput(Artisan::output());
 
         $this->assertArrayHasKey('summary', $payload);
+        $this->assertArrayHasKey('grouped_summary', $payload);
         $this->assertArrayHasKey('findings', $payload);
         $this->assertArrayHasKey('passed', $payload);
         $this->assertArrayHasKey('failure_reason', $payload);
+        $this->assertArrayHasKey('by_remediation_group', $payload['grouped_summary']);
+    }
+
+    public function test_scanner_classifies_fiscal_finance_findings(): void
+    {
+        $scanner = app(UsersLegacyReadScanner::class);
+
+        $filePath = base_path('storage/app/read-guard-test/app/Http/Controllers/FinanceiroController.php');
+        File::ensureDirectoryExists(dirname($filePath));
+        File::put($filePath, "<?php\n\n\$nif = \$user->nif;\n");
+
+        try {
+            $result = $scanner->scan([
+                'storage/app/read-guard-test',
+            ], []);
+        } finally {
+            File::delete($filePath);
+            File::deleteDirectory(base_path('storage/app/read-guard-test'));
+        }
+
+        $this->assertSame('member_fiscal_finance', $result['findings'][0]['remediation_group']);
+        $this->assertSame('P1', $result['findings'][0]['migration_priority']);
+    }
+
+    public function test_scanner_classifies_document_findings(): void
+    {
+        $scanner = app(UsersLegacyReadScanner::class);
+
+        $filePath = base_path('storage/app/read-guard-test/app/Http/Controllers/PortalDocumentController.php');
+        File::ensureDirectoryExists(dirname($filePath));
+        File::put($filePath, "<?php\n\n\$rgpd = \$user->rgpd;\n");
+
+        try {
+            $result = $scanner->scan([
+                'storage/app/read-guard-test',
+            ], []);
+        } finally {
+            File::delete($filePath);
+            File::deleteDirectory(base_path('storage/app/read-guard-test'));
+        }
+
+        $this->assertSame('member_documents_configuration', $result['findings'][0]['remediation_group']);
+        $this->assertSame('P1', $result['findings'][0]['migration_priority']);
+    }
+
+    public function test_scanner_classifies_profile_findings(): void
+    {
+        $scanner = app(UsersLegacyReadScanner::class);
+
+        $filePath = base_path('storage/app/read-guard-test/app/Http/Controllers/PortalProfileController.php');
+        File::ensureDirectoryExists(dirname($filePath));
+        File::put($filePath, "<?php\n\n\$morada = \$member->morada;\n");
+
+        try {
+            $result = $scanner->scan([
+                'storage/app/read-guard-test',
+            ], []);
+        } finally {
+            File::delete($filePath);
+            File::deleteDirectory(base_path('storage/app/read-guard-test'));
+        }
+
+        $this->assertSame('member_personal_profile', $result['findings'][0]['remediation_group']);
+        $this->assertSame('P2', $result['findings'][0]['migration_priority']);
+    }
+
+    public function test_scanner_classifies_display_name_findings(): void
+    {
+        $scanner = app(UsersLegacyReadScanner::class);
+
+        $filePath = base_path('storage/app/read-guard-test/app/Http/Controllers/GenericListController.php');
+        File::ensureDirectoryExists(dirname($filePath));
+        File::put($filePath, "<?php\n\n\$nome = \$user->nome_completo;\n");
+
+        try {
+            $result = $scanner->scan([
+                'storage/app/read-guard-test',
+            ], []);
+        } finally {
+            File::delete($filePath);
+            File::deleteDirectory(base_path('storage/app/read-guard-test'));
+        }
+
+        $this->assertSame('member_identity_display', $result['findings'][0]['remediation_group']);
+    }
+
+    public function test_command_summary_only_works(): void
+    {
+        $exitCode = Artisan::call('members:audit-users-legacy-read', [
+            '--summary-only' => true,
+        ]);
+
+        $this->assertSame(0, $exitCode);
+    }
+
+    public function test_command_group_by_group_works(): void
+    {
+        $exitCode = Artisan::call('members:audit-users-legacy-read', [
+            '--group-by' => 'group',
+        ]);
+
+        $this->assertSame(0, $exitCode);
     }
 
     public function test_command_fail_on_finding_behavior_can_fail_on_custom_path(): void

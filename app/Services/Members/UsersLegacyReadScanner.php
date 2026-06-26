@@ -8,6 +8,89 @@ use Illuminate\Support\Facades\File;
 
 final class UsersLegacyReadScanner
 {
+    private const GROUP_MEMBER_IDENTITY_DISPLAY = 'member_identity_display';
+    private const GROUP_MEMBER_PERSONAL_PROFILE = 'member_personal_profile';
+    private const GROUP_MEMBER_DOCUMENTS_CONFIGURATION = 'member_documents_configuration';
+    private const GROUP_MEMBER_FISCAL_FINANCE = 'member_fiscal_finance';
+    private const GROUP_SPORTS_MEMBER_PAYLOAD = 'sports_member_payload';
+    private const GROUP_COMMUNICATION_SEGMENTS = 'communication_segments';
+    private const GROUP_LEGACY_COMMAND_OR_BACKFILL = 'legacy_command_or_backfill';
+    private const GROUP_UNKNOWN_REVIEW = 'unknown_review';
+
+    /** @var list<string> */
+    private const PROFILE_FIELDS = [
+        'data_nascimento',
+        'sexo',
+        'nif',
+        'cc',
+        'morada',
+        'codigo_postal',
+        'localidade',
+        'nacionalidade',
+        'contacto',
+        'telemovel',
+        'contacto_telefonico',
+        'email_secundario',
+    ];
+
+    /** @var list<string> */
+    private const DOCUMENT_FIELDS = [
+        'rgpd',
+        'data_rgpd',
+        'arquivo_rgpd',
+        'consentimento',
+        'data_consentimento',
+        'arquivo_consentimento',
+        'declaracao_de_transporte',
+        'declaracao_transporte',
+        'data_atestado_medico',
+        'arquivo_atestado_medico',
+        'afiliacao',
+        'data_afiliacao',
+        'arquivo_afiliacao',
+        'num_federacao',
+        'cartao_federacao',
+        'informacoes_medicas',
+    ];
+
+    /** @var list<string> */
+    private const FINANCE_FIELDS = [
+        'nome_completo',
+        'nif',
+        'morada',
+        'codigo_postal',
+        'localidade',
+        'email_secundario',
+        'contacto',
+        'telemovel',
+        'contacto_telefonico',
+    ];
+
+    /** @var list<string> */
+    private const SPORTS_FIELDS = [
+        'nome_completo',
+        'num_federacao',
+        'data_atestado_medico',
+        'informacoes_medicas',
+    ];
+
+    /** @var list<string> */
+    private const COMMUNICATION_FIELDS = [
+        'nome_completo',
+        'contacto',
+        'telemovel',
+        'contacto_telefonico',
+        'email_secundario',
+    ];
+
+    /** @var list<string> */
+    private const HIGH_FINANCE_FIELDS = [
+        'nif',
+        'morada',
+        'codigo_postal',
+        'localidade',
+    ];
+
     /** @var list<string> */
     private const BLOCKED_CATEGORIES = [
         'member_personal_legacy',
@@ -53,7 +136,7 @@ final class UsersLegacyReadScanner
     /**
      * @param list<string>|null $paths
      * @param list<string>|null $allowlist
-     * @return array{summary: array{blocked_fields_count:int, scanned_files:int, findings_count:int}, findings:list<array{file:string,field:string,pattern:string,line:int,snippet:string}>}
+     * @return array{summary: array{blocked_fields_count:int, scanned_files:int, findings_count:int}, findings:list<array{file:string,field:string,pattern:string,line:int,snippet:string,severity:string,remediation_group:string,remediation_hint:string,migration_priority:string}>}
      */
     public function scan(?array $paths = null, ?array $allowlist = null): array
     {
@@ -93,6 +176,7 @@ final class UsersLegacyReadScanner
         }
 
         $findings = $this->uniqueFindings($findings);
+        $findings = array_values(array_map(fn (array $finding): array => $this->classifyFinding($finding), $findings));
 
         return [
             'summary' => [
@@ -100,7 +184,43 @@ final class UsersLegacyReadScanner
                 'scanned_files' => $scannedFiles,
                 'findings_count' => count($findings),
             ],
-            'findings' => array_values($findings),
+            'findings' => $findings,
+        ];
+    }
+
+    /**
+     * @param list<array<string, mixed>> $findings
+     * @return array{by_remediation_group:array<string,int>,by_severity:array<string,int>,by_migration_priority:array<string,int>,by_file:array<string,int>}
+     */
+    public function groupedSummary(array $findings): array
+    {
+        $byRemediationGroup = [];
+        $bySeverity = [];
+        $byMigrationPriority = [];
+        $byFile = [];
+
+        foreach ($findings as $finding) {
+            $group = (string) ($finding['remediation_group'] ?? self::GROUP_UNKNOWN_REVIEW);
+            $severity = (string) ($finding['severity'] ?? 'review');
+            $priority = (string) ($finding['migration_priority'] ?? 'P4');
+            $file = (string) ($finding['file'] ?? 'unknown');
+
+            $byRemediationGroup[$group] = ($byRemediationGroup[$group] ?? 0) + 1;
+            $bySeverity[$severity] = ($bySeverity[$severity] ?? 0) + 1;
+            $byMigrationPriority[$priority] = ($byMigrationPriority[$priority] ?? 0) + 1;
+            $byFile[$file] = ($byFile[$file] ?? 0) + 1;
+        }
+
+        arsort($byRemediationGroup);
+        arsort($bySeverity);
+        arsort($byMigrationPriority);
+        arsort($byFile);
+
+        return [
+            'by_remediation_group' => $byRemediationGroup,
+            'by_severity' => $bySeverity,
+            'by_migration_priority' => $byMigrationPriority,
+            'by_file' => $byFile,
         ];
     }
 
@@ -572,5 +692,196 @@ final class UsersLegacyReadScanner
         }
 
         return trim(substr($content, $lineStart, $lineEnd - $lineStart));
+    }
+
+    /**
+     * @param array{file:string,field:string,pattern:string,line:int,snippet:string} $finding
+     * @return array{file:string,field:string,pattern:string,line:int,snippet:string,severity:string,remediation_group:string,remediation_hint:string,migration_priority:string}
+     */
+    private function classifyFinding(array $finding): array
+    {
+        $remediationGroup = $this->determineRemediationGroup($finding['file'], $finding['field']);
+        $severity = $this->determineSeverity($remediationGroup, $finding['file'], $finding['field']);
+
+        return array_merge($finding, [
+            'severity' => $severity,
+            'remediation_group' => $remediationGroup,
+            'remediation_hint' => $this->remediationHintForGroup($remediationGroup),
+            'migration_priority' => $this->migrationPriorityForGroup($remediationGroup),
+        ]);
+    }
+
+    private function determineRemediationGroup(string $file, string $field): string
+    {
+        $normalizedFile = strtolower(str_replace('\\', '/', $file));
+        $normalizedField = strtolower(trim($field));
+
+        if ($this->isLegacyCommandOrBackfillPath($normalizedFile)) {
+            return self::GROUP_LEGACY_COMMAND_OR_BACKFILL;
+        }
+
+        if ($this->isFinancePath($normalizedFile)) {
+            return self::GROUP_MEMBER_FISCAL_FINANCE;
+        }
+
+        if ($this->isSportsPath($normalizedFile)) {
+            return self::GROUP_SPORTS_MEMBER_PAYLOAD;
+        }
+
+        if ($this->isCommunicationPath($normalizedFile)) {
+            return self::GROUP_COMMUNICATION_SEGMENTS;
+        }
+
+        if ($this->isPortalDocumentPath($normalizedFile)) {
+            return self::GROUP_MEMBER_DOCUMENTS_CONFIGURATION;
+        }
+
+        if ($this->isPortalProfilePath($normalizedFile)) {
+            if ($this->fieldIn($normalizedField, self::DOCUMENT_FIELDS)) {
+                return self::GROUP_MEMBER_DOCUMENTS_CONFIGURATION;
+            }
+
+            if ($this->fieldIn($normalizedField, self::PROFILE_FIELDS)) {
+                return self::GROUP_MEMBER_PERSONAL_PROFILE;
+            }
+        }
+
+        if ($normalizedField === 'nome_completo') {
+            return self::GROUP_MEMBER_IDENTITY_DISPLAY;
+        }
+
+        if ($this->fieldIn($normalizedField, self::DOCUMENT_FIELDS)) {
+            return self::GROUP_MEMBER_DOCUMENTS_CONFIGURATION;
+        }
+
+        if ($this->fieldIn($normalizedField, self::PROFILE_FIELDS)) {
+            return self::GROUP_MEMBER_PERSONAL_PROFILE;
+        }
+
+        if ($this->fieldIn($normalizedField, self::SPORTS_FIELDS)) {
+            return self::GROUP_SPORTS_MEMBER_PAYLOAD;
+        }
+
+        if ($this->fieldIn($normalizedField, self::COMMUNICATION_FIELDS)) {
+            return self::GROUP_COMMUNICATION_SEGMENTS;
+        }
+
+        if ($this->fieldIn($normalizedField, self::FINANCE_FIELDS)) {
+            return self::GROUP_MEMBER_FISCAL_FINANCE;
+        }
+
+        return self::GROUP_UNKNOWN_REVIEW;
+    }
+
+    private function determineSeverity(string $group, string $file, string $field): string
+    {
+        $normalizedFile = strtolower(str_replace('\\', '/', $file));
+        $normalizedField = strtolower(trim($field));
+
+        if ($group === self::GROUP_MEMBER_FISCAL_FINANCE) {
+            if ($this->isFinancePath($normalizedFile) && $this->fieldIn($normalizedField, self::HIGH_FINANCE_FIELDS)) {
+                return 'high';
+            }
+
+            return 'medium';
+        }
+
+        if ($group === self::GROUP_MEMBER_DOCUMENTS_CONFIGURATION) {
+            if ($this->isPortalDocumentPath($normalizedFile)) {
+                return 'high';
+            }
+
+            if ($this->isPortalProfilePath($normalizedFile) && $this->fieldIn($normalizedField, self::DOCUMENT_FIELDS)) {
+                return 'high';
+            }
+
+            return 'medium';
+        }
+
+        if (
+            $group === self::GROUP_MEMBER_PERSONAL_PROFILE
+            || $group === self::GROUP_SPORTS_MEMBER_PAYLOAD
+            || $group === self::GROUP_COMMUNICATION_SEGMENTS
+        ) {
+            return 'medium';
+        }
+
+        if ($group === self::GROUP_MEMBER_IDENTITY_DISPLAY || $group === self::GROUP_LEGACY_COMMAND_OR_BACKFILL) {
+            return 'low';
+        }
+
+        return 'review';
+    }
+
+    private function remediationHintForGroup(string $group): string
+    {
+        return match ($group) {
+            self::GROUP_MEMBER_IDENTITY_DISPLAY => 'Migrar para helper/resolver canonico de nome de membro, usando dados_pessoais.nome_completo com fallback controlado para users.name.',
+            self::GROUP_MEMBER_PERSONAL_PROFILE => 'Migrar para MemberDataReadService ou resolver especifico de perfil.',
+            self::GROUP_MEMBER_DOCUMENTS_CONFIGURATION => 'Criar futuramente resolver canonico de documentos/configuracao do membro.',
+            self::GROUP_MEMBER_FISCAL_FINANCE => 'Migrar para MemberFiscalDataResolver ou resolver financeiro canonico.',
+            self::GROUP_SPORTS_MEMBER_PAYLOAD => 'Migrar para resolver de dados desportivos/membro canonico.',
+            self::GROUP_COMMUNICATION_SEGMENTS => 'Migrar para resolver canonico de destinatarios.',
+            self::GROUP_LEGACY_COMMAND_OR_BACKFILL => 'Manter temporariamente em allowlist documentada ou migrar depois.',
+            default => 'Revisar manualmente e classificar para plano de migracao.',
+        };
+    }
+
+    private function migrationPriorityForGroup(string $group): string
+    {
+        return match ($group) {
+            self::GROUP_MEMBER_FISCAL_FINANCE, self::GROUP_MEMBER_DOCUMENTS_CONFIGURATION => 'P1',
+            self::GROUP_MEMBER_PERSONAL_PROFILE, self::GROUP_SPORTS_MEMBER_PAYLOAD => 'P2',
+            self::GROUP_COMMUNICATION_SEGMENTS, self::GROUP_MEMBER_IDENTITY_DISPLAY => 'P3',
+            default => 'P4',
+        };
+    }
+
+    private function isFinancePath(string $file): bool
+    {
+        return str_contains($file, 'app/services/financeiro/')
+            || str_ends_with($file, '/financeirocontroller.php');
+    }
+
+    private function isSportsPath(string $file): bool
+    {
+        return str_contains($file, 'app/services/desportivo/')
+            || str_ends_with($file, '/athletecontroller.php')
+            || str_contains($file, 'desportivopagepayloadbuilder');
+    }
+
+    private function isCommunicationPath(string $file): bool
+    {
+        return str_contains($file, 'app/services/communication/')
+            || str_ends_with($file, '/comunicacaocontroller.php')
+            || str_ends_with($file, '/segmentresolverservice.php')
+            || str_ends_with($file, '/internalcommunicationservice.php');
+    }
+
+    private function isPortalDocumentPath(string $file): bool
+    {
+        return str_ends_with($file, '/portaldocumentcontroller.php');
+    }
+
+    private function isPortalProfilePath(string $file): bool
+    {
+        return str_ends_with($file, '/portalprofilecontroller.php');
+    }
+
+    private function isLegacyCommandOrBackfillPath(string $file): bool
+    {
+        if (!str_starts_with($file, 'app/console/commands/')) {
+            return false;
+        }
+
+        return preg_match('/(backfill|migration|audit)/i', $file) === 1;
+    }
+
+    /**
+     * @param list<string> $allowed
+     */
+    private function fieldIn(string $field, array $allowed): bool
+    {
+        return in_array($field, $allowed, true);
     }
 }
