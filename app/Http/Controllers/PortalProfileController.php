@@ -11,6 +11,7 @@ use App\Services\Family\FamilyService;
 use App\Services\Financeiro\CurrentAccountService;
 use App\Services\Loja\StoreProfileResolver;
 use App\Services\Members\MemberDataReadService;
+use App\Services\Members\MemberDocumentDataResolver;
 use App\Services\Members\MemberDataWriteService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -33,6 +34,7 @@ class PortalProfileController extends Controller
         StoreProfileResolver $profileResolver,
         FamilyService $familyService,
         UserTypeAccessControlService $accessControlService,
+        MemberDocumentDataResolver $memberDocumentDataResolver,
     ): Response {
         /** @var User $viewer */
         $viewer = $request->user();
@@ -68,6 +70,7 @@ class PortalProfileController extends Controller
                 $targetMember,
                 $viewer,
                 $this->canEditPortalProfile($viewer, $targetMember, $profileResolver, $familyService, $accessControlService),
+                $memberDocumentDataResolver,
             ),
             'viewer' => [
                 'id' => $viewer->id,
@@ -178,14 +181,15 @@ class PortalProfileController extends Controller
         return redirect()->route('portal.profile', $targetMember->id === $viewer->id ? [] : ['member' => $targetMember->id]);
     }
 
-    private function buildProfilePayload(User $member, User $viewer, bool $canEdit): array
+    private function buildProfilePayload(User $member, User $viewer, bool $canEdit, MemberDocumentDataResolver $memberDocumentDataResolver): array
     {
         $isAthlete = $this->hasMemberType($member, 'atleta');
         $isSocio = $this->hasMemberType($member, 'socio');
         $isGuardian = $this->hasMemberType($member, 'encarregado_educacao') || $this->hasMemberType($member, 'encarregado');
         $memberTypeLabels = $this->memberTypeLabels($member);
         $memberTypeLabel = implode(' · ', $memberTypeLabels);
-        $attestationStatus = $this->dateStatus($member->data_atestado_medico, true);
+        $profileDocuments = $memberDocumentDataResolver->profileDocuments($member);
+        $attestationStatus = $this->dateStatus($profileDocuments['atestado']['valid_until'] ?? null, true);
         $ageGroup = $this->resolveAgeGroupLabel($member);
         $accountSummary = app(CurrentAccountService::class)->summarize([
             'user_id' => $member->id,
@@ -220,7 +224,7 @@ class PortalProfileController extends Controller
                 'sexo' => in_array($member->sexo, ['masculino', 'feminino'], true) ? $member->sexo : null,
                 'contacto' => $member->contacto ?: $member->telemovel ?: $member->contacto_telefonico,
                 'email_secundario' => $member->email_secundario,
-                'num_federacao' => $member->num_federacao,
+                'num_federacao' => $profileDocuments['federacao']['numero'] ?? null,
                 'numero_pmb' => $member->numero_pmb,
                 'data_inscricao' => $member->data_inscricao?->format('Y-m-d'),
             ],
@@ -253,23 +257,32 @@ class PortalProfileController extends Controller
                 ->values()
                 ->all(),
             'documents' => array_values(array_filter([
-                $this->buildBooleanDocument('RGPD', (bool) $member->rgpd, $member->data_rgpd, 'Consentimento RGPD registado'),
+                $this->buildBooleanDocument(
+                    'RGPD',
+                    (bool) ($profileDocuments['rgpd']['is_validated'] ?? false),
+                    $profileDocuments['rgpd']['validated_at'] ?? null,
+                    'Consentimento RGPD registado'
+                ),
                 $this->buildBooleanDocument(
                     'Consentimento imagem/transporte',
-                    (bool) ($member->consentimento || $member->declaracao_de_transporte),
-                    $member->data_consentimento,
+                    (bool) ($profileDocuments['consentimento']['is_validated'] ?? false),
+                    $profileDocuments['consentimento']['validated_at'] ?? null,
                     'Imagem e transporte autorizados'
                 ),
-                $this->buildExpiringDocument('Atestado médico', $member->data_atestado_medico, 'Validade do atestado médico'),
+                $this->buildExpiringDocument(
+                    'Atestado médico',
+                    $profileDocuments['atestado']['valid_until'] ?? null,
+                    'Validade do atestado médico'
+                ),
                 $isAthlete ? $this->buildBooleanDocument(
                     'Cartão federação',
-                    filled($member->cartao_federacao) || filled($member->num_federacao),
-                    $member->data_afiliacao,
+                    (bool) ($profileDocuments['federacao']['is_validated'] ?? false),
+                    $profileDocuments['federacao']['validated_at'] ?? null,
                     'Identificação federativa disponível'
                 ) : null,
             ])),
             'sports' => [
-                ['label' => 'N.º federação', 'value' => $this->displayValue($member->num_federacao)],
+                ['label' => 'N.º federação', 'value' => $this->displayValue($profileDocuments['federacao']['numero'] ?? null)],
                 ['label' => 'Número PMB', 'value' => $this->displayValue($member->numero_pmb)],
                 ['label' => 'Data de inscrição', 'value' => $this->displayValue($this->formatDate($member->data_inscricao))],
                 ['label' => 'Escalão', 'value' => $this->displayValue($ageGroup)],

@@ -155,6 +155,16 @@ PHP);
         );
     }
 
+    public function test_default_allowlist_does_not_include_portal_profile_controller(): void
+    {
+        $scanner = app(UsersLegacyReadScanner::class);
+
+        $this->assertNotContains(
+            'app/Http/Controllers/PortalProfileController.php',
+            $scanner->defaultAllowlist(),
+        );
+    }
+
     public function test_command_returns_json_with_summary(): void
     {
         $exitCode = Artisan::call('members:audit-users-legacy-read', [

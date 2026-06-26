@@ -15,7 +15,7 @@ final class MemberDocumentDataResolverTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_resolver_prefers_canonical_configuration_values_for_rgpd_and_preserves_false_boolean(): void
+    public function test_profile_documents_prefers_canonical_configuration_values_for_rgpd_and_preserves_false_boolean(): void
     {
         $user = User::factory()->create([
             'rgpd' => true,
@@ -29,14 +29,13 @@ final class MemberDocumentDataResolverTest extends TestCase
             'consentimento_rgpd_data' => '2026-05-20 10:00:00',
         ]);
 
-        $resolved = app(MemberDocumentDataResolver::class)->resolve($user->fresh());
+        $profileDocuments = app(MemberDocumentDataResolver::class)->profileDocuments($user->fresh());
 
-        $this->assertFalse($resolved['documents']['rgpd']['isValidated']);
-        $this->assertSame('2026-05-20T10:00:00+00:00', $resolved['documents']['rgpd']['validatedAt']);
-        $this->assertSame('legacy/rgpd-user.pdf', $resolved['documents']['rgpd']['path']);
+        $this->assertFalse($profileDocuments['rgpd']['is_validated']);
+        $this->assertSame('2026-05-20T10:00:00+00:00', $profileDocuments['rgpd']['validated_at']);
     }
 
-    public function test_resolver_preserves_image_transport_consent_or_behavior(): void
+    public function test_profile_documents_preserves_image_transport_consent_or_behavior(): void
     {
         $user = User::factory()->create([
             'consentimento' => false,
@@ -50,13 +49,14 @@ final class MemberDocumentDataResolverTest extends TestCase
             'consentimento_imagem_data' => '2026-03-11 09:30:00',
         ]);
 
-        $resolved = app(MemberDocumentDataResolver::class)->resolve($user->fresh());
+        $profileDocuments = app(MemberDocumentDataResolver::class)->profileDocuments($user->fresh());
 
-        $this->assertTrue($resolved['documents']['consentimento']['isValidated']);
-        $this->assertSame('2026-03-11T09:30:00+00:00', $resolved['documents']['consentimento']['validatedAt']);
+        $this->assertTrue($profileDocuments['consentimento']['is_validated']);
+        $this->assertSame('2026-03-11T09:30:00+00:00', $profileDocuments['consentimento']['validated_at']);
+        $this->assertTrue($profileDocuments['declaracao_transporte']['is_validated']);
     }
 
-    public function test_resolver_resolves_federation_status_and_number_from_canonical_configuration(): void
+    public function test_profile_documents_resolves_federation_status_number_and_date_from_canonical_configuration(): void
     {
         $user = User::factory()->create([
             'afiliacao' => false,
@@ -73,13 +73,27 @@ final class MemberDocumentDataResolverTest extends TestCase
             'afiliacao_ficheiro' => 'canonical/afiliacao.pdf',
         ]);
 
-        $resolved = app(MemberDocumentDataResolver::class)->resolve($user->fresh());
+        $profileDocuments = app(MemberDocumentDataResolver::class)->profileDocuments($user->fresh());
 
-        $this->assertTrue($resolved['documents']['cartao_federacao']['isValidated']);
-        $this->assertSame('2026-02-14', $resolved['documents']['cartao_federacao']['validatedAt']);
-        $this->assertSame('canonical/afiliacao.pdf', $resolved['documents']['cartao_federacao']['path']);
-        $this->assertTrue($resolved['documents']['afiliacao']['isValidated']);
-        $this->assertSame('2026-02-14', $resolved['documents']['afiliacao']['validatedAt']);
+        $this->assertTrue($profileDocuments['federacao']['is_validated']);
+        $this->assertSame('2026-02-14', $profileDocuments['federacao']['validated_at']);
+        $this->assertSame('FED-2026-001', $profileDocuments['federacao']['numero']);
+        $this->assertTrue($profileDocuments['afiliacao']['is_validated']);
+        $this->assertSame('2026-02-14', $profileDocuments['afiliacao']['validated_at']);
+        $this->assertSame('FED-2026-001', $profileDocuments['afiliacao']['numero']);
+    }
+
+    public function test_profile_documents_preserves_medical_attestation_date_and_validation_state(): void
+    {
+        $user = User::factory()->create([
+            'data_atestado_medico' => '2099-01-31',
+        ]);
+
+        $profileDocuments = app(MemberDocumentDataResolver::class)->profileDocuments($user->fresh());
+
+        $this->assertTrue($profileDocuments['atestado']['is_validated']);
+        $this->assertSame('2099-01-31', $profileDocuments['atestado']['validated_at']);
+        $this->assertSame('2099-01-31', $profileDocuments['atestado']['valid_until']);
     }
 
     public function test_resolver_provides_transitional_legacy_paths_when_canonical_path_is_absent(): void

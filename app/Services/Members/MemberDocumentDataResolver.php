@@ -72,6 +72,60 @@ final class MemberDocumentDataResolver
 
     /**
      * @return array{
+     *   rgpd: array{is_validated:bool,validated_at:mixed},
+     *   consentimento: array{is_validated:bool,validated_at:mixed},
+     *   declaracao_transporte: array{is_validated:bool,validated_at:mixed},
+     *   atestado: array{is_validated:bool,validated_at:mixed,valid_until:mixed},
+     *   federacao: array{is_validated:bool,validated_at:mixed,numero:?string,cartao_path:?string},
+     *   afiliacao: array{is_validated:bool,validated_at:mixed,numero:?string,path:?string}
+     * }
+     */
+    public function profileDocuments(User $user): array
+    {
+        $configuration = $this->memberDataReadService->configurationPayload($user);
+        $payload = $this->memberDocumentPayload($user);
+        $federationNumber = $this->normalizeLegacyString($configuration['afiliacao_numero'] ?? null)
+            ?: $this->normalizeLegacyString($this->legacyAttribute($user, 'num_federacao'));
+
+        $federationIsValidated = (bool) $payload['afiliacao']
+            || filled($payload['cartao_federacao'])
+            || filled($federationNumber);
+
+        return [
+            'rgpd' => [
+                'is_validated' => (bool) $payload['rgpd'],
+                'validated_at' => $payload['data_rgpd'],
+            ],
+            'consentimento' => [
+                'is_validated' => (bool) ($payload['consentimento'] || $payload['declaracao_de_transporte']),
+                'validated_at' => $payload['data_consentimento'],
+            ],
+            'declaracao_transporte' => [
+                'is_validated' => (bool) $payload['declaracao_de_transporte'],
+                'validated_at' => $payload['data_consentimento'] ?? ($configuration['declaracao_transporte_data'] ?? null),
+            ],
+            'atestado' => [
+                'is_validated' => filled($payload['data_atestado_medico']),
+                'validated_at' => $payload['data_atestado_medico'],
+                'valid_until' => $payload['data_atestado_medico'],
+            ],
+            'federacao' => [
+                'is_validated' => $federationIsValidated,
+                'validated_at' => $payload['data_afiliacao'],
+                'numero' => $federationNumber,
+                'cartao_path' => $payload['cartao_federacao'],
+            ],
+            'afiliacao' => [
+                'is_validated' => (bool) $payload['afiliacao'],
+                'validated_at' => $payload['data_afiliacao'],
+                'numero' => $federationNumber,
+                'path' => $payload['arquivo_afiliacao'],
+            ],
+        ];
+    }
+
+    /**
+     * @return array{
      *   rgpd:bool,
      *   data_rgpd:mixed,
      *   arquivo_rgpd:?string,
@@ -200,5 +254,16 @@ final class MemberDocumentDataResolver
         }
 
         return is_string($value) && $value !== '' ? $value : null;
+    }
+
+    private function normalizeLegacyString(mixed $value): ?string
+    {
+        if (! is_string($value)) {
+            return null;
+        }
+
+        $normalized = trim($value);
+
+        return $normalized !== '' ? $normalized : null;
     }
 }
