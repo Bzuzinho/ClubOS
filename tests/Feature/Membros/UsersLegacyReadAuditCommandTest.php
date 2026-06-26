@@ -89,6 +89,16 @@ final class UsersLegacyReadAuditCommandTest extends TestCase
         $this->assertSame(0, $result['summary']['scanned_files']);
     }
 
+    public function test_default_allowlist_includes_member_document_data_resolver(): void
+    {
+        $scanner = app(UsersLegacyReadScanner::class);
+
+        $this->assertContains(
+            'app/Services/Members/MemberDocumentDataResolver.php',
+            $scanner->defaultAllowlist(),
+        );
+    }
+
     public function test_command_returns_json_with_summary(): void
     {
         $exitCode = Artisan::call('members:audit-users-legacy-read', [

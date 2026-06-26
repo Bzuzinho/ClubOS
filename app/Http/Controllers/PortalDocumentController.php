@@ -6,6 +6,7 @@ use App\Models\Season;
 use App\Models\User;
 use App\Models\UserDocument;
 use App\Services\Family\FamilyService;
+use App\Services\Members\MemberDocumentDataResolver;
 use Illuminate\Filesystem\FilesystemAdapter;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -21,6 +22,11 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 class PortalDocumentController extends Controller
 {
     private const EXPIRING_DAYS = 30;
+
+    public function __construct(
+        private readonly MemberDocumentDataResolver $memberDocumentDataResolver,
+    ) {
+    }
 
     /**
      * @var array<string, string>
@@ -139,66 +145,68 @@ class PortalDocumentController extends Controller
      */
     private function buildEssentialDocuments(User $user, Collection $uploadedByType): Collection
     {
-        $isAthlete = collect($user->tipo_membro ?? [])->contains(fn (mixed $type) => $type === 'atleta');
+        $resolvedDocuments = $this->memberDocumentDataResolver->resolve($user);
+        $documentData = $resolvedDocuments['documents'];
+        $isAthlete = (bool) ($resolvedDocuments['is_athlete'] ?? false);
 
         $documents = collect([
             $this->buildEssentialDocument(
                 type: 'rgpd',
                 label: self::DOCUMENT_LABELS['rgpd'],
-                isValidated: (bool) $user->rgpd,
-                validatedAt: $user->data_rgpd,
+                isValidated: (bool) data_get($documentData, 'rgpd.isValidated', false),
+                validatedAt: data_get($documentData, 'rgpd.validatedAt'),
                 validUntil: null,
-                legacyPath: $this->normalizeLegacyPath($user->arquivo_rgpd),
+                legacyPath: data_get($documentData, 'rgpd.path'),
                 upload: $uploadedByType->get('rgpd'),
                 description: 'Consentimento RGPD associado à sua ficha.',
             ),
             $this->buildEssentialDocument(
                 type: 'consentimento',
                 label: self::DOCUMENT_LABELS['consentimento'],
-                isValidated: (bool) ($user->consentimento || $user->declaracao_de_transporte),
-                validatedAt: $user->data_consentimento,
+                isValidated: (bool) data_get($documentData, 'consentimento.isValidated', false),
+                validatedAt: data_get($documentData, 'consentimento.validatedAt'),
                 validUntil: null,
-                legacyPath: $this->normalizeLegacyPath($user->arquivo_consentimento) ?: $this->normalizeLegacyPath($user->declaracao_transporte),
+                legacyPath: data_get($documentData, 'consentimento.path'),
                 upload: $uploadedByType->get('consentimento'),
                 description: 'Autorização de imagem e transporte disponível no Portal.',
             ),
             $this->buildEssentialDocument(
                 type: 'atestado',
                 label: self::DOCUMENT_LABELS['atestado'],
-                isValidated: (bool) $user->data_atestado_medico,
-                validatedAt: $user->data_atestado_medico,
-                validUntil: $user->data_atestado_medico,
-                legacyPath: $this->normalizeLegacyPath($user->arquivo_atestado_medico),
+                isValidated: (bool) data_get($documentData, 'atestado.isValidated', false),
+                validatedAt: data_get($documentData, 'atestado.validatedAt'),
+                validUntil: data_get($documentData, 'atestado.validUntil'),
+                legacyPath: data_get($documentData, 'atestado.path'),
                 upload: $uploadedByType->get('atestado'),
                 description: 'Documento com prioridade máxima quando está em falta ou a caducar.',
             ),
             $isAthlete ? $this->buildEssentialDocument(
                 type: 'cartao_federacao',
                 label: self::DOCUMENT_LABELS['cartao_federacao'],
-                isValidated: filled($user->cartao_federacao) || filled($user->num_federacao),
-                validatedAt: $user->data_afiliacao,
+                isValidated: (bool) data_get($documentData, 'cartao_federacao.isValidated', false),
+                validatedAt: data_get($documentData, 'cartao_federacao.validatedAt'),
                 validUntil: null,
-                legacyPath: $this->normalizeLegacyPath($user->cartao_federacao),
+                legacyPath: data_get($documentData, 'cartao_federacao.path'),
                 upload: $uploadedByType->get('cartao_federacao'),
                 description: 'Mostrado apenas para perfis com tipologia de atleta.',
             ) : null,
             $this->buildEssentialDocument(
                 type: 'declaracao_transporte',
                 label: self::DOCUMENT_LABELS['declaracao_transporte'],
-                isValidated: (bool) $user->declaracao_de_transporte,
-                validatedAt: $user->data_consentimento,
+                isValidated: (bool) data_get($documentData, 'declaracao_transporte.isValidated', false),
+                validatedAt: data_get($documentData, 'declaracao_transporte.validatedAt'),
                 validUntil: null,
-                legacyPath: $this->normalizeLegacyPath($user->declaracao_transporte),
+                legacyPath: data_get($documentData, 'declaracao_transporte.path'),
                 upload: $uploadedByType->get('declaracao_transporte'),
                 description: 'Declaração específica para transporte quando exigida pelo clube.',
             ),
             $this->buildEssentialDocument(
                 type: 'afiliacao',
                 label: self::DOCUMENT_LABELS['afiliacao'],
-                isValidated: (bool) $user->afiliacao,
-                validatedAt: $user->data_afiliacao,
+                isValidated: (bool) data_get($documentData, 'afiliacao.isValidated', false),
+                validatedAt: data_get($documentData, 'afiliacao.validatedAt'),
                 validUntil: null,
-                legacyPath: $this->normalizeLegacyPath($user->arquivo_afiliacao),
+                legacyPath: data_get($documentData, 'afiliacao.path'),
                 upload: $uploadedByType->get('afiliacao'),
                 description: 'Comprovativo de afiliação associado à época ativa.',
             ),
@@ -439,12 +447,14 @@ class PortalDocumentController extends Controller
      */
     private function buildHistory(User $user, Collection $uploadedDocuments, Collection $essentialDocuments): array
     {
-        $legacyEntries = collect([
-            $this->legacyHistoryEntry('RGPD', $user->data_rgpd, (bool) $user->rgpd, $essentialDocuments, 'rgpd'),
-            $this->legacyHistoryEntry('Consentimento imagem/transporte', $user->data_consentimento, (bool) ($user->consentimento || $user->declaracao_de_transporte), $essentialDocuments, 'consentimento'),
-            $this->legacyHistoryEntry('Atestado médico', $user->data_atestado_medico, (bool) $user->data_atestado_medico, $essentialDocuments, 'atestado'),
-            $this->legacyHistoryEntry('Afiliação', $user->data_afiliacao, (bool) $user->afiliacao, $essentialDocuments, 'afiliacao'),
-        ])->filter();
+        $legacyEntries = collect($this->memberDocumentDataResolver->history($user, $essentialDocuments->all()))
+            ->map(fn (array $entry): array => [
+                'id' => (string) ($entry['id'] ?? ''),
+                'name' => (string) ($entry['name'] ?? 'Documento'),
+                'date' => $this->formatDate($entry['date'] ?? null),
+                'status' => (string) ($entry['status'] ?? 'Válido'),
+            ])
+            ->filter(fn (array $entry): bool => filled($entry['date']));
 
         $uploadEntries = $uploadedDocuments->map(function (UserDocument $document): array {
             $statusKey = $this->resolveUploadStatusKey($document);
@@ -532,15 +542,9 @@ class PortalDocumentController extends Controller
 
     private function legacyDocumentPath(User $user, string $documentType): ?string
     {
-        return match ($documentType) {
-            'rgpd' => $this->normalizeLegacyPath($user->arquivo_rgpd),
-            'consentimento' => $this->normalizeLegacyPath($user->arquivo_consentimento) ?: $this->normalizeLegacyPath($user->declaracao_transporte),
-            'atestado' => $this->normalizeLegacyPath($user->arquivo_atestado_medico),
-            'cartao_federacao' => $this->normalizeLegacyPath($user->cartao_federacao),
-            'declaracao_transporte' => $this->normalizeLegacyPath($user->declaracao_transporte),
-            'afiliacao' => $this->normalizeLegacyPath($user->arquivo_afiliacao),
-            default => null,
-        };
+        $paths = $this->memberDocumentDataResolver->documentPaths($user);
+
+        return $paths[$documentType] ?? null;
     }
 
     private function resolveCurrentSeasonLabel(): string
