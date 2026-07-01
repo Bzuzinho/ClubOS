@@ -35,6 +35,7 @@ use App\Services\Financeiro\MonthlyInvoiceStatusService;
 use App\Services\Financeiro\MonthlyFeeGenerationService;
 use App\Services\Financeiro\PaymentAllocationService;
 use App\Services\Financeiro\ReconciliationAliasService;
+use App\Services\Members\MemberFiscalDataResolver;
 use Illuminate\Support\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -62,6 +63,7 @@ class FinanceiroController extends Controller
         private readonly MonthlyInvoiceStatusService $monthlyInvoiceStatusService,
         private readonly ManualExpenseService $manualExpenseService,
         private readonly MovementDocumentControlService $movementDocumentControlService,
+        private readonly MemberFiscalDataResolver $memberFiscalDataResolver,
     ) {
     }
 
@@ -279,21 +281,22 @@ class FinanceiroController extends Controller
                 try {
                     return User::select(
                         'id',
-                        'nome_completo',
                         'numero_socio',
                         'data_inscricao',
                         'tipo_mensalidade',
                         'centro_custo',
                         'tipo_membro',
-                        'escalao',
-                        'nif',
-                        'morada'
+                        'escalao'
                     )
-                        ->with(['dadosFinanceiros', 'centrosCusto'])
+                        ->with([
+                            'dadosPessoais:id,user_id,nome_completo,nif,morada,codigo_postal,localidade,contacto,email_secundario,telemovel,contacto_telefonico',
+                            'dadosFinanceiros',
+                            'centrosCusto',
+                        ])
                         ->orderBy('nome_completo')
                         ->get()
                         ->map(function ($user) {
-                            $user->tipo_mensalidade = $user->dadosFinanceiros?->mensalidade_id ?? $user->tipo_mensalidade;
+                            $fiscalData = $this->memberFiscalDataResolver->resolve($user);
                             $legacyCentros = collect($user->centro_custo ?? [])
                                 ->map(function ($center) {
                                     if (is_array($center) && isset($center['id'])) {
@@ -304,24 +307,32 @@ class FinanceiroController extends Controller
                                 ->filter()
                                 ->values();
 
+                            $centroCustoIds = $legacyCentros;
+                            $centroCustoPesos = $legacyCentros->map(function ($id) {
+                                return [
+                                    'id' => $id,
+                                    'peso' => 1.0,
+                                ];
+                            })->values();
+
                             if ($user->centrosCusto->isNotEmpty()) {
-                                $user->centro_custo = $user->centrosCusto->pluck('id')->values();
-                                $user->centro_custo_pesos = $user->centrosCusto->map(function ($center) {
+                                $centroCustoIds = $user->centrosCusto->pluck('id')->values();
+                                $centroCustoPesos = $user->centrosCusto->map(function ($center) {
                                     return [
                                         'id' => $center->id,
                                         'peso' => (float) ($center->pivot->peso ?? 1),
                                     ];
                                 })->values();
-                            } else {
-                                $user->centro_custo = $legacyCentros;
-                                $user->centro_custo_pesos = $legacyCentros->map(function ($id) {
-                                    return [
-                                        'id' => $id,
-                                        'peso' => 1.0,
-                                    ];
-                                })->values();
                             }
-                            return $user;
+
+                            return array_merge($user->toArray(), [
+                                'nome_completo' => $fiscalData['nome'] ?? $user->name,
+                                'nif' => $fiscalData['nif'],
+                                'morada' => $fiscalData['morada'],
+                                'tipo_mensalidade' => $user->dadosFinanceiros?->mensalidade_id ?? $user->tipo_mensalidade,
+                                'centro_custo' => $centroCustoIds,
+                                'centro_custo_pesos' => $centroCustoPesos,
+                            ]);
                         });
                 } catch (\Exception $e) {
                     \Log::error('FinanceiroController::index - Users query failed: ' . $e->getMessage());

@@ -4,6 +4,7 @@ namespace App\Services\Financeiro;
 
 use App\Models\AgeGroup;
 use App\Models\User;
+use App\Services\Members\MemberFiscalDataResolver;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 
@@ -11,6 +12,7 @@ class FinanceReportService
 {
     public function __construct(
         private readonly FinanceReportQueryService $queryService,
+        private readonly MemberFiscalDataResolver $memberFiscalDataResolver,
     ) {
     }
 
@@ -307,7 +309,7 @@ class FinanceReportService
 
                 return [
                     'id' => $user->id,
-                    'nome' => $user->nome_completo,
+                    'nome' => $this->memberFiscalDataResolver->displayName($user),
                     'numero_socio' => $user->numero_socio,
                     'escalao' => collect($user->escalao ?? [])
                         ->map(fn (string $ageGroupId) => $ageGroupNames->get($ageGroupId, $ageGroupId))
@@ -348,7 +350,8 @@ class FinanceReportService
 
         return User::query()
             ->whereIn('id', $userIds)
-            ->get(['id', 'nome_completo', 'numero_socio', 'tipo_membro', 'escalao']);
+            ->with('dadosPessoais:id,user_id,nome_completo,nif,morada,codigo_postal,localidade,contacto,email_secundario,telemovel,contacto_telefonico')
+            ->get(['id', 'name', 'numero_socio', 'tipo_membro', 'escalao']);
     }
 
     private function buildTotals(Collection $items, string $revenueKey, string $expenseKey): array

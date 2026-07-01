@@ -41,6 +41,8 @@ class MemberFiscalDataResolverTest extends TestCase
             'morada' => ' Avenida Canonica 22 ',
             'codigo_postal' => ' 2000-002 ',
             'localidade' => ' Porto Canonico ',
+            'email_secundario' => ' canonical@example.test ',
+            'contacto' => ' 912345678 ',
         ]);
 
         $resolved = $this->resolver->resolve($user->fresh());
@@ -50,6 +52,8 @@ class MemberFiscalDataResolverTest extends TestCase
         $this->assertSame('Avenida Canonica 22', $resolved['morada']);
         $this->assertSame('2000-002', $resolved['codigo_postal']);
         $this->assertSame('Porto Canonico', $resolved['localidade']);
+        $this->assertSame('canonical@example.test', $resolved['email_secundario']);
+        $this->assertSame('912345678', $resolved['contacto']);
     }
 
     public function test_falls_back_to_users_legacy_fiscal_fields(): void
@@ -92,6 +96,8 @@ class MemberFiscalDataResolverTest extends TestCase
             'morada' => null,
             'codigo_postal' => '  4400-111  ',
             'localidade' => '   ',
+            'email_secundario' => '',
+            'contacto' => null,
         ]);
 
         $resolved = $this->resolver->resolve($user->fresh());
@@ -101,6 +107,31 @@ class MemberFiscalDataResolverTest extends TestCase
         $this->assertSame('Rua Legacy 40', $resolved['morada']);
         $this->assertSame('4400-111', $resolved['codigo_postal']);
         $this->assertSame('Braga Legacy', $resolved['localidade']);
+        $this->assertNull($resolved['email_secundario']);
+        $this->assertNull($resolved['contacto']);
+    }
+
+    public function test_contact_and_secondary_email_fall_back_from_legacy_user_fields(): void
+    {
+        $user = User::factory()->create([
+            'contacto' => null,
+            'telemovel' => '931111222',
+            'contacto_telefonico' => '211111222',
+            'email_secundario' => 'legacy-secondary@example.test',
+        ]);
+
+        DadosPessoais::query()->create([
+            'user_id' => $user->id,
+            'contacto' => '   ',
+            'email_secundario' => null,
+        ]);
+
+        $resolved = $this->resolver->resolve($user->fresh());
+
+        $this->assertSame('legacy-secondary@example.test', $resolved['email_secundario']);
+        $this->assertSame('931111222', $resolved['contacto']);
+        $this->assertSame('931111222', $this->resolver->contact($user->fresh()));
+        $this->assertSame('legacy-secondary@example.test', $this->resolver->emailSecondary($user->fresh()));
     }
 
     public function test_uses_users_name_as_final_name_fallback(): void
@@ -190,8 +221,12 @@ class MemberFiscalDataResolverTest extends TestCase
         $personalFindings = collect($payload['findings'] ?? [])->filter(
             fn (array $finding): bool => ($finding['remediation_group'] ?? null) === 'member_personal_profile'
         );
+        $fiscalFindings = collect($payload['findings'] ?? [])->filter(
+            fn (array $finding): bool => ($finding['remediation_group'] ?? null) === 'member_fiscal_finance'
+        );
 
         $this->assertCount(0, $personalFindings);
+        $this->assertCount(0, $fiscalFindings);
     }
 
     /**

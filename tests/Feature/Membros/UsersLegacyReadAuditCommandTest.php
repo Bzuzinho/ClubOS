@@ -33,6 +33,26 @@ final class UsersLegacyReadAuditCommandTest extends TestCase
         $this->assertSame('$object->field', $result['findings'][0]['pattern']);
     }
 
+    public function test_scanner_ignores_supplier_direct_property_reads(): void
+    {
+        $scanner = app(UsersLegacyReadScanner::class);
+
+        $filePath = base_path('storage/app/read-guard-test/SupplierRead.php');
+        File::ensureDirectoryExists(dirname($filePath));
+        File::put($filePath, "<?php\n\n\$nif = \$supplier->nif;\n\$morada = \$supplier->morada;\n");
+
+        try {
+            $result = $scanner->scan([
+                'storage/app/read-guard-test',
+            ], []);
+        } finally {
+            File::delete($filePath);
+            File::deleteDirectory(dirname($filePath));
+        }
+
+        $this->assertSame([], $result['findings']);
+    }
+
     public function test_scanner_detects_query_select_of_legacy_field(): void
     {
         $scanner = app(UsersLegacyReadScanner::class);

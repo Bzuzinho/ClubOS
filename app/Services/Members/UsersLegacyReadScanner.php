@@ -412,13 +412,18 @@ final class UsersLegacyReadScanner
         $findings = [];
 
         foreach ($blockedFields as $field) {
-            $regex = '/\$[a-zA-Z_][a-zA-Z0-9_]*->' . preg_quote($field, '/') . '\b(?!\s*=)/';
+            $regex = '/\$(?<variable>[a-zA-Z_][a-zA-Z0-9_]*)->' . preg_quote($field, '/') . '\b(?!\s*=)/';
 
             $matches = [];
             preg_match_all($regex, $content, $matches, PREG_OFFSET_CAPTURE);
 
-            foreach ($matches[0] ?? [] as $match) {
+            foreach ($matches[0] ?? [] as $index => $match) {
                 $offset = (int) ($match[1] ?? 0);
+                $variable = strtolower((string) ($matches['variable'][$index][0] ?? ''));
+
+                if (!$this->isLikelyUserObjectVariable($variable)) {
+                    continue;
+                }
 
                 $findings[] = [
                     'file' => $file,
@@ -519,6 +524,10 @@ final class UsersLegacyReadScanner
 
                 $localOffset = (int) ($fieldMatch[1] ?? 0);
                 $absoluteOffset = $offset + $localOffset;
+
+                if (!$this->hasUsersContext($content, $absoluteOffset)) {
+                    continue;
+                }
 
                 $findings[] = [
                     'file' => $file,
@@ -644,6 +653,21 @@ final class UsersLegacyReadScanner
         }
 
         foreach (['user', 'member', 'membro', 'athlete', 'atleta', 'guardian', 'educando'] as $needle) {
+            if (str_contains($variable, $needle)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function isLikelyUserObjectVariable(string $variable): bool
+    {
+        if ($variable === '') {
+            return false;
+        }
+
+        foreach (['user', 'member', 'membro', 'athlete', 'atleta', 'guardian', 'educando', 'responsavel'] as $needle) {
             if (str_contains($variable, $needle)) {
                 return true;
             }

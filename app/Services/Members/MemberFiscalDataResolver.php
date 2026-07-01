@@ -14,11 +14,11 @@ final class MemberFiscalDataResolver
     }
 
     /**
-     * @return array{nome: string|null, nif: string|null, morada: string|null, codigo_postal: string|null, localidade: string|null}
+     * @return array{nome: string|null, nif: string|null, morada: string|null, codigo_postal: string|null, localidade: string|null, email_secundario: string|null, contacto: string|null}
      */
     public function resolve(User $user): array
     {
-        $personal = $this->memberDataReadService->personalPayload($user);
+        $personal = $this->personalPayload($user);
 
         return [
             'nome' => $this->resolveNome($user, $personal),
@@ -26,7 +26,40 @@ final class MemberFiscalDataResolver
             'morada' => $this->normalizedString($personal['morada'] ?? null),
             'codigo_postal' => $this->normalizedString($personal['codigo_postal'] ?? null),
             'localidade' => $this->normalizedString($personal['localidade'] ?? null),
+            'email_secundario' => $this->normalizedString($personal['email_secundario'] ?? null),
+            'contacto' => $this->normalizedString($personal['contacto'] ?? null),
         ];
+    }
+
+    /**
+     * @return array{nome: string|null, nif: string|null, morada: string|null, codigo_postal: string|null, localidade: string|null, email_secundario: string|null, contacto: string|null}
+     */
+    public function fiscalPayload(User $user): array
+    {
+        return $this->resolve($user);
+    }
+
+    public function displayName(User $user): ?string
+    {
+        return $this->resolve($user)['nome'];
+    }
+
+    public function contact(User $user): ?string
+    {
+        return $this->resolve($user)['contacto'];
+    }
+
+    public function emailSecondary(User $user): ?string
+    {
+        return $this->resolve($user)['email_secundario'];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function personalPayload(User $user): array
+    {
+        return $this->memberDataReadService->personalPayload($user);
     }
 
     /**

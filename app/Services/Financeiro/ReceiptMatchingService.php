@@ -5,12 +5,18 @@ namespace App\Services\Financeiro;
 use App\Models\Invoice;
 use App\Models\ReceiptImportItem;
 use App\Models\User;
+use App\Services\Members\MemberFiscalDataResolver;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
 
 class ReceiptMatchingService
 {
+    public function __construct(
+        private readonly MemberFiscalDataResolver $memberFiscalDataResolver,
+    ) {
+    }
+
     public function matchItem(ReceiptImportItem $item): ReceiptImportItem
     {
         if (in_array($item->status, [ReceiptImportItem::STATUS_DUPLICATE, ReceiptImportItem::STATUS_FAILED], true)) {
@@ -76,6 +82,7 @@ class ReceiptMatchingService
 
         if ($item->extracted_nif) {
             User::query()
+                ->with('dadosPessoais:id,user_id,nome_completo,nif,morada,codigo_postal,localidade,contacto,email_secundario,telemovel,contacto_telefonico')
                 ->where('nif', $item->extracted_nif)
                 ->get()
                 ->each(function (User $user) use ($candidates): void {
@@ -85,6 +92,7 @@ class ReceiptMatchingService
 
         if ($item->extracted_member_number) {
             User::query()
+                ->with('dadosPessoais:id,user_id,nome_completo,nif,morada,codigo_postal,localidade,contacto,email_secundario,telemovel,contacto_telefonico')
                 ->where('numero_socio', $item->extracted_member_number)
                 ->get()
                 ->each(function (User $user) use ($candidates): void {
@@ -94,6 +102,7 @@ class ReceiptMatchingService
 
         if ($item->extracted_email) {
             User::query()
+                ->with('dadosPessoais:id,user_id,nome_completo,nif,morada,codigo_postal,localidade,contacto,email_secundario,telemovel,contacto_telefonico')
                 ->where(function ($query) use ($item): void {
                     $query
                         ->where('email', $item->extracted_email)
@@ -108,10 +117,10 @@ class ReceiptMatchingService
         $normalizedName = $this->normalizeName($item->extracted_name);
         if ($normalizedName !== '') {
             User::query()
-                ->whereNotNull('nome_completo')
+                ->with('dadosPessoais:id,user_id,nome_completo,nif,morada,codigo_postal,localidade,contacto,email_secundario,telemovel,contacto_telefonico')
                 ->get()
                 ->each(function (User $user) use ($normalizedName, $candidates): void {
-                    $candidateName = $this->normalizeName($user->nome_completo ?? $user->name ?? null);
+                    $candidateName = $this->normalizeName($this->memberFiscalDataResolver->displayName($user));
                     if ($candidateName === '') {
                         return;
                     }
@@ -222,7 +231,7 @@ class ReceiptMatchingService
             'score' => $candidate['score'],
             'reason' => $candidate['reason'],
             'label' => $model instanceof User
-                ? ($model->nome_completo ?? $model->name ?? $model->id)
+                ? ($this->memberFiscalDataResolver->displayName($model) ?? $model->id)
                 : (($model->tipo ?? 'fatura').' '.($model->mes ?? $model->id)),
         ];
     }

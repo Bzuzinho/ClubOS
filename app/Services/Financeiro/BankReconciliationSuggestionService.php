@@ -10,6 +10,7 @@ use App\Models\Movement;
 use App\Models\Payment;
 use App\Models\PaymentAllocation;
 use App\Models\User;
+use App\Services\Members\MemberFiscalDataResolver;
 use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
@@ -41,6 +42,7 @@ class BankReconciliationSuggestionService
         private readonly FinancialSettlementService $financialSettlementService,
         private readonly ReconciliationAliasService $reconciliationAliasService,
         private readonly ReconciliationRepositoryService $reconciliationRepositoryService,
+        private readonly MemberFiscalDataResolver $memberFiscalDataResolver,
     ) {
     }
 
@@ -1495,6 +1497,7 @@ class BankReconciliationSuggestionService
 
         $users = User::query()
             ->with([
+                'dadosPessoais:id,user_id,nome_completo,nif,morada,codigo_postal,localidade,contacto,email_secundario,telemovel,contacto_telefonico',
                 'families:id,nome,responsavel_user_id',
                 'responsibleFamilies:id,nome,responsavel_user_id',
                 'educandos:id,nome_completo,name',
@@ -1523,6 +1526,11 @@ class BankReconciliationSuggestionService
             ->get();
 
         return $users->map(function (User $user) use ($normalizedText, $compactDigits, $users): array {
+            $fiscalData = $this->memberFiscalDataResolver->resolve($user);
+            $name = $this->normalizer->normalize($this->memberFiscalDataResolver->displayName($user));
+            $secondaryEmail = $this->normalizer->normalize($this->memberFiscalDataResolver->emailSecondary($user));
+            $nif = (string) ($fiscalData['nif'] ?? '');
+            $contact = (string) ($this->memberFiscalDataResolver->contact($user) ?? '');
             $educandos = $this->getGuardianStudents($user);
             $directFamilyId = $user->families->first()?->id;
             $responsibleFamilyId = $user->responsibleFamilies->first()?->id;
@@ -1531,18 +1539,12 @@ class BankReconciliationSuggestionService
                 ->unique('id')
                 ->first()?->id;
             $familyId = $directFamilyId ?: $responsibleFamilyId ?: $guardianFamilyId;
-            $name = $this->normalizer->normalize($user->nome_completo ?: $user->name);
             $nameTokens = collect(explode(' ', $name))
                 ->filter(fn (string $token) => strlen($token) >= 3)
                 ->values();
             $email = $this->normalizer->normalize($user->email);
-            $secondaryEmail = $this->normalizer->normalize($user->email_secundario);
             $memberNumber = (string) ($user->numero_socio ?? '');
-            $nif = (string) ($user->nif ?? '');
-            $phoneMatches = $compactDigits !== '' && (
-                str_contains((string) ($user->telemovel ?? ''), $compactDigits)
-                || str_contains((string) ($user->contacto ?? ''), $compactDigits)
-            );
+            $phoneMatches = $compactDigits !== '' && $contact !== '' && str_contains($contact, $compactDigits);
             $matchedName = $name !== '' && (
                 str_contains($normalizedText, $name)
                 || ($nameTokens->isNotEmpty() && $nameTokens->every(fn (string $token) => str_contains($normalizedText, $token)))
@@ -1663,7 +1665,7 @@ class BankReconciliationSuggestionService
             ->get();
 
         return $guardians->flatMap(function (User $guardian) use ($normalizedText, $guardians): Collection {
-            $guardianName = $this->normalizer->normalize($guardian->nome_completo ?: $guardian->name);
+            $guardianName = $this->normalizer->normalize($this->memberFiscalDataResolver->displayName($guardian));
             $matchedGuardian = $guardianName !== '' && str_contains($normalizedText, $guardianName);
 
             if (!$matchedGuardian) {
