@@ -123,6 +123,7 @@ final class UsersLegacyReadScanner
         'app/Services/Members/MemberDataReadService.php' => 'Read fallback canonico autorizado.',
         'app/Services/Members/MemberDataWriteService.php' => 'Mapeamento/canonicalizacao de dados de membro.',
         'app/Services/Members/MemberDocumentDataResolver.php' => 'Resolver transicional autorizado para leituras documentais legacy.',
+        'app/Services/Members/MemberIdentityDisplayResolver.php' => 'Resolver transicional autorizado para nome de apresentacao canonico.',
         'app/Console/Commands/MembersAuditDataStructure.php' => 'Comando de auditoria/read-only M2.',
         'app/Console/Commands/MembersBackfillDataStructure.php' => 'Comando de backfill M2/M3 com guardas.',
         'app/Console/Commands/Members/AuditMemberDataStructureCommand.php' => 'Comando de auditoria/read-only legado permitido.',

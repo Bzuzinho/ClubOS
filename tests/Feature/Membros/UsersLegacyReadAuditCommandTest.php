@@ -175,6 +175,16 @@ PHP);
         );
     }
 
+    public function test_default_allowlist_includes_member_identity_display_resolver(): void
+    {
+        $scanner = app(UsersLegacyReadScanner::class);
+
+        $this->assertContains(
+            'app/Services/Members/MemberIdentityDisplayResolver.php',
+            $scanner->defaultAllowlist(),
+        );
+    }
+
     public function test_default_allowlist_does_not_include_portal_profile_controller(): void
     {
         $scanner = app(UsersLegacyReadScanner::class);
@@ -200,6 +210,23 @@ PHP);
         );
 
         $this->assertCount(0, $personalFindings);
+    }
+
+    public function test_command_reports_no_identity_display_findings_for_member_identity_display_resolver_path(): void
+    {
+        $exitCode = Artisan::call('members:audit-users-legacy-read', [
+            '--json' => true,
+            '--path' => ['app/Services/Members/MemberIdentityDisplayResolver.php'],
+        ]);
+
+        $this->assertSame(0, $exitCode);
+
+        $payload = $this->decodeArtisanJsonOutput(Artisan::output());
+        $identityFindings = collect($payload['findings'] ?? [])->filter(
+            fn (array $finding): bool => ($finding['remediation_group'] ?? null) === 'member_identity_display'
+        );
+
+        $this->assertCount(0, $identityFindings);
     }
 
     public function test_command_returns_json_with_summary(): void
