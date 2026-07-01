@@ -12,6 +12,7 @@ use App\Services\Financeiro\CurrentAccountService;
 use App\Services\Loja\StoreProfileResolver;
 use App\Services\Members\MemberDataReadService;
 use App\Services\Members\MemberDocumentDataResolver;
+use App\Services\Members\MemberIdentityDisplayResolver;
 use App\Services\Members\MemberDataWriteService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -388,7 +389,7 @@ class PortalProfileController extends Controller
 
     private function displayName(User $member): string
     {
-        return trim((string) ($member->nome_completo ?: $member->name ?: 'Utilizador'));
+        return app(MemberIdentityDisplayResolver::class)->displayNameOrFallback($member, 'Utilizador');
     }
 
     private function displayValue(mixed $value): string

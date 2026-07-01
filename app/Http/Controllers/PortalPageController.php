@@ -15,6 +15,7 @@ use App\Services\Communication\InAppAlertService;
 use App\Services\Communication\InternalCommunicationService;
 use App\Services\Family\FamilyService;
 use App\Services\Financeiro\CurrentAccountService;
+use App\Services\Members\MemberIdentityDisplayResolver;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -480,7 +481,7 @@ class PortalPageController extends Controller
         return [
             'user' => [
                 'id' => $user->id,
-                'name' => trim((string) ($user->nome_completo ?: $user->name)) ?: 'Utilizador',
+                'name' => $this->displayName($user),
                 'email' => $user->email,
             ],
             'secure_payment_enabled' => false,
@@ -871,6 +872,11 @@ class PortalPageController extends Controller
         return sprintf('%d comunicações exigem ação', $actionRequiredCount);
     }
 
+    private function displayName(User $user): string
+    {
+        return app(MemberIdentityDisplayResolver::class)->displayNameOrFallback($user, 'Utilizador');
+    }
+
     /**
      * @return array<string, mixed>
      */
@@ -882,7 +888,7 @@ class PortalPageController extends Controller
         $basePayload = [
             'user' => [
                 'id' => $user->id,
-                'name' => trim((string) ($user->nome_completo ?: $user->name)) ?: 'Utilizador',
+                'name' => $this->displayName($user),
                 'email' => $user->email,
             ],
             'perfil_tipos' => $profileTypes,

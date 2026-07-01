@@ -12,6 +12,7 @@ use App\Models\User;
 use App\Models\Movement;
 use App\Models\MovementItem;
 use App\Models\ConvocationAthlete;
+use App\Services\Members\MemberIdentityDisplayResolver;
 use Illuminate\Support\Collection;
 
 class ConvocationGroup extends Model
@@ -136,7 +137,11 @@ class ConvocationGroup extends Model
 
             $valorLinha = abs($valor);
             $movementItemsData[] = [
-                'descricao' => "{$user->nome_completo} - {$event->titulo}",
+                'descricao' => sprintf(
+                    '%s - %s',
+                    app(MemberIdentityDisplayResolver::class)->displayName($user),
+                    (string) $event->titulo,
+                ),
                 'valor_unitario' => $valorLinha,
                 'quantidade' => 1,
                 'imposto_percentual' => 0,

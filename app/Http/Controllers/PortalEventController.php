@@ -8,6 +8,7 @@ use App\Models\EventConvocation;
 use App\Models\User;
 use App\Services\Family\FamilyService;
 use App\Services\Loja\StoreProfileResolver;
+use App\Services\Members\MemberIdentityDisplayResolver;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -17,6 +18,11 @@ use Inertia\Response;
 
 class PortalEventController extends Controller
 {
+    public function __construct(
+        private readonly MemberIdentityDisplayResolver $memberIdentityDisplayResolver,
+    ) {
+    }
+
     public function index(
         Request $request,
         FamilyService $familyService,
@@ -317,7 +323,7 @@ class PortalEventController extends Controller
             'convocation_id' => $convocationId,
             'event_id' => $event->id,
             'title' => $event->titulo ?: 'Evento sem título',
-            'subtitle' => $member->nome_completo ?: $member->name,
+            'subtitle' => $this->memberIdentityDisplayResolver->displayName($member),
             'source' => $source,
             'status' => $status,
             'type' => $type,
@@ -510,7 +516,7 @@ class PortalEventController extends Controller
             return 'Utilizador';
         }
 
-        return trim((string) ($user->nome_completo ?: $user->name ?: 'Utilizador'));
+        return $this->memberIdentityDisplayResolver->displayNameOrFallback($user, 'Utilizador');
     }
 
     private function memberTypeLabel(User $user): string

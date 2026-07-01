@@ -4,6 +4,7 @@ namespace App\Services\Family;
 
 use App\Models\Familia;
 use App\Models\User;
+use App\Services\Members\MemberIdentityDisplayResolver;
 use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Schema;
@@ -12,6 +13,11 @@ use Illuminate\Support\Str;
 
 class FamilyService
 {
+    public function __construct(
+        private readonly MemberIdentityDisplayResolver $memberIdentityDisplayResolver,
+    ) {
+    }
+
     /**
      * @var array<string>
      */
@@ -214,7 +220,7 @@ class FamilyService
         $legacyFamily = $this->buildLegacyFamily($user);
 
         $family = Familia::create([
-            'nome' => $name ?: ($legacyFamily['nome'] ?? sprintf('Família %s', trim((string) ($user->nome_completo ?: $user->name)))),
+            'nome' => $name ?: ($legacyFamily['nome'] ?? sprintf('Família %s', $this->memberIdentityDisplayResolver->displayName($user))),
             'responsavel_user_id' => $user->id,
             'ativo' => true,
         ]);
@@ -295,7 +301,7 @@ class FamilyService
             ->map(function (User $member) use ($viewer) {
                 return [
                     'id' => $member->id,
-                    'name' => trim((string) ($member->nome_completo ?: $member->name)),
+                    'name' => $this->memberIdentityDisplayResolver->displayName($member),
                     'email' => $member->email,
                     'numero_socio' => $member->numero_socio,
                     'estado' => $member->estado,
@@ -353,7 +359,7 @@ class FamilyService
 
                 return [
                     'id' => $member->id,
-                    'name' => trim((string) ($member->nome_completo ?: $member->name)),
+                    'name' => $this->memberIdentityDisplayResolver->displayName($member),
                     'email' => $member->email,
                     'numero_socio' => $member->numero_socio,
                     'estado' => $member->estado,
@@ -379,7 +385,7 @@ class FamilyService
 
         return [
             'id' => 'legacy:' . $user->id,
-            'nome' => sprintf('Família %s', trim((string) ($user->nome_completo ?: $user->name))),
+            'nome' => sprintf('Família %s', $this->memberIdentityDisplayResolver->displayName($user)),
             'observacoes' => null,
             'ativo' => true,
             'responsavel_user_id' => $user->id,

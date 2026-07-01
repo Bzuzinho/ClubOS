@@ -11,6 +11,7 @@ use App\Models\UserDocument;
 use App\Services\AccessControl\UserTypeAccessControlService;
 use App\Services\Family\FamilyService;
 use App\Services\Financeiro\CurrentAccountService;
+use App\Services\Members\MemberIdentityDisplayResolver;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -369,7 +370,7 @@ class FamilyPortalController extends Controller
 
     private function displayName(User $user): string
     {
-        return trim((string) ($user->nome_completo ?: $user->name)) ?: 'Utilizador';
+        return app(MemberIdentityDisplayResolver::class)->displayNameOrFallback($user, 'Utilizador');
     }
 
     private function canManagePortalFamily(User $user, FamilyService $familyService): bool

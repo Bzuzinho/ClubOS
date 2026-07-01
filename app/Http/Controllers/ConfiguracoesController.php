@@ -31,6 +31,7 @@ use App\Models\ProvaTipo;
 use App\Models\User;
 use App\Services\AccessControl\UserTypeAccessControlService;
 use App\Services\Club\ClubSettingsService;
+use App\Services\Members\MemberIdentityDisplayResolver;
 use Inertia\Inertia;
 use Inertia\Response;
 use Illuminate\Http\RedirectResponse;
@@ -133,15 +134,24 @@ class ConfiguracoesController extends Controller
             return Cache::remember('configuracoes:financeiro', now()->addMinutes(5), fn () => $this->buildFinanceiroPayload(false));
         }
 
+        $identityResolver = app(MemberIdentityDisplayResolver::class);
+
         return [
             'monthlyFees' => MonthlyFee::all(),
             'invoiceTypes' => InvoiceType::orderBy('nome')->get(),
             'costCenters' => CostCenter::all(),
             'paymentMethods' => PaymentMethod::query()->ordenado()->get(),
             'receiptImportUsers' => User::query()
-                ->select('id', 'numero_socio', 'nome_completo')
+                ->with('dadosPessoais:id,user_id,nome_completo')
+                ->select('id', 'numero_socio', 'name')
                 ->orderByRaw('COALESCE(nome_completo, name)')
-                ->get(),
+                ->get()
+                ->map(fn (User $user): array => [
+                    'id' => $user->id,
+                    'numero_socio' => $user->numero_socio,
+                    'nome_completo' => $identityResolver->displayName($user),
+                ])
+                ->values(),
             'receiptImportInvoices' => Invoice::query()
                 ->select('id', 'user_id', 'tipo', 'mes', 'valor_total', 'valor_em_aberto', 'estado_pagamento')
                 ->whereIn('estado_pagamento', ['pendente', 'vencido', 'parcial'])
@@ -192,8 +202,22 @@ class ConfiguracoesController extends Controller
             return Cache::remember('configuracoes:base-dados', now()->addMinutes(5), fn () => $this->buildBaseDadosPayload(false));
         }
 
+        $identityResolver = app(MemberIdentityDisplayResolver::class);
+
         return [
-            'users' => User::select('id', 'numero_socio', 'nome_completo', 'email_utilizador', 'perfil', 'estado')->get(),
+            'users' => User::query()
+                ->with('dadosPessoais:id,user_id,nome_completo')
+                ->select('id', 'numero_socio', 'name', 'email_utilizador', 'perfil', 'estado')
+                ->get()
+                ->map(fn (User $user): array => [
+                    'id' => $user->id,
+                    'numero_socio' => $user->numero_socio,
+                    'nome_completo' => $identityResolver->displayName($user),
+                    'email_utilizador' => $user->email_utilizador,
+                    'perfil' => $user->perfil,
+                    'estado' => $user->estado,
+                ])
+                ->values(),
         ];
     }
 

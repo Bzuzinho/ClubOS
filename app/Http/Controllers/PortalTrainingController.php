@@ -8,6 +8,7 @@ use App\Models\Training;
 use App\Services\AccessControl\UserTypeAccessControlService;
 use App\Services\Desportivo\UpdateTrainingAthleteAction;
 use App\Services\Family\FamilyService;
+use App\Services\Members\MemberIdentityDisplayResolver;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -384,7 +385,7 @@ class PortalTrainingController extends Controller
 
     private function displayName(User $user): string
     {
-        return trim((string) ($user->nome_completo ?: $user->name ?: $user->email ?: 'Utilizador'));
+        return app(MemberIdentityDisplayResolver::class)->displayNameOrFallback($user, $user->email ?: 'Utilizador');
     }
 
     /**

@@ -20,6 +20,7 @@ use App\Services\Family\FamilyService;
 use App\Services\Financeiro\CurrentAccountService;
 use App\Services\Members\MemberDataReadService;
 use App\Services\Members\MemberDocumentDataResolver;
+use App\Services\Members\MemberIdentityDisplayResolver;
 use App\Services\Members\MemberDataWriteService;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -41,6 +42,7 @@ class MembrosController extends Controller
         private readonly InternalCommunicationService $internalCommunicationService,
         private readonly MemberDataWriteService $memberDataWriteService,
         private readonly MemberDocumentDataResolver $memberDocumentDataResolver,
+        private readonly MemberIdentityDisplayResolver $memberIdentityDisplayResolver,
     )
     {
     }
@@ -54,7 +56,6 @@ class MembrosController extends Controller
                 ->select([
                     'id',
                     'numero_socio',
-                    'nome_completo',
                     'name',
                     'email_utilizador',
                     'foto_perfil',
@@ -66,19 +67,13 @@ class MembrosController extends Controller
                 ])
                 ->get()
                 ->map(function (User $member): User {
-                    $canonicalName = trim((string) ($member->dadosPessoais?->nome_completo ?? ''));
-
-                    if ($canonicalName !== '') {
-                        $member->setAttribute('nome_completo', $canonicalName);
-                    } elseif (blank($member->nome_completo) && filled($member->name)) {
-                        $member->setAttribute('nome_completo', $member->name);
-                    }
+                    $member->setAttribute('nome_completo', $this->memberIdentityDisplayResolver->displayName($member));
 
                     unset($member->dadosPessoais, $member->name);
 
                     return $member;
                 })
-                ->sortBy(static fn (User $member) => mb_strtolower((string) ($member->nome_completo ?? '')))
+                ->sortBy(fn (User $member): string => mb_strtolower($this->memberIdentityDisplayResolver->displayName($member)))
                 ->values()
         );
 
@@ -375,18 +370,30 @@ class MembrosController extends Controller
 
         if (($memberData['educandos'] ?? []) === [] && $legacyEducandoIds !== []) {
             $memberData['educandos'] = User::query()
+                ->with('dadosPessoais:id,user_id,nome_completo')
                 ->whereIn('id', $legacyEducandoIds)
-                ->select('id', 'nome_completo', 'name', 'numero_socio', 'foto_perfil', 'estado', 'tipo_membro', 'menor')
+                ->select('id', 'name', 'numero_socio', 'foto_perfil', 'estado', 'tipo_membro', 'menor')
                 ->get()
+                ->map(function (User $user): User {
+                    $user->setAttribute('nome_completo', $this->memberIdentityDisplayResolver->displayName($user));
+
+                    return $user;
+                })
                 ->sortBy(fn (User $user) => array_search((string) $user->getKey(), $legacyEducandoIds, true))
                 ->values();
         }
 
         if (($memberData['encarregados'] ?? []) === [] && $legacyGuardianIds !== []) {
             $memberData['encarregados'] = User::query()
+                ->with('dadosPessoais:id,user_id,nome_completo')
                 ->whereIn('id', $legacyGuardianIds)
-                ->select('id', 'nome_completo', 'name', 'numero_socio', 'foto_perfil', 'estado', 'tipo_membro', 'menor')
+                ->select('id', 'name', 'numero_socio', 'foto_perfil', 'estado', 'tipo_membro', 'menor')
                 ->get()
+                ->map(function (User $user): User {
+                    $user->setAttribute('nome_completo', $this->memberIdentityDisplayResolver->displayName($user));
+
+                    return $user;
+                })
                 ->sortBy(fn (User $user) => array_search((string) $user->getKey(), $legacyGuardianIds, true))
                 ->values();
         }
@@ -645,15 +652,7 @@ class MembrosController extends Controller
 
     private function canonicalMemberName(User $user): string
     {
-        $personalName = trim((string) ($user->dadosPessoais?->nome_completo ?? ''));
-
-        if ($personalName !== '') {
-            return $personalName;
-        }
-
-        $legacyName = trim((string) ($user->nome_completo ?: $user->name));
-
-        return $legacyName !== '' ? $legacyName : 'Sem nome';
+        return $this->memberIdentityDisplayResolver->displayNameOrFallback($user, 'Sem nome');
     }
 
     private function canonicalMemberContact(User $user): ?string
@@ -984,7 +983,7 @@ class MembrosController extends Controller
 
         $member->forceFill(
             $this->syncAuthIdentityFields([
-                'nome_completo' => $member->nome_completo,
+                'nome_completo' => $this->memberIdentityDisplayResolver->displayNameOrFallback($member, 'Membro'),
                 'email_utilizador' => $validated['email_utilizador'],
             ], $member)
         )->save();

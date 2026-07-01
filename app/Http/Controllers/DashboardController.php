@@ -18,6 +18,7 @@ use App\Models\Training;
 use App\Models\TrainingAthlete;
 use App\Models\UserDocument;
 use App\Services\Financeiro\CurrentAccountService;
+use App\Services\Members\MemberIdentityDisplayResolver;
 use App\Services\Performance\AuthenticatedModuleWarmupService;
 use App\Services\AccessControl\UserTypeAccessControlService;
 use App\Services\Family\FamilyService;
@@ -255,7 +256,7 @@ class DashboardController extends Controller
 
     private function displayName(User $user): string
     {
-        return trim((string) ($user->nome_completo ?: $user->name)) ?: 'Utilizador';
+        return app(MemberIdentityDisplayResolver::class)->displayNameOrFallback($user, 'Utilizador');
     }
 
     private function primaryEscalao(User $user): ?string

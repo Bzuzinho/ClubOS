@@ -6,6 +6,7 @@ use App\Http\Requests\StoreTeamRequest;
 use App\Http\Requests\UpdateTeamRequest;
 use App\Models\Team;
 use App\Models\User;
+use App\Services\Members\MemberIdentityDisplayResolver;
 use Inertia\Inertia;
 use Inertia\Response;
 use Illuminate\Http\RedirectResponse;
@@ -53,13 +54,15 @@ class EquipasController extends Controller
 
     private function trainerOptions()
     {
+        $identityResolver = app(MemberIdentityDisplayResolver::class);
+
         return User::with('dadosPessoais:id,user_id,nome_completo')
             ->whereJsonContains('tipo_membro', 'treinador')
             ->where('status', 'ativo')
             ->get(['id', 'name', 'nome_completo'])
             ->map(fn (User $user) => [
                 'id' => $user->id,
-                'nome_completo' => trim((string) ($user->dadosPessoais?->nome_completo ?: $user->nome_completo ?: $user->name)) ?: 'Utilizador',
+                'nome_completo' => $identityResolver->displayNameOrFallback($user, 'Utilizador'),
             ])
             ->values();
     }

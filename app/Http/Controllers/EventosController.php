@@ -16,6 +16,7 @@ use App\Models\Result;
 use App\Models\CostCenter;
 use App\Models\AgeGroup;
 use App\Models\User;
+use App\Services\Members\MemberIdentityDisplayResolver;
 use Inertia\Inertia;
 use Inertia\Response;
 use Illuminate\Http\RedirectResponse;
@@ -184,6 +185,8 @@ class EventosController extends Controller
             return Cache::remember('eventos:users', 60, fn () => $this->buildUsersPayload(false));
         }
 
+        $identityResolver = app(MemberIdentityDisplayResolver::class);
+
         return User::with([
             'athleteSportsData:id,user_id,escalao_id',
             'dadosPessoais:id,user_id,nome_completo',
@@ -195,7 +198,7 @@ class EventosController extends Controller
                     $user->escalao = [(string) $user->athleteSportsData->escalao_id];
                 }
 
-                $user->nome_completo = trim((string) ($user->dadosPessoais?->nome_completo ?: $user->nome_completo ?: $user->name)) ?: 'Utilizador';
+                $user->nome_completo = $identityResolver->displayNameOrFallback($user, 'Utilizador');
 
                 unset($user->athleteSportsData, $user->dadosPessoais);
 

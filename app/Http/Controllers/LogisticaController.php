@@ -18,6 +18,7 @@ use App\Models\Supplier;
 use App\Models\SupplierPurchase;
 use App\Models\User;
 use App\Models\UserType;
+use App\Services\Members\MemberIdentityDisplayResolver;
 use App\Services\Logistica\ApproveLogisticsRequestAction;
 use App\Services\Logistica\CreateEquipmentLoanAction;
 use App\Services\Logistica\CreateLogisticsRequestAction;
@@ -41,6 +42,7 @@ class LogisticaController extends Controller
     public function index(): Response
     {
         $tab = request()->query('tab', 'dashboard');
+        $identityResolver = app(MemberIdentityDisplayResolver::class);
 
         $products = Product::query()
             ->with('supplier:id,nome')
@@ -126,7 +128,18 @@ class LogisticaController extends Controller
             'tab' => $tab,
             'products' => $products,
             'suppliers' => Supplier::query()->orderBy('nome')->get(),
-            'users' => User::query()->select('id', 'nome_completo')->where('estado', 'ativo')->orderBy('nome_completo')->get(),
+            'users' => User::query()
+                ->with('dadosPessoais:id,user_id,nome_completo')
+                ->select('id', 'name')
+                ->where('estado', 'ativo')
+                ->orderBy('name')
+                ->get()
+                ->map(fn (User $user): array => [
+                    'id' => $user->id,
+                    'nome_completo' => $identityResolver->displayName($user),
+                ])
+                ->sortBy(fn (array $user): string => mb_strtolower((string) ($user['nome_completo'] ?? '')))
+                ->values(),
             'userTypes' => UserType::query()->where('ativo', true)->orderBy('nome')->get(['id', 'nome']),
             'requests' => $requests,
             'stockMovements' => StockMovement::query()->with('article:id,nome')->latest()->limit(200)->get(),
