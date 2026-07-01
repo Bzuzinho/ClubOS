@@ -13,6 +13,11 @@ use Illuminate\Support\Facades\Schema;
 
 class MemberDataMigrationService
 {
+    public function __construct(
+        private readonly MemberIdentityDisplayResolver $memberIdentityDisplayResolver,
+    ) {
+    }
+
     /**
      * @return array<string, mixed>
      */
@@ -238,7 +243,7 @@ class MemberDataMigrationService
 
         return [
             'user_id' => (string) $user->id,
-            'name' => (string) ($user->nome_completo ?: $user->name ?: ''),
+            'name' => $this->memberIdentityDisplayResolver->displayNameOrFallback($user, ''),
             'personal_analysis' => [
                 'has_payload' => $personalBuild['has_payload'],
                 'payload' => $personalBuild['payload'],
