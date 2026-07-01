@@ -8,6 +8,7 @@ use App\Models\DadosPessoais;
 use App\Models\User;
 use App\Services\Members\MemberFiscalDataResolver;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Artisan;
 use Tests\TestCase;
 
 class MemberFiscalDataResolverTest extends TestCase
@@ -169,5 +170,39 @@ class MemberFiscalDataResolverTest extends TestCase
 
         $this->assertSame($before, $after);
         $this->assertSame($updatedAtBefore, optional($freshUser->updated_at)->toDateTimeString());
+    }
+
+    public function test_users_legacy_read_scanner_reports_no_personal_profile_findings_for_member_fiscal_data_resolver_path(): void
+    {
+        $this->assertNotContains(
+            'app/Services/Members/MemberFiscalDataResolver.php',
+            app(\App\Services\Members\UsersLegacyReadScanner::class)->defaultAllowlist(),
+        );
+
+        $exitCode = Artisan::call('members:audit-users-legacy-read', [
+            '--json' => true,
+            '--path' => ['app/Services/Members/MemberFiscalDataResolver.php'],
+        ]);
+
+        $this->assertSame(0, $exitCode);
+
+        $payload = $this->decodeArtisanJsonOutput(Artisan::output());
+        $personalFindings = collect($payload['findings'] ?? [])->filter(
+            fn (array $finding): bool => ($finding['remediation_group'] ?? null) === 'member_personal_profile'
+        );
+
+        $this->assertCount(0, $personalFindings);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function decodeArtisanJsonOutput(string $output): array
+    {
+        $decoded = json_decode(trim($output), true);
+
+        $this->assertIsArray($decoded, 'Command output should be valid JSON.');
+
+        return $decoded;
     }
 }

@@ -34,7 +34,6 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 use Illuminate\Support\Str;
 use Carbon\Carbon;
-use Carbon\CarbonInterface;
 
 class MembrosController extends Controller
 {
@@ -365,9 +364,6 @@ class MembrosController extends Controller
         ]);
 
         $memberData = $member->toArray();
-        if ($member->data_nascimento) {
-            $memberData['data_nascimento'] = $member->data_nascimento->format('Y-m-d');
-        }
 
         // M2.3 — camada de leitura canónica com fallback (não altera escrita)
         $member->loadMissing(['dadosPessoais', 'dadosConfiguracao']);
@@ -394,27 +390,27 @@ class MembrosController extends Controller
                 ->sortBy(fn (User $user) => array_search((string) $user->getKey(), $legacyGuardianIds, true))
                 ->values();
         }
+        $memberDataReadService = app(MemberDataReadService::class);
+
         $allUsers = User::query()
             ->with(['dadosPessoais:id,user_id,nome_completo,data_nascimento'])
             ->select(
                 'id',
                 'name',
-                'nome_completo',
                 'numero_socio',
                 'tipo_membro',
                 'foto_perfil',
-                'menor',
-                'data_nascimento'
+                'menor'
             )
+            ->selectRaw('data_nascimento as legacy_data_nascimento')
             ->get()
-            ->map(function (User $user): array {
-                $canonicalName = trim((string) ($user->dadosPessoais?->nome_completo ?? ''));
+            ->map(function (User $user) use ($memberDataReadService): array {
+                $personal = $memberDataReadService->personalPayload($user);
+                $canonicalName = trim((string) ($personal['nome_completo'] ?? ''));
 
                 if ($canonicalName === '') {
-                    $canonicalName = trim((string) ($user->nome_completo ?: $user->name));
+                    $canonicalName = trim((string) $user->name);
                 }
-
-                $birthDate = $user->dadosPessoais?->data_nascimento ?? $user->data_nascimento;
 
                 return [
                     'id' => $user->id,
@@ -423,9 +419,8 @@ class MembrosController extends Controller
                     'tipo_membro' => $user->tipo_membro,
                     'foto_perfil' => $user->foto_perfil,
                     'menor' => $user->menor,
-                    'data_nascimento' => $birthDate instanceof CarbonInterface
-                        ? $birthDate->format('Y-m-d')
-                        : $birthDate,
+                    'data_nascimento' => $personal['data_nascimento']
+                        ?? $this->normalizedBirthDate($user->getAttribute('legacy_data_nascimento')),
                 ];
             })
             ->values();
@@ -663,21 +658,34 @@ class MembrosController extends Controller
 
     private function canonicalMemberContact(User $user): ?string
     {
-        $personalContact = trim((string) ($user->dadosPessoais?->contacto ?? ''));
+        $contact = app(MemberDataReadService::class)->valueFromPersonal(
+            $user,
+            'contacto',
+            ['contacto', 'telemovel', 'contacto_telefonico'],
+        );
 
-        if ($personalContact !== '') {
-            return $personalContact;
+        $normalized = trim((string) $contact);
+
+        return $normalized !== '' ? $normalized : null;
+    }
+
+    private function normalizedBirthDate(mixed $value): ?string
+    {
+        if ($value instanceof \DateTimeInterface) {
+            return $value->format('Y-m-d');
         }
 
-        foreach ([$user->contacto, $user->contacto_telefonico, $user->telemovel] as $contact) {
-            $normalized = trim((string) $contact);
-
-            if ($normalized !== '') {
-                return $normalized;
-            }
+        if (! is_string($value)) {
+            return null;
         }
 
-        return null;
+        $normalized = trim($value);
+
+        if (preg_match('/^(\d{4}-\d{2}-\d{2})/', $normalized, $matches) === 1) {
+            return $matches[1];
+        }
+
+        return $normalized !== '' ? $normalized : null;
     }
 
     private function resolveRelatedUser(mixed $candidate): ?User
@@ -702,9 +710,6 @@ class MembrosController extends Controller
         // M2.3 — carregar relações de leitura + restantes relações
         $member->load(['dadosPessoais', 'dadosConfiguracao', 'dadosFinanceiros', 'centrosCusto', 'userTypes', 'ageGroup', 'encarregados', 'educandos']);
 
-        if ($member->data_nascimento) {
-            $member->data_nascimento = $member->data_nascimento->format('Y-m-d');
-        }
         $member->tipo_mensalidade = $member->dadosFinanceiros?->mensalidade_id ?? $member->tipo_mensalidade;
         $member->discount_type = $member->dadosFinanceiros?->discount_type;
         $member->discount_value = $member->dadosFinanceiros?->discount_value !== null

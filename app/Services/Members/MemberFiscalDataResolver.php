@@ -4,48 +4,42 @@ declare(strict_types=1);
 
 namespace App\Services\Members;
 
-use App\Models\DadosPessoais;
 use App\Models\User;
 
 final class MemberFiscalDataResolver
 {
+    public function __construct(
+        private readonly MemberDataReadService $memberDataReadService,
+    ) {
+    }
+
     /**
      * @return array{nome: string|null, nif: string|null, morada: string|null, codigo_postal: string|null, localidade: string|null}
      */
     public function resolve(User $user): array
     {
-        $user->loadMissing('dadosPessoais');
-
-        /** @var DadosPessoais|null $dadosPessoais */
-        $dadosPessoais = $user->dadosPessoais;
+        $personal = $this->memberDataReadService->personalPayload($user);
 
         return [
-            'nome' => $this->resolveNome($user, $dadosPessoais),
-            'nif' => $this->resolveField($dadosPessoais, 'nif', $user->nif),
-            'morada' => $this->resolveField($dadosPessoais, 'morada', $user->morada),
-            'codigo_postal' => $this->resolveField($dadosPessoais, 'codigo_postal', $user->codigo_postal),
-            'localidade' => $this->resolveField($dadosPessoais, 'localidade', $user->localidade),
+            'nome' => $this->resolveNome($user, $personal),
+            'nif' => $this->normalizedString($personal['nif'] ?? null),
+            'morada' => $this->normalizedString($personal['morada'] ?? null),
+            'codigo_postal' => $this->normalizedString($personal['codigo_postal'] ?? null),
+            'localidade' => $this->normalizedString($personal['localidade'] ?? null),
         ];
     }
 
-    private function resolveNome(User $user, ?DadosPessoais $dadosPessoais): ?string
+    /**
+     * @param array<string, mixed> $personal
+     */
+    private function resolveNome(User $user, array $personal): ?string
     {
-        $nome = $this->resolveField($dadosPessoais, 'nome_completo', $user->nome_completo);
+        $nome = $this->normalizedString($personal['nome_completo'] ?? null);
         if ($nome !== null) {
             return $nome;
         }
 
         return $this->normalizedString($user->name);
-    }
-
-    private function resolveField(?DadosPessoais $dadosPessoais, string $dadosPessoaisField, mixed $legacyValue): ?string
-    {
-        $canonicalValue = $this->normalizedString($dadosPessoais?->getAttribute($dadosPessoaisField));
-        if ($canonicalValue !== null) {
-            return $canonicalValue;
-        }
-
-        return $this->normalizedString($legacyValue);
     }
 
     private function normalizedString(mixed $value): ?string
