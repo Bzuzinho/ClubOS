@@ -383,6 +383,22 @@ PHP);
         $this->assertGreaterThan(0, $payload['summary']['findings_count']);
     }
 
+    public function test_command_fail_on_finding_passes_on_current_repository_state(): void
+    {
+        $exitCode = Artisan::call('members:audit-users-legacy-read', [
+            '--json' => true,
+            '--fail-on-finding' => true,
+        ]);
+
+        $this->assertSame(0, $exitCode);
+
+        $payload = $this->decodeArtisanJsonOutput(Artisan::output());
+
+        $this->assertTrue((bool) $payload['passed']);
+        $this->assertSame(0, $payload['summary']['findings_count']);
+        $this->assertSame([], $payload['grouped_summary']['by_remediation_group']);
+    }
+
     public function test_config_blocked_fields_include_known_fields(): void
     {
         $scanner = app(UsersLegacyReadScanner::class);
