@@ -9,7 +9,19 @@ use ReflectionClass;
 
 final class UsersLegacyFieldRemovalReadinessAuditor
 {
-    private const VERSION = 'M4.11';
+    private const VERSION = 'M4.12';
+
+    /** @var list<string> */
+    private const ALLOWED_DECISIONS = [
+        'keep_operational_explicit',
+        'candidate_after_legacy_write_cleanup',
+        'candidate_after_backfill_validation',
+        'needs_business_decision',
+        'keep_historical_or_external_reference',
+        'keep_until_module_refactor',
+        'not_in_schema',
+        'unclassified',
+    ];
 
     public function __construct(
         private readonly UsersLegacyWriteGuardScanner $writeGuardScanner,
@@ -28,8 +40,10 @@ final class UsersLegacyFieldRemovalReadinessAuditor
     public function audit(): array
     {
         $config = config('member_user_legacy_fields');
+        $decisionsConfig = config('member_user_legacy_removal_decisions');
         $fieldToCategory = is_array($config['field_to_category'] ?? null) ? $config['field_to_category'] : [];
         $categories = is_array($config['categories'] ?? null) ? $config['categories'] : [];
+        $explicitDecisionsByField = is_array($decisionsConfig['fields'] ?? null) ? $decisionsConfig['fields'] : [];
 
         $schemaColumns = array_values(array_unique(Schema::getColumnListing('users')));
         sort($schemaColumns);
@@ -67,7 +81,7 @@ final class UsersLegacyFieldRemovalReadinessAuditor
                 $configurationMap,
             );
 
-            [$removalStatus, $risk, $classificationNotes, $unknownJustified] = $this->classifyField(
+            [$decision, $risk, $ownerArea, $classificationReason, $nextAction] = $this->inferDecision(
                 $normalizedCategory,
                 $existsInSchema,
                 $blockedForLegacyWrite,
@@ -77,10 +91,31 @@ final class UsersLegacyFieldRemovalReadinessAuditor
                 (string) ($categories[$normalizedCategory]['description'] ?? ''),
             );
 
+            $decisionSource = 'inferred';
+            $explicitConfig = is_array($explicitDecisionsByField[$normalizedField] ?? null)
+                ? $explicitDecisionsByField[$normalizedField]
+                : null;
+
+            if ($explicitConfig !== null) {
+                [$decision, $risk, $ownerArea, $canonicalArea, $canonicalField, $classificationReason, $nextAction] = $this->applyExplicitDecision(
+                    $decision,
+                    $risk,
+                    $ownerArea,
+                    $canonicalArea,
+                    $canonicalField,
+                    $classificationReason,
+                    $nextAction,
+                    $explicitConfig,
+                );
+                $decisionSource = 'explicit_config';
+            }
+
             $notesParts = array_filter([
-                $classificationNotes,
+                $classificationReason,
                 $canonicalDetails,
             ], static fn (string $value): bool => trim($value) !== '');
+
+            $isUnclassified = $decision === 'unclassified';
 
             $fields[] = [
                 'field' => $normalizedField,
@@ -90,10 +125,15 @@ final class UsersLegacyFieldRemovalReadinessAuditor
                 'legacy_read_findings_count' => $legacyReadFindingsCount,
                 'canonical_area' => $canonicalArea,
                 'canonical_field' => $canonicalField,
-                'removal_status' => $removalStatus,
+                'decision' => $decision,
+                'decision_source' => $decisionSource,
+                'owner_area' => $ownerArea,
+                'reason' => $classificationReason,
+                'next_action' => $nextAction,
+                'removal_status' => $decision,
                 'risk' => $risk,
                 'notes' => implode(' ', $notesParts),
-                'unknown_justified' => $unknownJustified,
+                'unknown_justified' => !$isUnclassified,
             ];
         }
 
@@ -107,12 +147,18 @@ final class UsersLegacyFieldRemovalReadinessAuditor
             'total_configured_fields' => count($fields),
             'fields_existing_in_schema' => count(array_filter($fields, static fn (array $row): bool => (bool) ($row['exists_in_users_schema'] ?? false))),
             'fields_not_in_schema' => count(array_filter($fields, static fn (array $row): bool => !((bool) ($row['exists_in_users_schema'] ?? false)))),
-            'candidate_after_legacy_write_cleanup_count' => count(array_filter($fields, static fn (array $row): bool => ($row['removal_status'] ?? null) === 'candidate_after_legacy_write_cleanup')),
-            'keep_operational_count' => count(array_filter($fields, static fn (array $row): bool => ($row['removal_status'] ?? null) === 'keep_operational')),
-            'needs_review_count' => count(array_filter($fields, static fn (array $row): bool => ($row['removal_status'] ?? null) === 'needs_review')),
-            'unknown_count' => count(array_filter($fields, static fn (array $row): bool => ($row['category'] ?? null) === 'unknown_review' || ($row['canonical_area'] ?? null) === 'unknown')),
+            'candidate_after_legacy_write_cleanup_count' => count(array_filter($fields, static fn (array $row): bool => ($row['decision'] ?? null) === 'candidate_after_legacy_write_cleanup')),
+            'keep_operational_count' => count(array_filter($fields, static fn (array $row): bool => in_array(($row['decision'] ?? null), ['keep_operational', 'keep_operational_explicit'], true))),
+            'needs_review_count' => count(array_filter($fields, fn (array $row): bool => $this->isNeedsReviewDecision((string) ($row['decision'] ?? '')))),
+            'needs_business_decision_count' => count(array_filter($fields, static fn (array $row): bool => ($row['decision'] ?? null) === 'needs_business_decision')),
+            'keep_until_module_refactor_count' => count(array_filter($fields, static fn (array $row): bool => ($row['decision'] ?? null) === 'keep_until_module_refactor')),
+            'keep_historical_or_external_reference_count' => count(array_filter($fields, static fn (array $row): bool => ($row['decision'] ?? null) === 'keep_historical_or_external_reference')),
+            'explicit_decisions_count' => count(array_filter($fields, static fn (array $row): bool => ($row['decision_source'] ?? null) === 'explicit_config')),
+            'inferred_decisions_count' => count(array_filter($fields, static fn (array $row): bool => ($row['decision_source'] ?? null) === 'inferred')),
+            'unclassified_count' => count(array_filter($fields, static fn (array $row): bool => ($row['decision'] ?? null) === 'unclassified')),
+            'unknown_count' => count(array_filter($fields, static fn (array $row): bool => ($row['decision'] ?? null) === 'unclassified')),
             'active_legacy_read_fields_count' => count(array_filter($fields, static fn (array $row): bool => ((int) ($row['legacy_read_findings_count'] ?? 0)) > 0)),
-            'unknown_without_justification_count' => count(array_filter($fields, static fn (array $row): bool => ($row['canonical_area'] ?? null) === 'unknown' && !((bool) ($row['unknown_justified'] ?? false)))),
+            'unknown_without_justification_count' => count(array_filter($fields, static fn (array $row): bool => ($row['decision'] ?? null) === 'unclassified')),
             'unclassified_schema_fields_count' => count($unclassifiedSchemaFields),
             'unclassified_schema_fields' => $unclassifiedSchemaFields,
         ];
@@ -124,6 +170,7 @@ final class UsersLegacyFieldRemovalReadinessAuditor
             'grouped_summary' => [
                 'by_category' => $this->countByKey($fields, 'category'),
                 'by_removal_status' => $this->countByKey($fields, 'removal_status'),
+                'by_decision' => $this->countByKey($fields, 'decision'),
                 'by_risk' => $this->countByKey($fields, 'risk'),
             ],
         ];
@@ -194,9 +241,9 @@ final class UsersLegacyFieldRemovalReadinessAuditor
     }
 
     /**
-     * @return array{0:string,1:string,2:string,3:bool}
+     * @return array{0:string,1:string,2:string,3:string,4:string}
      */
-    private function classifyField(
+    private function inferDecision(
         string $category,
         bool $existsInSchema,
         bool $blockedForLegacyWrite,
@@ -209,8 +256,9 @@ final class UsersLegacyFieldRemovalReadinessAuditor
             return [
                 'not_in_schema',
                 'low',
+                'inventario',
                 'Campo configurado mas ausente no schema users.',
-                true,
+                'Confirmar se deve ser removido do inventario tecnico ou se existe divergencia de schema.',
             ];
         }
 
@@ -220,7 +268,13 @@ final class UsersLegacyFieldRemovalReadinessAuditor
                 $notes .= ' Existe leitura legacy ativa para este campo e remoção teria impacto imediato.';
             }
 
-            return ['keep_operational', 'high', $notes, true];
+            return [
+                'keep_operational_explicit',
+                'high',
+                $category === 'auth_operational_keep' ? 'auth' : ($category === 'sports_operational_keep' ? 'desportivo' : 'membros'),
+                $notes,
+                'Manter no users ate existir substituicao operacional totalmente validada.',
+            ];
         }
 
         if (in_array($category, ['member_personal_legacy', 'member_configuration_legacy'], true)) {
@@ -233,36 +287,37 @@ final class UsersLegacyFieldRemovalReadinessAuditor
                 return [
                     'candidate_after_legacy_write_cleanup',
                     'medium',
+                    'membros',
                     'Campo legacy com equivalente canónico conhecido, sem escrita legacy e sem leitura legacy ativa.',
-                    true,
+                    'Manter observabilidade e validar estabilidade antes de isolamento por lote.',
                 ];
             }
-
-            $risk = ($legacyReadFindingsCount > 0 || !$blockedForLegacyWrite) ? 'high' : 'medium';
-
             return [
-                'needs_review',
-                $risk,
-                'Campo legacy pessoal/configuração ainda precisa de validação antes de remoção/isolamento.',
-                false,
+                'candidate_after_backfill_validation',
+                'medium',
+                'membros',
+                'Campo legacy pessoal/configuração sem fecho canónico completo; exige validacao de backfill e cobertura.',
+                'Validar completude dos dados canónicos e dependencia residual antes de isolamento.',
             ];
         }
 
         if ($category === 'member_financial_legacy') {
             return [
-                'needs_review',
+                'keep_until_module_refactor',
                 'high',
-                'Campo financeiro legacy deve ser tratado com revisão funcional dedicada antes de decisão.',
-                true,
+                'financeiro',
+                'Campo financeiro legacy deve permanecer ate refatoracao dedicada do modulo financeiro.',
+                'Mapear dependencias e definir destino canónico antes de qualquer isolamento.',
             ];
         }
 
         if ($category === 'files_or_historical_review') {
             return [
-                'needs_review',
+                'keep_historical_or_external_reference',
                 'medium',
-                'Campo de ficheiro/histórico requer validação de retenção e estratégia de arquivo.',
-                true,
+                'documentos',
+                'Campo de ficheiro/historico requer validacao de retencao e estrategia de arquivo.',
+                'Confirmar politica de retencao e referencia externa antes de isolamento.',
             ];
         }
 
@@ -273,19 +328,100 @@ final class UsersLegacyFieldRemovalReadinessAuditor
             }
 
             return [
-                'needs_review',
+                'needs_business_decision',
                 'medium',
+                'membros',
                 $notes,
-                true,
+                'Definir area/campo canónico e politica de retencao antes de isolamento.',
             ];
         }
 
         return [
-            'needs_review',
+            'unclassified',
             'high',
+            'unknown',
             'Categoria não reconhecida no inventário M4.6-F2; revisar classificação.',
-            false,
+            'Classificar explicitamente no inventario ou no mapa de decisoes M4.12.',
         ];
+    }
+
+    /**
+     * @param array<string,mixed> $explicitConfig
+     * @return array{0:string,1:string,2:string,3:string,4:string|null,5:string,6:string}
+     */
+    private function applyExplicitDecision(
+        string $decision,
+        string $risk,
+        string $ownerArea,
+        string $canonicalArea,
+        ?string $canonicalField,
+        string $reason,
+        string $nextAction,
+        array $explicitConfig,
+    ): array {
+        $explicitDecision = is_string($explicitConfig['decision'] ?? null)
+            ? trim((string) $explicitConfig['decision'])
+            : '';
+        if ($explicitDecision !== '' && in_array($explicitDecision, self::ALLOWED_DECISIONS, true)) {
+            $decision = $explicitDecision;
+        }
+
+        $explicitRisk = is_string($explicitConfig['risk'] ?? null) ? trim((string) $explicitConfig['risk']) : '';
+        if ($explicitRisk !== '') {
+            $risk = $explicitRisk;
+        }
+
+        $explicitOwnerArea = is_string($explicitConfig['owner_area'] ?? null)
+            ? trim((string) $explicitConfig['owner_area'])
+            : '';
+        if ($explicitOwnerArea !== '') {
+            $ownerArea = $explicitOwnerArea;
+        }
+
+        $explicitCanonicalArea = is_string($explicitConfig['canonical_area'] ?? null)
+            ? trim((string) $explicitConfig['canonical_area'])
+            : '';
+        if ($explicitCanonicalArea !== '') {
+            $canonicalArea = $explicitCanonicalArea;
+        }
+
+        if (array_key_exists('canonical_field', $explicitConfig)) {
+            $explicitCanonicalField = $explicitConfig['canonical_field'];
+            $canonicalField = is_string($explicitCanonicalField) && trim($explicitCanonicalField) !== ''
+                ? trim($explicitCanonicalField)
+                : null;
+        }
+
+        $explicitReason = is_string($explicitConfig['reason'] ?? null)
+            ? trim((string) $explicitConfig['reason'])
+            : '';
+        if ($explicitReason !== '') {
+            $reason = $explicitReason;
+        }
+
+        $explicitNextAction = is_string($explicitConfig['next_action'] ?? null)
+            ? trim((string) $explicitConfig['next_action'])
+            : '';
+        if ($explicitNextAction !== '') {
+            $nextAction = $explicitNextAction;
+        }
+
+        return [$decision, $risk, $ownerArea, $canonicalArea, $canonicalField, $reason, $nextAction];
+    }
+
+    private function isNeedsReviewDecision(string $decision): bool
+    {
+        return in_array(
+            $decision,
+            [
+                'candidate_after_backfill_validation',
+                'needs_business_decision',
+                'keep_historical_or_external_reference',
+                'keep_until_module_refactor',
+                'unclassified',
+            ],
+            true,
+        );
     }
 
     /**
