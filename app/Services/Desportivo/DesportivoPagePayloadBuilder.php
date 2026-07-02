@@ -22,6 +22,8 @@ use App\Models\TrainingAthlete;
 use App\Models\TrainingTypeConfig;
 use App\Models\TrainingZoneConfig;
 use App\Models\User;
+use App\Services\Members\MemberDocumentDataResolver;
+use App\Services\Members\MemberIdentityDisplayResolver;
 use Carbon\Carbon;
 use Illuminate\Contracts\Cache\Repository as CacheRepository;
 use Illuminate\Database\Eloquent\Collection as EloquentCollection;
@@ -42,7 +44,11 @@ class DesportivoPagePayloadBuilder
      */
     private array $runtime = [];
 
-    public function __construct(private CacheRepository $cache)
+    public function __construct(
+        private CacheRepository $cache,
+        private MemberIdentityDisplayResolver $memberIdentityDisplayResolver,
+        private MemberDocumentDataResolver $memberDocumentDataResolver,
+    )
     {
     }
 
@@ -878,40 +884,32 @@ class DesportivoPagePayloadBuilder
         $suffix = $includeMedical ? 'medical' : 'basic';
 
         return $this->cacheSection('desportivo:athletes:users:' . $suffix, function () use ($includeMedical): array {
-            $columns = [
-                'id',
-                'nome_completo',
-                'email',
-                'estado',
-                'tipo_membro',
-                'num_federacao',
-            ];
-
-            if ($includeMedical) {
-                $columns[] = 'data_atestado_medico';
-                $columns[] = 'informacoes_medicas';
-            }
-
             return User::query()
-                ->with('athleteSportsData:id,user_id,escalao_id')
+                ->with([
+                    'athleteSportsData:id,user_id,escalao_id,num_federacao,data_atestado_medico,informacoes_medicas',
+                    'dadosPessoais:id,user_id,nome_completo',
+                    'dadosConfiguracao:id,user_id,afiliacao_numero,afiliacao_data,configuracao_extra,certificado_medico_ficheiro,afiliacao_ficheiro',
+                ])
                 ->where('estado', 'ativo')
                 ->whereJsonContains('tipo_membro', 'atleta')
                 ->orderBy('nome_completo')
-                ->get($columns)
+                ->get()
                 ->map(function (User $user) use ($includeMedical) {
+                    $sportsPayload = $this->memberDocumentDataResolver->sportsPayload($user);
+
                     $payload = [
                         'id' => $user->id,
-                        'nome_completo' => $user->nome_completo,
+                        'nome_completo' => $this->memberIdentityDisplayResolver->displayName($user),
                         'email' => $user->email,
                         'estado' => $user->estado,
                         'tipo_membro' => is_array($user->tipo_membro) ? $user->tipo_membro : (array) $user->tipo_membro,
                         'escalao' => $user->athleteSportsData?->escalao_id ? [(string) $user->athleteSportsData->escalao_id] : [],
-                        'num_federacao' => $user->num_federacao,
+                        'num_federacao' => $sportsPayload['num_federacao'],
                     ];
 
                     if ($includeMedical) {
-                        $payload['data_atestado_medico'] = $this->formatDate($user->data_atestado_medico);
-                        $payload['informacoes_medicas'] = $user->informacoes_medicas;
+                        $payload['data_atestado_medico'] = $sportsPayload['data_atestado_medico'];
+                        $payload['informacoes_medicas'] = $sportsPayload['informacoes_medicas'];
                     }
 
                     return $payload;

@@ -4,32 +4,33 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\User;
+use App\Services\Members\MemberDataReadService;
+use App\Services\Members\MemberIdentityDisplayResolver;
 use Illuminate\Http\JsonResponse;
 
 class AthleteController extends Controller
 {
+    public function __construct(
+        private readonly MemberIdentityDisplayResolver $memberIdentityDisplayResolver,
+        private readonly MemberDataReadService $memberDataReadService,
+    ) {
+    }
+
     /**
      * GET /api/desportivo/athletes
      * Retorna lista de atletas do sistema.
      */
     public function index(): JsonResponse
     {
-        $athletes = User::with(['athleteSportsData.escalao'])
+        $athletes = User::with(['athleteSportsData.escalao', 'dadosPessoais'])
             ->where('estado', 'ativo')
             ->whereJsonContains('tipo_membro', 'atleta')
-            ->select([
-                'id',
-                'nome_completo',
-                'email',
-                'estado',
-                'tipo_membro',
-            ])
             ->orderBy('nome_completo')
             ->limit(200)
             ->get()
             ->map(fn($user) => [
                 'id' => $user->id,
-                'nome_completo' => $user->nome_completo,
+                'nome_completo' => $this->memberIdentityDisplayResolver->displayName($user),
                 'email' => $user->email,
                 'estado' => $user->estado,
                 'escalao' => $user->athleteSportsData?->escalao?->nome
@@ -51,11 +52,11 @@ class AthleteController extends Controller
     {
         $athlete->loadMissing(['athleteSportsData.escalao', 'dadosPessoais']);
 
-        $birthDate = $athlete->dadosPessoais?->data_nascimento ?? $athlete->data_nascimento;
+        $birthDate = $this->memberDataReadService->personalPayload($athlete)['data_nascimento'] ?? null;
 
         return response()->json([
             'id' => $athlete->id,
-            'nome_completo' => $athlete->nome_completo,
+            'nome_completo' => $this->memberIdentityDisplayResolver->displayName($athlete),
             'email' => $athlete->email,
             'estado' => $athlete->estado,
             'escalao' => $athlete->athleteSportsData?->escalao?->nome
