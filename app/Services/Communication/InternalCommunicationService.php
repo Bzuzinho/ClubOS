@@ -6,11 +6,17 @@ use App\Models\InAppAlert;
 use App\Models\InternalMessage;
 use App\Models\InternalMessageRecipient;
 use App\Models\User;
+use App\Services\Members\MemberIdentityDisplayResolver;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 class InternalCommunicationService
 {
+    public function __construct(
+        private readonly MemberIdentityDisplayResolver $memberIdentityDisplayResolver,
+    ) {
+    }
+
     public function send(User $sender, array $payload): InternalMessage
     {
         return DB::transaction(function () use ($sender, $payload) {
@@ -29,7 +35,7 @@ class InternalCommunicationService
 
             $recipients = User::query()
                 ->whereIn('id', $recipientIds)
-                ->get(['id', 'name', 'nome_completo']);
+                ->get(['id', 'name']);
 
             foreach ($recipients as $recipient) {
                 $alert = InAppAlert::create([
@@ -55,9 +61,9 @@ class InternalCommunicationService
             }
 
             return $message->load([
-                'sender',
-                'parent.sender',
-                'recipients.recipient',
+                'sender.dadosPessoais',
+                'parent.sender.dadosPessoais',
+                'recipients.recipient.dadosPessoais',
             ]);
         });
     }
@@ -177,7 +183,7 @@ class InternalCommunicationService
     public function receivedFeed(string $userId): Collection
     {
         $internalRecipients = InternalMessageRecipient::query()
-            ->with(['message.sender', 'message.parent.sender'])
+            ->with(['message.sender.dadosPessoais', 'message.parent.sender.dadosPessoais'])
             ->where('recipient_id', $userId)
             ->whereNull('deleted_at')
             ->latest()
@@ -266,7 +272,7 @@ class InternalCommunicationService
     public function sentFeed(string $userId): Collection
     {
         return InternalMessage::query()
-            ->with(['recipients.recipient', 'parent.sender'])
+            ->with(['recipients.recipient.dadosPessoais', 'parent.sender.dadosPessoais'])
             ->where('sender_id', $userId)
             ->whereNull('sender_deleted_at')
             ->latest()
@@ -313,6 +319,8 @@ class InternalCommunicationService
             return 'Utilizador removido';
         }
 
-        return $user->nome_completo ?: $user->name;
+        $user->loadMissing('dadosPessoais');
+
+        return $this->memberIdentityDisplayResolver->displayName($user);
     }
 }

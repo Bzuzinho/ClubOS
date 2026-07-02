@@ -12,6 +12,8 @@ use App\Models\InAppAlert;
 use App\Models\AgeGroup;
 use App\Models\User;
 use App\Services\Communication\SegmentResolverService;
+use App\Services\Members\MemberDataReadService;
+use App\Services\Members\MemberIdentityDisplayResolver;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Schema;
@@ -24,11 +26,13 @@ class ComunicacaoController extends Controller
 {
     private const TECHNICAL_INDIVIDUAL_SEGMENT_DESCRIPTION = 'Segmento tecnico criado automaticamente para envio individual.';
 
-    public function __construct(private readonly SegmentResolverService $segmentResolverService)
+    public function __construct(
+        private readonly SegmentResolverService $segmentResolverService,
+        private readonly MemberIdentityDisplayResolver $memberIdentityDisplayResolver,
+        private readonly MemberDataReadService $memberDataReadService,
+    )
     {
     }
-
-    private ?bool $usersHaveAgeGroupColumn = null;
 
     public function index(Request $request): Response
     {
@@ -275,7 +279,17 @@ class ComunicacaoController extends Controller
     private function buildFilterOptions(): array
     {
         return [
-            'authors' => User::select('id', 'name', 'nome_completo')->orderBy('name')->get(),
+            'authors' => User::query()
+                ->with(['dadosPessoais:user_id,nome_completo'])
+                ->orderBy('name')
+                ->get()
+                ->map(fn (User $user): array => [
+                    'id' => $user->id,
+                    'name' => $user->name,
+                    'nome_completo' => $this->memberIdentityDisplayResolver->displayName($user),
+                ])
+                ->values()
+                ->all(),
             'segments' => CommunicationSegment::select('id', 'name')
                 ->where('is_active', true)
                 ->where(function ($query) {
@@ -304,12 +318,15 @@ class ComunicacaoController extends Controller
         }
 
         return User::query()
-            ->select($this->recipientSelectColumns())
+            ->with(['dadosPessoais:user_id,nome_completo,contacto'])
             ->where(function ($query) {
                 $query->where('estado', 'ativo')->orWhereNull('estado');
             })
             ->orderByRaw('COALESCE(nome_completo, name) asc')
-            ->get();
+            ->get()
+            ->map(fn (User $user): array => $this->mapRecipientOption($user))
+            ->values()
+            ->all();
     }
 
     private function dynamicSourcesForCommunication(): array
@@ -349,31 +366,35 @@ class ComunicacaoController extends Controller
             ->all();
     }
 
-    private function recipientSelectColumns(): array
+    private function mapRecipientOption(User $user): array
     {
-        $columns = [
-            'id',
-            'name',
-            'nome_completo',
-            'email',
-            'telemovel',
-            'contacto_telefonico',
-            'contacto',
-            'tipo_membro',
-            'escalao',
-            'estado',
-            'numero_socio',
+        $personal = $this->memberDataReadService->personalPayload($user);
+        $contact = $this->normalizedCommunicationContact($personal['contacto'] ?? null);
+
+        return [
+            'id' => $user->id,
+            'name' => $user->name,
+            'nome_completo' => $this->memberIdentityDisplayResolver->displayName($user),
+            'email' => $user->email,
+            'telemovel' => $contact,
+            'contacto_telefonico' => $contact,
+            'contacto' => $contact,
+            'tipo_membro' => $user->tipo_membro,
+            'escalao' => $user->escalao,
+            'estado' => $user->estado,
+            'numero_socio' => $user->numero_socio,
+            'age_group_id' => $user->age_group_id,
         ];
-
-        if ($this->usersHaveAgeGroupColumn()) {
-            $columns[] = 'age_group_id';
-        }
-
-        return $columns;
     }
 
-    private function usersHaveAgeGroupColumn(): bool
+    private function normalizedCommunicationContact(mixed $value): ?string
     {
-        return $this->usersHaveAgeGroupColumn ??= Schema::hasColumn('users', 'age_group_id');
+        if (! is_string($value)) {
+            return null;
+        }
+
+        $trimmed = trim($value);
+
+        return $trimmed === '' ? null : $trimmed;
     }
 }

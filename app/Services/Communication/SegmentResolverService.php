@@ -10,6 +10,9 @@ use App\Models\InAppAlert;
 use App\Models\Invoice;
 use App\Models\TeamMember;
 use App\Models\User;
+use App\Services\Members\MemberDataReadService;
+use App\Services\Members\MemberIdentityDisplayResolver;
+use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Schema;
@@ -18,20 +21,30 @@ class SegmentResolverService
 {
     private ?bool $usersHaveAgeGroupColumn = null;
 
+    public function __construct(
+        private readonly MemberIdentityDisplayResolver $memberIdentityDisplayResolver,
+        private readonly MemberDataReadService $memberDataReadService,
+    ) {
+    }
+
     public function resolveRecipients(CommunicationSegment $segment, ?string $channel = null): Collection
     {
         $users = $this->resolveUsers($segment);
+        $this->loadCommunicationPersonalData($users);
 
         $recipients = $users
             ->unique('id')
             ->values()
             ->map(function (User $user) {
+                $personal = $this->memberDataReadService->personalPayload($user);
+                $contact = $this->normalizedCommunicationContact($personal['contacto'] ?? null);
+
                 return [
                     'user_id' => $user->id,
                     'member_id' => $user->id,
-                    'name' => $user->nome_completo ?: $user->name,
+                    'name' => $this->memberIdentityDisplayResolver->displayName($user),
                     'email' => $user->email,
-                    'phone' => $user->telemovel ?: $user->contacto_telefonico ?: $user->contacto,
+                    'phone' => $contact,
                     'push_token' => null,
                 ];
             });
@@ -231,5 +244,23 @@ class SegmentResolverService
             ->pluck('user_id');
 
         return User::whereIn('id', $userIds)->get();
+    }
+
+    private function loadCommunicationPersonalData(Collection $users): void
+    {
+        if ($users instanceof EloquentCollection) {
+            $users->loadMissing(['dadosPessoais:user_id,nome_completo,contacto']);
+        }
+    }
+
+    private function normalizedCommunicationContact(mixed $value): ?string
+    {
+        if (! is_string($value)) {
+            return null;
+        }
+
+        $trimmed = trim($value);
+
+        return $trimmed === '' ? null : $trimmed;
     }
 }
