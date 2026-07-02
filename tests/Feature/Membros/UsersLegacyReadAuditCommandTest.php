@@ -229,6 +229,16 @@ PHP);
         $this->assertCount(0, $identityFindings);
     }
 
+    public function test_command_path_for_backfill_financeiro_integracoes_passes_fail_on_finding(): void
+    {
+        $exitCode = Artisan::call('members:audit-users-legacy-read', [
+            '--path' => ['app/Console/Commands/BackfillFinanceiroIntegracoes.php'],
+            '--fail-on-finding' => true,
+        ]);
+
+        $this->assertSame(0, $exitCode);
+    }
+
     public function test_command_returns_json_with_summary(): void
     {
         $exitCode = Artisan::call('members:audit-users-legacy-read', [

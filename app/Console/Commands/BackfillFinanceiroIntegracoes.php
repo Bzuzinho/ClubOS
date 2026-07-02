@@ -14,6 +14,7 @@ use App\Models\MovementItem;
 use App\Models\Sale;
 use App\Models\Sponsor;
 use App\Models\User;
+use App\Services\Members\MemberIdentityDisplayResolver;
 use Illuminate\Console\Command;
 use Illuminate\Support\Carbon;
 
@@ -22,7 +23,7 @@ class BackfillFinanceiroIntegracoes extends Command
     protected $signature = 'financeiro:backfill-integracoes {--dry-run : Simula sem criar registos} {--limit=0 : Limita registos por secao}';
     protected $description = 'Backfill de integracoes financeiras (eventos, stock, patrocinios) para registos existentes';
 
-    public function handle(): int
+    public function handle(MemberIdentityDisplayResolver $memberIdentityDisplayResolver): int
     {
         $dryRun = (bool) $this->option('dry-run');
         $limit = (int) $this->option('limit');
@@ -33,7 +34,7 @@ class BackfillFinanceiroIntegracoes extends Command
         $this->backfillCompetitionRegistrations($dryRun, $limit);
         $this->backfillSales($dryRun, $limit);
         $this->backfillSponsors($dryRun, $limit);
-        $this->backfillConvocationGroups($dryRun, $limit);
+        $this->backfillConvocationGroups($dryRun, $limit, $memberIdentityDisplayResolver);
 
         $this->newLine();
         $this->info('Backfill concluido.');
@@ -308,7 +309,11 @@ class BackfillFinanceiroIntegracoes extends Command
         }
     }
 
-    private function backfillConvocationGroups(bool $dryRun, int $limit): void
+    private function backfillConvocationGroups(
+        bool $dryRun,
+        int $limit,
+        MemberIdentityDisplayResolver $memberIdentityDisplayResolver
+    ): void
     {
         $query = ConvocationGroup::whereNull('movimento_id')->orderBy('created_at');
         if ($limit > 0) {
@@ -325,7 +330,7 @@ class BackfillFinanceiroIntegracoes extends Command
                 continue;
             }
 
-            if (!$this->createMovementsForConvocationGroup($group)) {
+            if (!$this->createMovementsForConvocationGroup($group, $memberIdentityDisplayResolver)) {
                 $skipped += 1;
                 continue;
             }
@@ -336,7 +341,10 @@ class BackfillFinanceiroIntegracoes extends Command
         $this->line("Convocatorias: {$created} criadas, {$skipped} ignoradas");
     }
 
-    private function createMovementsForConvocationGroup(ConvocationGroup $group): bool
+    private function createMovementsForConvocationGroup(
+        ConvocationGroup $group,
+        MemberIdentityDisplayResolver $memberIdentityDisplayResolver
+    ): bool
     {
         $event = Event::find($group->evento_id);
         if (!$event) {
@@ -375,7 +383,7 @@ class BackfillFinanceiroIntegracoes extends Command
         $movementItemsData = [];
 
         foreach ($athleteIds as $athleteId) {
-            $user = User::find($athleteId);
+            $user = User::query()->with('dadosPessoais')->find($athleteId);
             if (!$user) {
                 continue;
             }
@@ -389,7 +397,11 @@ class BackfillFinanceiroIntegracoes extends Command
 
             $valorLinha = abs($valor);
             $movementItemsData[] = [
-                'descricao' => "{$user->nome_completo} - {$event->titulo}",
+                'descricao' => $this->buildConvocationAthleteDescription(
+                    $user,
+                    $event,
+                    $memberIdentityDisplayResolver,
+                ),
                 'valor_unitario' => $valorLinha,
                 'quantidade' => 1,
                 'imposto_percentual' => 0,
@@ -472,6 +484,17 @@ class BackfillFinanceiroIntegracoes extends Command
         $porEstafeta = (float) ($group->valor_por_estafeta ?? $event->custo_inscricao_estafeta ?? 0);
 
         return $base + ($porProva * $provaCount) + ($porSalto * $provaCount) + ($porEstafeta * $estafetaCount);
+    }
+
+    private function buildConvocationAthleteDescription(
+        User $user,
+        Event $event,
+        MemberIdentityDisplayResolver $memberIdentityDisplayResolver
+    ): string
+    {
+        $displayName = $memberIdentityDisplayResolver->displayName($user);
+
+        return sprintf('%s - %s', $displayName, (string) $event->titulo);
     }
 
     private function addBusinessDays(Carbon $date, int $days): Carbon
