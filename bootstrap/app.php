@@ -39,6 +39,7 @@ return Application::configure(basePath: dirname(__DIR__))
         \App\Console\Commands\Members\AuditUsersLegacyFieldMapCommand::class,
         \App\Console\Commands\Members\AuditUsersLegacyWriteGuardCommand::class,
         \App\Console\Commands\Members\AuditUsersLegacyReadCommand::class,
+        \App\Console\Commands\Members\AuditUsersLegacyFieldRemovalReadinessCommand::class,
     ])
     ->withMiddleware(function (Middleware $middleware) {
         // Trust all proxies for Codespaces
