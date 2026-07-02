@@ -125,6 +125,36 @@ final class MemberDocumentDataResolver
     }
 
     /**
+     * @return array{num_federacao:?string,data_atestado_medico:?string,informacoes_medicas:?string}
+     */
+    public function sportsPayload(User $user): array
+    {
+        $profileDocuments = $this->profileDocuments($user);
+        $configuration = $this->memberDataReadService->configurationPayload($user);
+
+        $configurationExtra = $configuration['configuracao_extra'] ?? null;
+        if (! is_array($configurationExtra)) {
+            $configurationExtra = [];
+        }
+
+        $federationNumber = $this->normalizeLegacyString($profileDocuments['federacao']['numero'] ?? null)
+            ?: $this->normalizeLegacyString($user->athleteSportsData?->num_federacao);
+
+        $medicalAttestationDate = $this->normalizeLegacyDate($user->athleteSportsData?->data_atestado_medico)
+            ?: $this->normalizeLegacyDate($profileDocuments['atestado']['validated_at'] ?? null);
+
+        $medicalInfo = $this->normalizeLegacyString($user->athleteSportsData?->informacoes_medicas)
+            ?: $this->normalizeLegacyString($configurationExtra['informacoes_medicas'] ?? null)
+            ?: $this->normalizeLegacyString($this->legacyAttribute($user, 'informacoes_medicas'));
+
+        return [
+            'num_federacao' => $federationNumber,
+            'data_atestado_medico' => $medicalAttestationDate,
+            'informacoes_medicas' => $medicalInfo,
+        ];
+    }
+
+    /**
      * @return array{
      *   rgpd:bool,
      *   data_rgpd:mixed,

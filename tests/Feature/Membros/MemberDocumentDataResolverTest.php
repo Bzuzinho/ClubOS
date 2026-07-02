@@ -180,4 +180,32 @@ final class MemberDocumentDataResolverTest extends TestCase
         $this->assertTrue($user->fresh()->updated_at?->equalTo($userUpdatedAtBefore));
         $this->assertTrue($config->fresh()->updated_at?->equalTo($configUpdatedAtBefore));
     }
+
+    public function test_sports_payload_fallbacks_are_controlled_and_read_only(): void
+    {
+        $user = User::factory()->create([
+            'num_federacao' => 'FED-LEGACY-ONLY',
+            'informacoes_medicas' => 'Info legacy only',
+            'data_atestado_medico' => '2025-01-01',
+        ]);
+
+        $config = DadosConfiguracao::query()->create([
+            'user_id' => $user->id,
+            'afiliacao_numero' => null,
+            'configuracao_extra' => [
+                'informacoes_medicas' => 'Info config extra',
+            ],
+        ]);
+
+        $userUpdatedAtBefore = $user->updated_at;
+        $configUpdatedAtBefore = $config->updated_at;
+
+        $payload = app(MemberDocumentDataResolver::class)->sportsPayload($user->fresh());
+
+        $this->assertSame('FED-LEGACY-ONLY', $payload['num_federacao']);
+        $this->assertSame('2025-01-01', $payload['data_atestado_medico']);
+        $this->assertSame('Info config extra', $payload['informacoes_medicas']);
+        $this->assertTrue($user->fresh()->updated_at?->equalTo($userUpdatedAtBefore));
+        $this->assertTrue($config->fresh()->updated_at?->equalTo($configUpdatedAtBefore));
+    }
 }
