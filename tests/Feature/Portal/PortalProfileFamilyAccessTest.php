@@ -45,8 +45,8 @@ class PortalProfileFamilyAccessTest extends TestCase
         ]);
 
         $updateResponse->assertRedirect(route('portal.profile', ['member' => $educando->id]));
-        $this->assertDatabaseHas('users', [
-            'id' => $educando->id,
+        $this->assertDatabaseHas('dados_pessoais', [
+            'user_id' => $educando->id,
             'nome_completo' => 'Educando Atualizado',
         ]);
     }

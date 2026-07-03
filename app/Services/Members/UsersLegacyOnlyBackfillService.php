@@ -37,7 +37,18 @@ final class UsersLegacyOnlyBackfillService
         $siblingCountTableReady = $this->personalTableReady('numero_irmaos');
         $athleteTableReady = $this->athleteTableReady();
 
-        $userSelect = ['id', 'estado_civil', 'numero_irmaos', 'data_atestado_medico', 'ativo_desportivo'];
+        $userSelect = ['id', 'ativo_desportivo'];
+        if (Schema::hasColumn('users', 'estado_civil')) {
+            $userSelect[] = 'estado_civil';
+        }
+
+        if (Schema::hasColumn('users', 'numero_irmaos')) {
+            $userSelect[] = 'numero_irmaos';
+        }
+
+        if (Schema::hasColumn('users', 'data_atestado_medico')) {
+            $userSelect[] = 'data_atestado_medico';
+        }
 
         $users = User::query()
             ->select($userSelect)
@@ -57,7 +68,9 @@ final class UsersLegacyOnlyBackfillService
                     $definition,
                     $stateCivilTableReady,
                     $personalRowsByUser,
-                    static fn (User $user): mixed => $user->getAttribute('estado_civil'),
+                    static fn (User $user): mixed => Schema::hasColumn('users', 'estado_civil')
+                        ? $user->getAttribute('estado_civil')
+                        : null,
                     static fn (mixed $value): mixed => self::normalizeText($value),
                 );
 
@@ -70,7 +83,9 @@ final class UsersLegacyOnlyBackfillService
                     $definition,
                     $siblingCountTableReady,
                     $personalRowsByUser,
-                    static fn (User $user): mixed => $user->getAttribute('numero_irmaos'),
+                    static fn (User $user): mixed => Schema::hasColumn('users', 'numero_irmaos')
+                        ? $user->getAttribute('numero_irmaos')
+                        : null,
                     static fn (mixed $value): mixed => self::normalizeSiblingCount($value),
                 );
 

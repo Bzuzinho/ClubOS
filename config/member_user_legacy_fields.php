@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 return [
-    'version' => 'M4.6-F2',
+    'version' => 'M6.0',
     'generated_context' => [
         'fallback_guard_required' => 'members:audit-data-fallback --fail-on-fallback',
         'structure_audit_required' => 'members:audit-data-structure',
@@ -44,15 +44,20 @@ return [
                 'cc',
                 'nacionalidade',
                 'email_secundario',
-                'estado_civil',
                 'ocupacao',
                 'empresa',
                 'escola',
-                'numero_irmaos',
                 'numero_utente',
                 'contacto_emergencia_nome',
                 'contacto_emergencia_telefone',
                 'contacto_emergencia_relacao',
+            ],
+        ],
+        'removed_after_m5' => [
+            'description' => 'Campos legacy removidos fisicamente de users na sprint M6 após readiness M5 validada.',
+            'fields' => [
+                'estado_civil',
+                'numero_irmaos',
             ],
         ],
         'member_configuration_legacy' => [
@@ -145,11 +150,11 @@ return [
         'cc' => 'member_personal_legacy',
         'nacionalidade' => 'member_personal_legacy',
         'email_secundario' => 'member_personal_legacy',
-        'estado_civil' => 'member_personal_legacy',
+        'estado_civil' => 'removed_after_m5',
         'ocupacao' => 'member_personal_legacy',
         'empresa' => 'member_personal_legacy',
         'escola' => 'member_personal_legacy',
-        'numero_irmaos' => 'member_personal_legacy',
+        'numero_irmaos' => 'removed_after_m5',
         'numero_utente' => 'member_personal_legacy',
         'contacto_emergencia_nome' => 'member_personal_legacy',
         'contacto_emergencia_telefone' => 'member_personal_legacy',
@@ -197,6 +202,11 @@ return [
             'Confirmar ausência de fallback e leituras residuais em users.',
             'Validar que dados_configuracao cobre toda a superfície funcional.',
             'Atualizar forms, serviços e relatórios dependentes.',
+        ],
+        'removed_after_m5' => [
+            'Remoção física executada em M6 com migration destrutiva dedicada e rollback estrutural.',
+            'Rollback recria apenas o schema em users; não repõe automaticamente os valores migrados.',
+            'Manter auditorias de leitura/escrita legacy verdes após o drop físico.',
         ],
         'member_financial_legacy' => [
             'Confirmar substituição por tabelas financeiras canónicas.',

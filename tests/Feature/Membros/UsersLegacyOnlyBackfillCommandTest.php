@@ -17,6 +17,15 @@ final class UsersLegacyOnlyBackfillCommandTest extends TestCase
 {
     use RefreshDatabase;
 
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        if (!Schema::hasColumn('users', 'estado_civil') || !Schema::hasColumn('users', 'numero_irmaos')) {
+            $this->markTestSkipped('Users legacy-only backfill command tests apply only before M6 physical cleanup of users legacy columns.');
+        }
+    }
+
     public function test_dry_run_does_not_write_anything(): void
     {
         $user = $this->createUserWithPersonalRow([

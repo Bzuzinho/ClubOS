@@ -18,6 +18,15 @@ final class UsersLegacyOnlyBackfillPreflightCommandTest extends TestCase
 {
     use RefreshDatabase;
 
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        if (!Schema::hasColumn('users', 'estado_civil') || !Schema::hasColumn('users', 'numero_irmaos')) {
+            $this->markTestSkipped('Users legacy-only preflight tests apply only before M6 physical cleanup of users legacy columns.');
+        }
+    }
+
     public function test_preflight_without_commit_passes_and_returns_json(): void
     {
         $user = $this->createFixtureUser();

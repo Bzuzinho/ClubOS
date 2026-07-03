@@ -9,6 +9,7 @@ use App\Models\User;
 use App\Services\Members\MemberDataReadService;
 use App\Services\Members\UsersLegacyReadScanner;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
 
 final class MemberPersonalCanonicalContractTest extends TestCase
@@ -17,9 +18,11 @@ final class MemberPersonalCanonicalContractTest extends TestCase
 
     public function test_member_data_read_service_uses_canonical_estado_civil_when_present_in_dados_pessoais(): void
     {
-        $user = User::factory()->create([
-            'estado_civil' => 'solteiro',
-        ]);
+        $user = User::factory()->create();
+
+        if (Schema::hasColumn('users', 'estado_civil')) {
+            $user->forceFill(['estado_civil' => 'solteiro'])->save();
+        }
 
         $dadosPessoais = new DadosPessoais();
         $dadosPessoais->setAttribute('estado_civil', 'casado');
@@ -35,6 +38,10 @@ final class MemberPersonalCanonicalContractTest extends TestCase
 
     public function test_member_data_read_service_falls_back_to_users_estado_civil_when_canonical_value_is_empty(): void
     {
+        if (!Schema::hasColumn('users', 'estado_civil')) {
+            $this->markTestSkipped('users.estado_civil was removed in M6 physical cleanup.');
+        }
+
         $user = User::factory()->create([
             'estado_civil' => 'uniao_de_facto',
         ]);

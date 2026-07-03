@@ -10,6 +10,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
 
 final class UsersLegacyBackfillValidationAuditCommandTest extends TestCase
@@ -217,6 +218,10 @@ final class UsersLegacyBackfillValidationAuditCommandTest extends TestCase
 
     public function test_estado_civil_is_classified_as_needs_backfill_when_only_legacy_has_value(): void
     {
+        if (!Schema::hasColumn('users', 'estado_civil')) {
+            $this->markTestSkipped('estado_civil legacy column was physically removed in M6.');
+        }
+
         User::factory()->create([
             'estado_civil' => 'casado',
         ]);
