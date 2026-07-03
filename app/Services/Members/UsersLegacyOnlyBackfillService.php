@@ -173,6 +173,7 @@ final class UsersLegacyOnlyBackfillService
         callable $normalizer,
     ): array {
         $result = $this->emptyFieldResult($definition, $usersHasPersonalPayload);
+        $resolvableUsersCount = 0;
 
         foreach ($users as $user) {
             $legacyValue = $normalizer($legacyResolver($user));
@@ -189,7 +190,16 @@ final class UsersLegacyOnlyBackfillService
                 continue;
             }
 
-            $payload = $this->decodePersonalPayload($user->getAttribute('dados_pessoais'));
+            $decodedPayload = $this->decodePersonalPayload($user->getAttribute('dados_pessoais'));
+            if (!(bool) ($decodedPayload['is_resolvable'] ?? false)) {
+                $result['skipped_missing_target_count']++;
+                continue;
+            }
+
+            $resolvableUsersCount++;
+            $payload = is_array($decodedPayload['payload'] ?? null)
+                ? $decodedPayload['payload']
+                : [];
             $targetField = (string) ($definition['target_field'] ?? '');
             $canonicalRaw = $payload[$targetField] ?? null;
             $canonicalValue = $normalizer($canonicalRaw);
@@ -217,6 +227,8 @@ final class UsersLegacyOnlyBackfillService
 
             $result['divergent_count']++;
         }
+
+        $result['target_resolvable'] = $usersHasPersonalPayload && $resolvableUsersCount > 0;
 
         return $result;
     }
@@ -419,8 +431,11 @@ final class UsersLegacyOnlyBackfillService
     {
         $fieldsAnalyzed = count($fields);
         $writeAllowedCount = 0;
-        $unresolvableCount = 0;
         $totalDivergent = 0;
+        $totalCandidates = 0;
+        $personalFieldsSelected = 0;
+        $personalCandidates = 0;
+        $totalLegacyOnly = 0;
 
         foreach ($fields as $field) {
             if (!is_array($field)) {
@@ -431,17 +446,30 @@ final class UsersLegacyOnlyBackfillService
                 $writeAllowedCount++;
             }
 
-            if (!(bool) ($field['target_resolvable'] ?? false)) {
-                $unresolvableCount++;
-            }
-
             $totalDivergent += (int) ($field['divergent_count'] ?? 0);
+            $fieldCandidates = (int) ($field['candidates_count'] ?? 0);
+            $totalCandidates += $fieldCandidates;
+            $totalLegacyOnly += (int) ($field['legacy_only_count'] ?? 0);
+
+            if (($field['target_area'] ?? null) === 'dados_pessoais') {
+                $personalFieldsSelected++;
+                $personalCandidates += $fieldCandidates;
+            }
         }
+
+        $hasResolvableCandidates = $personalFieldsSelected > 0
+            ? $personalCandidates > 0
+            : $totalCandidates > 0;
 
         $commitAllowed = $fieldsAnalyzed > 0
             && $writeAllowedCount === $fieldsAnalyzed
-            && $unresolvableCount === 0
-            && $totalDivergent === 0;
+            && $totalDivergent === 0
+            && ($hasResolvableCandidates || $totalLegacyOnly === 0);
+
+        $unresolvableCount = count(array_filter(
+            $fields,
+            static fn (array $field): bool => !(bool) ($field['target_resolvable'] ?? false),
+        ));
 
         return [
             'fields_analyzed' => $fieldsAnalyzed,
@@ -505,20 +533,32 @@ final class UsersLegacyOnlyBackfillService
     private function decodePersonalPayload(mixed $raw): array
     {
         if (is_array($raw)) {
-            return $raw;
+            return [
+                'payload' => $raw,
+                'is_resolvable' => true,
+            ];
         }
 
         if (is_string($raw)) {
             $trimmed = trim($raw);
             if ($trimmed === '') {
-                return [];
+                return [
+                    'payload' => [],
+                    'is_resolvable' => false,
+                ];
             }
 
             $decoded = json_decode($trimmed, true);
-            return is_array($decoded) ? $decoded : [];
+            return [
+                'payload' => is_array($decoded) ? $decoded : [],
+                'is_resolvable' => is_array($decoded),
+            ];
         }
 
-        return [];
+        return [
+            'payload' => [],
+            'is_resolvable' => false,
+        ];
     }
 
     private function hasValue(mixed $value): bool

@@ -31,6 +31,7 @@ final class UsersLegacyOnlyBackfillPreflightService
                 'canonical_target_status' => $this->canonicalTargetStatus(
                     (bool) ($field['target_resolvable'] ?? false),
                     (bool) ($field['write_allowed'] ?? false),
+                    is_string($field['target_area'] ?? null) ? (string) $field['target_area'] : null,
                 ),
                 'target_status' => $field['target_status'] ?? null,
                 'decision' => $field['decision'] ?? null,
@@ -74,7 +75,7 @@ final class UsersLegacyOnlyBackfillPreflightService
         ];
     }
 
-    private function canonicalTargetStatus(bool $targetResolvable, bool $writeAllowed): string
+    private function canonicalTargetStatus(bool $targetResolvable, bool $writeAllowed, ?string $targetArea): string
     {
         if (!$targetResolvable) {
             return 'canonical_target_missing_or_not_resolvable';
@@ -82,6 +83,10 @@ final class UsersLegacyOnlyBackfillPreflightService
 
         if (!$writeAllowed) {
             return 'canonical_target_defined_but_write_blocked';
+        }
+
+        if ($targetArea === 'dados_pessoais') {
+            return 'canonical_payload_target_ready';
         }
 
         return 'canonical_target_ready';

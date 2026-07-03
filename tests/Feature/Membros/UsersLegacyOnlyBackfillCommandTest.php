@@ -96,6 +96,48 @@ final class UsersLegacyOnlyBackfillCommandTest extends TestCase
 
         $payload = $this->readPersonalPayload($user->id);
         $this->assertSame(2, $payload['numero_irmaos'] ?? null);
+
+        $fresh = User::query()->findOrFail($user->id);
+        $this->assertSame(2, (int) $fresh->numero_irmaos);
+        $this->assertSame('Irmaos User', $payload['nome_completo'] ?? null);
+    }
+
+    public function test_commit_is_allowed_with_personal_candidates_even_when_data_atestado_missing_target_is_skipped(): void
+    {
+        $estadoCivilUser = $this->createUserWithPersonalPayload([
+            'estado_civil' => 'casado',
+            'dados_pessoais' => ['nome_completo' => 'Estado Civil Candidate'],
+        ]);
+
+        $numeroIrmaosUser = $this->createUserWithPersonalPayload([
+            'numero_irmaos' => 2,
+            'dados_pessoais' => ['nome_completo' => 'Numero Irmaos Candidate'],
+        ]);
+
+        $medicalSkipUser = $this->createUserWithPersonalPayload([
+            'data_atestado_medico' => '2025-03-10',
+            'dados_pessoais' => ['nome_completo' => 'Medical Skip Candidate'],
+        ]);
+
+        $exitCode = Artisan::call('members:backfill-users-legacy-only-fields', [
+            '--commit' => true,
+            '--confirm' => 'BACKFILL_LEGACY_ONLY_FIELDS',
+            '--json' => true,
+        ]);
+
+        $this->assertSame(0, $exitCode);
+
+        $payload = $this->decodeOutputJson();
+        $this->assertSame(0, (int) ($payload['summary']['total_divergent_count'] ?? -1));
+        $this->assertSame(2, (int) ($payload['summary']['total_updated_count'] ?? -1));
+        $this->assertSame(1, (int) ($payload['summary']['total_skipped_missing_target_count'] ?? -1));
+        $this->assertTrue((bool) ($payload['summary']['commit_allowed'] ?? false));
+
+        $this->assertSame('casado', $this->readPersonalPayload($estadoCivilUser->id)['estado_civil'] ?? null);
+        $this->assertSame(2, $this->readPersonalPayload($numeroIrmaosUser->id)['numero_irmaos'] ?? null);
+
+        $sports = AthleteSportsData::query()->where('user_id', $medicalSkipUser->id)->first();
+        $this->assertNull($sports);
     }
 
     public function test_data_atestado_medico_backfills_when_safe_target_exists(): void
@@ -136,10 +178,11 @@ final class UsersLegacyOnlyBackfillCommandTest extends TestCase
             '--json' => true,
         ]);
 
-        $this->assertSame(0, $exitCode);
+        $this->assertSame(1, $exitCode);
         $payload = $this->decodeOutputJson();
         $this->assertSame(1, (int) ($payload['summary']['total_skipped_missing_target_count'] ?? 0));
         $this->assertSame(0, (int) ($payload['summary']['total_updated_count'] ?? 0));
+        $this->assertFalse((bool) ($payload['summary']['commit_allowed'] ?? true));
     }
 
     public function test_divergence_is_reported_and_not_overwritten(): void

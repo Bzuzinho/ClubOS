@@ -125,8 +125,8 @@ final class UsersLegacyOnlyBackfillPreflightCommandTest extends TestCase
         $this->assertArrayHasKey('estado_civil', $fieldsByName);
         $this->assertArrayHasKey('numero_irmaos', $fieldsByName);
         $this->assertSame('canonical_target_ready', $fieldsByName['data_atestado_medico']['canonical_target_status'] ?? null);
-        $this->assertSame('canonical_target_ready', $fieldsByName['estado_civil']['canonical_target_status'] ?? null);
-        $this->assertSame('canonical_target_ready', $fieldsByName['numero_irmaos']['canonical_target_status'] ?? null);
+        $this->assertSame('canonical_payload_target_ready', $fieldsByName['estado_civil']['canonical_target_status'] ?? null);
+        $this->assertSame('canonical_payload_target_ready', $fieldsByName['numero_irmaos']['canonical_target_status'] ?? null);
         $this->assertSame('backfill_to_sports_domain', $fieldsByName['data_atestado_medico']['decision'] ?? null);
         $this->assertSame('backfill_to_personal_payload', $fieldsByName['estado_civil']['decision'] ?? null);
         $this->assertSame('backfill_to_personal_payload', $fieldsByName['numero_irmaos']['decision'] ?? null);
@@ -154,6 +154,44 @@ final class UsersLegacyOnlyBackfillPreflightCommandTest extends TestCase
         $this->assertSame('backfill_to_sports_domain', (string) ($fieldsByName['data_atestado_medico']['decision'] ?? ''));
         $this->assertSame('backfill_to_personal_payload', (string) ($fieldsByName['estado_civil']['decision'] ?? ''));
         $this->assertSame('backfill_to_personal_payload', (string) ($fieldsByName['numero_irmaos']['decision'] ?? ''));
+    }
+
+    public function test_preflight_allows_commit_when_personal_payload_candidates_exist_and_sports_target_is_missing(): void
+    {
+        $this->ensureUsersPersonalPayloadColumn();
+
+        User::factory()->create([
+            'name' => 'M4.17 Payload Candidate',
+            'nome_completo' => 'M4.17 Payload Candidate',
+            'estado_civil' => 'solteiro',
+            'numero_irmaos' => 2,
+            'data_atestado_medico' => '2024-05-01',
+            'dados_pessoais' => json_encode(['nome_completo' => 'M4.17 Payload Candidate']),
+        ]);
+
+        $payload = $this->runJsonCommand();
+
+        $this->assertTrue((bool) ($payload['commit_allowed'] ?? false));
+        $this->assertSame(0, (int) ($payload['summary']['total_divergent_count'] ?? 0));
+
+        $fieldsByName = [];
+        foreach ($payload['fields'] ?? [] as $field) {
+            if (is_array($field) && isset($field['field'])) {
+                $fieldsByName[$field['field']] = $field;
+            }
+        }
+
+        $this->assertSame('canonical_payload_target_ready', $fieldsByName['estado_civil']['canonical_target_status'] ?? null);
+        $this->assertSame('canonical_payload_target_ready', $fieldsByName['numero_irmaos']['canonical_target_status'] ?? null);
+        $this->assertSame(1, (int) ($fieldsByName['data_atestado_medico']['skipped_missing_target_count'] ?? 0));
+        $this->assertSame(0, (int) ($payload['summary']['fields_with_missing_canonical_target'] ?? 0));
+
+        $exitCode = Artisan::call('members:preflight-users-legacy-only-backfill', [
+            '--commit' => true,
+            '--confirm' => 'BACKFILL_LEGACY_ONLY_FIELDS',
+        ]);
+
+        $this->assertSame(0, $exitCode);
     }
 
     public function test_command_does_not_write_any_tables(): void
