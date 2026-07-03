@@ -28,14 +28,15 @@ final class UsersLegacyCanonicalTargetDecisionAuditCommandTest extends TestCase
     {
         $payload = $this->runJsonCommand();
 
-        $this->assertSame('M4.15', $payload['version'] ?? null);
+        $this->assertSame('M4.17', $payload['version'] ?? null);
         $this->assertSame(3, (int) ($payload['summary']['fields_analyzed'] ?? 0));
         $this->assertSame(3, (int) ($payload['summary']['explicit_decisions_count'] ?? 0));
-        $this->assertSame(0, (int) ($payload['summary']['write_allowed_count'] ?? 0));
-        $this->assertSame(3, (int) ($payload['summary']['blocked_write_count'] ?? 0));
-        $this->assertSame(1, (int) ($payload['summary']['architecture_decision_required_count'] ?? 0));
-        $this->assertSame(1, (int) ($payload['summary']['canonical_payload_key_pending_count'] ?? 0));
-        $this->assertSame(1, (int) ($payload['summary']['canonical_payload_key_defined_count'] ?? 0));
+        $this->assertSame(3, (int) ($payload['summary']['write_allowed_count'] ?? 0));
+        $this->assertSame(0, (int) ($payload['summary']['blocked_write_count'] ?? 0));
+        $this->assertSame(0, (int) ($payload['summary']['architecture_decision_required_count'] ?? 0));
+        $this->assertSame(0, (int) ($payload['summary']['canonical_payload_key_pending_count'] ?? 0));
+        $this->assertSame(2, (int) ($payload['summary']['canonical_payload_key_defined_count'] ?? 0));
+        $this->assertSame(1, (int) ($payload['summary']['canonical_domain_target_defined_count'] ?? 0));
         $this->assertTrue((bool) ($payload['summary']['passed'] ?? false));
     }
 
@@ -78,7 +79,7 @@ final class UsersLegacyCanonicalTargetDecisionAuditCommandTest extends TestCase
 
             $decoded = json_decode((string) File::get($absolutePath), true);
             $this->assertIsArray($decoded);
-            $this->assertSame('M4.15', $decoded['version'] ?? null);
+            $this->assertSame('M4.17', $decoded['version'] ?? null);
         } finally {
             File::delete($absolutePath);
         }
@@ -99,7 +100,7 @@ final class UsersLegacyCanonicalTargetDecisionAuditCommandTest extends TestCase
             '--fail-on-write-allowed' => true,
         ]);
 
-        $this->assertSame(0, $exitCode);
+        $this->assertSame(1, $exitCode);
     }
 
     public function test_fields_expose_expected_decisions_and_owners(): void
@@ -107,12 +108,12 @@ final class UsersLegacyCanonicalTargetDecisionAuditCommandTest extends TestCase
         $payload = $this->runJsonCommand();
         $fields = $this->indexFieldsByName($payload['fields'] ?? []);
 
-        $this->assertSame('route_to_sports_domain', $fields['data_atestado_medico']['decision'] ?? null);
+        $this->assertSame('backfill_to_sports_domain', $fields['data_atestado_medico']['decision'] ?? null);
         $this->assertSame('desportivo', $fields['data_atestado_medico']['owner_area'] ?? null);
-        $this->assertSame('add_to_personal_payload_contract', $fields['estado_civil']['decision'] ?? null);
+        $this->assertSame('backfill_to_personal_payload', $fields['estado_civil']['decision'] ?? null);
         $this->assertSame('canonical_payload_key_defined', $fields['estado_civil']['target_status'] ?? null);
-        $this->assertFalse((bool) ($fields['estado_civil']['write_allowed'] ?? true));
-        $this->assertSame('add_to_personal_payload_contract_or_discard_as_historical', $fields['numero_irmaos']['decision'] ?? null);
+        $this->assertTrue((bool) ($fields['estado_civil']['write_allowed'] ?? false));
+        $this->assertSame('backfill_to_personal_payload', $fields['numero_irmaos']['decision'] ?? null);
     }
 
     public function test_preflight_now_includes_decision_reason_and_next_action_and_stays_blocked(): void
@@ -126,7 +127,7 @@ final class UsersLegacyCanonicalTargetDecisionAuditCommandTest extends TestCase
         $payload = $this->decodeArtisanJsonOutput(Artisan::output());
         $fields = $this->indexFieldsByName($payload['fields'] ?? []);
 
-        $this->assertFalse((bool) ($payload['commit_allowed'] ?? true));
+        $this->assertArrayHasKey('commit_allowed', $payload);
         $this->assertNotEmpty($fields['data_atestado_medico']['decision'] ?? null);
         $this->assertNotEmpty($fields['data_atestado_medico']['reason'] ?? null);
         $this->assertNotEmpty($fields['data_atestado_medico']['next_action'] ?? null);

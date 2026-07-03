@@ -17,7 +17,7 @@ final class AuditUsersLegacyCanonicalTargetsCommand extends Command
         {--fail-on-write-allowed : Falha com codigo 1 quando existir campo com write_allowed=true}
         {--report-path= : Caminho para guardar relatorio JSON}';
 
-    protected $description = 'Audita decisoes canonicas M4.15 para campos legacy_only bloqueados no preflight';
+    protected $description = 'Audita decisoes canonicas M4.17 para campos legacy_only e respetiva permissao de escrita';
 
     public function __construct(private readonly UsersLegacyCanonicalTargetDecisionAuditor $auditor)
     {
@@ -32,9 +32,9 @@ final class AuditUsersLegacyCanonicalTargetsCommand extends Command
             $audit = $this->auditor->audit($fieldFilter !== '' ? $fieldFilter : null);
         } catch (\InvalidArgumentException $exception) {
             $payload = [
-                'version' => 'M4.15',
-                'config_version' => 'M4.15',
-                'preflight_version' => 'M4.14',
+                'version' => 'M4.17',
+                'config_version' => 'M4.17',
+                'preflight_version' => 'M4.17',
                 'summary' => [
                     'fields_analyzed' => 0,
                     'explicit_decisions_count' => 0,
@@ -44,6 +44,7 @@ final class AuditUsersLegacyCanonicalTargetsCommand extends Command
                     'architecture_decision_required_count' => 0,
                     'canonical_payload_key_pending_count' => 0,
                     'canonical_payload_key_defined_count' => 0,
+                    'canonical_domain_target_defined_count' => 0,
                     'unknown_target_status_count' => 0,
                     'passed' => false,
                     'failure_reason' => $exception->getMessage(),
@@ -61,7 +62,7 @@ final class AuditUsersLegacyCanonicalTargetsCommand extends Command
         $failureReasons = [];
 
         if ((bool) $this->option('fail-on-missing-decision') && ((int) ($summary['missing_decisions_count'] ?? 0)) > 0) {
-            $failureReasons[] = 'Canonical target decision audit failed. Existem campos sem decisao explicita no config M4.15.';
+            $failureReasons[] = 'Canonical target decision audit failed. Existem campos sem decisao explicita no config M4.17.';
         }
 
         if ((bool) $this->option('fail-on-write-allowed') && ((int) ($summary['write_allowed_count'] ?? 0)) > 0) {
@@ -74,9 +75,9 @@ final class AuditUsersLegacyCanonicalTargetsCommand extends Command
 
         $passed = $failureReasons === [];
         $payload = [
-            'version' => (string) ($audit['version'] ?? 'M4.15'),
-            'config_version' => (string) ($audit['config_version'] ?? 'M4.15'),
-            'preflight_version' => (string) ($audit['preflight_version'] ?? 'M4.14'),
+            'version' => (string) ($audit['version'] ?? 'M4.17'),
+            'config_version' => (string) ($audit['config_version'] ?? 'M4.17'),
+            'preflight_version' => (string) ($audit['preflight_version'] ?? 'M4.17'),
             'summary' => array_merge($summary, [
                 'passed' => $passed,
                 'failure_reason' => $passed ? null : implode(' ', $failureReasons),
@@ -113,8 +114,8 @@ final class AuditUsersLegacyCanonicalTargetsCommand extends Command
         $fields = is_array($payload['fields'] ?? null) ? $payload['fields'] : [];
 
         $this->info('Audit users legacy canonical targets (read-only)');
-        $this->line(sprintf('Version: %s', (string) ($payload['version'] ?? 'M4.15')));
-        $this->line(sprintf('Config version: %s', (string) ($payload['config_version'] ?? 'M4.15')));
+        $this->line(sprintf('Version: %s', (string) ($payload['version'] ?? 'M4.17')));
+        $this->line(sprintf('Config version: %s', (string) ($payload['config_version'] ?? 'M4.17')));
         $this->line('Writable: false');
 
         $this->newLine();
@@ -129,6 +130,7 @@ final class AuditUsersLegacyCanonicalTargetsCommand extends Command
                 ['architecture_decision_required_count', (int) ($summary['architecture_decision_required_count'] ?? 0)],
                 ['canonical_payload_key_pending_count', (int) ($summary['canonical_payload_key_pending_count'] ?? 0)],
                 ['canonical_payload_key_defined_count', (int) ($summary['canonical_payload_key_defined_count'] ?? 0)],
+                ['canonical_domain_target_defined_count', (int) ($summary['canonical_domain_target_defined_count'] ?? 0)],
                 ['unknown_target_status_count', (int) ($summary['unknown_target_status_count'] ?? 0)],
                 ['passed', ((bool) ($summary['passed'] ?? false)) ? 'true' : 'false'],
             ],

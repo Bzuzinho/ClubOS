@@ -6,6 +6,7 @@ namespace App\Services\Members;
 
 use App\Models\User;
 use DateTimeInterface;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Schema;
 
 final class UsersLegacyBackfillValidationAuditor
@@ -80,11 +81,17 @@ final class UsersLegacyBackfillValidationAuditor
             }
         }
 
+        $userSelect = array_values(array_unique(array_merge(['id'], $legacyFields)));
+        if (Schema::hasColumn('users', 'dados_pessoais')) {
+            $userSelect[] = 'dados_pessoais';
+        }
+
         $users = User::query()
-            ->select(array_values(array_unique(array_merge(['id'], $legacyFields))))
+            ->select($userSelect)
             ->with([
                 'dadosPessoais' => static fn ($query) => $query->select(array_values(array_unique(array_merge(['id', 'user_id'], $personalFields)))),
                 'dadosConfiguracao' => static fn ($query) => $query->select(array_values(array_unique(array_merge(['id', 'user_id'], $configurationFields)))),
+                'athleteSportsData:id,user_id,data_atestado_medico',
             ])
             ->orderBy('id')
             ->get();
@@ -329,8 +336,9 @@ final class UsersLegacyBackfillValidationAuditor
         }
 
         return match ($canonicalArea) {
-            'dados_pessoais' => isset($dadosPessoaisColumns[$canonicalField]),
+            'dados_pessoais' => isset($dadosPessoaisColumns[$canonicalField]) || Schema::hasColumn('users', 'dados_pessoais'),
             'dados_configuracao' => isset($dadosConfiguracaoColumns[$canonicalField]),
+            'athlete_sports_data' => Schema::hasTable('athlete_sports_data') && Schema::hasColumn('athlete_sports_data', $canonicalField),
             default => false,
         } || $this->hasCanonicalContractDefinition($canonicalArea, $canonicalField);
     }
@@ -357,7 +365,7 @@ final class UsersLegacyBackfillValidationAuditor
                 continue;
             }
 
-            return $targetStatus === 'canonical_payload_key_defined';
+            return in_array($targetStatus, ['canonical_payload_key_defined', 'canonical_domain_target_defined'], true);
         }
 
         return false;
@@ -366,11 +374,38 @@ final class UsersLegacyBackfillValidationAuditor
     private function canonicalValue(User $user, ?string $canonicalArea, string $canonicalField): mixed
     {
         if ($canonicalArea === 'dados_pessoais') {
-            return $user->dadosPessoais?->getAttribute($canonicalField);
+            $fromTable = $user->dadosPessoais?->getAttribute($canonicalField);
+            if ($fromTable !== null && $fromTable !== '') {
+                return $fromTable;
+            }
+
+            return $this->payloadValueFromUser($user, 'dados_pessoais', $canonicalField);
         }
 
         if ($canonicalArea === 'dados_configuracao') {
             return $user->dadosConfiguracao?->getAttribute($canonicalField);
+        }
+
+        if ($canonicalArea === 'athlete_sports_data') {
+            return $user->athleteSportsData?->getAttribute($canonicalField);
+        }
+
+        return null;
+    }
+
+    private function payloadValueFromUser(User $user, string $payloadColumn, string $key): mixed
+    {
+        $raw = $user->getAttribute($payloadColumn);
+
+        if (is_array($raw)) {
+            return $raw[$key] ?? null;
+        }
+
+        if (is_string($raw) && trim($raw) !== '') {
+            $decoded = json_decode($raw, true);
+            if (is_array($decoded)) {
+                return $decoded[$key] ?? null;
+            }
         }
 
         return null;
@@ -513,7 +548,7 @@ final class UsersLegacyBackfillValidationAuditor
         }
 
         try {
-            return (new \DateTimeImmutable($value))->format('Y-m-d');
+            return Carbon::parse($value)->toDateString();
         } catch (\Throwable) {
             return null;
         }

@@ -6,7 +6,7 @@ namespace App\Services\Members;
 
 final class UsersLegacyCanonicalTargetDecisionAuditor
 {
-    private const VERSION = 'M4.15';
+    private const VERSION = 'M4.17';
 
     /** @var list<string> */
     private const ALLOWED_FIELDS = [
@@ -20,6 +20,7 @@ final class UsersLegacyCanonicalTargetDecisionAuditor
         'architecture_decision_required',
         'canonical_payload_key_pending',
         'canonical_payload_key_defined',
+        'canonical_domain_target_defined',
     ];
 
     public function __construct(
@@ -94,6 +95,7 @@ final class UsersLegacyCanonicalTargetDecisionAuditor
             'architecture_decision_required_count' => count(array_filter($rows, static fn (array $row): bool => ($row['target_status'] ?? null) === 'architecture_decision_required')),
             'canonical_payload_key_pending_count' => count(array_filter($rows, static fn (array $row): bool => ($row['target_status'] ?? null) === 'canonical_payload_key_pending')),
             'canonical_payload_key_defined_count' => count(array_filter($rows, static fn (array $row): bool => ($row['target_status'] ?? null) === 'canonical_payload_key_defined')),
+            'canonical_domain_target_defined_count' => count(array_filter($rows, static fn (array $row): bool => ($row['target_status'] ?? null) === 'canonical_domain_target_defined')),
             'unknown_target_status_count' => count(array_filter($rows, static fn (array $row): bool => (bool) ($row['unknown_target_status'] ?? false))),
             'passed' => true,
             'failure_reason' => null,
@@ -101,19 +103,16 @@ final class UsersLegacyCanonicalTargetDecisionAuditor
 
         if ((int) $summary['missing_decisions_count'] > 0) {
             $summary['passed'] = false;
-            $summary['failure_reason'] = 'Existem campos bloqueados sem decisao explicita no config M4.15.';
-        } elseif ((int) $summary['write_allowed_count'] > 0) {
-            $summary['passed'] = false;
-            $summary['failure_reason'] = 'Existem campos com write_allowed=true numa fase read-only.';
+            $summary['failure_reason'] = 'Existem campos bloqueados sem decisao explicita no config M4.17.';
         } elseif ((int) $summary['unknown_target_status_count'] > 0) {
             $summary['passed'] = false;
-            $summary['failure_reason'] = 'Existem campos com target_status desconhecido no config M4.15.';
+            $summary['failure_reason'] = 'Existem campos com target_status desconhecido no config M4.17.';
         }
 
         return [
             'version' => self::VERSION,
             'config_version' => $configVersion !== '' ? $configVersion : self::VERSION,
-            'preflight_version' => (string) ($preflight['version'] ?? 'M4.14'),
+            'preflight_version' => (string) ($preflight['version'] ?? self::VERSION),
             'summary' => $summary,
             'fields' => $rows,
         ];

@@ -12,7 +12,7 @@ final class PreflightUsersLegacyOnlyBackfillCommand extends Command
 {
     protected $signature = 'members:preflight-users-legacy-only-backfill
         {--field= : Limita o diagnostico a um campo permitido}
-        {--commit : Tentativa de commit, sempre bloqueada nesta sprint}
+        {--commit : Simula tentativa de commit validando guardas, sem escrita}
         {--confirm= : Token de confirmacao opcional para commit}
         {--json : Devolve o relatorio em JSON}
         {--report-path= : Caminho para guardar relatorio JSON}';
@@ -34,7 +34,7 @@ final class PreflightUsersLegacyOnlyBackfillCommand extends Command
             $payload = $this->service->preflight($fieldFilter !== '' ? $fieldFilter : null);
         } catch (\InvalidArgumentException $exception) {
             $payload = [
-                'version' => 'M4.14',
+                'version' => 'M4.17',
                 'mode' => 'preflight',
                 'writable' => false,
                 'commit_allowed' => false,
@@ -59,9 +59,11 @@ final class PreflightUsersLegacyOnlyBackfillCommand extends Command
 
         $failureReason = null;
         if ($commitRequested) {
-            $failureReason = $confirmToken === ''
-                ? 'Commit bloqueado nesta sprint: esta sprint e read-only. Use --commit --confirm=BACKFILL_LEGACY_ONLY_FIELDS apenas quando o destino canónico estiver aprovado.'
-                : 'Commit bloqueado nesta sprint: o preflight nao permite escrita enquanto existir qualquer destino canónico nao aprovado.';
+            if ($confirmToken !== 'BACKFILL_LEGACY_ONLY_FIELDS') {
+                $failureReason = 'Commit bloqueado no preflight: use --commit --confirm=BACKFILL_LEGACY_ONLY_FIELDS.';
+            } elseif (!(bool) ($payload['commit_allowed'] ?? false)) {
+                $failureReason = 'Commit bloqueado no preflight: existem campos sem destino resolvivel, write_allowed=false ou divergencias.';
+            }
         }
 
         $payload['summary']['passed'] = $failureReason === null;
@@ -104,13 +106,14 @@ final class PreflightUsersLegacyOnlyBackfillCommand extends Command
         $this->table(
             ['Metrica', 'Valor'],
             [
-                ['version', (string) ($payload['version'] ?? 'M4.14')],
+                ['version', (string) ($payload['version'] ?? 'M4.17')],
                 ['fields_analyzed', (int) ($summary['fields_analyzed'] ?? 0)],
                 ['total_legacy_only_count', (int) ($summary['total_legacy_only_count'] ?? 0)],
                 ['total_divergent_count', (int) ($summary['total_divergent_count'] ?? 0)],
                 ['fields_with_missing_canonical_target', (int) ($summary['fields_with_missing_canonical_target'] ?? 0)],
                 ['fields_requiring_architecture_decision', (int) ($summary['fields_requiring_architecture_decision'] ?? 0)],
                 ['fields_with_defined_but_write_blocked_target', (int) ($summary['fields_with_defined_but_write_blocked_target'] ?? 0)],
+                ['commit_allowed', ((bool) ($payload['commit_allowed'] ?? false)) ? 'true' : 'false'],
                 ['passed', ((bool) ($summary['passed'] ?? false)) ? 'true' : 'false'],
             ]
         );

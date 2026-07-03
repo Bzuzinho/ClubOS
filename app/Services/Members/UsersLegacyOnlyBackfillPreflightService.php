@@ -4,308 +4,86 @@ declare(strict_types=1);
 
 namespace App\Services\Members;
 
-use App\Models\AthleteSportsData;
-use App\Models\User;
-use Illuminate\Support\Facades\Schema;
-
 final class UsersLegacyOnlyBackfillPreflightService
 {
-    private const VERSION = 'M4.14';
+    private const VERSION = 'M4.17';
 
-    /** @var list<string> */
-    private const KNOWN_TARGET_STATUSES = [
-        'architecture_decision_required',
-        'canonical_payload_key_pending',
-        'canonical_payload_key_defined',
-    ];
-
-    /** @var list<string> */
-    private const ALLOWED_FIELDS = [
-        'data_atestado_medico',
-        'estado_civil',
-        'numero_irmaos',
-    ];
+    public function __construct(
+        private readonly UsersLegacyOnlyBackfillService $backfillService,
+    ) {}
 
     /** @return array<string,mixed> */
     public function preflight(?string $fieldFilter = null): array
     {
-        $fieldFilter = $fieldFilter !== null ? trim($fieldFilter) : null;
-
-        if ($fieldFilter !== null && $fieldFilter !== '' && !in_array($fieldFilter, self::ALLOWED_FIELDS, true)) {
-            throw new \InvalidArgumentException(sprintf('Campo invalido para preflight: %s', $fieldFilter));
-        }
-
-        $decisionConfig = $this->decisionConfig();
-        $decisionFields = is_array($decisionConfig['fields'] ?? null) ? $decisionConfig['fields'] : [];
-
-        $fieldDefinitions = array_values(array_filter(
-            $this->fieldDefinitions($decisionFields),
-            static fn (array $definition): bool => $fieldFilter === null || $fieldFilter === '' || $definition['field'] === $fieldFilter,
-        ));
-
-        $users = User::query()
-            ->select(['id', 'data_atestado_medico', 'estado_civil', 'numero_irmaos'])
-            ->with(['athleteSportsData:id,user_id,data_atestado_medico'])
-            ->orderBy('id')
-            ->get();
+        $analysis = $this->backfillService->analyze($fieldFilter);
 
         $fields = [];
-        foreach ($fieldDefinitions as $definition) {
-            $fields[] = $this->analyzeField($definition, $users->all());
+        foreach (($analysis['fields'] ?? []) as $field) {
+            if (!is_array($field)) {
+                continue;
+            }
+
+            $fields[] = [
+                'field' => $field['field'] ?? null,
+                'legacy_field' => $field['legacy_field'] ?? null,
+                'proposed_canonical_area' => $field['target_area'] ?? null,
+                'proposed_canonical_field' => $field['target_field'] ?? null,
+                'canonical_target_status' => $this->canonicalTargetStatus(
+                    (bool) ($field['target_resolvable'] ?? false),
+                    (bool) ($field['write_allowed'] ?? false),
+                ),
+                'target_status' => $field['target_status'] ?? null,
+                'decision' => $field['decision'] ?? null,
+                'owner_area' => $field['owner_area'] ?? null,
+                'reason' => $field['reason'] ?? null,
+                'next_action' => $field['next_action'] ?? null,
+                'write_allowed' => (bool) ($field['write_allowed'] ?? false),
+                'target_resolvable' => (bool) ($field['target_resolvable'] ?? false),
+                'legacy_only_count' => (int) ($field['legacy_only_count'] ?? 0),
+                'divergent_count' => (int) ($field['divergent_count'] ?? 0),
+                'already_matching_count' => (int) ($field['already_matching_count'] ?? 0),
+                'skipped_missing_target_count' => (int) ($field['skipped_missing_target_count'] ?? 0),
+                'skipped_ambiguous_target_count' => (int) ($field['skipped_ambiguous_target_count'] ?? 0),
+            ];
         }
 
-        usort($fields, static fn (array $left, array $right): int => strcmp((string) $left['field'], (string) $right['field']));
+        $summary = is_array($analysis['summary'] ?? null) ? $analysis['summary'] : [];
 
         return [
             'version' => self::VERSION,
-            'decision_config_version' => is_string($decisionConfig['version'] ?? null)
-                ? trim((string) $decisionConfig['version'])
-                : null,
+            'decision_config_version' => is_string(config('member_user_legacy_canonical_targets.version'))
+                ? (string) config('member_user_legacy_canonical_targets.version')
+                : self::VERSION,
             'mode' => 'preflight',
             'writable' => false,
-            'commit_allowed' => false,
+            'commit_allowed' => (bool) ($summary['commit_allowed'] ?? false),
             'fields' => $fields,
             'summary' => [
-                'fields_analyzed' => count($fields),
-                'total_legacy_only_count' => array_sum(array_map(static fn (array $field): int => (int) ($field['legacy_only_count'] ?? 0), $fields)),
-                'total_divergent_count' => array_sum(array_map(static fn (array $field): int => (int) ($field['divergent_count'] ?? 0), $fields)),
-                'fields_with_missing_canonical_target' => count(array_filter($fields, static fn (array $field): bool => ($field['canonical_target_status'] ?? null) === 'canonical_target_missing_or_not_versioned')),
-                'fields_requiring_architecture_decision' => count(array_filter($fields, static fn (array $field): bool => ($field['canonical_target_status'] ?? null) === 'canonical_target_requires_architecture_decision')),
-                'fields_with_defined_but_write_blocked_target' => count(array_filter($fields, static fn (array $field): bool => ($field['canonical_target_status'] ?? null) === 'canonical_target_defined_but_write_blocked')),
+                'fields_analyzed' => (int) ($summary['fields_analyzed'] ?? 0),
+                'total_legacy_only_count' => (int) ($summary['total_legacy_only_count'] ?? 0),
+                'total_divergent_count' => (int) ($summary['total_divergent_count'] ?? 0),
+                'fields_with_missing_canonical_target' => (int) ($summary['unresolvable_target_fields_count'] ?? 0),
+                'fields_requiring_architecture_decision' => 0,
+                'fields_with_defined_but_write_blocked_target' => max(
+                    0,
+                    (int) ($summary['fields_analyzed'] ?? 0) - (int) ($summary['write_allowed_fields_count'] ?? 0),
+                ),
                 'passed' => true,
                 'failure_reason' => null,
             ],
         ];
     }
 
-    /**
-     * @param array<string,mixed> $decisionFields
-     * @return list<array<string,mixed>>
-     */
-    private function fieldDefinitions(array $decisionFields): array
+    private function canonicalTargetStatus(bool $targetResolvable, bool $writeAllowed): string
     {
-        $definitions = [
-            [
-                'field' => 'data_atestado_medico',
-                'legacy_field' => 'users.data_atestado_medico',
-                'proposed_canonical_area' => 'athlete_sports_data',
-                'proposed_canonical_field' => 'data_atestado_medico',
-                'canonical_target_status' => $this->canonicalTargetStatus('athlete_sports_data', 'data_atestado_medico'),
-                'recommended_next_step' => 'Definir arquitetura canónica para o destino desportivo antes de qualquer backfill.',
-                'commit_blocked_reason' => 'Commit bloqueado: o destino canónico real ainda exige decisão de arquitetura.',
-            ],
-            [
-                'field' => 'estado_civil',
-                'legacy_field' => 'users.estado_civil',
-                'proposed_canonical_area' => 'dados_pessoais',
-                'proposed_canonical_field' => 'estado_civil',
-                'canonical_target_status' => $this->canonicalTargetStatus('dados_pessoais', 'estado_civil'),
-                'recommended_next_step' => 'Versionar o campo em dados_pessoais antes de qualquer escrita canónica.',
-                'commit_blocked_reason' => 'Commit bloqueado: destino canónico ausente ou ainda não versionado.',
-            ],
-            [
-                'field' => 'numero_irmaos',
-                'legacy_field' => 'users.numero_irmaos',
-                'proposed_canonical_area' => 'dados_pessoais',
-                'proposed_canonical_field' => 'numero_irmaos',
-                'canonical_target_status' => $this->canonicalTargetStatus('dados_pessoais', 'numero_irmaos'),
-                'recommended_next_step' => 'Versionar o campo em dados_pessoais antes de qualquer escrita canónica.',
-                'commit_blocked_reason' => 'Commit bloqueado: destino canónico ausente ou ainda não versionado.',
-            ],
-        ];
-
-        foreach ($definitions as &$definition) {
-            $field = is_string($definition['field'] ?? null) ? trim((string) $definition['field']) : '';
-            if ($field === '') {
-                continue;
-            }
-
-            $decision = is_array($decisionFields[$field] ?? null) ? $decisionFields[$field] : null;
-
-            $targetStatus = is_string($decision['target_status'] ?? null) ? trim((string) $decision['target_status']) : '';
-
-            $definition['target_status'] = $targetStatus !== '' ? $targetStatus : null;
-            $definition['decision'] = is_string($decision['decision'] ?? null) ? trim((string) $decision['decision']) : null;
-            $definition['write_allowed'] = (bool) ($decision['write_allowed'] ?? false);
-            $definition['owner_area'] = is_string($decision['owner_area'] ?? null) ? trim((string) $decision['owner_area']) : null;
-            $definition['reason'] = is_string($decision['reason'] ?? null) ? trim((string) $decision['reason']) : null;
-            $definition['next_action'] = is_string($decision['next_action'] ?? null) ? trim((string) $decision['next_action']) : null;
-
-            if (is_string($decision['target_area'] ?? null) && trim((string) $decision['target_area']) !== '') {
-                $definition['proposed_canonical_area'] = trim((string) $decision['target_area']);
-            }
-
-            if (is_string($decision['target_field'] ?? null) && trim((string) $decision['target_field']) !== '') {
-                $definition['proposed_canonical_field'] = trim((string) $decision['target_field']);
-            }
-
-            $definition['canonical_target_status'] = $this->mapTargetStatusToCanonicalStatus(
-                $targetStatus,
-                (string) $definition['canonical_target_status'],
-            );
-        }
-        unset($definition);
-
-        return $definitions;
-    }
-
-    /**
-     * @param array<string,mixed> $definition
-     * @param list<User> $users
-     * @return array<string,mixed>
-     */
-    private function analyzeField(array $definition, array $users): array
-    {
-        $field = (string) $definition['field'];
-        $legacyOnlyCount = 0;
-        $divergentCount = 0;
-
-        foreach ($users as $user) {
-            if ($field === 'data_atestado_medico') {
-                $legacyValue = $this->normalizeDate($user->getAttribute('data_atestado_medico'));
-                $canonicalValue = $this->normalizeDate($user->athleteSportsData?->getAttribute('data_atestado_medico'));
-
-                if (!$this->hasValue($legacyValue)) {
-                    continue;
-                }
-
-                if (!$this->hasValue($canonicalValue)) {
-                    $legacyOnlyCount++;
-
-                    continue;
-                }
-
-                if ($legacyValue !== $canonicalValue) {
-                    $divergentCount++;
-                }
-
-                continue;
-            }
-
-            $legacyValue = $this->normalizeScalar($user->getAttribute($field));
-
-            if (!$this->hasValue($legacyValue)) {
-                continue;
-            }
-
-            $legacyOnlyCount++;
+        if (!$targetResolvable) {
+            return 'canonical_target_missing_or_not_resolvable';
         }
 
-        return [
-            'field' => $field,
-            'legacy_field' => $definition['legacy_field'],
-            'proposed_canonical_area' => $definition['proposed_canonical_area'],
-            'proposed_canonical_field' => $definition['proposed_canonical_field'],
-            'canonical_target_status' => $definition['canonical_target_status'],
-            'target_status' => $definition['target_status'] ?? null,
-            'decision' => $definition['decision'] ?? null,
-            'write_allowed' => (bool) ($definition['write_allowed'] ?? false),
-            'owner_area' => $definition['owner_area'] ?? null,
-            'reason' => $definition['reason'] ?? null,
-            'next_action' => $definition['next_action'] ?? null,
-            'legacy_only_count' => $legacyOnlyCount,
-            'divergent_count' => $divergentCount,
-            'commit_blocked_reason' => $definition['commit_blocked_reason'],
-            'recommended_next_step' => $definition['recommended_next_step'],
-        ];
-    }
-
-    /** @return array<string,mixed> */
-    private function decisionConfig(): array
-    {
-        $config = config('member_user_legacy_canonical_targets');
-
-        return is_array($config) ? $config : [];
-    }
-
-    private function mapTargetStatusToCanonicalStatus(string $targetStatus, string $fallback): string
-    {
-        if (!in_array($targetStatus, self::KNOWN_TARGET_STATUSES, true)) {
-            return $fallback;
+        if (!$writeAllowed) {
+            return 'canonical_target_defined_but_write_blocked';
         }
 
-        return match ($targetStatus) {
-            'architecture_decision_required' => 'canonical_target_requires_architecture_decision',
-            'canonical_payload_key_pending' => 'canonical_target_missing_or_not_versioned',
-            'canonical_payload_key_defined' => 'canonical_target_defined_but_write_blocked',
-            default => $fallback,
-        };
-    }
-
-    private function canonicalTargetStatus(string $area, string $field): string
-    {
-        if ($area === 'athlete_sports_data' && $field === 'data_atestado_medico') {
-            return Schema::hasTable('athlete_sports_data') && Schema::hasColumn('athlete_sports_data', 'data_atestado_medico')
-                ? 'canonical_target_requires_architecture_decision'
-                : 'canonical_target_missing_or_not_versioned';
-        }
-
-        if (Schema::hasTable($area) && Schema::hasColumn($area, $field)) {
-            return 'canonical_target_requires_architecture_decision';
-        }
-
-        return 'canonical_target_missing_or_not_versioned';
-    }
-
-    private function hasValue(mixed $value): bool
-    {
-        if ($value === null) {
-            return false;
-        }
-
-        if (is_string($value)) {
-            return trim($value) !== '';
-        }
-
-        return true;
-    }
-
-    private function normalizeScalar(mixed $value): ?string
-    {
-        if ($value === null) {
-            return null;
-        }
-
-        if (is_bool($value)) {
-            return $value ? '1' : '0';
-        }
-
-        if (is_int($value) || is_float($value)) {
-            return (string) $value;
-        }
-
-        if (is_string($value)) {
-            $trimmed = trim($value);
-
-            return $trimmed === '' ? null : $trimmed;
-        }
-
-        return null;
-    }
-
-    private function normalizeDate(mixed $value): ?string
-    {
-        if ($value === null) {
-            return null;
-        }
-
-        if (is_string($value)) {
-            $trimmed = trim($value);
-            if ($trimmed === '') {
-                return null;
-            }
-
-            try {
-                return \Illuminate\Support\Carbon::parse($trimmed)->toDateString();
-            } catch (\Throwable) {
-                return $trimmed;
-            }
-        }
-
-        if ($value instanceof \DateTimeInterface) {
-            return $value->format('Y-m-d');
-        }
-
-        return $this->normalizeScalar($value);
+        return 'canonical_target_ready';
     }
 }

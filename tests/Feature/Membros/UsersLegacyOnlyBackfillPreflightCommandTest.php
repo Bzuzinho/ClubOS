@@ -11,6 +11,7 @@ use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
 
 final class UsersLegacyOnlyBackfillPreflightCommandTest extends TestCase
@@ -23,7 +24,7 @@ final class UsersLegacyOnlyBackfillPreflightCommandTest extends TestCase
 
         $payload = $this->runJsonCommand();
 
-        $this->assertSame('M4.14', $payload['version'] ?? null);
+        $this->assertSame('M4.17', $payload['version'] ?? null);
         $this->assertSame('preflight', $payload['mode'] ?? null);
         $this->assertFalse((bool) ($payload['writable'] ?? true));
         $this->assertFalse((bool) ($payload['commit_allowed'] ?? true));
@@ -42,7 +43,7 @@ final class UsersLegacyOnlyBackfillPreflightCommandTest extends TestCase
         ]);
 
         $this->assertSame(1, $exitCode);
-        $this->assertStringContainsString('Commit bloqueado nesta sprint', Artisan::output());
+        $this->assertStringContainsString('Commit bloqueado no preflight', Artisan::output());
     }
 
     public function test_commit_with_confirmation_also_fails(): void
@@ -55,7 +56,7 @@ final class UsersLegacyOnlyBackfillPreflightCommandTest extends TestCase
         ]);
 
         $this->assertSame(1, $exitCode);
-        $this->assertStringContainsString('nao permite escrita', Artisan::output());
+        $this->assertStringContainsString('Commit bloqueado no preflight', Artisan::output());
     }
 
     public function test_field_option_limits_analysis(): void
@@ -78,7 +79,7 @@ final class UsersLegacyOnlyBackfillPreflightCommandTest extends TestCase
         ]);
 
         $this->assertSame(1, $exitCode);
-        $this->assertStringContainsString('Campo invalido para preflight', Artisan::output());
+        $this->assertStringContainsString('Campo invalido para backfill', Artisan::output());
     }
 
     public function test_report_path_writes_json_report(): void
@@ -101,7 +102,7 @@ final class UsersLegacyOnlyBackfillPreflightCommandTest extends TestCase
 
             $decoded = json_decode((string) File::get($absolutePath), true);
             $this->assertIsArray($decoded);
-            $this->assertSame('M4.14', $decoded['version'] ?? null);
+            $this->assertSame('M4.17', $decoded['version'] ?? null);
         } finally {
             File::delete($absolutePath);
         }
@@ -123,17 +124,16 @@ final class UsersLegacyOnlyBackfillPreflightCommandTest extends TestCase
         $this->assertArrayHasKey('data_atestado_medico', $fieldsByName);
         $this->assertArrayHasKey('estado_civil', $fieldsByName);
         $this->assertArrayHasKey('numero_irmaos', $fieldsByName);
-        $this->assertSame('canonical_target_requires_architecture_decision', $fieldsByName['data_atestado_medico']['canonical_target_status'] ?? null);
-        $this->assertSame('canonical_target_defined_but_write_blocked', $fieldsByName['estado_civil']['canonical_target_status'] ?? null);
-        $this->assertSame('canonical_target_missing_or_not_versioned', $fieldsByName['numero_irmaos']['canonical_target_status'] ?? null);
-        $this->assertSame('route_to_sports_domain', $fieldsByName['data_atestado_medico']['decision'] ?? null);
-        $this->assertSame('desportivo', $fieldsByName['data_atestado_medico']['owner_area'] ?? null);
-        $this->assertSame('add_to_personal_payload_contract', $fieldsByName['estado_civil']['decision'] ?? null);
-        $this->assertSame('add_to_personal_payload_contract_or_discard_as_historical', $fieldsByName['numero_irmaos']['decision'] ?? null);
-        $this->assertSame('M4.16', $payload['decision_config_version'] ?? null);
-        $this->assertSame(1, (int) ($payload['summary']['fields_with_missing_canonical_target'] ?? 0));
-        $this->assertSame(1, (int) ($payload['summary']['fields_with_defined_but_write_blocked_target'] ?? 0));
-        $this->assertFalse((bool) ($fieldsByName['data_atestado_medico']['write_allowed'] ?? true));
+        $this->assertSame('canonical_target_ready', $fieldsByName['data_atestado_medico']['canonical_target_status'] ?? null);
+        $this->assertSame('canonical_target_ready', $fieldsByName['estado_civil']['canonical_target_status'] ?? null);
+        $this->assertSame('canonical_target_ready', $fieldsByName['numero_irmaos']['canonical_target_status'] ?? null);
+        $this->assertSame('backfill_to_sports_domain', $fieldsByName['data_atestado_medico']['decision'] ?? null);
+        $this->assertSame('backfill_to_personal_payload', $fieldsByName['estado_civil']['decision'] ?? null);
+        $this->assertSame('backfill_to_personal_payload', $fieldsByName['numero_irmaos']['decision'] ?? null);
+        $this->assertSame('M4.17', $payload['decision_config_version'] ?? null);
+        $this->assertSame(0, (int) ($payload['summary']['fields_with_missing_canonical_target'] ?? 0));
+        $this->assertSame(0, (int) ($payload['summary']['fields_with_defined_but_write_blocked_target'] ?? 0));
+        $this->assertTrue((bool) ($fieldsByName['data_atestado_medico']['write_allowed'] ?? false));
     }
 
     public function test_preflight_includes_decision_reason_and_next_action_and_keeps_commit_blocked(): void
@@ -151,11 +151,9 @@ final class UsersLegacyOnlyBackfillPreflightCommandTest extends TestCase
             }
         }
 
-        $this->assertStringContainsString('dominio desportivo', (string) ($fieldsByName['data_atestado_medico']['reason'] ?? ''));
-        $this->assertStringContainsString('Auditar athlete_sports_data', (string) ($fieldsByName['data_atestado_medico']['next_action'] ?? ''));
-        $this->assertStringContainsString('Contrato canonico de dados_pessoais atualizado', (string) ($fieldsByName['estado_civil']['reason'] ?? ''));
-        $this->assertStringContainsString('backfill controlado apenas de estado_civil', (string) ($fieldsByName['estado_civil']['next_action'] ?? ''));
-        $this->assertStringContainsString('Validar utilidade funcional', (string) ($fieldsByName['numero_irmaos']['next_action'] ?? ''));
+        $this->assertSame('backfill_to_sports_domain', (string) ($fieldsByName['data_atestado_medico']['decision'] ?? ''));
+        $this->assertSame('backfill_to_personal_payload', (string) ($fieldsByName['estado_civil']['decision'] ?? ''));
+        $this->assertSame('backfill_to_personal_payload', (string) ($fieldsByName['numero_irmaos']['decision'] ?? ''));
     }
 
     public function test_command_does_not_write_any_tables(): void
@@ -198,12 +196,15 @@ final class UsersLegacyOnlyBackfillPreflightCommandTest extends TestCase
 
     private function createFixtureUser(): User
     {
+        $this->ensureUsersPersonalPayloadColumn();
+
         $user = User::factory()->create([
             'name' => 'M4.14 Preflight User',
             'nome_completo' => 'M4.14 Preflight User',
             'data_atestado_medico' => '2024-05-01',
             'estado_civil' => 'solteiro',
             'numero_irmaos' => 2,
+            'dados_pessoais' => json_encode([]),
         ]);
 
         DadosPessoais::query()->create([
@@ -222,6 +223,17 @@ final class UsersLegacyOnlyBackfillPreflightCommandTest extends TestCase
         ]);
 
         return $user;
+    }
+
+    private function ensureUsersPersonalPayloadColumn(): void
+    {
+        if (Schema::hasColumn('users', 'dados_pessoais')) {
+            return;
+        }
+
+        Schema::table('users', function ($table): void {
+            $table->json('dados_pessoais')->nullable();
+        });
     }
 
     private function snapshotUser(User $user): array
