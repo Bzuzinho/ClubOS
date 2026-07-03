@@ -25,6 +25,8 @@ interface User {
     tipo_membro?: string[];
     data_nascimento?: string;
     perfil?: string;
+    memberTypes?: string[];
+    userTypes?: Array<{ codigo?: string; nome?: string } | string>;
     // ... other fields
     [key: string]: any;
 }
@@ -178,6 +180,52 @@ const normalizeRelationIds = (value: unknown): string[] => {
         .filter((entry): entry is string => Boolean(entry));
 };
 
+const normalizeTypeToken = (value: unknown): string => {
+    if (typeof value !== 'string') {
+        return '';
+    }
+
+    return value
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '_')
+        .replace(/^_+|_+$/g, '');
+};
+
+const resolveMemberTypes = (user: User): string[] => {
+    const directMemberTypes = Array.isArray((user as any).memberTypes)
+        ? (user as any).memberTypes.map(normalizeTypeToken).filter(Boolean)
+        : [];
+
+    if (directMemberTypes.length > 0) {
+        return Array.from(new Set(directMemberTypes));
+    }
+
+    const relationUserTypes = Array.isArray((user as any).userTypes) ? (user as any).userTypes : [];
+    const normalizedFromRelation = relationUserTypes
+        .map((entry: any) => {
+            if (typeof entry === 'string') {
+                return normalizeTypeToken(entry);
+            }
+
+            if (entry && typeof entry === 'object') {
+                return normalizeTypeToken(entry.codigo || entry.nome || '');
+            }
+
+            return '';
+        })
+        .filter(Boolean);
+
+    if (normalizedFromRelation.length > 0) {
+        return Array.from(new Set(normalizedFromRelation));
+    }
+
+    const legacyTypes = Array.isArray(user.tipo_membro) ? user.tipo_membro : [];
+
+    return Array.from(new Set(legacyTypes.map(normalizeTypeToken).filter(Boolean)));
+};
+
 const buildMemberUpdatePayload = (user: User) => ({
     numero_socio: user.numero_socio || '',
     nome_completo: user.nome_completo || '',
@@ -233,7 +281,7 @@ export default function Show({ member, family_context, permissions, allUsers, in
     const [user, setUser] = useState<User>(() => normalizeMember(member));
     const [hasChanges, setHasChanges] = useState(false);
     const query = page.props.ziggy?.query;
-    const showSportsTab = (member.tipo_membro?.includes('atleta') || false);
+    const showSportsTab = resolveMemberTypes(member).includes('atleta');
     const canEditMember = Boolean(permissions?.can_edit);
     const initialTab = resolveMemberTab(query?.tab, showSportsTab);
 
@@ -326,7 +374,7 @@ export default function Show({ member, family_context, permissions, allUsers, in
         }
     };
 
-    const currentShowSportsTab = user.tipo_membro?.includes('atleta') || false;
+    const currentShowSportsTab = resolveMemberTypes(user).includes('atleta');
 
     return (
         <AuthenticatedLayout

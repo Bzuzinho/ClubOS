@@ -54,6 +54,7 @@ class SportsCanonicalFlowTest extends TestCase
             'perfil' => 'atleta',
             'tipo_membro' => ['atleta'],
             'estado' => 'ativo',
+            'ativo_desportivo' => true,
         ]);
 
         $training = Training::create([

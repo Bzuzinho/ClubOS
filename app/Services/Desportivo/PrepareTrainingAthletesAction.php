@@ -6,6 +6,7 @@ use App\Models\AthleteSportsData;
 use App\Models\Training;
 use App\Models\TrainingAthlete;
 use App\Models\User;
+use App\Services\Members\MemberTypeResolver;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -21,6 +22,10 @@ use Illuminate\Support\Facades\Log;
  */
 class PrepareTrainingAthletesAction
 {
+    public function __construct(private readonly MemberTypeResolver $memberTypeResolver)
+    {
+    }
+
     /**
      * Prepara training_athletes para um treino
      * 
@@ -96,8 +101,13 @@ class PrepareTrainingAthletesAction
     private function getEligibleAthletes(array $escalaoIds): Collection
     {
         $query = User::query()
-            ->whereJsonContains('tipo_membro', 'atleta')
-            ->where('estado', 'ativo');
+            ->with(['userTypes:id,codigo,nome', 'athleteSportsData:id,user_id,escalao_id'])
+            ->where('estado', 'ativo')
+            ->where(function ($subQuery) {
+                $subQuery
+                    ->whereNull('ativo_desportivo')
+                    ->orWhere('ativo_desportivo', true);
+            });
 
         if (!empty($escalaoIds)) {
             $query->whereHas('athleteSportsData', function ($sportsDataQuery) use ($escalaoIds) {
@@ -106,9 +116,10 @@ class PrepareTrainingAthletesAction
         }
 
         return $query
-            ->with('athleteSportsData:id,user_id,escalao_id')
             ->orderBy('nome_completo')
-            ->get();
+            ->get()
+            ->filter(fn (User $user): bool => $this->memberTypeResolver->isAthlete($user))
+            ->values();
     }
 
     /**

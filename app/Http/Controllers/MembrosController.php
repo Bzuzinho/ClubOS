@@ -21,6 +21,7 @@ use App\Services\Financeiro\CurrentAccountService;
 use App\Services\Members\MemberDataReadService;
 use App\Services\Members\MemberDocumentDataResolver;
 use App\Services\Members\MemberIdentityDisplayResolver;
+use App\Services\Members\MemberTypeResolver;
 use App\Services\Members\MemberDataWriteService;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -43,6 +44,7 @@ class MembrosController extends Controller
         private readonly MemberDataWriteService $memberDataWriteService,
         private readonly MemberDocumentDataResolver $memberDocumentDataResolver,
         private readonly MemberIdentityDisplayResolver $memberIdentityDisplayResolver,
+        private readonly MemberTypeResolver $memberTypeResolver,
     )
     {
     }
@@ -52,7 +54,7 @@ class MembrosController extends Controller
         // members list — 60s TTL, invalidated on store/update/destroy
         $members = Cache::remember('membros:list', 60, fn () =>
             User::query()
-                ->with(['dadosPessoais:id,user_id,nome_completo'])
+                ->with(['dadosPessoais:id,user_id,nome_completo', 'userTypes:id,codigo,nome'])
                 ->select([
                     'id',
                     'numero_socio',
@@ -68,8 +70,9 @@ class MembrosController extends Controller
                 ->get()
                 ->map(function (User $member): User {
                     $member->setAttribute('nome_completo', $this->memberIdentityDisplayResolver->displayName($member));
+                    $member->setAttribute('tipo_membro', $this->memberTypeResolver->typesFor($member));
 
-                    unset($member->dadosPessoais, $member->name);
+                    unset($member->dadosPessoais, $member->userTypes, $member->name);
 
                     return $member;
                 })
@@ -91,6 +94,16 @@ class MembrosController extends Controller
         $stats = Cache::remember('membros:stats', 60, function () use ($members, $userTypes, $ageGroups) {
             $membersByUserType = [];
             $athletesByAgeGroup = [];
+            $canonicalTypeLabels = $userTypes
+                ->mapWithKeys(function (UserType $type): array {
+                    $normalized = $this->memberTypeResolver->normalizeType((string) ($type->codigo ?: $type->nome));
+                    if ($normalized === '') {
+                        return [];
+                    }
+
+                    return [$normalized => $type->nome];
+                })
+                ->all();
 
             foreach ($members as $member) {
                 $memberTypes = collect($member->tipo_membro ?? [])->map(static fn ($type) => (string) $type);
@@ -107,10 +120,10 @@ class MembrosController extends Controller
             }
 
             $tipoMembrosStats = [];
-            foreach ($userTypes as $tipo) {
-                $count = $membersByUserType[(string) $tipo->id] ?? 0;
+            foreach ($canonicalTypeLabels as $typeCode => $typeLabel) {
+                $count = $membersByUserType[$typeCode] ?? 0;
                 if ($count > 0) {
-                    $tipoMembrosStats[] = ['tipo' => $tipo->nome, 'count' => $count];
+                    $tipoMembrosStats[] = ['tipo' => $typeLabel, 'count' => $count];
                 }
             }
 
@@ -123,7 +136,7 @@ class MembrosController extends Controller
             }
 
             $createdThreshold = now()->subDays(30);
-            $athletes = $members->filter(static fn ($member) => in_array('atleta', $member->tipo_membro ?? [], true));
+            $athletes = $members->filter(fn (User $member) => $this->memberTypeResolver->isAthlete($member));
 
             return [
                 'counts' => [
@@ -132,8 +145,8 @@ class MembrosController extends Controller
                     'membrosInativos'   => $members->where('estado', 'inativo')->count(),
                     'totalAtletas'      => $athletes->count(),
                     'atletasAtivos'     => $athletes->where('ativo_desportivo', true)->count(),
-                    'encarregados'      => $members->filter(static fn ($member) => in_array('encarregado_educacao', $member->tipo_membro ?? [], true))->count(),
-                    'treinadores'       => $members->filter(static fn ($member) => in_array('treinador', $member->tipo_membro ?? [], true))->count(),
+                    'encarregados'      => $members->filter(fn (User $member) => $this->memberTypeResolver->isGuardian($member))->count(),
+                    'treinadores'       => $members->filter(fn (User $member) => $this->memberTypeResolver->isTrainer($member))->count(),
                     'novosUltimos30Dias' => $members->filter(static fn ($member) => optional($member->created_at)?->greaterThanOrEqualTo($createdThreshold))->count(),
                 ],
                 'tipoMembrosStats' => $tipoMembrosStats,
@@ -364,6 +377,7 @@ class MembrosController extends Controller
         $member->loadMissing(['dadosPessoais', 'dadosConfiguracao']);
         $memberData = app(MemberDataReadService::class)->mergedMemberPayload($member, $memberData);
         $memberData = array_merge($memberData, $this->memberDocumentDataResolver->memberDocumentPayload($member));
+        $memberData['memberTypes'] = $this->memberTypeResolver->typesFor($member);
 
         $legacyEducandoIds = $this->normalizeRelationIds($member->getAttribute('educandos'));
         $legacyGuardianIds = $this->normalizeRelationIds($member->getAttribute('encarregado_educacao'));
@@ -627,9 +641,7 @@ class MembrosController extends Controller
             })
             ->values();
 
-        $memberTypeCodes = collect(is_array($member->tipo_membro) ? $member->tipo_membro : (array) $member->tipo_membro)
-            ->map(fn ($value) => strtolower((string) $value))
-            ->values();
+        $memberTypeCodes = collect($this->memberTypeResolver->typesFor($member))->values();
 
         $isGuardianProfile = $memberTypeCodes->contains('encarregado_educacao') || $dependents->isNotEmpty();
         $isDependentProfile = $memberTypeCodes->contains('atleta') || $guardians->isNotEmpty() || (bool) $member->menor;
