@@ -85,10 +85,6 @@ final class UsersLegacyOnlyBackfillPreflightService
             return 'canonical_target_defined_but_write_blocked';
         }
 
-        if ($targetArea === 'dados_pessoais') {
-            return 'canonical_payload_target_ready';
-        }
-
         return 'canonical_target_ready';
     }
 }

@@ -5,10 +5,11 @@ declare(strict_types=1);
 namespace Tests\Feature\Membros;
 
 use App\Models\AthleteSportsData;
+use App\Models\DadosPessoais;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Artisan;
-use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
 
@@ -18,10 +19,12 @@ final class UsersLegacyOnlyBackfillCommandTest extends TestCase
 
     public function test_dry_run_does_not_write_anything(): void
     {
-        $user = $this->createUserWithPersonalPayload([
+        $user = $this->createUserWithPersonalRow([
             'estado_civil' => 'solteiro',
             'numero_irmaos' => 2,
-            'dados_pessoais' => ['nome_completo' => 'Dry Run User'],
+            'nome_completo' => 'Dry Run User',
+        ], [
+            'nome_completo' => 'Dry Run User',
         ]);
 
         $before = $this->snapshotUserAndSports($user->id);
@@ -40,9 +43,11 @@ final class UsersLegacyOnlyBackfillCommandTest extends TestCase
 
     public function test_commit_without_confirmation_fails(): void
     {
-        $this->createUserWithPersonalPayload([
+        $this->createUserWithPersonalRow([
             'estado_civil' => 'casado',
-            'dados_pessoais' => [],
+            'nome_completo' => 'Commit Blocked User',
+        ], [
+            'nome_completo' => 'Commit Blocked User',
         ]);
 
         $exitCode = Artisan::call('members:backfill-users-legacy-only-fields', [
@@ -55,14 +60,19 @@ final class UsersLegacyOnlyBackfillCommandTest extends TestCase
 
     public function test_commit_with_confirmation_writes_only_empty_targets(): void
     {
-        $targetEmpty = $this->createUserWithPersonalPayload([
+        $targetEmpty = $this->createUserWithPersonalRow([
             'estado_civil' => 'uniao_de_facto',
-            'dados_pessoais' => ['nome_completo' => 'Target Empty'],
+            'nome_completo' => 'Target Empty',
+        ], [
+            'nome_completo' => 'Target Empty',
         ]);
 
-        $targetFilled = $this->createUserWithPersonalPayload([
+        $targetFilled = $this->createUserWithPersonalRow([
             'estado_civil' => 'casado',
-            'dados_pessoais' => ['nome_completo' => 'Target Filled', 'estado_civil' => 'casado'],
+            'nome_completo' => 'Target Filled',
+        ], [
+            'nome_completo' => 'Target Filled',
+            'estado_civil' => 'casado',
         ]);
 
         $exitCode = Artisan::call('members:backfill-users-legacy-only-fields', [
@@ -74,18 +84,20 @@ final class UsersLegacyOnlyBackfillCommandTest extends TestCase
 
         $this->assertSame(0, $exitCode);
 
-        $emptyPayload = $this->readPersonalPayload($targetEmpty->id);
-        $filledPayload = $this->readPersonalPayload($targetFilled->id);
+        $emptyRow = DadosPessoais::query()->where('user_id', $targetEmpty->id)->first();
+        $filledRow = DadosPessoais::query()->where('user_id', $targetFilled->id)->first();
 
-        $this->assertSame('uniao_de_facto', $emptyPayload['estado_civil'] ?? null);
-        $this->assertSame('casado', $filledPayload['estado_civil'] ?? null);
+        $this->assertSame('uniao_de_facto', $emptyRow?->estado_civil);
+        $this->assertSame('casado', $filledRow?->estado_civil);
     }
 
     public function test_numero_irmaos_backfill_normalizes_integer_when_safe(): void
     {
-        $user = $this->createUserWithPersonalPayload([
+        $user = $this->createUserWithPersonalRow([
             'numero_irmaos' => '2',
-            'dados_pessoais' => ['nome_completo' => 'Irmaos User'],
+            'nome_completo' => 'Irmaos User',
+        ], [
+            'nome_completo' => 'Irmaos User',
         ]);
 
         Artisan::call('members:backfill-users-legacy-only-fields', [
@@ -94,29 +106,34 @@ final class UsersLegacyOnlyBackfillCommandTest extends TestCase
             '--confirm' => 'BACKFILL_LEGACY_ONLY_FIELDS',
         ]);
 
-        $payload = $this->readPersonalPayload($user->id);
-        $this->assertSame(2, $payload['numero_irmaos'] ?? null);
+        $row = DadosPessoais::query()->where('user_id', $user->id)->first();
+        $this->assertSame(2, $row?->numero_irmaos);
 
         $fresh = User::query()->findOrFail($user->id);
         $this->assertSame(2, (int) $fresh->numero_irmaos);
-        $this->assertSame('Irmaos User', $payload['nome_completo'] ?? null);
+        $this->assertSame('Irmaos User', $row?->nome_completo);
     }
 
     public function test_commit_is_allowed_with_personal_candidates_even_when_data_atestado_missing_target_is_skipped(): void
     {
-        $estadoCivilUser = $this->createUserWithPersonalPayload([
+        $estadoCivilUser = $this->createUserWithPersonalRow([
             'estado_civil' => 'casado',
-            'dados_pessoais' => ['nome_completo' => 'Estado Civil Candidate'],
+            'nome_completo' => 'Estado Civil Candidate',
+        ], [
+            'nome_completo' => 'Estado Civil Candidate',
         ]);
 
-        $numeroIrmaosUser = $this->createUserWithPersonalPayload([
+        $numeroIrmaosUser = $this->createUserWithPersonalRow([
             'numero_irmaos' => 2,
-            'dados_pessoais' => ['nome_completo' => 'Numero Irmaos Candidate'],
+            'nome_completo' => 'Numero Irmaos Candidate',
+        ], [
+            'nome_completo' => 'Numero Irmaos Candidate',
         ]);
 
-        $medicalSkipUser = $this->createUserWithPersonalPayload([
+        $medicalSkipUser = $this->createUserWithoutPersonalRow([
             'data_atestado_medico' => '2025-03-10',
-            'dados_pessoais' => ['nome_completo' => 'Medical Skip Candidate'],
+            'nome_completo' => 'Medical Skip Candidate',
+            'ativo_desportivo' => false,
         ]);
 
         $exitCode = Artisan::call('members:backfill-users-legacy-only-fields', [
@@ -133,8 +150,8 @@ final class UsersLegacyOnlyBackfillCommandTest extends TestCase
         $this->assertSame(1, (int) ($payload['summary']['total_skipped_missing_target_count'] ?? -1));
         $this->assertTrue((bool) ($payload['summary']['commit_allowed'] ?? false));
 
-        $this->assertSame('casado', $this->readPersonalPayload($estadoCivilUser->id)['estado_civil'] ?? null);
-        $this->assertSame(2, $this->readPersonalPayload($numeroIrmaosUser->id)['numero_irmaos'] ?? null);
+        $this->assertSame('casado', DadosPessoais::query()->where('user_id', $estadoCivilUser->id)->value('estado_civil'));
+        $this->assertSame(2, (int) DadosPessoais::query()->where('user_id', $numeroIrmaosUser->id)->value('numero_irmaos'));
 
         $sports = AthleteSportsData::query()->where('user_id', $medicalSkipUser->id)->first();
         $this->assertNull($sports);
@@ -142,12 +159,14 @@ final class UsersLegacyOnlyBackfillCommandTest extends TestCase
 
     public function test_data_atestado_medico_backfills_when_safe_target_exists(): void
     {
-        $user = $this->createUserWithPersonalPayload([
+        $user = $this->createUserWithoutPersonalRow([
             'data_atestado_medico' => '2025-05-10',
-            'dados_pessoais' => [],
+            'nome_completo' => 'Sports User',
+            'ativo_desportivo' => true,
         ]);
 
         AthleteSportsData::query()->create([
+            'id' => (string) \Illuminate\Support\Str::uuid(),
             'user_id' => $user->id,
             'data_atestado_medico' => null,
             'ativo' => true,
@@ -166,9 +185,10 @@ final class UsersLegacyOnlyBackfillCommandTest extends TestCase
 
     public function test_data_atestado_medico_skips_when_target_is_missing(): void
     {
-        $this->createUserWithPersonalPayload([
+        $this->createUserWithoutPersonalRow([
             'data_atestado_medico' => '2025-02-01',
-            'dados_pessoais' => [],
+            'nome_completo' => 'Inactive User',
+            'ativo_desportivo' => false,
         ]);
 
         $exitCode = Artisan::call('members:backfill-users-legacy-only-fields', [
@@ -178,7 +198,7 @@ final class UsersLegacyOnlyBackfillCommandTest extends TestCase
             '--json' => true,
         ]);
 
-        $this->assertSame(1, $exitCode);
+        $this->assertSame(0, $exitCode);
         $payload = $this->decodeOutputJson();
         $this->assertSame(1, (int) ($payload['summary']['total_skipped_missing_target_count'] ?? 0));
         $this->assertSame(0, (int) ($payload['summary']['total_updated_count'] ?? 0));
@@ -187,9 +207,12 @@ final class UsersLegacyOnlyBackfillCommandTest extends TestCase
 
     public function test_divergence_is_reported_and_not_overwritten(): void
     {
-        $user = $this->createUserWithPersonalPayload([
+        $user = $this->createUserWithPersonalRow([
             'estado_civil' => 'solteiro',
-            'dados_pessoais' => ['estado_civil' => 'casado'],
+            'nome_completo' => 'Divergent User',
+        ], [
+            'nome_completo' => 'Divergent User',
+            'estado_civil' => 'casado',
         ]);
 
         $exitCode = Artisan::call('members:backfill-users-legacy-only-fields', [
@@ -203,14 +226,16 @@ final class UsersLegacyOnlyBackfillCommandTest extends TestCase
 
         $payload = $this->decodeOutputJson();
         $this->assertSame(1, (int) ($payload['summary']['total_divergent_count'] ?? 0));
-        $this->assertSame('casado', $this->readPersonalPayload($user->id)['estado_civil'] ?? null);
+        $this->assertSame('casado', DadosPessoais::query()->where('user_id', $user->id)->value('estado_civil'));
     }
 
     public function test_second_execution_is_idempotent(): void
     {
-        $user = $this->createUserWithPersonalPayload([
+        $user = $this->createUserWithPersonalRow([
             'estado_civil' => 'viuvo',
-            'dados_pessoais' => [],
+            'nome_completo' => 'Idempotent User',
+        ], [
+            'nome_completo' => 'Idempotent User',
         ]);
 
         Artisan::call('members:backfill-users-legacy-only-fields', [
@@ -229,15 +254,17 @@ final class UsersLegacyOnlyBackfillCommandTest extends TestCase
         $this->assertSame(0, $first);
         $payload = $this->decodeOutputJson();
         $this->assertSame(0, (int) ($payload['summary']['total_updated_count'] ?? -1));
-        $this->assertSame('viuvo', $this->readPersonalPayload($user->id)['estado_civil'] ?? null);
+        $this->assertSame('viuvo', DadosPessoais::query()->where('user_id', $user->id)->value('estado_civil'));
     }
 
     public function test_field_option_limits_the_backfill_scope(): void
     {
-        $user = $this->createUserWithPersonalPayload([
+        $user = $this->createUserWithPersonalRow([
             'estado_civil' => 'casado',
             'numero_irmaos' => 4,
-            'dados_pessoais' => [],
+            'nome_completo' => 'Scoped User',
+        ], [
+            'nome_completo' => 'Scoped User',
         ]);
 
         Artisan::call('members:backfill-users-legacy-only-fields', [
@@ -246,9 +273,9 @@ final class UsersLegacyOnlyBackfillCommandTest extends TestCase
             '--confirm' => 'BACKFILL_LEGACY_ONLY_FIELDS',
         ]);
 
-        $payload = $this->readPersonalPayload($user->id);
-        $this->assertSame('casado', $payload['estado_civil'] ?? null);
-        $this->assertArrayNotHasKey('numero_irmaos', $payload);
+        $payload = DadosPessoais::query()->where('user_id', $user->id)->first();
+        $this->assertSame('casado', $payload?->estado_civil);
+        $this->assertNull($payload?->numero_irmaos);
     }
 
     public function test_invalid_field_fails(): void
@@ -263,39 +290,34 @@ final class UsersLegacyOnlyBackfillCommandTest extends TestCase
 
     public function test_json_output_and_report_path_are_valid(): void
     {
-        $this->createUserWithPersonalPayload([
+        $this->createUserWithPersonalRow([
             'estado_civil' => 'solteiro',
-            'dados_pessoais' => [],
+            'nome_completo' => 'Report User',
+        ], [
+            'nome_completo' => 'Report User',
         ]);
 
         $relativePath = 'storage/app/audits/test-users-legacy-only-backfill.json';
         $absolutePath = base_path($relativePath);
-        File::delete($absolutePath);
 
-        try {
-            $exitCode = Artisan::call('members:backfill-users-legacy-only-fields', [
-                '--json' => true,
-                '--report-path' => $relativePath,
-            ]);
+        $exitCode = Artisan::call('members:backfill-users-legacy-only-fields', [
+            '--json' => true,
+            '--report-path' => $relativePath,
+        ]);
 
-            $this->assertSame(0, $exitCode);
-            $payload = $this->decodeOutputJson();
-            $this->assertSame('M4.17', $payload['version'] ?? null);
-            $this->assertTrue(File::exists($absolutePath));
-        } finally {
-            File::delete($absolutePath);
-        }
+        $this->assertSame(0, $exitCode);
+        $payload = $this->decodeOutputJson();
+        $this->assertSame('M4.17', $payload['version'] ?? null);
+        $this->assertTrue(file_exists($absolutePath));
+        unlink($absolutePath);
     }
 
-    public function test_personal_payload_keys_are_preserved_and_users_legacy_columns_are_unchanged(): void
+    public function test_commit_creates_personal_row_when_missing_and_does_not_mutate_users_legacy_columns(): void
     {
-        $user = $this->createUserWithPersonalPayload([
+        $user = $this->createUserWithoutPersonalRow([
             'estado_civil' => 'casado',
             'numero_irmaos' => 3,
-            'dados_pessoais' => [
-                'nome_completo' => 'Payload Preserve',
-                'contacto' => '910000000',
-            ],
+            'nome_completo' => 'Payload Preserve',
         ]);
 
         Artisan::call('members:backfill-users-legacy-only-fields', [
@@ -305,61 +327,99 @@ final class UsersLegacyOnlyBackfillCommandTest extends TestCase
         ]);
 
         $fresh = User::query()->findOrFail($user->id);
-        $payload = $this->readPersonalPayload($user->id);
+        $row = DadosPessoais::query()->where('user_id', $user->id)->first();
 
-        $this->assertSame('Payload Preserve', $payload['nome_completo'] ?? null);
-        $this->assertSame('910000000', $payload['contacto'] ?? null);
-        $this->assertSame('casado', $payload['estado_civil'] ?? null);
+        $this->assertNotNull($row);
+        $this->assertSame('casado', $row?->estado_civil);
+        $this->assertNull($row?->nome_completo);
         $this->assertSame('casado', $fresh->estado_civil);
         $this->assertSame(3, (int) $fresh->numero_irmaos);
+    }
+
+    public function test_migration_adds_estado_civil_and_numero_irmaos_columns(): void
+    {
+        $this->assertTrue(Schema::hasColumn('dados_pessoais', 'estado_civil'));
+        $this->assertTrue(Schema::hasColumn('dados_pessoais', 'numero_irmaos'));
     }
 
     /**
      * @param array<string,mixed> $attributes
      */
-    private function createUserWithPersonalPayload(array $attributes): User
+    private function createUserWithPersonalRow(array $userAttributes, array $personalAttributes = []): User
     {
-        $this->ensureUsersPersonalPayloadColumn();
-
-        $payload = $attributes['dados_pessoais'] ?? [];
-        unset($attributes['dados_pessoais']);
+        $userPayload = $this->filterUserAttributes($userAttributes);
+        $personalRow = $personalAttributes === [] ? $this->filterPersonalAttributes($userAttributes) : $this->filterPersonalAttributes($personalAttributes);
 
         $user = User::factory()->create(array_merge([
-            'dados_pessoais' => json_encode($payload),
-        ], $attributes));
+            'ativo_desportivo' => $userAttributes['ativo_desportivo'] ?? false,
+        ], $userPayload));
+
+        $this->ensurePersonalRow($user->id, $personalRow);
 
         return $user;
     }
 
-    private function ensureUsersPersonalPayloadColumn(): void
+    private function createUserWithoutPersonalRow(array $attributes): User
     {
-        if (Schema::hasColumn('users', 'dados_pessoais')) {
-            return;
-        }
-
-        Schema::table('users', function ($table): void {
-            $table->json('dados_pessoais')->nullable();
-        });
+        return User::factory()->create(array_merge([
+            'ativo_desportivo' => $attributes['ativo_desportivo'] ?? false,
+        ], $this->filterUserAttributes($attributes)));
     }
 
     /**
      * @return array<string,mixed>
      */
-    private function readPersonalPayload(string $userId): array
+    private function ensurePersonalRow(string $userId, array $attributes): void
     {
-        $raw = User::query()->whereKey($userId)->value('dados_pessoais');
-
-        if (is_array($raw)) {
-            return $raw;
+        $row = DadosPessoais::query()->firstOrNew(['user_id' => $userId]);
+        if (!$row->exists) {
+            $row->id = (string) \Illuminate\Support\Str::uuid();
+            $row->user_id = $userId;
         }
 
-        if (!is_string($raw) || trim($raw) === '') {
-            return [];
+        foreach ($this->filterPersonalAttributes($attributes) as $key => $value) {
+            $row->{$key} = $value;
         }
 
-        $decoded = json_decode($raw, true);
+        $row->save();
+    }
 
-        return is_array($decoded) ? $decoded : [];
+    /**
+     * @param array<string,mixed> $attributes
+     * @return array<string,mixed>
+     */
+    private function filterUserAttributes(array $attributes): array
+    {
+        $filtered = [];
+
+        foreach ($attributes as $key => $value) {
+            if (str_starts_with((string) $key, 'target_row_')) {
+                continue;
+            }
+
+            if ($key === 'data_atestado_medico' || Schema::hasColumn('users', (string) $key)) {
+                $filtered[$key] = $value;
+            }
+        }
+
+        return $filtered;
+    }
+
+    /**
+     * @param array<string,mixed> $attributes
+     * @return array<string,mixed>
+     */
+    private function filterPersonalAttributes(array $attributes): array
+    {
+        $filtered = [];
+
+        foreach ($attributes as $key => $value) {
+            if (Schema::hasColumn('dados_pessoais', (string) $key)) {
+                $filtered[$key] = $value;
+            }
+        }
+
+        return $filtered;
     }
 
     /**

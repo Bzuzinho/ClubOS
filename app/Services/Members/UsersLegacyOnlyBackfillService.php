@@ -5,10 +5,12 @@ declare(strict_types=1);
 namespace App\Services\Members;
 
 use App\Models\AthleteSportsData;
+use App\Models\DadosPessoais;
 use App\Models\User;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Str;
 
 final class UsersLegacyOnlyBackfillService
 {
@@ -31,21 +33,18 @@ final class UsersLegacyOnlyBackfillService
         $fieldFilter = $this->normalizeFieldFilter($fieldFilter);
         $fieldsToProcess = $fieldFilter !== null ? [$fieldFilter] : self::ALLOWED_FIELDS;
 
-        $usersHasPersonalPayload = Schema::hasColumn('users', 'dados_pessoais');
-        $athleteTableReady = Schema::hasTable('athlete_sports_data')
-            && Schema::hasColumn('athlete_sports_data', 'user_id')
-            && Schema::hasColumn('athlete_sports_data', 'data_atestado_medico');
+        $stateCivilTableReady = $this->personalTableReady('estado_civil');
+        $siblingCountTableReady = $this->personalTableReady('numero_irmaos');
+        $athleteTableReady = $this->athleteTableReady();
 
-        $userSelect = ['id', 'estado_civil', 'numero_irmaos', 'data_atestado_medico'];
-        if ($usersHasPersonalPayload) {
-            $userSelect[] = 'dados_pessoais';
-        }
+        $userSelect = ['id', 'estado_civil', 'numero_irmaos', 'data_atestado_medico', 'ativo_desportivo'];
 
         $users = User::query()
             ->select($userSelect)
             ->orderBy('id')
             ->get();
 
+        $personalRowsByUser = $this->loadPersonalRowsByUser($stateCivilTableReady && $siblingCountTableReady);
         $athleteRowsByUser = $this->loadAthleteRowsByUser($athleteTableReady);
 
         $fieldResults = [];
@@ -53,10 +52,11 @@ final class UsersLegacyOnlyBackfillService
             $definition = $this->fieldDefinition($field);
 
             if ($field === 'estado_civil') {
-                $fieldResults[] = $this->analyzePersonalPayloadField(
+                $fieldResults[] = $this->analyzePersonalTableField(
                     $users->all(),
                     $definition,
-                    $usersHasPersonalPayload,
+                    $stateCivilTableReady,
+                    $personalRowsByUser,
                     static fn (User $user): mixed => $user->getAttribute('estado_civil'),
                     static fn (mixed $value): mixed => self::normalizeText($value),
                 );
@@ -65,10 +65,11 @@ final class UsersLegacyOnlyBackfillService
             }
 
             if ($field === 'numero_irmaos') {
-                $fieldResults[] = $this->analyzePersonalPayloadField(
+                $fieldResults[] = $this->analyzePersonalTableField(
                     $users->all(),
                     $definition,
-                    $usersHasPersonalPayload,
+                    $siblingCountTableReady,
+                    $personalRowsByUser,
                     static fn (User $user): mixed => $user->getAttribute('numero_irmaos'),
                     static fn (mixed $value): mixed => self::normalizeSiblingCount($value),
                 );
@@ -165,15 +166,15 @@ final class UsersLegacyOnlyBackfillService
      * @param callable(mixed):mixed $normalizer
      * @return array<string,mixed>
      */
-    private function analyzePersonalPayloadField(
+    private function analyzePersonalTableField(
         array $users,
         array $definition,
-        bool $usersHasPersonalPayload,
+        bool $targetTableReady,
+        array $personalRowsByUser,
         callable $legacyResolver,
         callable $normalizer,
     ): array {
-        $result = $this->emptyFieldResult($definition, $usersHasPersonalPayload);
-        $resolvableUsersCount = 0;
+        $result = $this->emptyFieldResult($definition, $targetTableReady);
 
         foreach ($users as $user) {
             $legacyValue = $normalizer($legacyResolver($user));
@@ -185,33 +186,44 @@ final class UsersLegacyOnlyBackfillService
             $result['legacy_non_empty_count']++;
             $result['legacy_only_count']++;
 
-            if (!$usersHasPersonalPayload) {
+            if (!$targetTableReady) {
                 $result['skipped_missing_target_count']++;
                 continue;
             }
 
-            $decodedPayload = $this->decodePersonalPayload($user->getAttribute('dados_pessoais'));
-            if (!(bool) ($decodedPayload['is_resolvable'] ?? false)) {
-                $result['skipped_missing_target_count']++;
+            $userId = (string) $user->getKey();
+            $rows = $personalRowsByUser[$userId] ?? [];
+
+            if ($rows === []) {
+                $result['candidates_count']++;
+                $result['would_update_count']++;
+                $result['update_candidates'][] = [
+                    'user_id' => $userId,
+                    'target_field' => (string) ($definition['target_field'] ?? ''),
+                    'target_value' => $legacyValue,
+                    'create_target_row' => true,
+                ];
+
                 continue;
             }
 
-            $resolvableUsersCount++;
-            $payload = is_array($decodedPayload['payload'] ?? null)
-                ? $decodedPayload['payload']
-                : [];
+            if (count($rows) > 1) {
+                $result['skipped_ambiguous_target_count']++;
+                continue;
+            }
+
+            $row = $rows[0];
             $targetField = (string) ($definition['target_field'] ?? '');
-            $canonicalRaw = $payload[$targetField] ?? null;
-            $canonicalValue = $normalizer($canonicalRaw);
+            $canonicalValue = $normalizer($row[$targetField] ?? null);
 
             if (!$this->hasValue($canonicalValue)) {
                 $result['candidates_count']++;
                 $result['would_update_count']++;
                 $result['update_candidates'][] = [
-                    'user_id' => (string) $user->getKey(),
+                    'user_id' => $userId,
                     'target_field' => $targetField,
                     'target_value' => $legacyValue,
-                    'payload' => $payload,
+                    'create_target_row' => false,
                 ];
 
                 continue;
@@ -228,7 +240,7 @@ final class UsersLegacyOnlyBackfillService
             $result['divergent_count']++;
         }
 
-        $result['target_resolvable'] = $usersHasPersonalPayload && $resolvableUsersCount > 0;
+        $result['target_resolvable'] = $targetTableReady;
 
         return $result;
     }
@@ -264,6 +276,20 @@ final class UsersLegacyOnlyBackfillService
             $userId = (string) $user->getKey();
             $rows = $athleteRowsByUser[$userId] ?? [];
             if ($rows === []) {
+                if ((bool) $user->getAttribute('ativo_desportivo')) {
+                    $result['candidates_count']++;
+                    $result['would_update_count']++;
+                    $result['update_candidates'][] = [
+                        'user_id' => $userId,
+                        'target_field' => 'data_atestado_medico',
+                        'target_value' => $legacyDate,
+                        'create_target_row' => true,
+                        'ativo' => true,
+                    ];
+
+                    continue;
+                }
+
                 $result['skipped_missing_target_count']++;
                 continue;
             }
@@ -280,8 +306,9 @@ final class UsersLegacyOnlyBackfillService
                 $result['candidates_count']++;
                 $result['would_update_count']++;
                 $result['update_candidates'][] = [
-                    'athlete_sports_data_id' => (string) ($row['id'] ?? ''),
+                    'user_id' => $userId,
                     'target_value' => $legacyDate,
+                    'create_target_row' => false,
                 ];
 
                 continue;
@@ -328,7 +355,7 @@ final class UsersLegacyOnlyBackfillService
             }
 
             if ($field === 'estado_civil' || $field === 'numero_irmaos') {
-                $this->applyPersonalPayloadUpdate($candidate);
+                $this->applyPersonalTableUpdate($candidate);
                 $fieldResult['updated_count']++;
                 continue;
             }
@@ -347,23 +374,47 @@ final class UsersLegacyOnlyBackfillService
     /**
      * @param array<string,mixed> $candidate
      */
-    private function applyPersonalPayloadUpdate(array $candidate): void
+    private function applyPersonalTableUpdate(array $candidate): void
     {
         $userId = is_string($candidate['user_id'] ?? null) ? trim((string) $candidate['user_id']) : '';
         $targetField = is_string($candidate['target_field'] ?? null) ? trim((string) $candidate['target_field']) : '';
         $targetValue = $candidate['target_value'] ?? null;
-        $payload = is_array($candidate['payload'] ?? null) ? $candidate['payload'] : [];
+        $createTargetRow = (bool) ($candidate['create_target_row'] ?? false);
 
-        if ($userId === '' || $targetField === '') {
+        if ($userId === '' || $targetField === '' || !Schema::hasColumn('dados_pessoais', $targetField)) {
             return;
         }
 
-        $payload[$targetField] = $targetValue;
+        $query = DB::table('dados_pessoais')->where('user_id', $userId);
+        $existingRow = $query->first();
 
-        DB::table('users')
-            ->where('id', $userId)
+        if (!$existingRow instanceof \stdClass) {
+            DB::table('dados_pessoais')->insert([
+                'id' => Str::uuid()->toString(),
+                'user_id' => $userId,
+                $targetField => $targetValue,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+
+            return;
+        }
+
+        if ($createTargetRow) {
+            DB::table('dados_pessoais')
+                ->where('user_id', $userId)
+                ->update([
+                    $targetField => $targetValue,
+                    'updated_at' => now(),
+                ]);
+
+            return;
+        }
+
+        DB::table('dados_pessoais')
+            ->where('user_id', $userId)
             ->update([
-                'dados_pessoais' => json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                $targetField => $targetValue,
                 'updated_at' => now(),
             ]);
     }
@@ -373,22 +424,37 @@ final class UsersLegacyOnlyBackfillService
      */
     private function applyAthleteMedicalDateUpdate(array $candidate): void
     {
-        $athleteSportsDataId = is_string($candidate['athlete_sports_data_id'] ?? null)
-            ? trim((string) $candidate['athlete_sports_data_id'])
-            : '';
-
+        $userId = is_string($candidate['user_id'] ?? null) ? trim((string) $candidate['user_id']) : '';
         $targetValue = self::normalizeDate($candidate['target_value'] ?? null);
+        $createTargetRow = (bool) ($candidate['create_target_row'] ?? false);
+        $active = (bool) ($candidate['ativo'] ?? true);
 
-        if ($athleteSportsDataId === '' || $targetValue === null) {
+        if ($userId === '' || $targetValue === null) {
             return;
         }
 
-        AthleteSportsData::query()
-            ->whereKey($athleteSportsDataId)
-            ->update([
+        $query = AthleteSportsData::query()->where('user_id', $userId);
+        $existingRow = $query->first();
+
+        if (!$existingRow instanceof AthleteSportsData) {
+            if (!$createTargetRow) {
+                return;
+            }
+
+            AthleteSportsData::query()->create([
+                'id' => Str::uuid()->toString(),
+                'user_id' => $userId,
                 'data_atestado_medico' => $targetValue,
-                'updated_at' => now(),
+                'ativo' => $active,
             ]);
+
+            return;
+        }
+
+        $existingRow->forceFill([
+            'data_atestado_medico' => $targetValue,
+            'updated_at' => now(),
+        ])->save();
     }
 
     /**
@@ -433,9 +499,8 @@ final class UsersLegacyOnlyBackfillService
         $writeAllowedCount = 0;
         $totalDivergent = 0;
         $totalCandidates = 0;
-        $personalFieldsSelected = 0;
-        $personalCandidates = 0;
         $totalLegacyOnly = 0;
+        $allTargetsResolvable = true;
 
         foreach ($fields as $field) {
             if (!is_array($field)) {
@@ -450,21 +515,14 @@ final class UsersLegacyOnlyBackfillService
             $fieldCandidates = (int) ($field['candidates_count'] ?? 0);
             $totalCandidates += $fieldCandidates;
             $totalLegacyOnly += (int) ($field['legacy_only_count'] ?? 0);
-
-            if (($field['target_area'] ?? null) === 'dados_pessoais') {
-                $personalFieldsSelected++;
-                $personalCandidates += $fieldCandidates;
-            }
+            $allTargetsResolvable = $allTargetsResolvable && (bool) ($field['target_resolvable'] ?? false);
         }
-
-        $hasResolvableCandidates = $personalFieldsSelected > 0
-            ? $personalCandidates > 0
-            : $totalCandidates > 0;
 
         $commitAllowed = $fieldsAnalyzed > 0
             && $writeAllowedCount === $fieldsAnalyzed
             && $totalDivergent === 0
-            && ($hasResolvableCandidates || $totalLegacyOnly === 0);
+            && $allTargetsResolvable
+            && $totalCandidates > 0;
 
         $unresolvableCount = count(array_filter(
             $fields,
@@ -521,6 +579,7 @@ final class UsersLegacyOnlyBackfillService
             $grouped[$userId][] = [
                 'id' => (string) $row->getKey(),
                 'data_atestado_medico' => $row->getAttribute('data_atestado_medico'),
+                'ativo' => (bool) $row->getAttribute('ativo'),
             ];
         }
 
@@ -530,35 +589,56 @@ final class UsersLegacyOnlyBackfillService
     /**
      * @return array<string,mixed>
      */
-    private function decodePersonalPayload(mixed $raw): array
+    private function personalTableReady(string $field): bool
     {
-        if (is_array($raw)) {
-            return [
-                'payload' => $raw,
-                'is_resolvable' => true,
-            ];
+        return Schema::hasTable('dados_pessoais')
+            && Schema::hasColumn('dados_pessoais', 'user_id')
+            && Schema::hasColumn('dados_pessoais', $field);
+    }
+
+    private function athleteTableReady(): bool
+    {
+        return Schema::hasTable('athlete_sports_data')
+            && Schema::hasColumn('athlete_sports_data', 'user_id')
+            && Schema::hasColumn('athlete_sports_data', 'data_atestado_medico');
+    }
+
+    /**
+     * @return array<string,list<array<string,mixed>>>
+     */
+    private function loadPersonalRowsByUser(bool $personalTableReady): array
+    {
+        if (!$personalTableReady) {
+            return [];
         }
 
-        if (is_string($raw)) {
-            $trimmed = trim($raw);
-            if ($trimmed === '') {
-                return [
-                    'payload' => [],
-                    'is_resolvable' => false,
-                ];
+        $rows = DB::table('dados_pessoais')
+            ->select(['id', 'user_id', 'estado_civil', 'numero_irmaos'])
+            ->orderBy('user_id')
+            ->orderBy('id')
+            ->get()
+            ->all();
+
+        $grouped = [];
+        foreach ($rows as $row) {
+            if (!is_object($row)) {
+                continue;
             }
 
-            $decoded = json_decode($trimmed, true);
-            return [
-                'payload' => is_array($decoded) ? $decoded : [],
-                'is_resolvable' => is_array($decoded),
+            $userId = (string) ($row->user_id ?? '');
+            if ($userId === '') {
+                continue;
+            }
+
+            $grouped[$userId] = $grouped[$userId] ?? [];
+            $grouped[$userId][] = [
+                'id' => (string) ($row->id ?? ''),
+                'estado_civil' => $row->estado_civil ?? null,
+                'numero_irmaos' => $row->numero_irmaos ?? null,
             ];
         }
 
-        return [
-            'payload' => [],
-            'is_resolvable' => false,
-        ];
+        return $grouped;
     }
 
     private function hasValue(mixed $value): bool
