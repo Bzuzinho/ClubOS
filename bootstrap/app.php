@@ -42,6 +42,7 @@ return Application::configure(basePath: dirname(__DIR__))
         \App\Console\Commands\Members\AuditUsersLegacyFieldRemovalReadinessCommand::class,
         \App\Console\Commands\Members\AuditUsersLegacyBackfillValidationCommand::class,
         \App\Console\Commands\Members\AuditUsersLegacyCanonicalTargetsCommand::class,
+        \App\Console\Commands\Members\AuditLegacyCleanupReadinessCommand::class,
         \App\Console\Commands\Members\AuditPendingMedicalCertificateBackfillCommand::class,
         \App\Console\Commands\Members\PreflightUsersLegacyOnlyBackfillCommand::class,
         \App\Console\Commands\Members\BackfillUsersLegacyOnlyFieldsCommand::class,
