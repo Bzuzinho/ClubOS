@@ -53,14 +53,18 @@ final class BackfillUsersLegacyOnlyFieldsCommand extends Command
             return self::FAILURE;
         }
 
-        $commitAllowed = (bool) ($analysis['summary']['commit_allowed'] ?? false);
+        $summary = is_array($analysis['summary'] ?? null) ? $analysis['summary'] : [];
         $failureReason = null;
 
         if ($commitRequested && $confirmToken !== UsersLegacyOnlyBackfillService::CONFIRM_TOKEN) {
             $failureReason = 'Escrita bloqueada: use --commit --confirm=BACKFILL_LEGACY_ONLY_FIELDS.';
         }
 
-        if ($failureReason === null && $commitRequested && !$commitAllowed) {
+        $hasRealBlocker = (int) ($summary['total_divergent_count'] ?? 0) > 0
+            || (int) ($summary['unresolvable_target_fields_count'] ?? 0) > 0
+            || (int) ($summary['write_allowed_fields_count'] ?? 0) !== (int) ($summary['fields_analyzed'] ?? 0);
+
+        if ($failureReason === null && $commitRequested && $hasRealBlocker) {
             $failureReason = 'Escrita bloqueada: preflight do backfill nao permite commit para os campos/estado atuais.';
         }
 

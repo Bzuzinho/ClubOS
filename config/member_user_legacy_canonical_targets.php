@@ -28,7 +28,7 @@ return [
             'requires_migration' => false,
             'requires_domain_mapping' => false,
             'owner_area' => 'membros',
-            'reason' => 'Campo canonical payload key definido em users.dados_pessoais[estado_civil], com preservacao integral do payload e sem tocar em users.estado_civil.',
+            'reason' => 'Campo canonical definido em dados_pessoais.estado_civil, com escrita apenas na tabela especializada e sem tocar em users.estado_civil.',
             'next_action' => 'Executar backfill controlado preenchendo apenas destino vazio e reportando divergencias sem sobrescrever.',
         ],
         'numero_irmaos' => [
@@ -41,7 +41,7 @@ return [
             'requires_migration' => false,
             'requires_domain_mapping' => false,
             'owner_area' => 'membros',
-            'reason' => 'Campo canonical payload key definido em users.dados_pessoais[numero_irmaos], com normalizacao numerica segura e sem alterar users.numero_irmaos.',
+            'reason' => 'Campo canonical definido em dados_pessoais.numero_irmaos, com normalizacao numerica segura e sem alterar users.numero_irmaos.',
             'next_action' => 'Executar backfill controlado preenchendo apenas destino vazio e mantendo idempotencia na segunda execucao.',
         ],
     ],
