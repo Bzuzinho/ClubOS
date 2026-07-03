@@ -41,6 +41,7 @@ return Application::configure(basePath: dirname(__DIR__))
         \App\Console\Commands\Members\AuditUsersLegacyReadCommand::class,
         \App\Console\Commands\Members\AuditUsersLegacyFieldRemovalReadinessCommand::class,
         \App\Console\Commands\Members\AuditUsersLegacyBackfillValidationCommand::class,
+        \App\Console\Commands\Members\AuditUsersLegacyCanonicalTargetsCommand::class,
         \App\Console\Commands\Members\PreflightUsersLegacyOnlyBackfillCommand::class,
     ])
     ->withMiddleware(function (Middleware $middleware) {

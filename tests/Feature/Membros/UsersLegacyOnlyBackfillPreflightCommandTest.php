@@ -126,6 +126,33 @@ final class UsersLegacyOnlyBackfillPreflightCommandTest extends TestCase
         $this->assertSame('canonical_target_requires_architecture_decision', $fieldsByName['data_atestado_medico']['canonical_target_status'] ?? null);
         $this->assertSame('canonical_target_missing_or_not_versioned', $fieldsByName['estado_civil']['canonical_target_status'] ?? null);
         $this->assertSame('canonical_target_missing_or_not_versioned', $fieldsByName['numero_irmaos']['canonical_target_status'] ?? null);
+        $this->assertSame('route_to_sports_domain', $fieldsByName['data_atestado_medico']['decision'] ?? null);
+        $this->assertSame('desportivo', $fieldsByName['data_atestado_medico']['owner_area'] ?? null);
+        $this->assertSame('add_to_personal_payload_contract', $fieldsByName['estado_civil']['decision'] ?? null);
+        $this->assertSame('add_to_personal_payload_contract_or_discard_as_historical', $fieldsByName['numero_irmaos']['decision'] ?? null);
+        $this->assertSame('M4.15', $payload['decision_config_version'] ?? null);
+        $this->assertFalse((bool) ($fieldsByName['data_atestado_medico']['write_allowed'] ?? true));
+    }
+
+    public function test_preflight_includes_decision_reason_and_next_action_and_keeps_commit_blocked(): void
+    {
+        $this->createFixtureUser();
+
+        $payload = $this->runJsonCommand();
+
+        $this->assertFalse((bool) ($payload['commit_allowed'] ?? true));
+
+        $fieldsByName = [];
+        foreach ($payload['fields'] ?? [] as $field) {
+            if (is_array($field) && isset($field['field'])) {
+                $fieldsByName[$field['field']] = $field;
+            }
+        }
+
+        $this->assertStringContainsString('dominio desportivo', (string) ($fieldsByName['data_atestado_medico']['reason'] ?? ''));
+        $this->assertStringContainsString('Auditar athlete_sports_data', (string) ($fieldsByName['data_atestado_medico']['next_action'] ?? ''));
+        $this->assertStringContainsString('contrato canonico', (string) ($fieldsByName['estado_civil']['reason'] ?? ''));
+        $this->assertStringContainsString('Validar utilidade funcional', (string) ($fieldsByName['numero_irmaos']['next_action'] ?? ''));
     }
 
     public function test_command_does_not_write_any_tables(): void

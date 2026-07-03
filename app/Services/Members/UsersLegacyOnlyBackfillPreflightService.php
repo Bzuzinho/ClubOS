@@ -13,6 +13,12 @@ final class UsersLegacyOnlyBackfillPreflightService
     private const VERSION = 'M4.14';
 
     /** @var list<string> */
+    private const KNOWN_TARGET_STATUSES = [
+        'architecture_decision_required',
+        'canonical_payload_key_pending',
+    ];
+
+    /** @var list<string> */
     private const ALLOWED_FIELDS = [
         'data_atestado_medico',
         'estado_civil',
@@ -28,8 +34,11 @@ final class UsersLegacyOnlyBackfillPreflightService
             throw new \InvalidArgumentException(sprintf('Campo invalido para preflight: %s', $fieldFilter));
         }
 
+        $decisionConfig = $this->decisionConfig();
+        $decisionFields = is_array($decisionConfig['fields'] ?? null) ? $decisionConfig['fields'] : [];
+
         $fieldDefinitions = array_values(array_filter(
-            $this->fieldDefinitions(),
+            $this->fieldDefinitions($decisionFields),
             static fn (array $definition): bool => $fieldFilter === null || $fieldFilter === '' || $definition['field'] === $fieldFilter,
         ));
 
@@ -48,6 +57,9 @@ final class UsersLegacyOnlyBackfillPreflightService
 
         return [
             'version' => self::VERSION,
+            'decision_config_version' => is_string($decisionConfig['version'] ?? null)
+                ? trim((string) $decisionConfig['version'])
+                : null,
             'mode' => 'preflight',
             'writable' => false,
             'commit_allowed' => false,
@@ -65,11 +77,12 @@ final class UsersLegacyOnlyBackfillPreflightService
     }
 
     /**
+     * @param array<string,mixed> $decisionFields
      * @return list<array<string,mixed>>
      */
-    private function fieldDefinitions(): array
+    private function fieldDefinitions(array $decisionFields): array
     {
-        return [
+        $definitions = [
             [
                 'field' => 'data_atestado_medico',
                 'legacy_field' => 'users.data_atestado_medico',
@@ -98,6 +111,40 @@ final class UsersLegacyOnlyBackfillPreflightService
                 'commit_blocked_reason' => 'Commit bloqueado: destino canónico ausente ou ainda não versionado.',
             ],
         ];
+
+        foreach ($definitions as &$definition) {
+            $field = is_string($definition['field'] ?? null) ? trim((string) $definition['field']) : '';
+            if ($field === '') {
+                continue;
+            }
+
+            $decision = is_array($decisionFields[$field] ?? null) ? $decisionFields[$field] : null;
+
+            $targetStatus = is_string($decision['target_status'] ?? null) ? trim((string) $decision['target_status']) : '';
+
+            $definition['target_status'] = $targetStatus !== '' ? $targetStatus : null;
+            $definition['decision'] = is_string($decision['decision'] ?? null) ? trim((string) $decision['decision']) : null;
+            $definition['write_allowed'] = (bool) ($decision['write_allowed'] ?? false);
+            $definition['owner_area'] = is_string($decision['owner_area'] ?? null) ? trim((string) $decision['owner_area']) : null;
+            $definition['reason'] = is_string($decision['reason'] ?? null) ? trim((string) $decision['reason']) : null;
+            $definition['next_action'] = is_string($decision['next_action'] ?? null) ? trim((string) $decision['next_action']) : null;
+
+            if (is_string($decision['target_area'] ?? null) && trim((string) $decision['target_area']) !== '') {
+                $definition['proposed_canonical_area'] = trim((string) $decision['target_area']);
+            }
+
+            if (is_string($decision['target_field'] ?? null) && trim((string) $decision['target_field']) !== '') {
+                $definition['proposed_canonical_field'] = trim((string) $decision['target_field']);
+            }
+
+            $definition['canonical_target_status'] = $this->mapTargetStatusToCanonicalStatus(
+                $targetStatus,
+                (string) $definition['canonical_target_status'],
+            );
+        }
+        unset($definition);
+
+        return $definitions;
     }
 
     /**
@@ -148,11 +195,38 @@ final class UsersLegacyOnlyBackfillPreflightService
             'proposed_canonical_area' => $definition['proposed_canonical_area'],
             'proposed_canonical_field' => $definition['proposed_canonical_field'],
             'canonical_target_status' => $definition['canonical_target_status'],
+            'target_status' => $definition['target_status'] ?? null,
+            'decision' => $definition['decision'] ?? null,
+            'write_allowed' => (bool) ($definition['write_allowed'] ?? false),
+            'owner_area' => $definition['owner_area'] ?? null,
+            'reason' => $definition['reason'] ?? null,
+            'next_action' => $definition['next_action'] ?? null,
             'legacy_only_count' => $legacyOnlyCount,
             'divergent_count' => $divergentCount,
             'commit_blocked_reason' => $definition['commit_blocked_reason'],
             'recommended_next_step' => $definition['recommended_next_step'],
         ];
+    }
+
+    /** @return array<string,mixed> */
+    private function decisionConfig(): array
+    {
+        $config = config('member_user_legacy_canonical_targets');
+
+        return is_array($config) ? $config : [];
+    }
+
+    private function mapTargetStatusToCanonicalStatus(string $targetStatus, string $fallback): string
+    {
+        if (!in_array($targetStatus, self::KNOWN_TARGET_STATUSES, true)) {
+            return $fallback;
+        }
+
+        return match ($targetStatus) {
+            'architecture_decision_required' => 'canonical_target_requires_architecture_decision',
+            'canonical_payload_key_pending' => 'canonical_target_missing_or_not_versioned',
+            default => $fallback,
+        };
     }
 
     private function canonicalTargetStatus(string $area, string $field): string
