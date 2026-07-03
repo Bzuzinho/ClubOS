@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 return [
-    'version' => 'M4.15',
+    'version' => 'M4.16',
     'fields' => [
         'data_atestado_medico' => [
             'legacy_field' => 'data_atestado_medico',
@@ -22,14 +22,14 @@ return [
             'legacy_field' => 'estado_civil',
             'target_area' => 'dados_pessoais',
             'target_field' => 'estado_civil',
-            'target_status' => 'canonical_payload_key_pending',
+            'target_status' => 'canonical_payload_key_defined',
             'decision' => 'add_to_personal_payload_contract',
             'write_allowed' => false,
             'requires_migration' => false,
             'requires_domain_mapping' => false,
             'owner_area' => 'membros',
-            'reason' => 'Campo pessoal ainda sem contrato canonico versionado nos payloads.',
-            'next_action' => 'Adicionar ao contrato de dados_pessoais numa sprint propria antes de permitir backfill.',
+            'reason' => 'Contrato canonico de dados_pessoais atualizado para reconhecer estado_civil, mantendo fase read-only.',
+            'next_action' => 'Validar backfill controlado apenas de estado_civil numa sprint propria, sem ativar escrita automatica nesta fase.',
         ],
         'numero_irmaos' => [
             'legacy_field' => 'numero_irmaos',

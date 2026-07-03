@@ -34,7 +34,8 @@ final class UsersLegacyCanonicalTargetDecisionAuditCommandTest extends TestCase
         $this->assertSame(0, (int) ($payload['summary']['write_allowed_count'] ?? 0));
         $this->assertSame(3, (int) ($payload['summary']['blocked_write_count'] ?? 0));
         $this->assertSame(1, (int) ($payload['summary']['architecture_decision_required_count'] ?? 0));
-        $this->assertSame(2, (int) ($payload['summary']['canonical_payload_key_pending_count'] ?? 0));
+        $this->assertSame(1, (int) ($payload['summary']['canonical_payload_key_pending_count'] ?? 0));
+        $this->assertSame(1, (int) ($payload['summary']['canonical_payload_key_defined_count'] ?? 0));
         $this->assertTrue((bool) ($payload['summary']['passed'] ?? false));
     }
 
@@ -109,6 +110,8 @@ final class UsersLegacyCanonicalTargetDecisionAuditCommandTest extends TestCase
         $this->assertSame('route_to_sports_domain', $fields['data_atestado_medico']['decision'] ?? null);
         $this->assertSame('desportivo', $fields['data_atestado_medico']['owner_area'] ?? null);
         $this->assertSame('add_to_personal_payload_contract', $fields['estado_civil']['decision'] ?? null);
+        $this->assertSame('canonical_payload_key_defined', $fields['estado_civil']['target_status'] ?? null);
+        $this->assertFalse((bool) ($fields['estado_civil']['write_allowed'] ?? true));
         $this->assertSame('add_to_personal_payload_contract_or_discard_as_historical', $fields['numero_irmaos']['decision'] ?? null);
     }
 

@@ -215,6 +215,41 @@ final class UsersLegacyBackfillValidationAuditCommandTest extends TestCase
         $this->assertSame($before, $after);
     }
 
+    public function test_estado_civil_is_classified_as_needs_backfill_when_only_legacy_has_value(): void
+    {
+        User::factory()->create([
+            'estado_civil' => 'casado',
+        ]);
+
+        $before = [
+            'users' => DB::table('users')->count(),
+            'dados_pessoais' => DB::table('dados_pessoais')->count(),
+            'dados_configuracao' => DB::table('dados_configuracao')->count(),
+        ];
+
+        $exitCode = Artisan::call('members:audit-users-legacy-backfill-validation', [
+            '--json' => true,
+            '--field' => 'estado_civil',
+        ]);
+
+        $after = [
+            'users' => DB::table('users')->count(),
+            'dados_pessoais' => DB::table('dados_pessoais')->count(),
+            'dados_configuracao' => DB::table('dados_configuracao')->count(),
+        ];
+
+        $this->assertSame(0, $exitCode);
+        $this->assertSame($before, $after);
+
+        $payload = $this->decodeArtisanJsonOutput(Artisan::output());
+        $field = $this->indexFieldsByName($payload['fields'] ?? [])['estado_civil'] ?? null;
+
+        $this->assertIsArray($field);
+        $this->assertSame(1, (int) ($field['legacy_only_count'] ?? 0));
+        $this->assertSame(0, (int) ($field['divergent_count'] ?? 0));
+        $this->assertSame('needs_backfill', $field['readiness_status'] ?? null);
+    }
+
     /**
      * @param list<array<string,mixed>> $fields
      * @return array<string,array<string,mixed>>

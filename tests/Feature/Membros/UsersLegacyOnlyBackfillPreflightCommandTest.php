@@ -124,13 +124,15 @@ final class UsersLegacyOnlyBackfillPreflightCommandTest extends TestCase
         $this->assertArrayHasKey('estado_civil', $fieldsByName);
         $this->assertArrayHasKey('numero_irmaos', $fieldsByName);
         $this->assertSame('canonical_target_requires_architecture_decision', $fieldsByName['data_atestado_medico']['canonical_target_status'] ?? null);
-        $this->assertSame('canonical_target_missing_or_not_versioned', $fieldsByName['estado_civil']['canonical_target_status'] ?? null);
+        $this->assertSame('canonical_target_defined_but_write_blocked', $fieldsByName['estado_civil']['canonical_target_status'] ?? null);
         $this->assertSame('canonical_target_missing_or_not_versioned', $fieldsByName['numero_irmaos']['canonical_target_status'] ?? null);
         $this->assertSame('route_to_sports_domain', $fieldsByName['data_atestado_medico']['decision'] ?? null);
         $this->assertSame('desportivo', $fieldsByName['data_atestado_medico']['owner_area'] ?? null);
         $this->assertSame('add_to_personal_payload_contract', $fieldsByName['estado_civil']['decision'] ?? null);
         $this->assertSame('add_to_personal_payload_contract_or_discard_as_historical', $fieldsByName['numero_irmaos']['decision'] ?? null);
-        $this->assertSame('M4.15', $payload['decision_config_version'] ?? null);
+        $this->assertSame('M4.16', $payload['decision_config_version'] ?? null);
+        $this->assertSame(1, (int) ($payload['summary']['fields_with_missing_canonical_target'] ?? 0));
+        $this->assertSame(1, (int) ($payload['summary']['fields_with_defined_but_write_blocked_target'] ?? 0));
         $this->assertFalse((bool) ($fieldsByName['data_atestado_medico']['write_allowed'] ?? true));
     }
 
@@ -151,7 +153,8 @@ final class UsersLegacyOnlyBackfillPreflightCommandTest extends TestCase
 
         $this->assertStringContainsString('dominio desportivo', (string) ($fieldsByName['data_atestado_medico']['reason'] ?? ''));
         $this->assertStringContainsString('Auditar athlete_sports_data', (string) ($fieldsByName['data_atestado_medico']['next_action'] ?? ''));
-        $this->assertStringContainsString('contrato canonico', (string) ($fieldsByName['estado_civil']['reason'] ?? ''));
+        $this->assertStringContainsString('Contrato canonico de dados_pessoais atualizado', (string) ($fieldsByName['estado_civil']['reason'] ?? ''));
+        $this->assertStringContainsString('backfill controlado apenas de estado_civil', (string) ($fieldsByName['estado_civil']['next_action'] ?? ''));
         $this->assertStringContainsString('Validar utilidade funcional', (string) ($fieldsByName['numero_irmaos']['next_action'] ?? ''));
     }
 

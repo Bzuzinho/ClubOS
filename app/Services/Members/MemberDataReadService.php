@@ -47,6 +47,7 @@ final class MemberDataReadService
         'contacto'                => ['contacto', 'telemovel', 'contacto_telefonico'],
         'contacto_alternativo'    => ['contacto_alternativo', 'contacto_telefonico'],
         'email_secundario'        => 'email_secundario',
+        'estado_civil'            => 'estado_civil',
         'tipo_utilizador'         => ['tipo_utilizador', 'perfil'],
         'observacoes'             => 'observacoes',
     ];

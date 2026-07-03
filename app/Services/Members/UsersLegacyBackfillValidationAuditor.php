@@ -332,7 +332,35 @@ final class UsersLegacyBackfillValidationAuditor
             'dados_pessoais' => isset($dadosPessoaisColumns[$canonicalField]),
             'dados_configuracao' => isset($dadosConfiguracaoColumns[$canonicalField]),
             default => false,
-        };
+        } || $this->hasCanonicalContractDefinition($canonicalArea, $canonicalField);
+    }
+
+    private function hasCanonicalContractDefinition(?string $canonicalArea, ?string $canonicalField): bool
+    {
+        if (!is_string($canonicalArea) || $canonicalArea === '' || !is_string($canonicalField) || $canonicalField === '') {
+            return false;
+        }
+
+        $targetsConfig = config('member_user_legacy_canonical_targets');
+        $fields = is_array($targetsConfig['fields'] ?? null) ? $targetsConfig['fields'] : [];
+
+        foreach ($fields as $definition) {
+            if (!is_array($definition)) {
+                continue;
+            }
+
+            $targetArea = is_string($definition['target_area'] ?? null) ? trim((string) $definition['target_area']) : '';
+            $targetField = is_string($definition['target_field'] ?? null) ? trim((string) $definition['target_field']) : '';
+            $targetStatus = is_string($definition['target_status'] ?? null) ? trim((string) $definition['target_status']) : '';
+
+            if ($targetArea !== $canonicalArea || $targetField !== $canonicalField) {
+                continue;
+            }
+
+            return $targetStatus === 'canonical_payload_key_defined';
+        }
+
+        return false;
     }
 
     private function canonicalValue(User $user, ?string $canonicalArea, string $canonicalField): mixed

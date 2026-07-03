@@ -45,6 +45,7 @@ final class PreflightUsersLegacyOnlyBackfillCommand extends Command
                     'total_divergent_count' => 0,
                     'fields_with_missing_canonical_target' => 0,
                     'fields_requiring_architecture_decision' => 0,
+                    'fields_with_defined_but_write_blocked_target' => 0,
                     'passed' => false,
                     'failure_reason' => $exception->getMessage(),
                 ],
@@ -109,6 +110,7 @@ final class PreflightUsersLegacyOnlyBackfillCommand extends Command
                 ['total_divergent_count', (int) ($summary['total_divergent_count'] ?? 0)],
                 ['fields_with_missing_canonical_target', (int) ($summary['fields_with_missing_canonical_target'] ?? 0)],
                 ['fields_requiring_architecture_decision', (int) ($summary['fields_requiring_architecture_decision'] ?? 0)],
+                ['fields_with_defined_but_write_blocked_target', (int) ($summary['fields_with_defined_but_write_blocked_target'] ?? 0)],
                 ['passed', ((bool) ($summary['passed'] ?? false)) ? 'true' : 'false'],
             ]
         );

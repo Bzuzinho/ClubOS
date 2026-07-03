@@ -16,6 +16,7 @@ final class UsersLegacyOnlyBackfillPreflightService
     private const KNOWN_TARGET_STATUSES = [
         'architecture_decision_required',
         'canonical_payload_key_pending',
+        'canonical_payload_key_defined',
     ];
 
     /** @var list<string> */
@@ -70,6 +71,7 @@ final class UsersLegacyOnlyBackfillPreflightService
                 'total_divergent_count' => array_sum(array_map(static fn (array $field): int => (int) ($field['divergent_count'] ?? 0), $fields)),
                 'fields_with_missing_canonical_target' => count(array_filter($fields, static fn (array $field): bool => ($field['canonical_target_status'] ?? null) === 'canonical_target_missing_or_not_versioned')),
                 'fields_requiring_architecture_decision' => count(array_filter($fields, static fn (array $field): bool => ($field['canonical_target_status'] ?? null) === 'canonical_target_requires_architecture_decision')),
+                'fields_with_defined_but_write_blocked_target' => count(array_filter($fields, static fn (array $field): bool => ($field['canonical_target_status'] ?? null) === 'canonical_target_defined_but_write_blocked')),
                 'passed' => true,
                 'failure_reason' => null,
             ],
@@ -225,6 +227,7 @@ final class UsersLegacyOnlyBackfillPreflightService
         return match ($targetStatus) {
             'architecture_decision_required' => 'canonical_target_requires_architecture_decision',
             'canonical_payload_key_pending' => 'canonical_target_missing_or_not_versioned',
+            'canonical_payload_key_defined' => 'canonical_target_defined_but_write_blocked',
             default => $fallback,
         };
     }

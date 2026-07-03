@@ -19,6 +19,7 @@ final class UsersLegacyCanonicalTargetDecisionAuditor
     private const KNOWN_TARGET_STATUSES = [
         'architecture_decision_required',
         'canonical_payload_key_pending',
+        'canonical_payload_key_defined',
     ];
 
     public function __construct(
@@ -92,6 +93,7 @@ final class UsersLegacyCanonicalTargetDecisionAuditor
             'blocked_write_count' => count(array_filter($rows, static fn (array $row): bool => !(bool) ($row['write_allowed'] ?? false))),
             'architecture_decision_required_count' => count(array_filter($rows, static fn (array $row): bool => ($row['target_status'] ?? null) === 'architecture_decision_required')),
             'canonical_payload_key_pending_count' => count(array_filter($rows, static fn (array $row): bool => ($row['target_status'] ?? null) === 'canonical_payload_key_pending')),
+            'canonical_payload_key_defined_count' => count(array_filter($rows, static fn (array $row): bool => ($row['target_status'] ?? null) === 'canonical_payload_key_defined')),
             'unknown_target_status_count' => count(array_filter($rows, static fn (array $row): bool => (bool) ($row['unknown_target_status'] ?? false))),
             'passed' => true,
             'failure_reason' => null,
