@@ -32,6 +32,8 @@ final class UsersLegacyWriteGuardScanner
         'app/Console/Commands/Members/AuditMemberDataFallbackCommand.php' => 'Read-only fallback audit command.',
         'app/Console/Commands/Members/AuditUsersLegacyFieldMapCommand.php' => 'Read-only field-map audit command.',
         'app/Console/Commands/Members/BackfillMemberContactCommand.php' => 'Explicitly write-gated backfill command.',
+        'app/Console/Commands/Members/BackfillUsersLegacyOnlyFieldsCommand.php' => 'Explicitly write-gated M4.17 legacy-only backfill command.',
+        'app/Services/Members/UsersLegacyOnlyBackfillService.php' => 'Controlled backfill service for canonical targets.',
     ];
 
     /**

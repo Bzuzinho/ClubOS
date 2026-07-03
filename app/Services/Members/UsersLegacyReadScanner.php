@@ -132,6 +132,8 @@ final class UsersLegacyReadScanner
         'app/Console/Commands/Members/AuditUsersLegacyWriteGuardCommand.php' => 'Comando de auditoria/read-only M4.',
         'app/Services/Members/UsersLegacyOnlyBackfillPreflightService.php' => 'Servico read-only de preflight M4.14.',
         'app/Console/Commands/Members/BackfillMemberContactCommand.php' => 'Backfill controlado e auditavel M4.',
+        'app/Services/Members/UsersLegacyOnlyBackfillService.php' => 'Servico de backfill controlado M4.17 para campos legacy_only.',
+        'app/Console/Commands/Members/BackfillUsersLegacyOnlyFieldsCommand.php' => 'Comando de backfill controlado M4.17 com guardas de commit.',
         'app/Services/Members/UsersLegacyWriteGuardScanner.php' => 'Scanner de auditoria de escrita legado.',
         'app/Services/Members/UsersLegacyReadScanner.php' => 'Scanner de auditoria de leitura legado.',
     ];
