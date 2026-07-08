@@ -269,8 +269,37 @@ final class FinancialIntegrationAuditCommandTest extends TestCase
             'fatura_id' => null,
         ]);
 
-        $invoice = Invoice::query()->findOrFail($registration->fatura_id);
-        $entry = FinancialEntry::query()->where('fatura_id', $invoice->id)->firstOrFail();
+        $invoice = Invoice::query()->create([
+            'user_id' => $user->id,
+            'data_fatura' => now()->toDateString(),
+            'data_emissao' => now()->toDateString(),
+            'data_vencimento' => now()->addDays(10)->toDateString(),
+            'valor_total' => 10,
+            'valor_pago' => 0,
+            'valor_em_aberto' => 10,
+            'estado_pagamento' => 'pendente',
+            'tipo' => 'inscricao',
+            'origem_tipo' => 'evento',
+            'origem_id' => $prova->id,
+            'oculta' => false,
+        ]);
+
+        $registration->update(['fatura_id' => $invoice->id]);
+
+        $entry = FinancialEntry::query()->create([
+            'data' => now()->toDateString(),
+            'tipo' => 'receita',
+            'categoria' => 'Inscricao',
+            'descricao' => 'Entrada paralela legacy',
+            'valor' => 10,
+            'valor_pago' => 0,
+            'valor_em_aberto' => 10,
+            'estado' => 'pendente',
+            'user_id' => $user->id,
+            'fatura_id' => $invoice->id,
+            'origem_tipo' => 'evento',
+            'origem_id' => $prova->id,
+        ]);
 
         return [$registration->fresh(), $invoice, $entry];
     }

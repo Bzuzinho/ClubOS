@@ -173,9 +173,18 @@ final class FinancialIntegrationAuditService
             if ($effectiveValue <= 0.009) {
                 $zeroValueInvoice = $invoice !== null;
                 $zeroValueEntryExists = FinancialEntry::query()
-                    ->where('origem_tipo', 'evento')
-                    ->where('origem_id', (string) $registration->prova_id)
                     ->where('user_id', $registration->user_id)
+                    ->where(function ($query) use ($registration): void {
+                        $query
+                            ->where(function ($legacy) use ($registration): void {
+                                $legacy->where('origem_tipo', 'evento')
+                                    ->where('origem_id', (string) $registration->prova_id);
+                            })
+                            ->orWhere(function ($canonical) use ($registration): void {
+                                $canonical->where('origem_tipo', 'competition_registration')
+                                    ->where('origem_id', (string) $registration->id);
+                            });
+                    })
                     ->exists();
 
                 if ($zeroValueInvoice || $zeroValueEntryExists) {
@@ -215,12 +224,11 @@ final class FinancialIntegrationAuditService
             }
         }
 
-        $registrationIds = $registrations->pluck('id')->map(static fn ($id) => (string) $id)->all();
         $proofIds = $registrations->pluck('prova_id')->filter()->map(static fn ($id) => (string) $id)->all();
 
         $registrationInvoices = Invoice::query()
             ->where('tipo', 'inscricao')
-            ->where(function ($query) use ($registrationIds, $proofIds): void {
+            ->where(function ($query) use ($proofIds): void {
                 $query
                     ->where('origem_tipo', 'competition_registration')
                     ->orWhere(function ($nested) use ($proofIds): void {

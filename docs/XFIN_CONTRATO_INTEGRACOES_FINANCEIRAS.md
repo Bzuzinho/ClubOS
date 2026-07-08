@@ -29,3 +29,34 @@ Regras:
 - A liquidacao deve convergir pelo servico canonico e gerar FinancialEntry com `origem_tipo=movement` e `origem_id=movement.id`.
 - Entradas keyed diretamente pela origem de negocio sem ligar ao movement criam risco de contagem paralela.
 - Estados pagos, conciliados ou fiscais num movement nao podem coexistir com fluxos destrutivos de refresh/delete/recreate.
+
+## XFIN3: CompetitionRegistration lifecycle canonico
+
+Estado: concluido em 2026-07-08.
+
+### Criacao de inscricao
+
+Fluxo esperado:
+
+CompetitionRegistration -> Invoice(tipo=inscricao, origem_tipo=competition_registration, origem_id=competition_registration.id) -> InvoiceItem
+
+Regras:
+
+- a criacao de `CompetitionRegistration` nao pode criar `FinancialEntry` paralelo;
+- o valor efetivo segue prioridade: `valor_inscricao` explicito -> `evento.taxa_inscricao` -> `0`;
+- apenas valor efetivo `> 0` cria `Invoice` + `InvoiceItem`;
+- valor efetivo `<= 0` nao cria divida nem item financeiro.
+
+### Remocao/cancelamento de inscricao
+
+Fluxo esperado:
+
+- sem invoice: remocao permitida;
+- invoice pendente/cancelada sem pagamentos, sem allocations confirmadas e sem documento fiscal/recibo emitido: remocao segura permitida;
+- invoice parcial/paga, com `valor_pago > 0`, com `PaymentAllocation` confirmada, com `FiscalDocumentRequest` emitido/numero externo ou com recibo emitido: remocao bloqueada por validacao funcional.
+
+### Compatibilidade legacy
+
+- XFIN3 nao faz backfill;
+- XFIN3 nao altera invoices antigas;
+- a auditoria continua a reportar origens ambiguas e paralelismos legacy quando existirem.
