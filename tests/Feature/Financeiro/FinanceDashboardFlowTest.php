@@ -117,6 +117,37 @@ class FinanceDashboardFlowTest extends TestCase
         $this->assertSame(125.0, $summary['receitas_mes']);
     }
 
+    public function test_dashboard_includes_paid_non_monthly_invoice_in_revenue(): void
+    {
+        $costCenter = CostCenter::query()->firstOrFail();
+        $user = User::factory()->create([
+            'nome_completo' => 'Atleta Dashboard Material',
+            'email' => 'dashboard-material@example.com',
+            'nif' => '951753852',
+        ]);
+
+        Invoice::query()->create([
+            'user_id' => $user->id,
+            'centro_custo_id' => $costCenter->id,
+            'data_fatura' => now()->subDay()->toDateString(),
+            'data_emissao' => now()->subDay()->toDateString(),
+            'data_vencimento' => now()->addDays(5)->toDateString(),
+            'valor_total' => 64.00,
+            'valor_pago' => 64.00,
+            'valor_em_aberto' => 0,
+            'estado_pagamento' => 'pago',
+            'data_pagamento' => now()->subDay()->toDateString(),
+            'tipo' => 'material',
+            'oculta' => false,
+            'origem_tipo' => 'stock',
+            'origem_id' => 'dashboard-material-origin',
+        ]);
+
+        $summary = app(FinanceDashboardService::class)->build();
+
+        $this->assertSame(64.0, $summary['receitas_mes']);
+    }
+
     public function test_dashboard_sums_paid_expense_movements(): void
     {
         $costCenter = CostCenter::query()->firstOrFail();
@@ -140,6 +171,27 @@ class FinanceDashboardFlowTest extends TestCase
         $summary = app(FinanceDashboardService::class)->build();
 
         $this->assertSame(30.0, $summary['despesas_mes']);
+    }
+
+    public function test_dashboard_normalizes_negative_paid_expense_movement_to_positive_amount(): void
+    {
+        $costCenter = CostCenter::query()->firstOrFail();
+
+        Movement::query()->create([
+            'classificacao' => 'despesa',
+            'data_emissao' => now()->toDateString(),
+            'data_vencimento' => now()->toDateString(),
+            'valor_total' => -17.40,
+            'estado_pagamento' => 'pago',
+            'centro_custo_id' => $costCenter->id,
+            'tipo' => 'fornecedor',
+            'origem_tipo' => 'manual',
+            'origem_id' => 'dash-negative-expense',
+        ]);
+
+        $summary = app(FinanceDashboardService::class)->build();
+
+        $this->assertSame(17.4, $summary['despesas_mes']);
     }
 
     public function test_dashboard_counts_overdue_monthly_fees_open_amount(): void

@@ -187,6 +187,39 @@ class FinanceReportFlowTest extends TestCase
         $response->assertJsonPath('reports.age_groups.items.0.total_pendente', 0);
     }
 
+    public function test_paid_non_monthly_invoice_is_included_in_reporting_totals(): void
+    {
+        $admin = User::query()->where('email', 'admin@test.com')->firstOrFail();
+        $costCenter = CostCenter::query()->firstOrFail();
+        $user = User::factory()->create();
+
+        Invoice::query()->create([
+            'user_id' => $user->id,
+            'centro_custo_id' => $costCenter->id,
+            'data_fatura' => '2026-05-10',
+            'data_emissao' => '2026-05-10',
+            'data_vencimento' => '2026-05-20',
+            'valor_total' => 42.00,
+            'valor_pago' => 42.00,
+            'valor_em_aberto' => 0,
+            'estado_pagamento' => 'pago',
+            'data_pagamento' => '2026-05-12',
+            'tipo' => 'material',
+            'oculta' => false,
+            'origem_tipo' => 'stock',
+            'origem_id' => (string) Str::uuid(),
+        ]);
+
+        $response = $this->actingAs($admin)->getJson(route('relatorios-financeiros.index', [
+            'data_inicio' => '2026-05-01',
+            'data_fim' => '2026-05-31',
+        ]));
+
+        $response->assertOk();
+        $response->assertJsonPath('reports.period.totals.receitas', 42);
+        $response->assertJsonPath('reports.period.totals.saldo', 42);
+    }
+
     public function test_legacy_movements_with_financial_entry_are_not_duplicated(): void
     {
         $admin = User::query()->where('email', 'admin@test.com')->firstOrFail();
@@ -265,5 +298,34 @@ class FinanceReportFlowTest extends TestCase
         $response->assertOk();
         $response->assertJsonPath('reports.period.totals.receitas', 0);
         $response->assertJsonPath('reports.period.totals.despesas', 0);
+    }
+
+    public function test_negative_expense_movement_is_reported_as_positive_expense_value(): void
+    {
+        $admin = User::query()->where('email', 'admin@test.com')->firstOrFail();
+        $costCenter = CostCenter::query()->firstOrFail();
+        $user = User::factory()->create();
+
+        Movement::query()->create([
+            'user_id' => $user->id,
+            'classificacao' => 'despesa',
+            'data_emissao' => '2026-05-10',
+            'data_vencimento' => '2026-05-10',
+            'valor_total' => -33.00,
+            'estado_pagamento' => 'pago',
+            'centro_custo_id' => $costCenter->id,
+            'tipo' => 'fornecedor',
+            'origem_tipo' => 'manual',
+            'origem_id' => (string) Str::uuid(),
+        ]);
+
+        $response = $this->actingAs($admin)->getJson(route('relatorios-financeiros.index', [
+            'data_inicio' => '2026-05-01',
+            'data_fim' => '2026-05-31',
+        ]));
+
+        $response->assertOk();
+        $response->assertJsonPath('reports.period.totals.despesas', 33);
+        $response->assertJsonPath('reports.period.totals.saldo', -33);
     }
 }

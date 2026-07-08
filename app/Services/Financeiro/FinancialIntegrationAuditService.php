@@ -1053,26 +1053,25 @@ final class FinancialIntegrationAuditService
     {
         $findings = [];
 
-        $paidMonthlyIds = app(FinanceReportQueryService::class)
-            ->paidMonthlyInvoices()
-            ->pluck('id')
-            ->map(static fn ($id) => (string) $id)
-            ->all();
-
-        $canonicalEntryIdsByInvoice = FinancialEntry::query()
-            ->whereNotNull('fatura_id')
-            ->pluck('fatura_id')
+        $paidInvoiceIdsInReporting = app(FinancialReportingFactService::class)
+            ->paidFacts()
+            ->where('source_kind', 'invoice')
+            ->pluck('source_id')
             ->map(static fn ($id) => (string) $id)
             ->all();
 
         $paidInvoices = Invoice::query()
             ->where('estado_pagamento', 'pago')
-            ->where('tipo', '!=', 'mensalidade')
+            ->whereNotIn('estado_pagamento', ['cancelada'])
+            ->whereNotNull('data_pagamento')
+            ->where('valor_pago', '>', 0)
+            ->where(function ($query): void {
+                $query->whereNull('oculta')->orWhere('oculta', false);
+            })
             ->get();
 
         foreach ($paidInvoices as $invoice) {
-            if (!in_array((string) $invoice->id, $paidMonthlyIds, true)
-                && !in_array((string) $invoice->id, $canonicalEntryIdsByInvoice, true)) {
+            if (!in_array((string) $invoice->id, $paidInvoiceIdsInReporting, true)) {
                 $findings[] = $this->finding(
                     'critical',
                     'paid_invoice_excluded_from_financial_reports',
@@ -1081,7 +1080,7 @@ final class FinancialIntegrationAuditService
                     (string) $invoice->id,
                     'invoice',
                     (string) $invoice->id,
-                    'Invoice paga nao-mensalidade nao entra no paidMonthlyInvoices nem esta representada por canonical financial entries selecionaveis.',
+                    'Invoice paga elegivel nao foi selecionada pelos factos canónicos de reporting financeiro.',
                     [
                         'invoice_type' => $invoice->tipo,
                     ],

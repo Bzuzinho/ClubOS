@@ -12,6 +12,7 @@ class FinanceReportService
 {
     public function __construct(
         private readonly FinanceReportQueryService $queryService,
+        private readonly FinancialReportingFactService $financialReportingFactService,
         private readonly MemberFiscalDataResolver $memberFiscalDataResolver,
     ) {
     }
@@ -24,22 +25,18 @@ class FinanceReportService
         $monthStart = $now->copy()->startOfMonth();
         $monthEnd = $now->copy()->endOfMonth();
 
-        $paidMonthlyInvoices = $this->queryService->paidMonthlyInvoices($monthStart, $monthEnd, $filters)->sum('valor_pago');
-        $paidRevenueEntries = $this->queryService->paidCanonicalFinancialEntries('receita', $monthStart, $monthEnd, $filters)->sum('valor_pago');
-        $paidExpenseEntries = $this->queryService->paidCanonicalFinancialEntries('despesa', $monthStart, $monthEnd, $filters)->sum('valor_pago');
-        $paidLegacyRevenue = $this->queryService->paidLegacyMovements('receita', $monthStart, $monthEnd, $filters)->sum('valor_total');
-        $paidLegacyExpense = $this->queryService->paidLegacyMovements('despesa', $monthStart, $monthEnd, $filters)->sum('valor_total');
+        $monthFacts = $this->financialReportingFactService->paidFacts($monthStart, $monthEnd, $filters);
+        $allFacts = $this->financialReportingFactService->paidFacts(null, null, $filters);
 
-        $totalRevenue = (float) $this->queryService->paidMonthlyInvoices(null, null, $filters)->sum('valor_pago')
-            + (float) $this->queryService->paidCanonicalFinancialEntries('receita', null, null, $filters)->sum('valor_pago')
-            + (float) $this->queryService->paidLegacyMovements('receita', null, null, $filters)->sum('valor_total');
-        $totalExpense = (float) $this->queryService->paidCanonicalFinancialEntries('despesa', null, null, $filters)->sum('valor_pago')
-            + (float) $this->queryService->paidLegacyMovements('despesa', null, null, $filters)->sum('valor_total');
+        $monthRevenue = (float) $monthFacts->where('type', 'receita')->sum('amount');
+        $monthExpense = (float) $monthFacts->where('type', 'despesa')->sum('amount');
+        $totalRevenue = (float) $allFacts->where('type', 'receita')->sum('amount');
+        $totalExpense = (float) $allFacts->where('type', 'despesa')->sum('amount');
 
         return [
             'saldoAtual' => round($totalRevenue - $totalExpense, 2),
-            'receitasMes' => round((float) $paidMonthlyInvoices + (float) $paidRevenueEntries + (float) $paidLegacyRevenue, 2),
-            'despesasMes' => round((float) $paidExpenseEntries + (float) $paidLegacyExpense, 2),
+            'receitasMes' => round($monthRevenue, 2),
+            'despesasMes' => round($monthExpense, 2),
             'mensalidadesAtrasadas' => round((float) $this->queryService->overdueMonthlyInvoices($filters)->sum('valor_em_aberto'), 2),
             'totalReceitas' => round($totalRevenue, 2),
             'totalDespesas' => round($totalExpense, 2),
@@ -56,13 +53,9 @@ class FinanceReportService
         $paidMonthlyInvoices = $this->queryService->paidMonthlyInvoices($start, $end, $filters)
             ->get(['id', 'user_id', 'centro_custo_id', 'valor_total', 'valor_pago', 'valor_em_aberto', 'data_pagamento', 'data_fatura']);
 
-        $paidCanonicalEntries = $this->queryService->paidCanonicalFinancialEntries(null, $start, $end, $filters)
-            ->get(['id', 'user_id', 'centro_custo_id', 'tipo', 'valor', 'valor_pago', 'data_pagamento', 'origem_modulo', 'origem_tipo']);
-
-        $paidLegacyMovements = $this->queryService->paidLegacyMovements(null, $start, $end, $filters)
-            ->get(['id', 'user_id', 'centro_custo_id', 'classificacao', 'valor_total', 'data_emissao', 'origem_tipo']);
-
-        $reportRows = $this->buildReportRows($paidMonthlyInvoices, $paidCanonicalEntries, $paidLegacyMovements);
+        $reportRows = $this->buildReportRows(
+            $this->financialReportingFactService->paidFacts($start, $end, $filters)
+        );
 
         return [
             'filters' => [
@@ -77,60 +70,26 @@ class FinanceReportService
             'reports' => [
                 'period' => $this->buildPeriodReport($reportRows),
                 'cost_centers' => $this->buildCostCenterReport($reportRows),
-                'age_groups' => $this->buildAgeGroupReport($monthlyInvoices, $paidCanonicalEntries, $paidLegacyMovements, $filters),
-                'athletes' => $this->buildAthleteReport($paidMonthlyInvoices, $paidCanonicalEntries, $paidLegacyMovements, $filters),
+                'age_groups' => $this->buildAgeGroupReport($monthlyInvoices, $paidMonthlyInvoices, $reportRows, $filters),
+                'athletes' => $this->buildAthleteReport($paidMonthlyInvoices, $reportRows, $filters),
             ],
         ];
     }
 
-    private function buildReportRows(Collection $paidMonthlyInvoices, Collection $paidCanonicalEntries, Collection $paidLegacyMovements): Collection
+    private function buildReportRows(Collection $paidFacts): Collection
     {
-        $monthlyRows = $paidMonthlyInvoices->map(function ($invoice): array {
-            $paidAmount = $this->toAmount($invoice->valor_pago ?? $invoice->valor_total);
-            $paidAt = $invoice->data_pagamento ? Carbon::parse($invoice->data_pagamento) : Carbon::parse($invoice->data_fatura);
-
+        return $paidFacts->map(function (array $fact): array {
             return [
-                'kind' => 'invoice',
-                'type' => 'receita',
-                'amount' => $paidAmount,
-                'date' => $paidAt,
-                'user_id' => $invoice->user_id,
-                'centro_custo_id' => $invoice->centro_custo_id,
-                'origem_modulo' => 'mensalidades',
-                'origem_tipo' => 'mensalidade',
+                'kind' => $fact['source_kind'],
+                'type' => $fact['type'],
+                'amount' => $this->toAmount($fact['amount']),
+                'date' => $fact['paid_at'] instanceof Carbon ? $fact['paid_at'] : Carbon::parse($fact['paid_at']),
+                'user_id' => $fact['user_id'] ?? null,
+                'centro_custo_id' => $fact['centro_custo_id'] ?? null,
+                'origem_modulo' => $fact['origem_modulo'] ?? null,
+                'origem_tipo' => $fact['origem_tipo'] ?? null,
             ];
-        });
-
-        $canonicalRows = $paidCanonicalEntries->map(function ($entry): array {
-            return [
-                'kind' => 'financial_entry',
-                'type' => $entry->tipo,
-                'amount' => $this->toAmount($entry->valor_pago ?? $entry->valor),
-                'date' => $entry->data_pagamento ? Carbon::parse($entry->data_pagamento) : null,
-                'user_id' => $entry->user_id,
-                'centro_custo_id' => $entry->centro_custo_id,
-                'origem_modulo' => $entry->origem_modulo,
-                'origem_tipo' => $entry->origem_tipo,
-            ];
-        });
-
-        $legacyRows = $paidLegacyMovements->map(function ($movement): array {
-            return [
-                'kind' => 'movement',
-                'type' => $movement->classificacao,
-                'amount' => $this->toAmount($movement->valor_total),
-                'date' => $movement->data_emissao ? Carbon::parse($movement->data_emissao) : null,
-                'user_id' => $movement->user_id,
-                'centro_custo_id' => $movement->centro_custo_id,
-                'origem_modulo' => null,
-                'origem_tipo' => $movement->origem_tipo,
-            ];
-        });
-
-        return $monthlyRows
-            ->concat($canonicalRows)
-            ->concat($legacyRows)
-            ->filter(fn (array $row): bool => $row['date'] instanceof Carbon)
+        })
             ->values();
     }
 
@@ -192,9 +151,9 @@ class FinanceReportService
         ];
     }
 
-    private function buildAgeGroupReport(Collection $monthlyInvoices, Collection $paidCanonicalEntries, Collection $paidLegacyMovements, array $filters): array
+    private function buildAgeGroupReport(Collection $monthlyInvoices, Collection $paidMonthlyInvoices, Collection $factRows, array $filters): array
     {
-        $users = $this->loadReportUsers($monthlyInvoices, $paidCanonicalEntries, $paidLegacyMovements, $filters);
+        $users = $this->loadReportUsers($monthlyInvoices, $factRows, $filters);
         $ageGroupNames = AgeGroup::query()->pluck('nome', 'id');
         $available = $users->contains(fn (User $user): bool => !empty($user->escalao));
 
@@ -208,33 +167,34 @@ class FinanceReportService
         }
 
         $monthlyByUser = $monthlyInvoices->groupBy('user_id');
-        $revenueByUser = $paidCanonicalEntries
-            ->where('tipo', 'receita')
-            ->concat($paidLegacyMovements->where('classificacao', 'receita'))
+        $monthlyPaidByUser = $paidMonthlyInvoices->groupBy('user_id');
+        $extraRevenueByUser = $factRows
+            ->where('type', 'receita')
+            ->reject(fn (array $row): bool => $row['kind'] === 'invoice' && $row['origem_tipo'] === 'mensalidade')
             ->groupBy('user_id');
-        $expenseByUser = $paidCanonicalEntries
-            ->where('tipo', 'despesa')
-            ->concat($paidLegacyMovements->where('classificacao', 'despesa'))
+        $expenseByUser = $factRows
+            ->where('type', 'despesa')
             ->groupBy('user_id');
 
         $items = $users
-            ->flatMap(function (User $user) use ($ageGroupNames, $monthlyByUser, $revenueByUser, $expenseByUser): array {
+            ->flatMap(function (User $user) use ($ageGroupNames, $monthlyByUser, $monthlyPaidByUser, $extraRevenueByUser, $expenseByUser): array {
                 $ageGroups = collect($user->escalao ?? [])->filter()->values();
 
-                return $ageGroups->map(function (string $ageGroupId) use ($user, $ageGroupNames, $monthlyByUser, $revenueByUser, $expenseByUser): array {
+                return $ageGroups->map(function (string $ageGroupId) use ($user, $ageGroupNames, $monthlyByUser, $monthlyPaidByUser, $extraRevenueByUser, $expenseByUser): array {
                     $monthlyInvoices = $monthlyByUser->get($user->id, collect());
-                    $revenueRows = $revenueByUser->get($user->id, collect());
+                    $monthlyPaidRows = $monthlyPaidByUser->get($user->id, collect());
+                    $extraRevenueRows = $extraRevenueByUser->get($user->id, collect());
                     $expenseRows = $expenseByUser->get($user->id, collect());
 
                     return [
                         'age_group_id' => $ageGroupId,
                         'age_group' => $ageGroupNames->get($ageGroupId, $ageGroupId),
                         'numero_atletas' => 1,
-                        'receitas' => round($revenueRows->sum(fn ($row) => $this->toAmount($row->valor_pago ?? $row->valor_total ?? $row->valor)), 2),
+                        'receitas' => round($extraRevenueRows->sum('amount'), 2),
                         'total_faturado' => round($monthlyInvoices->sum(fn ($invoice) => $this->toAmount($invoice->valor_total)), 2),
-                        'total_pago' => round($monthlyInvoices->sum(fn ($invoice) => $this->toAmount($invoice->valor_pago)), 2),
+                        'total_pago' => round($monthlyPaidRows->sum(fn ($invoice) => $this->toAmount($invoice->valor_pago)), 2),
                         'total_pendente' => round($monthlyInvoices->sum(fn ($invoice) => $this->toAmount($invoice->valor_em_aberto)), 2),
-                        'despesas' => round($expenseRows->sum(fn ($row) => $this->toAmount($row->valor_pago ?? $row->valor_total ?? $row->valor)), 2),
+                        'despesas' => round($expenseRows->sum('amount'), 2),
                     ];
                 })->all();
             })
@@ -275,9 +235,9 @@ class FinanceReportService
         ];
     }
 
-    private function buildAthleteReport(Collection $paidMonthlyInvoices, Collection $paidCanonicalEntries, Collection $paidLegacyMovements, array $filters): array
+    private function buildAthleteReport(Collection $paidMonthlyInvoices, Collection $factRows, array $filters): array
     {
-        $users = $this->loadReportUsers($paidMonthlyInvoices, $paidCanonicalEntries, $paidLegacyMovements, $filters)
+        $users = $this->loadReportUsers($paidMonthlyInvoices, $factRows, $filters)
             ->filter(fn (User $user): bool => in_array('atleta', $user->tipo_membro ?? [], true));
 
         if ($users->isEmpty()) {
@@ -290,21 +250,20 @@ class FinanceReportService
         }
 
         $monthlyByUser = $paidMonthlyInvoices->groupBy('user_id');
-        $revenueByUser = $paidCanonicalEntries
-            ->where('tipo', 'receita')
-            ->concat($paidLegacyMovements->where('classificacao', 'receita'))
+        $extraRevenueByUser = $factRows
+            ->where('type', 'receita')
+            ->reject(fn (array $row): bool => $row['kind'] === 'invoice' && $row['origem_tipo'] === 'mensalidade')
             ->groupBy('user_id');
-        $expenseByUser = $paidCanonicalEntries
-            ->where('tipo', 'despesa')
-            ->concat($paidLegacyMovements->where('classificacao', 'despesa'))
+        $expenseByUser = $factRows
+            ->where('type', 'despesa')
             ->groupBy('user_id');
         $ageGroupNames = AgeGroup::query()->pluck('nome', 'id');
 
         $items = $users
-            ->map(function (User $user) use ($monthlyByUser, $revenueByUser, $expenseByUser, $ageGroupNames): array {
+            ->map(function (User $user) use ($monthlyByUser, $extraRevenueByUser, $expenseByUser, $ageGroupNames): array {
                 $invoiceRevenue = round($monthlyByUser->get($user->id, collect())->sum(fn ($invoice) => $this->toAmount($invoice->valor_pago)), 2);
-                $extraRevenue = round($revenueByUser->get($user->id, collect())->sum(fn ($row) => $this->toAmount($row->valor_pago ?? $row->valor_total ?? $row->valor)), 2);
-                $expense = round($expenseByUser->get($user->id, collect())->sum(fn ($row) => $this->toAmount($row->valor_pago ?? $row->valor_total ?? $row->valor)), 2);
+                $extraRevenue = round($extraRevenueByUser->get($user->id, collect())->sum('amount'), 2);
+                $expense = round($expenseByUser->get($user->id, collect())->sum('amount'), 2);
                 $paid = round($invoiceRevenue + $extraRevenue, 2);
 
                 return [
@@ -334,12 +293,11 @@ class FinanceReportService
         ];
     }
 
-    private function loadReportUsers(Collection $monthlyInvoices, Collection $paidCanonicalEntries, Collection $paidLegacyMovements, array $filters): Collection
+    private function loadReportUsers(Collection $monthlyInvoices, Collection $factRows, array $filters): Collection
     {
         $userIds = collect([$filters['user_id'] ?? null])
             ->merge($monthlyInvoices->pluck('user_id'))
-            ->merge($paidCanonicalEntries->pluck('user_id'))
-            ->merge($paidLegacyMovements->pluck('user_id'))
+            ->merge($factRows->pluck('user_id'))
             ->filter()
             ->unique()
             ->values();

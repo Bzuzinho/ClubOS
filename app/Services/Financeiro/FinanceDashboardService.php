@@ -11,6 +11,7 @@ class FinanceDashboardService
 {
     public function __construct(
         private readonly FinanceReportQueryService $queryService,
+        private readonly FinancialReportingFactService $financialReportingFactService,
     ) {
     }
 
@@ -22,24 +23,22 @@ class FinanceDashboardService
         $monthStart = $now->copy()->startOfMonth();
         $monthEnd = $now->copy()->endOfMonth();
 
-        $monthlyPaidThisMonth = (float) $this->queryService->paidMonthlyInvoices($monthStart, $monthEnd, $filters)->sum('valor_pago');
-        $paidRevenueEntriesThisMonth = (float) $this->queryService->paidCanonicalFinancialEntries('receita', $monthStart, $monthEnd, $filters)->sum('valor_pago');
-        $paidExpenseEntriesThisMonth = (float) $this->queryService->paidCanonicalFinancialEntries('despesa', $monthStart, $monthEnd, $filters)->sum('valor_pago');
-        $paidLegacyRevenueThisMonth = (float) $this->queryService->paidLegacyMovements('receita', $monthStart, $monthEnd, $filters)->sum('valor_total');
-        $paidLegacyExpenseThisMonth = (float) $this->queryService->paidLegacyMovements('despesa', $monthStart, $monthEnd, $filters)->sum('valor_total');
+        $monthFacts = $this->financialReportingFactService->paidFacts($monthStart, $monthEnd, $filters);
+        $allFacts = $this->financialReportingFactService->paidFacts(null, null, $filters);
 
-        $totalReceitas = (float) $this->queryService->paidMonthlyInvoices(null, null, $filters)->sum('valor_pago')
-            + (float) $this->queryService->paidCanonicalFinancialEntries('receita', null, null, $filters)->sum('valor_pago')
-            + (float) $this->queryService->paidLegacyMovements('receita', null, null, $filters)->sum('valor_total');
-        $totalDespesas = (float) $this->queryService->paidCanonicalFinancialEntries('despesa', null, null, $filters)->sum('valor_pago')
-            + (float) $this->queryService->paidLegacyMovements('despesa', null, null, $filters)->sum('valor_total');
+        $totalReceitas = (float) $allFacts->where('type', 'receita')->sum('amount');
+        $totalDespesas = (float) $allFacts->where('type', 'despesa')->sum('amount');
 
-        $receitasMes = round($monthlyPaidThisMonth + $paidRevenueEntriesThisMonth + $paidLegacyRevenueThisMonth, 2);
-        $despesasMes = round($paidExpenseEntriesThisMonth + $paidLegacyExpenseThisMonth, 2);
+        $receitasMes = round((float) $monthFacts->where('type', 'receita')->sum('amount'), 2);
+        $despesasMes = round((float) $monthFacts->where('type', 'despesa')->sum('amount'), 2);
 
         $movimentosPendentes = round(
-            (float) $this->queryService->pendingCanonicalFinancialEntries($filters)->sum('valor_em_aberto')
-            + (float) $this->queryService->pendingLegacyMovements($filters)->sum('valor_total'),
+            (float) $this->queryService->pendingCanonicalFinancialEntries($filters)
+                ->get(['valor_em_aberto'])
+                ->sum(fn ($entry) => abs((float) ($entry->valor_em_aberto ?? 0)))
+            + (float) $this->queryService->pendingLegacyMovements($filters)
+                ->get(['valor_total'])
+                ->sum(fn ($movement) => abs((float) ($movement->valor_total ?? 0))),
             2
         );
 
@@ -50,9 +49,9 @@ class FinanceDashboardService
             'mensalidades_vencidas' => round((float) $this->queryService->overdueMonthlyInvoices($filters)->sum('valor_em_aberto'), 2),
             'movimentos_pendentes' => $movimentosPendentes,
             'alerts' => $this->buildExpenseAlerts($now),
-            'distribuicao_por_tipo' => $this->buildDistributionByType($filters),
+            'distribuicao_por_tipo' => $this->buildDistributionByType($allFacts),
             'evolucao_mensal_ultimos_6_meses' => $this->buildMonthlyEvolution($now, $filters),
-            'receitas_despesas_por_centro_custo' => $this->buildCostCenterSummary($filters),
+            'receitas_despesas_por_centro_custo' => $this->buildCostCenterSummary($allFacts),
         ];
     }
 
@@ -99,31 +98,19 @@ class FinanceDashboardService
         ]);
     }
 
-    private function buildDistributionByType(array $filters = []): array
+    private function buildDistributionByType(Collection $facts): array
     {
-        $monthlyTotal = (float) $this->queryService->paidMonthlyInvoices(null, null, $filters)->sum('valor_pago');
-        $entries = $this->queryService->canonicalFinancialEntries($filters)
-            ->where('estado', 'pago')
-            ->selectRaw('tipo, COALESCE(categoria, origem_tipo, ? ) as label, SUM(valor_pago) as total', ['Sem categoria'])
-            ->groupBy('tipo', 'label')
-            ->get();
+        return $facts
+            ->groupBy(fn (array $fact): string => $fact['type'].'|'.$fact['origem_tipo'])
+            ->map(function (Collection $group): array {
+                $first = $group->first();
 
-        $distribution = collect();
-
-        if ($monthlyTotal > 0) {
-            $distribution->push([
-                'tipo' => 'receita',
-                'label' => 'mensalidade',
-                'total' => round($monthlyTotal, 2),
-            ]);
-        }
-
-        return $distribution
-            ->merge($entries->map(fn ($row) => [
-                'tipo' => $row->tipo,
-                'label' => $row->label,
-                'total' => round((float) $row->total, 2),
-            ]))
+                return [
+                    'tipo' => $first['type'],
+                    'label' => $first['origem_tipo'] ?: 'Sem categoria',
+                    'total' => round((float) $group->sum('amount'), 2),
+                ];
+            })
             ->values()
             ->all();
     }
@@ -132,49 +119,36 @@ class FinanceDashboardService
     {
         $months = collect(range(0, 5))->map(fn (int $offset) => $referenceDate->copy()->subMonths(5 - $offset));
 
-        return $months->map(function (Carbon $month) use ($filters): array {
-            $start = $month->copy()->startOfMonth()->toDateString();
-            $end = $month->copy()->endOfMonth()->toDateString();
+        $firstMonth = $months->first()?->copy()->startOfMonth();
+        $lastMonth = $months->last()?->copy()->endOfMonth();
+        $facts = $this->financialReportingFactService->paidFacts($firstMonth, $lastMonth, $filters);
+        $factsByMonth = $facts->groupBy(fn (array $fact): string => Carbon::parse($fact['paid_at'])->format('Y-m'));
+
+        return $months->map(function (Carbon $month) use ($factsByMonth): array {
+            $monthKey = $month->format('Y-m');
+            $rows = $factsByMonth->get($monthKey, collect());
 
             return [
-                'mes' => $month->format('Y-m'),
-                'receitas' => round(
-                    (float) $this->queryService->paidMonthlyInvoices(Carbon::parse($start), Carbon::parse($end), $filters)->sum('valor_pago')
-                    + (float) $this->queryService->paidCanonicalFinancialEntries('receita', Carbon::parse($start), Carbon::parse($end), $filters)->sum('valor_pago')
-                    + (float) $this->queryService->paidLegacyMovements('receita', Carbon::parse($start), Carbon::parse($end), $filters)->sum('valor_total'),
-                    2
-                ),
-                'despesas' => round(
-                    (float) $this->queryService->paidCanonicalFinancialEntries('despesa', Carbon::parse($start), Carbon::parse($end), $filters)->sum('valor_pago')
-                    + (float) $this->queryService->paidLegacyMovements('despesa', Carbon::parse($start), Carbon::parse($end), $filters)->sum('valor_total'),
-                    2
-                ),
+                'mes' => $monthKey,
+                'receitas' => round((float) $rows->where('type', 'receita')->sum('amount'), 2),
+                'despesas' => round((float) $rows->where('type', 'despesa')->sum('amount'), 2),
             ];
         })->all();
     }
 
-    private function buildCostCenterSummary(array $filters = []): array
+    private function buildCostCenterSummary(Collection $facts): array
     {
+        $factsByCostCenter = $facts->groupBy(fn (array $fact): string => (string) ($fact['centro_custo_id'] ?? ''));
+
         return $this->queryService->costCenters()
-            ->map(function ($costCenter) use ($filters): array {
-                $costCenterFilters = array_merge($filters, [
-                    'centro_custo_id' => $costCenter->id,
-                ]);
+            ->map(function ($costCenter) use ($factsByCostCenter): array {
+                $rows = $factsByCostCenter->get((string) $costCenter->id, collect());
 
                 return [
                     'centro_custo_id' => $costCenter->id,
                     'centro_custo_nome' => $costCenter->nome,
-                    'receitas' => round(
-                        (float) $this->queryService->paidMonthlyInvoices(null, null, $costCenterFilters)->sum('valor_pago')
-                        + (float) $this->queryService->paidCanonicalFinancialEntries('receita', null, null, $costCenterFilters)->sum('valor_pago')
-                        + (float) $this->queryService->paidLegacyMovements('receita', null, null, $costCenterFilters)->sum('valor_total'),
-                        2
-                    ),
-                    'despesas' => round(
-                        (float) $this->queryService->paidCanonicalFinancialEntries('despesa', null, null, $costCenterFilters)->sum('valor_pago')
-                        + (float) $this->queryService->paidLegacyMovements('despesa', null, null, $costCenterFilters)->sum('valor_total'),
-                        2
-                    ),
+                    'receitas' => round((float) $rows->where('type', 'receita')->sum('amount'), 2),
+                    'despesas' => round((float) $rows->where('type', 'despesa')->sum('amount'), 2),
                 ];
             })
             ->filter(fn (array $row) => $row['receitas'] > 0 || $row['despesas'] > 0)

@@ -168,7 +168,7 @@ final class FinancialIntegrationAuditCommandTest extends TestCase
         $this->assertTrue($findings->contains(fn (array $finding): bool => $finding['code'] === 'supplier_purchase_orphan_financial_reference' && $finding['source_id'] === (string) $orphanPurchase->id));
     }
 
-    public function test_detects_paid_non_monthly_invoice_excluded_and_negative_expense_movement_and_snapshot_mismatch(): void
+    public function test_reporting_module_no_longer_flags_paid_non_monthly_invoice_excluded(): void
     {
         $invoice = $this->seedPaidNonMonthlyInvoiceExcluded();
         $movement = $this->seedNegativeExpenseMovement();
@@ -193,7 +193,7 @@ final class FinancialIntegrationAuditCommandTest extends TestCase
         $payload = json_decode(trim(Artisan::output()), true);
         $findings = collect($payload['findings'] ?? []);
 
-        $this->assertTrue($findings->contains(fn (array $finding): bool => $finding['code'] === 'paid_invoice_excluded_from_financial_reports' && $finding['source_id'] === (string) $invoice->id));
+        $this->assertFalse($findings->contains(fn (array $finding): bool => $finding['code'] === 'paid_invoice_excluded_from_financial_reports' && $finding['source_id'] === (string) $invoice->id));
         $this->assertTrue($findings->contains(fn (array $finding): bool => $finding['code'] === 'negative_expense_movement_value' && $finding['source_id'] === (string) $movement->id));
         $this->assertTrue($findings->contains(fn (array $finding): bool => $finding['code'] === 'invoice_financial_snapshot_mismatch' && $finding['source_id'] === (string) $snapshotInvoice->id));
     }
