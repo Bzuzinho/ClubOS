@@ -42,9 +42,6 @@ class User extends Authenticatable
         'foto_perfil',
         'encarregado_educacao',
         'educandos',
-        'tipo_mensalidade',
-        'conta_corrente',
-        'centro_custo',
         'numero_pmb',
         'data_inscricao',
         'inscricao',
@@ -94,10 +91,7 @@ class User extends Authenticatable
             'escalao' => 'array',
             'encarregado_educacao' => 'array',
             'educandos' => 'array',
-            'centro_custo' => 'array',
             'arquivo_atestado_medico' => 'array',
-            // Decimals
-            'conta_corrente' => 'decimal:2',
             // Integers
             'numero_irmaos' => 'integer',
         ];

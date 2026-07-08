@@ -59,7 +59,7 @@ final class AuditMemberCurrentAccountsCommand extends Command
     {
         $users = User::query()
             ->with('dadosFinanceiros:id,user_id,conta_corrente_manual')
-            ->select('id', 'conta_corrente')
+            ->select('id')
             ->when($this->option('user'), fn ($query, $userId) => $query->whereKey((string) $userId))
             ->orderBy('id')
             ->get();

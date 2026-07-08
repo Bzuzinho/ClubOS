@@ -369,9 +369,7 @@ class MemberImportService
         }
 
         if (!empty($normalized['centro_custo']) && is_array($normalized['centro_custo'])) {
-            $member->forceFill([
-                'centro_custo' => $this->memberCostCenterSyncService->sync($member, $normalized['centro_custo']),
-            ])->save();
+            $this->memberCostCenterSyncService->sync($member, $normalized['centro_custo']);
         }
 
         return $member->refresh();

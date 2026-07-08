@@ -7,11 +7,13 @@ namespace App\Services\Financeiro;
 use App\Models\CostCenter;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 final class MemberCostCenterLegacyBackfillService
 {
     /** @var list<string> */
     public const CLASSIFICATIONS = [
+        'cleanup_completed',
         'ready_for_backfill',
         'already_canonical',
         'divergent',
@@ -33,6 +35,11 @@ final class MemberCostCenterLegacyBackfillService
     public function analyze(?string $userId = null): array
     {
         $trimmedUserId = $this->normalizeUserId($userId);
+
+        if (!Schema::hasColumn('users', 'centro_custo')) {
+            return $this->analyzeAfterCleanup($trimmedUserId);
+        }
+
         $costCenterIds = $this->loadExistingCostCenterIds();
 
         $query = User::query()
@@ -61,6 +68,59 @@ final class MemberCostCenterLegacyBackfillService
             'members' => $rows,
             'summary' => $this->buildSummary($rows),
             'preflight' => $this->buildPreflight($rows),
+            'migration' => [
+                'migrated_count' => 0,
+                'migrated_user_ids' => [],
+                'skipped_count' => 0,
+                'skipped_user_ids' => [],
+                'failed_count' => 0,
+                'failed' => [],
+            ],
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function analyzeAfterCleanup(?string $userId): array
+    {
+        $users = User::query()
+            ->select('id', 'name', 'numero_socio')
+            ->when($userId !== null, fn ($query) => $query->whereKey($userId))
+            ->orderBy('numero_socio')
+            ->orderBy('id')
+            ->get();
+
+        $rows = $users->map(static fn (User $user): array => [
+            'id' => (string) $user->id,
+            'numero_socio' => (string) ($user->numero_socio ?? ''),
+            'name' => (string) ($user->name ?? ''),
+            'classification' => 'cleanup_completed',
+            'reason' => 'Legacy column users.centro_custo was removed in FC2.',
+            'source' => 'cleanup_completed',
+            'legacy_cost_centers_found' => [],
+            'canonical_cost_centers_found' => [],
+            'legacy_ids_missing' => [],
+            'invalid_weight_ids' => [],
+            'canonical_payload_candidate' => [],
+        ])->all();
+
+        return [
+            'timestamp' => now()->toIso8601String(),
+            'environment' => app()->environment(),
+            'user_filter' => $userId,
+            'mode' => 'dry-run',
+            'dry_run' => true,
+            'apply_requested' => false,
+            'members' => $rows,
+            'summary' => $this->buildSummary($rows),
+            'preflight' => [
+                'can_apply' => false,
+                'blocking_reasons' => ['legacy_column_missing_cleanup_completed'],
+                'divergent_count' => 0,
+                'invalid_legacy_count' => 0,
+                'invalid_weights_count' => 0,
+            ],
             'migration' => [
                 'migrated_count' => 0,
                 'migrated_user_ids' => [],

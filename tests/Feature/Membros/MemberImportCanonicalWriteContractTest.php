@@ -145,7 +145,6 @@ class MemberImportCanonicalWriteContractTest extends TestCase
             $this->assertSame($monthlyFee->id, $financeData->mensalidade_id);
         }
 
-        $this->assertSame($monthlyFee->id, $member->fresh()->tipo_mensalidade);
         $this->assertSame(
             $monthlyFee->id,
             app(MemberMonthlyFeeResolver::class)->resolveForUser($member->fresh('dadosFinanceiros'))
@@ -173,7 +172,6 @@ class MemberImportCanonicalWriteContractTest extends TestCase
         );
 
         $member = User::query()->findOrFail($result['created_ids'][0]);
-        $this->assertNotSame('123.45', (string) $member->conta_corrente);
         $this->assertNull($member->dadosFinanceiros, 'Sem tipo_mensalidade, nao deve criar dados_financeiros por causa de conta_corrente_manual.');
     }
 

@@ -7,11 +7,13 @@ namespace App\Services\Financeiro;
 use App\Models\MonthlyFee;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 final class MemberMonthlyFeeLegacyBackfillService
 {
     /** @var list<string> */
     public const CLASSIFICATIONS = [
+        'cleanup_completed',
         'ready_for_backfill',
         'already_canonical',
         'divergent',
@@ -34,6 +36,11 @@ final class MemberMonthlyFeeLegacyBackfillService
     public function analyze(?string $userId = null): array
     {
         $normalizedUserId = $this->normalizeUserId($userId);
+
+        if (!Schema::hasColumn('users', 'tipo_mensalidade')) {
+            return $this->analyzeAfterCleanup($normalizedUserId);
+        }
+
         $existingMonthlyFeeIds = $this->loadExistingMonthlyFeeIds();
 
         $users = User::query()
@@ -62,6 +69,68 @@ final class MemberMonthlyFeeLegacyBackfillService
             'classifications' => $this->groupCasesByClassification($cases),
             'cases' => $cases,
             'preflight' => $this->buildPreflight($cases, $summary),
+            'migration' => [
+                'migrated_count' => 0,
+                'migrated_user_ids' => [],
+                'already_canonical_count' => 0,
+                'already_canonical_user_ids' => [],
+                'skipped_count' => 0,
+                'skipped_user_ids' => [],
+                'failed_count' => 0,
+                'failed' => [],
+            ],
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function analyzeAfterCleanup(?string $userId): array
+    {
+        $users = User::query()
+            ->select('id', 'numero_socio', 'name', 'estado')
+            ->with('dadosFinanceiros:id,user_id,mensalidade_id')
+            ->when($userId !== null, static fn ($query) => $query->whereKey($userId))
+            ->orderBy('numero_socio')
+            ->orderBy('id')
+            ->get();
+
+        $cases = $users->map(fn (User $user): array => [
+            'user_id' => (string) $user->id,
+            'numero_socio' => (string) ($user->numero_socio ?? ''),
+            'name' => (string) ($user->name ?? ''),
+            'estado' => (string) ($user->estado ?? ''),
+            'classification' => 'cleanup_completed',
+            'canonical_monthly_fee_id' => $this->normalizeMonthlyFeeId($user->dadosFinanceiros?->mensalidade_id),
+            'legacy_monthly_fee_id' => null,
+            'resolved_monthly_fee_id' => $this->normalizeMonthlyFeeId($user->dadosFinanceiros?->mensalidade_id),
+            'reference_valid' => true,
+            'uses_legacy_fallback' => false,
+            'has_divergence' => false,
+            'requires_monthly_fee' => $this->requiresMonthlyFee($user),
+            'reason' => 'Legacy column users.tipo_mensalidade was removed in FC2.',
+            'canonical_payload_candidate' => [],
+        ])->all();
+
+        $summary = $this->buildSummary($cases);
+
+        return [
+            'version' => 'f2.1-member-monthly-fee-backfill-v1',
+            'generated_at' => now()->toIso8601String(),
+            'mode' => 'dry-run',
+            'scope' => [
+                'user' => $userId,
+            ],
+            'summary' => $summary,
+            'classifications' => $this->groupCasesByClassification($cases),
+            'cases' => $cases,
+            'preflight' => [
+                'can_apply' => false,
+                'blocking_reasons' => ['legacy_column_missing_cleanup_completed'],
+                'divergent_count' => 0,
+                'invalid_legacy_reference_count' => 0,
+                'unexpected_no_source_within_legacy_expected_count' => 0,
+            ],
             'migration' => [
                 'migrated_count' => 0,
                 'migrated_user_ids' => [],

@@ -60,6 +60,14 @@ return [
                 'numero_irmaos',
             ],
         ],
+        'removed_after_fc2' => [
+            'description' => 'Campos financeiros legacy removidos fisicamente de users na sprint FC2 após readiness FC1.1 validada.',
+            'fields' => [
+                'tipo_mensalidade',
+                'conta_corrente',
+                'centro_custo',
+            ],
+        ],
         'member_configuration_legacy' => [
             'description' => 'Campos de configuração e consentimento legados em users.',
             'fields' => [
@@ -82,11 +90,8 @@ return [
             ],
         ],
         'member_financial_legacy' => [
-            'description' => 'Campos financeiros legados ainda associados ao users.',
+            'description' => 'Campos financeiros legados ainda associados ao users (não removidos em FC2).',
             'fields' => [
-                'tipo_mensalidade',
-                'conta_corrente',
-                'centro_custo',
                 'inscricao',
             ],
         ],
@@ -175,9 +180,9 @@ return [
         'data_atestado_medico' => 'member_configuration_legacy',
         'arquivo_atestado_medico' => 'member_configuration_legacy',
         'informacoes_medicas' => 'member_configuration_legacy',
-        'tipo_mensalidade' => 'member_financial_legacy',
-        'conta_corrente' => 'member_financial_legacy',
-        'centro_custo' => 'member_financial_legacy',
+        'tipo_mensalidade' => 'removed_after_fc2',
+        'conta_corrente' => 'removed_after_fc2',
+        'centro_custo' => 'removed_after_fc2',
         'inscricao' => 'member_financial_legacy',
         'ativo_desportivo' => 'sports_operational_keep',
         'escalao' => 'sports_operational_keep',
@@ -207,6 +212,11 @@ return [
             'Remoção física executada em M6 com migration destrutiva dedicada e rollback estrutural.',
             'Rollback recria apenas o schema em users; não repõe automaticamente os valores migrados.',
             'Manter auditorias de leitura/escrita legacy verdes após o drop físico.',
+        ],
+        'removed_after_fc2' => [
+            'Remoção física executada em FC2 com migration destrutiva dedicada e rollback estrutural.',
+            'Rollback recria apenas o schema em users; não repõe automaticamente os valores removidos.',
+            'Backfills/auditorias devem operar em modo schema-aware quando as colunas já não existem.',
         ],
         'member_financial_legacy' => [
             'Confirmar substituição por tabelas financeiras canónicas.',

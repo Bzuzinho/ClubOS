@@ -237,7 +237,7 @@ class CurrentAccountService
         $users = User::query()
             ->with('dadosFinanceiros:id,user_id,conta_corrente_manual')
             ->whereIn('id', $userIds->all())
-            ->get(['id', 'conta_corrente']);
+            ->get(['id']);
 
         return round((float) $users->sum(fn (User $user): float => $this->memberManualAccountBalanceResolver->resolveForUser($user)), 2);
     }

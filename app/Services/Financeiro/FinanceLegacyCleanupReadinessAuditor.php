@@ -79,7 +79,7 @@ final class FinanceLegacyCleanupReadinessAuditor
                 'dadosFinanceiros:id,user_id,mensalidade_id,conta_corrente_manual',
                 'centrosCusto:id',
             ])
-            ->select('id', 'estado', 'centro_custo', 'tipo_mensalidade', 'conta_corrente')
+            ->select($this->buildUserSelectColumns($fields))
             ->orderBy('id')
             ->get();
 
@@ -168,10 +168,6 @@ final class FinanceLegacyCleanupReadinessAuditor
 
         $blockingReasons = [];
 
-        if (!$legacyColumnExists) {
-            $blockingReasons[] = 'legacy_column_missing';
-        }
-
         if ((int) ($metrics['fallback_count'] ?? 0) > 0) {
             $blockingReasons[] = 'fallback_in_use';
         }
@@ -216,7 +212,25 @@ final class FinanceLegacyCleanupReadinessAuditor
             ],
             'ready_for_cleanup' => $readyForCleanup,
             'blocking_reasons' => array_values(array_unique($blockingReasons)),
+            'cleanup_completed' => !$legacyColumnExists,
         ];
+    }
+
+    /**
+     * @param list<string> $fields
+     * @return list<string>
+     */
+    private function buildUserSelectColumns(array $fields): array
+    {
+        $columns = ['id', 'estado'];
+
+        foreach ($fields as $field) {
+            if (Schema::hasColumn('users', $field)) {
+                $columns[] = $field;
+            }
+        }
+
+        return array_values(array_unique($columns));
     }
 
     /**

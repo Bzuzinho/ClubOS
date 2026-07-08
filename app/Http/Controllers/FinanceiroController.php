@@ -286,8 +286,6 @@ class FinanceiroController extends Controller
                         'id',
                         'numero_socio',
                         'data_inscricao',
-                        'tipo_mensalidade',
-                        'centro_custo',
                         'tipo_membro',
                         'escalao'
                     )

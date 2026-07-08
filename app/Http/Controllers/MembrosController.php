@@ -496,16 +496,6 @@ class MembrosController extends Controller
             ? (float) $member->dadosFinanceiros->discount_value
             : null;
         $memberData['discount_reason'] = $member->dadosFinanceiros?->discount_reason;
-        $legacyCentros = collect($member->centro_custo ?? [])
-            ->map(function ($center) {
-                if (is_array($center) && isset($center['id'])) {
-                    return $center['id'];
-                }
-                return $center;
-            })
-            ->filter()
-            ->values();
-
         $resolvedCostCenters = $this->memberCostCenterResolver->resolveForUser($member);
         $memberData['centro_custo'] = collect($resolvedCostCenters['centro_custo'] ?? [])->values();
         $memberData['centro_custo_pesos'] = collect($resolvedCostCenters['centro_custo_pesos'] ?? [])->values();

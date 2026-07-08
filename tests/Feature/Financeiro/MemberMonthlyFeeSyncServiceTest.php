@@ -18,7 +18,7 @@ final class MemberMonthlyFeeSyncServiceTest extends TestCase
 
     public function test_creates_dados_financeiros_if_missing(): void
     {
-        $user = User::factory()->create(['tipo_mensalidade' => null]);
+        $user = User::factory()->create();
         $plan = $this->createPlan('Plano Sync A');
 
         app(MemberMonthlyFeeSyncService::class)->sync($user, $plan->id);
@@ -30,7 +30,7 @@ final class MemberMonthlyFeeSyncServiceTest extends TestCase
 
     public function test_updates_existing_mensalidade_id(): void
     {
-        $user = User::factory()->create(['tipo_mensalidade' => null]);
+        $user = User::factory()->create();
         $oldPlan = $this->createPlan('Plano Sync B1');
         $newPlan = $this->createPlan('Plano Sync B2');
 
@@ -46,7 +46,7 @@ final class MemberMonthlyFeeSyncServiceTest extends TestCase
 
     public function test_does_not_change_other_financial_fields(): void
     {
-        $user = User::factory()->create(['tipo_mensalidade' => null]);
+        $user = User::factory()->create();
         $oldPlan = $this->createPlan('Plano Sync C1');
         $newPlan = $this->createPlan('Plano Sync C2');
 
@@ -73,27 +73,24 @@ final class MemberMonthlyFeeSyncServiceTest extends TestCase
     {
         $this->expectException(InvalidArgumentException::class);
 
-        $user = User::factory()->create(['tipo_mensalidade' => null]);
+        $user = User::factory()->create();
 
         app(MemberMonthlyFeeSyncService::class)->sync($user, 'missing-plan-id');
     }
 
-    public function test_does_not_write_legacy_field_when_syncing_canonical_monthly_fee(): void
+    public function test_sync_only_updates_canonical_finance_record(): void
     {
-        $user = User::factory()->create(['tipo_mensalidade' => 'legacy-marker']);
+        $user = User::factory()->create();
         $plan = $this->createPlan('Plano Sync D');
 
         app(MemberMonthlyFeeSyncService::class)->sync($user, $plan->id);
 
-        $freshUser = $user->fresh();
-
-        $this->assertSame('legacy-marker', $freshUser?->tipo_mensalidade);
         $this->assertSame($plan->id, DadosFinanceiros::query()->where('user_id', $user->id)->value('mensalidade_id'));
     }
 
     public function test_is_idempotent_for_same_plan(): void
     {
-        $user = User::factory()->create(['tipo_mensalidade' => null]);
+        $user = User::factory()->create();
         $plan = $this->createPlan('Plano Sync E');
 
         app(MemberMonthlyFeeSyncService::class)->sync($user, $plan->id);

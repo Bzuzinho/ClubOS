@@ -57,7 +57,7 @@ final class AuditMemberCostCentersCommand extends Command
 
         $users = User::query()
             ->with('dadosFinanceiros:id,user_id,mensalidade_id')
-            ->select('id', 'name', 'numero_socio', 'estado', 'centro_custo', 'tipo_mensalidade')
+            ->select('id', 'name', 'numero_socio', 'estado')
             ->orderBy('numero_socio')
             ->get();
 

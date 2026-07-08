@@ -89,11 +89,9 @@ class MonthlyFeeGenerationFlowTest extends TestCase
         Log::spy();
 
         $canonicalPlan = $this->createMonthlyPlan(40.00);
-        $legacyPlan = $this->createMonthlyPlan(35.00);
 
         $user = $this->createEligibleUser($canonicalPlan, [
             'data_inscricao' => '2026-05-01',
-            'tipo_mensalidade' => $legacyPlan->id,
         ]);
 
         $invoice = app(MonthlyFeeGenerationService::class)
@@ -111,7 +109,6 @@ class MonthlyFeeGenerationFlowTest extends TestCase
     {
         Log::spy();
 
-        $legacyPlan = $this->createMonthlyPlan(45.00);
         $user = User::factory()->create([
             'nome_completo' => 'Fallback Monthly Fee',
             'email' => 'fallback-monthly-fee@example.com',
@@ -119,7 +116,6 @@ class MonthlyFeeGenerationFlowTest extends TestCase
             'data_inscricao' => '2026-05-01',
             'tipo_membro' => ['atleta'],
             'ativo_desportivo' => true,
-            'tipo_mensalidade' => $legacyPlan->id,
         ]);
         $user->userTypes()->sync([$this->findUserTypeId('atleta')]);
 

@@ -198,9 +198,7 @@ class MembrosCurrentAccountSurfaceTest extends TestCase
     public function test_member_show_resolves_tipo_mensalidade_from_canonical_source(): void
     {
         $admin = User::factory()->admin()->create();
-        $member = User::factory()->create([
-            'tipo_mensalidade' => 'legacy-plan-id',
-        ]);
+        $member = User::factory()->create();
 
         $canonicalPlan = MonthlyFee::query()->create([
             'designacao' => 'Plano Canonico Show',
@@ -229,7 +227,6 @@ class MembrosCurrentAccountSurfaceTest extends TestCase
         $member = User::factory()->create([
             'nome_completo' => 'Membro Sync Mensalidade',
             'email_utilizador' => 'sync-mensalidade@example.test',
-            'tipo_mensalidade' => null,
             'sexo' => 'masculino',
             'estado' => 'ativo',
             'tipo_membro' => ['Atleta'],
@@ -258,7 +255,10 @@ class MembrosCurrentAccountSurfaceTest extends TestCase
         $member->load('dadosFinanceiros');
 
         $this->assertSame($plan->id, $member->dadosFinanceiros?->mensalidade_id);
-        $this->assertNull($member->tipo_mensalidade);
+        $this->assertSame(
+            $plan->id,
+            app(MemberMonthlyFeeResolver::class)->resolveForUser($member->fresh('dadosFinanceiros'))
+        );
     }
 
     private function inertiaGetAs(User $user, string $uri)

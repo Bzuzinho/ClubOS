@@ -211,17 +211,7 @@ class MonthlyFeeGenerationService
             ->with(['dadosFinanceiros.mensalidade', 'centrosCusto'])
             ->where(function ($nested): void {
                 $nested
-                    ->whereHas('dadosFinanceiros', fn ($financeQuery) => $financeQuery->whereNotNull('mensalidade_id'))
-                    ->orWhere(function ($legacyQuery): void {
-                        // TEMP LEGACY F2: manter fallback query apenas para membros ainda sem mensalidade canónica.
-                        $legacyQuery
-                            ->whereNotNull('tipo_mensalidade')
-                            ->where(function ($canonicalMissing): void {
-                                $canonicalMissing
-                                    ->whereDoesntHave('dadosFinanceiros')
-                                    ->orWhereHas('dadosFinanceiros', fn ($financeQuery) => $financeQuery->whereNull('mensalidade_id'));
-                            });
-                    });
+                    ->whereHas('dadosFinanceiros', fn ($financeQuery) => $financeQuery->whereNotNull('mensalidade_id'));
             });
 
         if (($filters['only_active'] ?? true) === true) {
@@ -241,17 +231,7 @@ class MonthlyFeeGenerationService
 
             $query->where(function ($nested) use ($monthlyFeeId): void {
                 $nested
-                    ->whereHas('dadosFinanceiros', fn ($financeQuery) => $financeQuery->where('mensalidade_id', $monthlyFeeId))
-                    ->orWhere(function ($legacyQuery) use ($monthlyFeeId): void {
-                        // TEMP LEGACY F2: manter fallback query apenas para membros ainda sem mensalidade canónica.
-                        $legacyQuery
-                            ->where('tipo_mensalidade', $monthlyFeeId)
-                            ->where(function ($canonicalMissing): void {
-                                $canonicalMissing
-                                    ->whereDoesntHave('dadosFinanceiros')
-                                    ->orWhereHas('dadosFinanceiros', fn ($financeQuery) => $financeQuery->whereNull('mensalidade_id'));
-                            });
-                    });
+                    ->whereHas('dadosFinanceiros', fn ($financeQuery) => $financeQuery->where('mensalidade_id', $monthlyFeeId));
             });
         }
 

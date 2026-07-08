@@ -26,7 +26,6 @@ final class PendingMonthlyFeeRequirementAuditCommandTest extends TestCase
 
         $user = User::factory()->athlete()->create([
             'estado' => 'ativo',
-            'tipo_mensalidade' => null,
         ]);
         $user->userTypes()->sync([$this->findUserTypeId('atleta')]);
 
@@ -41,7 +40,6 @@ final class PendingMonthlyFeeRequirementAuditCommandTest extends TestCase
     {
         $user = User::factory()->create([
             'estado' => 'inativo',
-            'tipo_mensalidade' => null,
         ]);
 
         $payload = $this->runCommandJson(['--user' => (string) $user->id]);
@@ -60,7 +58,6 @@ final class PendingMonthlyFeeRequirementAuditCommandTest extends TestCase
             'perfil' => 'treinador',
             'tipo_membro' => ['treinador'],
             'ativo_desportivo' => false,
-            'tipo_mensalidade' => null,
         ]);
         $user->userTypes()->sync([$trainerType->id]);
 
@@ -77,7 +74,6 @@ final class PendingMonthlyFeeRequirementAuditCommandTest extends TestCase
             'estado' => 'ativo',
             'perfil' => '',
             'tipo_membro' => [],
-            'tipo_mensalidade' => null,
         ]);
 
         $payload = $this->runCommandJson(['--user' => (string) $user->id]);
@@ -91,7 +87,6 @@ final class PendingMonthlyFeeRequirementAuditCommandTest extends TestCase
     {
         $user = User::factory()->create([
             'estado' => 'inativo',
-            'tipo_mensalidade' => null,
         ]);
 
         Invoice::query()->create([
@@ -117,7 +112,7 @@ final class PendingMonthlyFeeRequirementAuditCommandTest extends TestCase
     public function test_user_with_resolved_monthly_fee_is_classified_as_resolved_present(): void
     {
         $plan = $this->createPlan('Plano Resolvido');
-        $user = User::factory()->create(['estado' => 'ativo', 'tipo_mensalidade' => null]);
+        $user = User::factory()->create(['estado' => 'ativo']);
 
         DadosFinanceiros::query()->create([
             'user_id' => $user->id,
@@ -138,7 +133,6 @@ final class PendingMonthlyFeeRequirementAuditCommandTest extends TestCase
 
         $user = User::factory()->create([
             'estado' => 'ativo',
-            'tipo_mensalidade' => null,
         ]);
         DB::table('centro_custo_user')->insert([
             'id' => (string) Str::uuid(),
@@ -168,7 +162,6 @@ final class PendingMonthlyFeeRequirementAuditCommandTest extends TestCase
     {
         $user = User::factory()->athlete()->create([
             'estado' => 'ativo',
-            'tipo_mensalidade' => null,
         ]);
         $user->userTypes()->sync([$this->createUserType('atleta', 'Atleta')->id]);
 
@@ -196,7 +189,6 @@ final class PendingMonthlyFeeRequirementAuditCommandTest extends TestCase
     {
         $user = User::factory()->create([
             'estado' => 'ativo',
-            'tipo_mensalidade' => null,
         ]);
 
         $relativePath = 'storage/app/audits/pending-monthly-fee-requirements-test.json';
@@ -219,12 +211,10 @@ final class PendingMonthlyFeeRequirementAuditCommandTest extends TestCase
     {
         $target = User::factory()->create([
             'estado' => 'ativo',
-            'tipo_mensalidade' => null,
         ]);
 
         User::factory()->create([
             'estado' => 'ativo',
-            'tipo_mensalidade' => null,
         ]);
 
         $payload = $this->runCommandJson(['--user' => (string) $target->id]);

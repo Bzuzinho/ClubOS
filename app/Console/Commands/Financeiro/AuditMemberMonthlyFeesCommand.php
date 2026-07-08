@@ -67,7 +67,7 @@ final class AuditMemberMonthlyFeesCommand extends Command
                 'dadosFinanceiros:id,user_id,mensalidade_id',
                 'userTypes:id,codigo,nome',
             ])
-            ->select('id', 'numero_socio', 'estado', 'ativo_desportivo', 'tipo_membro', 'tipo_mensalidade')
+            ->select('id', 'numero_socio', 'estado', 'ativo_desportivo', 'tipo_membro')
             ->when($this->option('user'), fn ($query, $userId) => $query->whereKey((string) $userId))
             ->orderBy('numero_socio')
             ->get();

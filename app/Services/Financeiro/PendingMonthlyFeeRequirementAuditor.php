@@ -65,7 +65,6 @@ final class PendingMonthlyFeeRequirementAuditor
                 'estado',
                 'ativo_desportivo',
                 'tipo_membro',
-                'tipo_mensalidade',
             ])
             ->orderBy('id');
 

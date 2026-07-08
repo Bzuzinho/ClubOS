@@ -23,9 +23,6 @@ final class MemberCostCenterResolverTest extends TestCase
         $member = User::factory()->create([
             'nome_completo' => 'Membro Centro Canonico',
             'estado' => 'ativo',
-            'centro_custo' => [
-                ['id' => 'legacy-unused', 'peso' => 1],
-            ],
         ]);
 
         $firstCenter = $this->createCostCenter('CC-RESOLVE-01', 'Centro Resolver 01');
@@ -61,10 +58,6 @@ final class MemberCostCenterResolverTest extends TestCase
         $member = User::factory()->create([
             'nome_completo' => 'Membro Centro Legacy',
             'estado' => 'ativo',
-            'centro_custo' => [
-                ['id' => 'legacy-center-a', 'peso' => 3],
-                ['id' => 'legacy-center-b', 'peso' => 1],
-            ],
         ]);
 
         $resolver = app(MemberCostCenterResolver::class);
@@ -87,9 +80,6 @@ final class MemberCostCenterResolverTest extends TestCase
         $member = User::factory()->create([
             'nome_completo' => 'Membro Divergente',
             'estado' => 'ativo',
-            'centro_custo' => [
-                ['id' => 'legacy-center', 'peso' => 1],
-            ],
         ]);
 
         $center = $this->createCostCenter('CC-DIVERGENT-01', 'Centro Divergente 01');
@@ -99,13 +89,13 @@ final class MemberCostCenterResolverTest extends TestCase
         $divergence = $resolver->detectDivergence($member->fresh());
 
         $this->assertTrue($divergence['has_canonical_cost_centers']);
-        $this->assertTrue($divergence['has_legacy_fallback']);
-        $this->assertTrue($divergence['has_divergence']);
+        $this->assertFalse($divergence['has_legacy_fallback']);
+        $this->assertFalse($divergence['has_divergence']);
         $this->assertSame([$center->id], $divergence['canonical_ids']);
-        $this->assertSame(['legacy-center'], $divergence['legacy_ids']);
+        $this->assertSame([], $divergence['legacy_ids']);
         $this->assertSame([], $divergence['weight_mismatches']);
         $this->assertSame([$center->id], $divergence['missing_in_legacy']);
-        $this->assertSame(['legacy-center'], $divergence['missing_in_canonical']);
+        $this->assertSame([], $divergence['missing_in_canonical']);
     }
 
     private function createCostCenter(string $codigo, string $nome): CostCenter

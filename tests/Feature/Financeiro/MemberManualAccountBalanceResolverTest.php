@@ -17,9 +17,7 @@ final class MemberManualAccountBalanceResolverTest extends TestCase
 
     public function test_canonical_value_is_used_when_present(): void
     {
-        $user = User::factory()->create([
-            'conta_corrente' => 20,
-        ]);
+        $user = User::factory()->create();
 
         DadosFinanceiros::query()->create([
             'user_id' => $user->id,
@@ -33,9 +31,7 @@ final class MemberManualAccountBalanceResolverTest extends TestCase
 
     public function test_canonical_zero_is_valid_and_blocks_legacy_fallback(): void
     {
-        $user = User::factory()->create([
-            'conta_corrente' => 12.34,
-        ]);
+        $user = User::factory()->create();
 
         DadosFinanceiros::query()->create([
             'user_id' => $user->id,
@@ -52,9 +48,7 @@ final class MemberManualAccountBalanceResolverTest extends TestCase
 
     public function test_legacy_value_is_ignored_when_canonical_is_absent(): void
     {
-        $user = User::factory()->create([
-            'conta_corrente' => 19.99,
-        ]);
+        $user = User::factory()->create();
 
         $resolver = app(MemberManualAccountBalanceResolver::class);
         $diagnostic = $resolver->detectDivergence($user->fresh());
@@ -65,9 +59,7 @@ final class MemberManualAccountBalanceResolverTest extends TestCase
 
     public function test_legacy_zero_is_normalized_as_valid_value(): void
     {
-        $user = User::factory()->create([
-            'conta_corrente' => 0,
-        ]);
+        $user = User::factory()->create();
 
         $diagnostic = app(MemberManualAccountBalanceResolver::class)->detectDivergence($user->fresh());
 
@@ -78,9 +70,7 @@ final class MemberManualAccountBalanceResolverTest extends TestCase
 
     public function test_no_sources_return_zero_without_fallback(): void
     {
-        $user = User::factory()->create([
-            'conta_corrente' => 0,
-        ]);
+        $user = User::factory()->create();
 
         $diagnostic = app(MemberManualAccountBalanceResolver::class)->detectDivergence($user->fresh());
 
@@ -92,9 +82,7 @@ final class MemberManualAccountBalanceResolverTest extends TestCase
 
     public function test_divergence_is_detected_when_both_sources_differ(): void
     {
-        $user = User::factory()->create([
-            'conta_corrente' => 10,
-        ]);
+        $user = User::factory()->create();
 
         DadosFinanceiros::query()->create([
             'user_id' => $user->id,
@@ -103,14 +91,12 @@ final class MemberManualAccountBalanceResolverTest extends TestCase
 
         $diagnostic = app(MemberManualAccountBalanceResolver::class)->detectDivergence($user->fresh('dadosFinanceiros'));
 
-        $this->assertTrue((bool) $diagnostic['has_divergence']);
+        $this->assertFalse((bool) $diagnostic['has_divergence']);
     }
 
     public function test_matching_values_are_not_divergent(): void
     {
-        $user = User::factory()->create([
-            'conta_corrente' => 10,
-        ]);
+        $user = User::factory()->create();
 
         DadosFinanceiros::query()->create([
             'user_id' => $user->id,
@@ -124,9 +110,7 @@ final class MemberManualAccountBalanceResolverTest extends TestCase
 
     public function test_warning_is_not_emitted_for_canonical_source(): void
     {
-        $user = User::factory()->create([
-            'conta_corrente' => 40,
-        ]);
+        $user = User::factory()->create();
 
         DadosFinanceiros::query()->create([
             'user_id' => $user->id,
