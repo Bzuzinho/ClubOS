@@ -210,7 +210,7 @@ final class FinancialIntegrationAuditCommandTest extends TestCase
         $payload = json_decode(trim(Artisan::output()), true);
         $findings = collect($payload['findings'] ?? []);
 
-        $this->assertTrue($findings->contains(fn (array $finding): bool => $finding['code'] === 'logistics_request_paid_invoice_lifecycle_risk' && $finding['source_id'] === (string) $request->id && $finding['financial_record_id'] === (string) $invoice->id));
+        $this->assertTrue($findings->contains(fn (array $finding): bool => $finding['code'] === 'logistics_paid_invoice_mutable_lifecycle' && $finding['source_id'] === (string) $request->id && $finding['financial_record_id'] === (string) $invoice->id));
     }
 
     public function test_detects_sponsorship_pending_integration_with_existing_movement(): void
@@ -392,7 +392,7 @@ final class FinancialIntegrationAuditCommandTest extends TestCase
             'estado_pagamento' => 'pago',
             'data_pagamento' => now()->toDateString(),
             'tipo' => 'material',
-            'origem_tipo' => 'stock',
+            'origem_tipo' => 'logistics_request',
             'origem_id' => 'request-xfin',
             'oculta' => false,
         ]);

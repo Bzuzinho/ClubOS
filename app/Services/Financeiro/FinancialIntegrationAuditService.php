@@ -598,7 +598,7 @@ final class FinancialIntegrationAuditService
             if ($request->financial_invoice_id && !$invoice) {
                 $findings[] = $this->finding(
                     'critical',
-                    'logistics_request_missing_invoice_reference',
+                    'logistics_request_orphan_invoice_reference',
                     'logistics_requests',
                     'logistics_request',
                     (string) $request->id,
@@ -610,7 +610,7 @@ final class FinancialIntegrationAuditService
             }
 
             $sourceInvoices = Invoice::query()
-                ->where('origem_tipo', 'stock')
+                ->whereIn('origem_tipo', ['logistics_request', 'stock'])
                 ->where('origem_id', $request->id)
                 ->get();
 
@@ -635,7 +635,7 @@ final class FinancialIntegrationAuditService
             if (in_array($request->status, ['invoiced', 'delivered'], true) && !$invoice) {
                 $findings[] = $this->finding(
                     'warning',
-                    'logistics_request_state_without_invoice',
+                    'logistics_request_missing_invoice',
                     'logistics_requests',
                     'logistics_request',
                     (string) $request->id,
@@ -649,10 +649,10 @@ final class FinancialIntegrationAuditService
             }
 
             if ($invoice) {
-                if ($invoice->origem_tipo !== 'stock' || (string) $invoice->origem_id !== (string) $request->id) {
+                if ($invoice->origem_tipo !== 'logistics_request' || (string) $invoice->origem_id !== (string) $request->id) {
                     $findings[] = $this->finding(
                         'warning',
-                        'logistics_request_invoice_invalid_origin',
+                        'logistics_invoice_orphan_source',
                         'logistics_requests',
                         'logistics_request',
                         (string) $request->id,
@@ -669,7 +669,7 @@ final class FinancialIntegrationAuditService
                 if (!$this->amountsMatch((float) $invoice->valor_total, (float) $request->total_amount)) {
                     $findings[] = $this->finding(
                         'warning',
-                        'logistics_request_invoice_total_mismatch',
+                        'logistics_invoice_total_mismatch',
                         'logistics_requests',
                         'logistics_request',
                         (string) $request->id,
@@ -686,7 +686,7 @@ final class FinancialIntegrationAuditService
                 if ((string) $invoice->user_id !== (string) $request->requester_user_id) {
                     $findings[] = $this->finding(
                         'warning',
-                        'logistics_request_invoice_user_mismatch',
+                        'logistics_invoice_user_mismatch',
                         'logistics_requests',
                         'logistics_request',
                         (string) $request->id,
@@ -710,11 +710,20 @@ final class FinancialIntegrationAuditService
                     ->where('status', FiscalDocumentRequest::STATUS_ISSUED)
                     ->exists();
 
+                $hasExternalDocument = FiscalDocumentRequest::query()
+                    ->where('invoice_id', $invoice->id)
+                    ->whereNotNull('external_document_number')
+                    ->where('external_document_number', '!=', '')
+                    ->exists();
+
+                $hasReceiptData = filled($invoice->numero_recibo)
+                    || $invoice->recibo_emitido_em !== null;
+
                 if (in_array($request->status, ['draft', 'pending', 'approved', 'invoiced', 'delivered'], true)
                     && in_array($invoice->estado_pagamento, ['pago', 'parcial'], true)) {
                     $findings[] = $this->finding(
                         'critical',
-                        'logistics_request_paid_invoice_lifecycle_risk',
+                        'logistics_paid_invoice_mutable_lifecycle',
                         'logistics_requests',
                         'logistics_request',
                         (string) $request->id,
@@ -731,7 +740,7 @@ final class FinancialIntegrationAuditService
                 if (in_array($request->status, ['draft', 'pending', 'approved', 'invoiced', 'delivered'], true) && $issuedFiscal) {
                     $findings[] = $this->finding(
                         'critical',
-                        'logistics_request_fiscal_lifecycle_risk',
+                        'logistics_fiscal_invoice_mutable_lifecycle',
                         'logistics_requests',
                         'logistics_request',
                         (string) $request->id,
@@ -742,10 +751,28 @@ final class FinancialIntegrationAuditService
                     );
                 }
 
+                if (in_array($request->status, ['draft', 'pending', 'approved', 'invoiced', 'delivered'], true)
+                    && ($hasExternalDocument || $hasReceiptData)) {
+                    $findings[] = $this->finding(
+                        'critical',
+                        'logistics_fiscal_invoice_mutable_lifecycle',
+                        'logistics_requests',
+                        'logistics_request',
+                        (string) $request->id,
+                        'invoice',
+                        (string) $invoice->id,
+                        'Request continua mutavel apesar de existir documento fiscal/recibo associado.',
+                        [
+                            'has_external_document' => $hasExternalDocument,
+                            'has_receipt_data' => $hasReceiptData,
+                        ],
+                    );
+                }
+
                 if (in_array($request->status, ['draft', 'pending', 'approved', 'invoiced', 'delivered'], true) && $confirmedAllocations > 0) {
                     $findings[] = $this->finding(
                         'critical',
-                        'logistics_request_allocation_lifecycle_risk',
+                        'logistics_allocated_invoice_mutable_lifecycle',
                         'logistics_requests',
                         'logistics_request',
                         (string) $request->id,

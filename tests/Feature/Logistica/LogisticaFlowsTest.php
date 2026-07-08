@@ -96,6 +96,7 @@ class LogisticaFlowsTest extends TestCase
         $invoice = Invoice::find($request->financial_invoice_id);
         $this->assertNotNull($invoice);
         $this->assertSame($requester->id, $invoice->user_id);
+        $this->assertSame('logistics_request', $invoice->origem_tipo);
     }
 
     public function test_supplier_purchase_flow_updates_stock_and_finance(): void
@@ -299,6 +300,9 @@ class LogisticaFlowsTest extends TestCase
         $this->assertSame(3, (int) $product->stock_reservado);
         $this->assertSame($requesterB->id, $invoice->user_id);
         $this->assertEquals(36.00, (float) $invoice->valor_total);
+        $this->assertSame('logistics_request', $invoice->origem_tipo);
+        $this->assertEquals(0.00, (float) $invoice->valor_pago);
+        $this->assertEquals(36.00, (float) $invoice->valor_em_aberto);
         $this->assertDatabaseHas('invoice_items', [
             'fatura_id' => $invoice->id,
             'produto_id' => $product->id,

@@ -2,7 +2,6 @@
 
 namespace App\Services\Logistica;
 
-use App\Models\CostCenter;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\LogisticsRequest;
@@ -11,6 +10,7 @@ use App\Models\Product;
 use App\Models\User;
 use App\Services\Catalog\CanonicalProductStockService;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Carbon;
 use Illuminate\Validation\ValidationException;
 
 class UpdateLogisticsRequestAction
@@ -18,6 +18,8 @@ class UpdateLogisticsRequestAction
     public function __construct(
         private RegisterStockMovementAction $registerStockMovementAction,
         private readonly CanonicalProductStockService $stockService,
+        private readonly LogisticsRequestFinancialGuardService $financialGuardService,
+        private readonly LogisticsRequestCostCenterResolver $costCenterResolver,
     ) {
     }
 
@@ -49,10 +51,18 @@ class UpdateLogisticsRequestAction
                 ->filter(fn ($_, $articleId) => !empty($articleId))
                 ->map(fn ($group) => (int) collect($group)->sum(fn ($row) => (int) ($row['quantity'] ?? 0)));
 
-            if ($logisticsRequest->financial_invoice_id && empty($data['requester_user_id'])) {
-                throw ValidationException::withMessages([
-                    'requester_user_id' => 'A requisição faturada precisa de utilizador associado.',
-                ]);
+            if ($logisticsRequest->financial_invoice_id) {
+                if (empty($data['requester_user_id'])) {
+                    throw ValidationException::withMessages([
+                        'requester_user_id' => 'A requisição faturada precisa de utilizador associado.',
+                    ]);
+                }
+
+                if (!$this->financialGuardService->canMutate($logisticsRequest)) {
+                    throw ValidationException::withMessages([
+                        'request' => 'Esta requisição já possui pagamento, conciliação ou documento financeiro associado e não pode ser alterada diretamente.',
+                    ]);
+                }
             }
 
             LogisticsRequestItem::query()
@@ -165,46 +175,42 @@ class UpdateLogisticsRequestAction
                     ->first();
 
                 if ($invoice) {
-                    $requester = User::query()->find($data['requester_user_id']);
-                    $requesterEscalao = $requester?->escalao;
-                    $escalaoNome = is_array($requesterEscalao)
-                        ? (string) collect($requesterEscalao)->filter()->first()
-                        : (string) ($requesterEscalao ?? '');
-
-                    $centroCustoId = null;
-
-                    if ($escalaoNome !== '') {
-                        $normalizedEscalao = mb_strtolower(trim($escalaoNome));
-
-                        $centroCustoId = CostCenter::query()
-                            ->where(function ($query) use ($normalizedEscalao) {
-                                $query->whereRaw('LOWER(nome) = ?', [$normalizedEscalao])
-                                    ->orWhereRaw('LOWER(codigo) = ?', [$normalizedEscalao]);
-                            })
-                            ->value('id');
-                    }
+                    $centroCustoId = $this->costCenterResolver->resolveForRequester($data['requester_user_id']);
+                    $invoiceTotal = round($total, 2);
+                    $dueDate = $invoice->data_vencimento
+                        ? Carbon::parse($invoice->data_vencimento)->startOfDay()
+                        : null;
+                    $status = $dueDate && $dueDate->lt(now()->startOfDay()) ? 'vencido' : 'pendente';
 
                     $invoice->update([
                         'user_id' => $data['requester_user_id'],
-                        'valor_total' => $total,
+                        'valor_total' => $invoiceTotal,
+                        'valor_pago' => 0,
+                        'valor_em_aberto' => $invoiceTotal,
+                        'estado_pagamento' => $status,
+                        'data_pagamento' => null,
+                        'metodo_pagamento' => null,
+                        'pagamento_observacoes' => null,
                         'centro_custo_id' => $centroCustoId,
+                        'origem_tipo' => 'logistics_request',
+                        'origem_id' => $logisticsRequest->id,
+                        'observacoes' => $data['notes'] ?? $invoice->observacoes,
                     ]);
 
                     InvoiceItem::query()->where('fatura_id', $invoice->id)->delete();
 
-                    foreach ($items as $item) {
-                        $product = Product::query()->findOrFail($item['article_id']);
-                        $quantity = (int) $item['quantity'];
-                        $unitPrice = (float) ($item['unit_price'] ?? 0);
+                    foreach ($logisticsRequest->items()->get() as $requestItem) {
+                        $quantity = (int) $requestItem->quantity;
+                        $unitPrice = (float) $requestItem->unit_price;
 
                         InvoiceItem::create([
                             'fatura_id' => $invoice->id,
-                            'descricao' => $product->nome,
+                            'descricao' => $requestItem->article_name_snapshot,
                             'quantidade' => $quantity,
                             'valor_unitario' => $unitPrice,
                             'imposto_percentual' => 0,
-                            'total_linha' => $quantity * $unitPrice,
-                            'produto_id' => $product->id,
+                            'total_linha' => round((float) $requestItem->line_total, 2),
+                            'produto_id' => $requestItem->article_id,
                         ]);
                     }
                 }

@@ -102,3 +102,51 @@ Regras:
 - XFIN4 nao faz backfill;
 - XFIN4 nao remove colunas (`financial_entry_id` permanece);
 - a auditoria continua a reportar `supplier_purchase_parallel_movement_and_entry`, `supplier_purchase_source_keyed_entry`, `supplier_purchase_orphan_financial_movement_reference`, `supplier_purchase_orphan_financial_entry_reference`, `supplier_purchase_multiple_movements`, `supplier_purchase_multiple_entries` e `negative_expense_movement_value` quando existirem.
+
+## XFIN5: LogisticsRequest faturada com lifecycle financeiro protegido
+
+Estado: runtime concluido em 2026-07-08, sem backfill legacy.
+
+### Faturacao da requisicao
+
+Fluxo esperado:
+
+LogisticsRequest -> Invoice(tipo=material, origem_tipo=logistics_request, origem_id=logistics_request.id) -> InvoiceItem
+
+Regras:
+
+- faturacao de `LogisticsRequest` deve usar origem canónica `logistics_request` (nao `stock`);
+- `centro_custo_id` da invoice deve ser resolvido de forma canónica via `MemberCostCenterResolver` (sem heuristicas por texto);
+- quando existir centro de custo unico (ou top-único por peso), usar esse centro;
+- quando houver ambiguidade/empate sem prioridade explícita, usar `centro_custo_id=null`.
+
+### Update/Delete da requisicao faturada
+
+Fluxo esperado:
+
+- update/delete permitido apenas em estado financeiro seguro (pendente/vencido sem pagamentos/alocacoes/conciliacao/fiscal/recibo);
+- update permitido deve sincronizar a mesma invoice e seus itens (sem delete/recreate de invoice) e recomputar snapshot: `valor_pago=0`, `valor_em_aberto=valor_total`, `estado_pagamento=pendente|vencido`, limpeza de campos de pagamento;
+- delete permitido deve limpar apenas pedidos fiscais pendentes e remover invoice/itens;
+- delete/update devem bloquear se houver sinais de lifecycle fechado.
+
+Sinais de bloqueio mínimo:
+
+- `estado_pagamento` parcial/pago ou `valor_pago > 0`;
+- `PaymentAllocation` confirmada e/ou `Payment` confirmado associado;
+- conciliação confirmada (`mapa_conciliacao.status=confirmado`);
+- `FiscalDocumentRequest` emitido ou documento externo registado;
+- sinais de recibo na invoice (`numero_recibo`, `recibo_emitido_em`, ligação importada/pdf).
+
+### Compatibilidade legacy
+
+- XFIN5 nao faz backfill;
+- XFIN5 nao remove colunas nem apaga registos financeiros fechados;
+- a auditoria continua a reportar riscos legacy/canonicidade em `logistics_requests` por códigos explícitos:
+	- `logistics_request_orphan_invoice_reference`
+	- `logistics_request_missing_invoice`
+	- `logistics_invoice_orphan_source`
+	- `logistics_invoice_total_mismatch`
+	- `logistics_invoice_user_mismatch`
+	- `logistics_paid_invoice_mutable_lifecycle`
+	- `logistics_allocated_invoice_mutable_lifecycle`
+	- `logistics_fiscal_invoice_mutable_lifecycle`

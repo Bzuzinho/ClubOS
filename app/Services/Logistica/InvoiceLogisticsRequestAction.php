@@ -2,7 +2,6 @@
 
 namespace App\Services\Logistica;
 
-use App\Models\CostCenter;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\InvoiceType;
@@ -13,6 +12,11 @@ use Illuminate\Validation\ValidationException;
 
 class InvoiceLogisticsRequestAction
 {
+    public function __construct(
+        private readonly LogisticsRequestCostCenterResolver $costCenterResolver,
+    ) {
+    }
+
     public function execute(LogisticsRequest $request, array $payload = [], ?User $actor = null): LogisticsRequest
     {
         return DB::transaction(function () use ($request, $payload, $actor) {
@@ -48,23 +52,7 @@ class InvoiceLogisticsRequestAction
 
             $issueDate = $payload['data_emissao'] ?? now()->toDateString();
             $dueDate = $payload['data_vencimento'] ?? now()->addDays(15)->toDateString();
-            $requesterEscalao = $request->requester?->escalao;
-            $escalaoNome = is_array($requesterEscalao)
-                ? (string) collect($requesterEscalao)->filter()->first()
-                : (string) ($requesterEscalao ?? '');
-
-            $centroCustoId = null;
-
-            if ($escalaoNome !== '') {
-                $normalizedEscalao = mb_strtolower(trim($escalaoNome));
-
-                $centroCustoId = CostCenter::query()
-                    ->where(function ($query) use ($normalizedEscalao) {
-                        $query->whereRaw('LOWER(nome) = ?', [$normalizedEscalao])
-                            ->orWhereRaw('LOWER(codigo) = ?', [$normalizedEscalao]);
-                    })
-                    ->value('id');
-            }
+            $centroCustoId = $this->costCenterResolver->resolveForRequester($request->requester_user_id);
 
             $invoice = Invoice::create([
                 'user_id' => $request->requester_user_id,
@@ -75,7 +63,7 @@ class InvoiceLogisticsRequestAction
                 'estado_pagamento' => 'pendente',
                 'tipo' => $invoiceType->codigo,
                 'centro_custo_id' => $centroCustoId,
-                'origem_tipo' => 'stock',
+                'origem_tipo' => 'logistics_request',
                 'origem_id' => $request->id,
                 'observacoes' => $payload['observacoes'] ?? 'Fatura gerada automaticamente pela logística.',
             ]);
