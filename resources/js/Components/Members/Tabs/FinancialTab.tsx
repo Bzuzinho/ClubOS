@@ -83,8 +83,8 @@ export function FinancialTab({
   }, [faturas, user.id]);
 
   const contaCorrente = useMemo(() => {
-    return toNumber(currentAccountSummary.net_debt ?? user.conta_corrente ?? 0);
-  }, [currentAccountSummary.net_debt, user.conta_corrente]);
+    return toNumber(currentAccountSummary.net_debt ?? 0);
+  }, [currentAccountSummary.net_debt]);
 
   const mensalidadesAbertas = useMemo(() => {
     return toNumber(currentAccountSummary.monthly_fees_open_amount ?? 0);

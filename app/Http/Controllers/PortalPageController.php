@@ -15,6 +15,7 @@ use App\Services\Communication\InAppAlertService;
 use App\Services\Communication\InternalCommunicationService;
 use App\Services\Family\FamilyService;
 use App\Services\Financeiro\CurrentAccountService;
+use App\Services\Financeiro\MemberMonthlyFeeResolver;
 use App\Services\Members\MemberIdentityDisplayResolver;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
@@ -468,8 +469,11 @@ class PortalPageController extends Controller
         $availableCredit = round((float) ($accountSummary['available_credit'] ?? 0), 2);
         $outstandingTotal = round((float) ($accountSummary['net_debt'] ?? 0), 2);
         $overdueTotal = round((float) ($accountSummary['overdue_debt'] ?? 0), 2);
+        $planId = app(MemberMonthlyFeeResolver::class)->resolveForUser($user);
         $plan = $user->dadosFinanceiros?->mensalidade?->designacao
-            ?: (is_string($user->tipo_mensalidade) ? $user->tipo_mensalidade : null)
+            ?: ($planId !== null
+                ? \App\Models\MonthlyFee::query()->whereKey($planId)->value('designacao')
+                : null)
             ?: collect($accountSummary['breakdown']['invoices'] ?? [])->pluck('tipo')->filter()->first()
             ?: 'Sem plano definido';
         $generalStatus = $outstandingTotal > 0

@@ -43,8 +43,8 @@ export function DashboardTab({ user, faturas = [] }: DashboardTabProps) {
   }, [faturas, user.id]);
 
   const contaCorrente = useMemo(() => {
-    return toNumber(currentAccountSummary.net_debt ?? user.conta_corrente ?? 0);
-  }, [currentAccountSummary.net_debt, user.conta_corrente]);
+    return toNumber(currentAccountSummary.net_debt ?? 0);
+  }, [currentAccountSummary.net_debt]);
 
   const creditoDisponivel = useMemo(() => {
     return toNumber(currentAccountSummary.available_credit ?? user.credito_disponivel ?? 0);

@@ -4,9 +4,10 @@ namespace App\Services\Members;
 
 use App\Models\AgeGroup;
 use App\Models\CostCenter;
-use App\Models\DadosFinanceiros;
 use App\Models\MonthlyFee;
 use App\Models\User;
+use App\Services\Financeiro\MemberCostCenterSyncService;
+use App\Services\Financeiro\MemberMonthlyFeeSyncService;
 use Carbon\Carbon;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Cache;
@@ -21,6 +22,8 @@ class MemberImportService
 
     public function __construct(
         private readonly MemberDataWriteService $memberDataWriteService,
+        private readonly MemberCostCenterSyncService $memberCostCenterSyncService,
+        private readonly MemberMonthlyFeeSyncService $memberMonthlyFeeSyncService,
     ) {
     }
 
@@ -362,22 +365,13 @@ class MemberImportService
         $this->memberDataWriteService->persistFromMemberRequest($member, $payload, (string) $member->id);
 
         if (array_key_exists('tipo_mensalidade', $normalized)) {
-            $financeData = DadosFinanceiros::firstOrNew(['user_id' => $member->id]);
-            if (array_key_exists('tipo_mensalidade', $normalized)) {
-                $financeData->mensalidade_id = $normalized['tipo_mensalidade'];
-            }
-            $financeData->save();
+            $this->memberMonthlyFeeSyncService->sync($member, $normalized['tipo_mensalidade']);
         }
 
         if (!empty($normalized['centro_custo']) && is_array($normalized['centro_custo'])) {
-            $syncData = [];
-            foreach ($normalized['centro_custo'] as $centerId) {
-                $syncData[$centerId] = ['peso' => 1];
-            }
-
-            $member->centrosCusto()->sync($syncData);
-            $member->centro_custo = array_values(array_keys($syncData));
-            $member->save();
+            $member->forceFill([
+                'centro_custo' => $this->memberCostCenterSyncService->sync($member, $normalized['centro_custo']),
+            ])->save();
         }
 
         return $member->refresh();

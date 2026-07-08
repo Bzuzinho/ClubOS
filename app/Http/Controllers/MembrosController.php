@@ -18,6 +18,10 @@ use App\Services\Communication\InternalCommunicationService;
 use App\Services\AccessControl\UserTypeAccessControlService;
 use App\Services\Family\FamilyService;
 use App\Services\Financeiro\CurrentAccountService;
+use App\Services\Financeiro\MemberCostCenterResolver;
+use App\Services\Financeiro\MemberCostCenterSyncService;
+use App\Services\Financeiro\MemberMonthlyFeeResolver;
+use App\Services\Financeiro\MemberMonthlyFeeSyncService;
 use App\Services\Members\MemberDataReadService;
 use App\Services\Members\MemberDocumentDataResolver;
 use App\Services\Members\MemberIdentityDisplayResolver;
@@ -35,6 +39,7 @@ use Illuminate\Support\Facades\Password;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 use Illuminate\Support\Str;
+use InvalidArgumentException;
 use Carbon\Carbon;
 
 class MembrosController extends Controller
@@ -44,6 +49,10 @@ class MembrosController extends Controller
         private readonly MemberDataWriteService $memberDataWriteService,
         private readonly MemberDocumentDataResolver $memberDocumentDataResolver,
         private readonly MemberIdentityDisplayResolver $memberIdentityDisplayResolver,
+        private readonly MemberCostCenterResolver $memberCostCenterResolver,
+        private readonly MemberCostCenterSyncService $memberCostCenterSyncService,
+        private readonly MemberMonthlyFeeResolver $memberMonthlyFeeResolver,
+        private readonly MemberMonthlyFeeSyncService $memberMonthlyFeeSyncService,
         private readonly MemberTypeResolver $memberTypeResolver,
     )
     {
@@ -285,6 +294,16 @@ class MembrosController extends Controller
                 $this->fillFinancialData($financeData, $data);
                 $financeData->save();
             }
+
+            if (array_key_exists('tipo_mensalidade', $data)) {
+                try {
+                    $this->memberMonthlyFeeSyncService->sync($member, $data['tipo_mensalidade']);
+                } catch (InvalidArgumentException $exception) {
+                    return redirect()->back()
+                        ->withInput()
+                        ->withErrors(['tipo_mensalidade' => 'A mensalidade selecionada nao e valida.']);
+                }
+            }
             
             // Sync relationships
             if (isset($data['user_types'])) {
@@ -302,26 +321,7 @@ class MembrosController extends Controller
             }
 
             if (array_key_exists('centro_custo', $data) && is_array($data['centro_custo'])) {
-                $centros = $data['centro_custo'];
-                $syncData = [];
-
-                foreach ($centros as $center) {
-                    if (is_array($center)) {
-                        $centerId = $center['id'] ?? null;
-                        $peso = isset($center['peso']) ? (float) $center['peso'] : 1;
-                    } else {
-                        $centerId = $center;
-                        $peso = 1;
-                    }
-
-                    if ($centerId) {
-                        $syncData[$centerId] = ['peso' => $peso];
-                    }
-                }
-
-                $member->centrosCusto()->sync($syncData);
-                $member->centro_custo = array_values(array_keys($syncData));
-                $member->save();
+                $this->syncMemberCostCenters($member, $data['centro_custo']);
             }
 
             Cache::forget('membros:list');
@@ -490,7 +490,7 @@ class MembrosController extends Controller
                 ->sum('valor_em_aberto'),
             'revenue_movements_open_amount' => (float) $openMovements->sum('open_amount'),
         ];
-        $memberData['tipo_mensalidade'] = $member->dadosFinanceiros?->mensalidade_id ?? $member->tipo_mensalidade;
+        $memberData['tipo_mensalidade'] = $this->memberMonthlyFeeResolver->resolveForUser($member);
         $memberData['discount_type'] = $member->dadosFinanceiros?->discount_type;
         $memberData['discount_value'] = $member->dadosFinanceiros?->discount_value !== null
             ? (float) $member->dadosFinanceiros->discount_value
@@ -506,23 +506,9 @@ class MembrosController extends Controller
             ->filter()
             ->values();
 
-        if ($member->centrosCusto->isNotEmpty()) {
-            $memberData['centro_custo'] = $member->centrosCusto->pluck('id')->values();
-            $memberData['centro_custo_pesos'] = $member->centrosCusto->map(function ($center) {
-                return [
-                    'id' => $center->id,
-                    'peso' => (float) ($center->pivot->peso ?? 1),
-                ];
-            })->values();
-        } else {
-            $memberData['centro_custo'] = $legacyCentros;
-            $memberData['centro_custo_pesos'] = $legacyCentros->map(function ($id) {
-                return [
-                    'id' => $id,
-                    'peso' => 1.0,
-                ];
-            })->values();
-        }
+        $resolvedCostCenters = $this->memberCostCenterResolver->resolveForUser($member);
+        $memberData['centro_custo'] = collect($resolvedCostCenters['centro_custo'] ?? [])->values();
+        $memberData['centro_custo_pesos'] = collect($resolvedCostCenters['centro_custo_pesos'] ?? [])->values();
 
         Log::info('membros.show relation snapshot', [
             'member_key' => $memberKey,
@@ -721,39 +707,15 @@ class MembrosController extends Controller
         // M2.3 — carregar relações de leitura + restantes relações
         $member->load(['dadosPessoais', 'dadosConfiguracao', 'dadosFinanceiros', 'centrosCusto', 'userTypes', 'ageGroup', 'encarregados', 'educandos']);
 
-        $member->tipo_mensalidade = $member->dadosFinanceiros?->mensalidade_id ?? $member->tipo_mensalidade;
+        $member->tipo_mensalidade = $this->memberMonthlyFeeResolver->resolveForUser($member);
         $member->discount_type = $member->dadosFinanceiros?->discount_type;
         $member->discount_value = $member->dadosFinanceiros?->discount_value !== null
             ? (float) $member->dadosFinanceiros->discount_value
             : null;
         $member->discount_reason = $member->dadosFinanceiros?->discount_reason;
-        $legacyCentros = collect($member->centro_custo ?? [])
-            ->map(function ($center) {
-                if (is_array($center) && isset($center['id'])) {
-                    return $center['id'];
-                }
-                return $center;
-            })
-            ->filter()
-            ->values();
-
-        if ($member->centrosCusto->isNotEmpty()) {
-            $member->centro_custo = $member->centrosCusto->pluck('id')->values();
-            $member->centro_custo_pesos = $member->centrosCusto->map(function ($center) {
-                return [
-                    'id' => $center->id,
-                    'peso' => (float) ($center->pivot->peso ?? 1),
-                ];
-            })->values();
-        } else {
-            $member->centro_custo = $legacyCentros;
-            $member->centro_custo_pesos = $legacyCentros->map(function ($id) {
-                return [
-                    'id' => $id,
-                    'peso' => 1.0,
-                ];
-            })->values();
-        }
+        $resolvedCostCenters = $this->memberCostCenterResolver->resolveForUser($member);
+        $member->centro_custo = collect($resolvedCostCenters['centro_custo'] ?? [])->values();
+        $member->centro_custo_pesos = collect($resolvedCostCenters['centro_custo_pesos'] ?? [])->values();
         $memberDocumentPayload = $this->memberDocumentDataResolver->memberDocumentPayload($member);
 
         return Inertia::render('Membros/Edit', [
@@ -872,27 +834,18 @@ class MembrosController extends Controller
                 $financeData->save();
             }
 
-            if (array_key_exists('centro_custo', $data) && is_array($data['centro_custo'])) {
-                $centros = $data['centro_custo'];
-                $syncData = [];
-
-                foreach ($centros as $center) {
-                    if (is_array($center)) {
-                        $centerId = $center['id'] ?? null;
-                        $peso = isset($center['peso']) ? (float) $center['peso'] : 1;
-                    } else {
-                        $centerId = $center;
-                        $peso = 1;
-                    }
-
-                    if ($centerId) {
-                        $syncData[$centerId] = ['peso' => $peso];
-                    }
+            if (array_key_exists('tipo_mensalidade', $data)) {
+                try {
+                    $this->memberMonthlyFeeSyncService->sync($member, $data['tipo_mensalidade']);
+                } catch (InvalidArgumentException $exception) {
+                    return redirect()->back()
+                        ->withInput()
+                        ->withErrors(['tipo_mensalidade' => 'A mensalidade selecionada nao e valida.']);
                 }
+            }
 
-                $member->centrosCusto()->sync($syncData);
-                $member->centro_custo = array_values(array_keys($syncData));
-                $member->save();
+            if (array_key_exists('centro_custo', $data) && is_array($data['centro_custo'])) {
+                $this->syncMemberCostCenters($member, $data['centro_custo']);
             }
             
             // Sync relationships
@@ -1083,12 +1036,16 @@ class MembrosController extends Controller
         return false;
     }
 
+    /**
+     * @param array<int, mixed> $centros
+     */
+    private function syncMemberCostCenters(User $member, array $centros): void
+    {
+        $this->memberCostCenterSyncService->sync($member, $centros);
+    }
+
     private function fillFinancialData(DadosFinanceiros $financeData, array $data): void
     {
-        if (array_key_exists('tipo_mensalidade', $data)) {
-            $financeData->mensalidade_id = $data['tipo_mensalidade'] ?: null;
-        }
-
         if (array_key_exists('discount_type', $data)) {
             $financeData->discount_type = $data['discount_type'] ?: null;
         }

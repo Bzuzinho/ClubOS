@@ -17,7 +17,7 @@ class CurrentAccountServiceOperationalBalanceTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_manual_legacy_balance_alone_does_not_create_operational_current_account_debt(): void
+    public function test_manual_legacy_balance_is_applied_as_explicit_adjustment_in_net_debt(): void
     {
         $member = User::factory()->create();
 
@@ -29,7 +29,7 @@ class CurrentAccountServiceOperationalBalanceTest extends TestCase
         $summary = app(CurrentAccountService::class)->summarize(['user_id' => $member->id]);
 
         $this->assertSame(0.0, (float) $summary['gross_debt']);
-        $this->assertSame(0.0, (float) $summary['net_debt']);
+        $this->assertSame(50.0, (float) $summary['net_debt']);
         $this->assertSame(50.0, (float) $summary['manual_account_balance']);
     }
 
@@ -103,7 +103,7 @@ class CurrentAccountServiceOperationalBalanceTest extends TestCase
         $this->assertSame(60.0, (float) $summary['breakdown']['invoices'][0]['valor_em_aberto']);
     }
 
-    public function test_available_credit_reduces_operational_current_account_without_using_manual_legacy_balance(): void
+    public function test_available_credit_reduces_gross_debt_and_manual_adjustment_is_applied_in_net_debt_formula(): void
     {
         $member = User::factory()->create();
 
@@ -138,7 +138,7 @@ class CurrentAccountServiceOperationalBalanceTest extends TestCase
 
         $this->assertSame(60.0, (float) $summary['gross_debt']);
         $this->assertSame(20.0, (float) $summary['available_credit']);
-        $this->assertSame(40.0, (float) $summary['net_debt']);
+        $this->assertSame(120.0, (float) $summary['net_debt']);
         $this->assertSame(80.0, (float) $summary['manual_account_balance']);
     }
 

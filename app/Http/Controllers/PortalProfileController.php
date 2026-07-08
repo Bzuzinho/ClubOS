@@ -9,6 +9,7 @@ use App\Models\UserType;
 use App\Services\AccessControl\UserTypeAccessControlService;
 use App\Services\Family\FamilyService;
 use App\Services\Financeiro\CurrentAccountService;
+use App\Services\Financeiro\MemberMonthlyFeeResolver;
 use App\Services\Loja\StoreProfileResolver;
 use App\Services\Members\MemberDataReadService;
 use App\Services\Members\MemberDocumentDataResolver;
@@ -205,8 +206,9 @@ class PortalProfileController extends Controller
             'user_id' => $member->id,
         ]);
         $nextInvoice = collect($accountSummary['breakdown']['invoices'] ?? [])->first();
+        $planId = app(MemberMonthlyFeeResolver::class)->resolveForUser($member);
         $planName = $member->dadosFinanceiros?->mensalidade?->designacao
-            ?: $this->resolveMonthlyFeeName($member->tipo_mensalidade)
+            ?: ($planId !== null ? MonthlyFee::query()->whereKey($planId)->value('designacao') : null)
             ?: $this->displayValue(optional($nextInvoice)->tipo);
 
         return [

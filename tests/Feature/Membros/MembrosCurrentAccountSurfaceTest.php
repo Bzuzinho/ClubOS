@@ -7,8 +7,10 @@ use App\Models\DadosFinanceiros;
 use App\Models\Invoice;
 use App\Models\Payment;
 use App\Models\PaymentAllocation;
+use App\Models\MonthlyFee;
 use App\Models\User;
 use App\Services\Financeiro\CurrentAccountService;
+use App\Services\Financeiro\MemberMonthlyFeeResolver;
 use App\Services\Members\MemberImportService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -98,8 +100,8 @@ class MembrosCurrentAccountSurfaceTest extends TestCase
         $response = $this->inertiaGetAs($admin, route('membros.show', ['member' => $member->id]));
 
         $response->assertOk();
-        $this->assertEquals(35.0, (float) $response->json('props.member.conta_corrente'));
-        $this->assertEquals(35.0, (float) $response->json('props.member.current_account_summary.net_debt'));
+        $this->assertEquals(53.5, (float) $response->json('props.member.conta_corrente'));
+        $this->assertEquals(53.5, (float) $response->json('props.member.current_account_summary.net_debt'));
         $this->assertEquals(18.5, (float) $response->json('props.member.current_account_summary.manual_account_balance'));
         $this->assertArrayNotHasKey('conta_corrente_manual', $response->json('props.member'));
         $this->assertArrayNotHasKey('saldo_manual_legado', $response->json('props.member'));
@@ -163,7 +165,7 @@ class MembrosCurrentAccountSurfaceTest extends TestCase
 
         $summary = app(CurrentAccountService::class)->summarize(['user_id' => $member->id]);
 
-        $this->assertSame(35.0, (float) $summary['net_debt']);
+        $this->assertSame(53.5, (float) $summary['net_debt']);
         $this->assertSame(18.5, (float) $summary['manual_account_balance']);
     }
 
@@ -191,6 +193,72 @@ class MembrosCurrentAccountSurfaceTest extends TestCase
         $member = User::query()->findOrFail($result['created_ids'][0]);
 
         $this->assertNull($member->dadosFinanceiros);
+    }
+
+    public function test_member_show_resolves_tipo_mensalidade_from_canonical_source(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $member = User::factory()->create([
+            'tipo_mensalidade' => 'legacy-plan-id',
+        ]);
+
+        $canonicalPlan = MonthlyFee::query()->create([
+            'designacao' => 'Plano Canonico Show',
+            'valor' => 30,
+            'ativo' => true,
+        ]);
+
+        DadosFinanceiros::query()->create([
+            'user_id' => $member->id,
+            'mensalidade_id' => $canonicalPlan->id,
+        ]);
+
+        $response = $this->inertiaGetAs($admin, route('membros.show', ['member' => $member->id]));
+
+        $response->assertOk();
+        $this->assertSame($canonicalPlan->id, $response->json('props.member.tipo_mensalidade'));
+        $this->assertSame(
+            $canonicalPlan->id,
+            app(MemberMonthlyFeeResolver::class)->resolveForUser($member->fresh('dadosFinanceiros'))
+        );
+    }
+
+    public function test_member_update_writes_monthly_fee_via_sync_service(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $member = User::factory()->create([
+            'nome_completo' => 'Membro Sync Mensalidade',
+            'email_utilizador' => 'sync-mensalidade@example.test',
+            'tipo_mensalidade' => null,
+            'sexo' => 'masculino',
+            'estado' => 'ativo',
+            'tipo_membro' => ['Atleta'],
+        ]);
+
+        $plan = MonthlyFee::query()->create([
+            'designacao' => 'Plano Update Sync',
+            'valor' => 28,
+            'ativo' => true,
+        ]);
+
+        $response = $this->actingAs($admin)->from(route('membros.show', $member))
+            ->put(route('membros.update', $member), [
+                'nome_completo' => $member->nome_completo,
+                'email_utilizador' => $member->email_utilizador,
+                'numero_socio' => (string) $member->numero_socio,
+                'sexo' => $member->sexo,
+                'estado' => $member->estado,
+                'tipo_membro' => $member->tipo_membro,
+                'tipo_mensalidade' => $plan->id,
+            ]);
+
+        $response->assertRedirect(route('membros.show', $member));
+
+        $member->refresh();
+        $member->load('dadosFinanceiros');
+
+        $this->assertSame($plan->id, $member->dadosFinanceiros?->mensalidade_id);
+        $this->assertNull($member->tipo_mensalidade);
     }
 
     private function inertiaGetAs(User $user, string $uri)

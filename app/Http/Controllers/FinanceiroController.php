@@ -33,8 +33,10 @@ use App\Services\Financeiro\ManualExpenseService;
 use App\Services\Financeiro\MovementDocumentControlService;
 use App\Services\Financeiro\MonthlyInvoiceStatusService;
 use App\Services\Financeiro\MonthlyFeeGenerationService;
+use App\Services\Financeiro\MemberCostCenterResolver;
 use App\Services\Financeiro\PaymentAllocationService;
 use App\Services\Financeiro\ReconciliationAliasService;
+use App\Services\Financeiro\MemberMonthlyFeeResolver;
 use App\Services\Members\MemberFiscalDataResolver;
 use Illuminate\Support\Carbon;
 use Illuminate\Http\Request;
@@ -64,6 +66,7 @@ class FinanceiroController extends Controller
         private readonly ManualExpenseService $manualExpenseService,
         private readonly MovementDocumentControlService $movementDocumentControlService,
         private readonly MemberFiscalDataResolver $memberFiscalDataResolver,
+        private readonly MemberMonthlyFeeResolver $memberMonthlyFeeResolver,
     ) {
     }
 
@@ -297,23 +300,9 @@ class FinanceiroController extends Controller
                         ->get()
                         ->map(function ($user) {
                             $fiscalData = $this->memberFiscalDataResolver->resolve($user);
-                            $legacyCentros = collect($user->centro_custo ?? [])
-                                ->map(function ($center) {
-                                    if (is_array($center) && isset($center['id'])) {
-                                        return $center['id'];
-                                    }
-                                    return $center;
-                                })
-                                ->filter()
-                                ->values();
-
-                            $centroCustoIds = $legacyCentros;
-                            $centroCustoPesos = $legacyCentros->map(function ($id) {
-                                return [
-                                    'id' => $id,
-                                    'peso' => 1.0,
-                                ];
-                            })->values();
+                            $resolvedCostCenters = $this->memberCostCenterResolver->resolveForUser($user);
+                            $centroCustoIds = collect($resolvedCostCenters['centro_custo'] ?? [])->values();
+                            $centroCustoPesos = collect($resolvedCostCenters['centro_custo_pesos'] ?? [])->values();
 
                             if ($user->centrosCusto->isNotEmpty()) {
                                 $centroCustoIds = $user->centrosCusto->pluck('id')->values();
@@ -329,7 +318,7 @@ class FinanceiroController extends Controller
                                 'nome_completo' => $fiscalData['nome'] ?? $user->name,
                                 'nif' => $fiscalData['nif'],
                                 'morada' => $fiscalData['morada'],
-                                'tipo_mensalidade' => $user->dadosFinanceiros?->mensalidade_id ?? $user->tipo_mensalidade,
+                                'tipo_mensalidade' => $this->memberMonthlyFeeResolver->resolveForUser($user),
                                 'centro_custo' => $centroCustoIds,
                                 'centro_custo_pesos' => $centroCustoPesos,
                             ]);

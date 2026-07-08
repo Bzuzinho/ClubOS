@@ -18,6 +18,9 @@ class MonthlyFeeGenerationService
 {
     public function __construct(
         private readonly MonthlyFeeSettingsService $settingsService,
+        private readonly MemberCostCenterResolver $memberCostCenterResolver,
+        private readonly MemberMonthlyFeeResolver $memberMonthlyFeeResolver,
+        private readonly MemberMonthlyFeeEligibilityService $memberMonthlyFeeEligibilityService,
     ) {
     }
 
@@ -208,8 +211,17 @@ class MonthlyFeeGenerationService
             ->with(['dadosFinanceiros.mensalidade', 'centrosCusto'])
             ->where(function ($nested): void {
                 $nested
-                    ->whereNotNull('tipo_mensalidade')
-                    ->orWhereHas('dadosFinanceiros', fn ($financeQuery) => $financeQuery->whereNotNull('mensalidade_id'));
+                    ->whereHas('dadosFinanceiros', fn ($financeQuery) => $financeQuery->whereNotNull('mensalidade_id'))
+                    ->orWhere(function ($legacyQuery): void {
+                        // TEMP LEGACY F2: manter fallback query apenas para membros ainda sem mensalidade canónica.
+                        $legacyQuery
+                            ->whereNotNull('tipo_mensalidade')
+                            ->where(function ($canonicalMissing): void {
+                                $canonicalMissing
+                                    ->whereDoesntHave('dadosFinanceiros')
+                                    ->orWhereHas('dadosFinanceiros', fn ($financeQuery) => $financeQuery->whereNull('mensalidade_id'));
+                            });
+                    });
             });
 
         if (($filters['only_active'] ?? true) === true) {
@@ -229,8 +241,17 @@ class MonthlyFeeGenerationService
 
             $query->where(function ($nested) use ($monthlyFeeId): void {
                 $nested
-                    ->where('tipo_mensalidade', $monthlyFeeId)
-                    ->orWhereHas('dadosFinanceiros', fn ($financeQuery) => $financeQuery->where('mensalidade_id', $monthlyFeeId));
+                    ->whereHas('dadosFinanceiros', fn ($financeQuery) => $financeQuery->where('mensalidade_id', $monthlyFeeId))
+                    ->orWhere(function ($legacyQuery) use ($monthlyFeeId): void {
+                        // TEMP LEGACY F2: manter fallback query apenas para membros ainda sem mensalidade canónica.
+                        $legacyQuery
+                            ->where('tipo_mensalidade', $monthlyFeeId)
+                            ->where(function ($canonicalMissing): void {
+                                $canonicalMissing
+                                    ->whereDoesntHave('dadosFinanceiros')
+                                    ->orWhereHas('dadosFinanceiros', fn ($financeQuery) => $financeQuery->whereNull('mensalidade_id'));
+                            });
+                    });
             });
         }
 
@@ -520,11 +541,18 @@ class MonthlyFeeGenerationService
 
     private function resolveMonthlyFeePlan(User $user): ?MonthlyFee
     {
-        $planId = $user->dadosFinanceiros?->mensalidade_id ?? $user->tipo_mensalidade;
+        $user->loadMissing('dadosFinanceiros.mensalidade');
 
-        return $planId
-            ? ($user->dadosFinanceiros?->mensalidade ?? MonthlyFee::query()->find($planId))
-            : null;
+        $planId = $this->memberMonthlyFeeResolver->resolveForUser($user);
+        if ($planId === null) {
+            return null;
+        }
+
+        $canonicalPlan = $user->dadosFinanceiros?->mensalidade;
+
+        return $canonicalPlan && (string) $canonicalPlan->id === $planId
+            ? $canonicalPlan
+            : MonthlyFee::query()->find($planId);
     }
 
     private function resolveEffectiveStart(User $user, Carbon $requestedStart, array $options = [], bool $fallbackToRequest = true): ?Carbon
@@ -550,11 +578,11 @@ class MonthlyFeeGenerationService
 
     private function isEligibleUser(User $user, array $options = []): bool
     {
-        if (($options['only_active'] ?? true) === true && $user->estado !== null && $user->estado !== 'ativo') {
+        if (($options['only_active'] ?? true) === true && !$this->memberMonthlyFeeEligibilityService->shouldHaveMonthlyFee($user)) {
             return false;
         }
 
-        return $this->resolveMonthlyFeePlan($user) !== null;
+        return true;
     }
 
     private function resolveInitialStatus(Carbon $periodStart, Carbon $today): string
@@ -572,25 +600,12 @@ class MonthlyFeeGenerationService
 
     private function resolveCostCenterShares(User $user, float $totalAmount): array
     {
-        $shares = [];
+        $resolved = $this->memberCostCenterResolver->resolveForUser($user);
+        $shares = array_values(array_map(static fn (array $share): array => [
+            'id' => $share['id'] ?? null,
+            'weight' => (float) ($share['peso'] ?? 1),
+        ], array_filter($resolved['centro_custo_pesos'] ?? [], static fn (array $share): bool => !empty($share['id']))));
 
-        if ($user->relationLoaded('centrosCusto') && $user->centrosCusto->isNotEmpty()) {
-            foreach ($user->centrosCusto as $center) {
-                $shares[] = [
-                    'id' => $center->id,
-                    'weight' => (float) ($center->pivot->peso ?? 1),
-                ];
-            }
-        } else {
-            foreach ((array) ($user->centro_custo ?? []) as $center) {
-                $shares[] = [
-                    'id' => is_array($center) ? ($center['id'] ?? null) : $center,
-                    'weight' => is_array($center) ? (float) ($center['peso'] ?? 1) : 1.0,
-                ];
-            }
-        }
-
-        $shares = array_values(array_filter($shares, fn (array $share) => !empty($share['id'])));
         if ($shares === []) {
             return [[
                 'id' => null,

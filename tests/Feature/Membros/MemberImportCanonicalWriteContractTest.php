@@ -11,6 +11,7 @@ use App\Models\MonthlyFee;
 use App\Models\User;
 use App\Services\Members\MemberDataReadService;
 use App\Services\Members\MemberImportService;
+use App\Services\Financeiro\MemberMonthlyFeeResolver;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
 use Tests\TestCase;
@@ -143,6 +144,12 @@ class MemberImportCanonicalWriteContractTest extends TestCase
         if ($financeData !== null) {
             $this->assertSame($monthlyFee->id, $financeData->mensalidade_id);
         }
+
+        $this->assertSame($monthlyFee->id, $member->fresh()->tipo_mensalidade);
+        $this->assertSame(
+            $monthlyFee->id,
+            app(MemberMonthlyFeeResolver::class)->resolveForUser($member->fresh('dadosFinanceiros'))
+        );
     }
 
     public function test_import_ignores_conta_corrente_manual_with_warning(): void

@@ -234,7 +234,7 @@ export default function Atleta() {
 
     const memberId = String(props.user?.id ?? auth.user?.id ?? '');
     const currentProfile = portal_context_label || accessControl?.currentUserType?.nome?.trim() || (is_atleta ? 'Atleta' : perfil_tipos[0] || 'Portal');
-    const currentBalance = parseNumber(resumo?.conta_corrente ?? athlete.conta_corrente);
+    const currentBalance = parseNumber(resumo?.conta_corrente);
     const recentAlerts = (communicationAlerts?.recent ?? []).slice(0, 3);
     const upcomingEvents = proximos_eventos.slice(0, 2);
     const recentResults = ultimos_resultados.slice(0, 2);

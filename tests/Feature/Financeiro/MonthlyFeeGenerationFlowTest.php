@@ -11,16 +11,25 @@ use App\Models\InAppAlert;
 use App\Models\Invoice;
 use App\Models\MonthlyFee;
 use App\Models\User;
+use App\Models\UserType;
 use Illuminate\Console\Scheduling\Schedule;
 use App\Services\Financeiro\MonthlyFeeGenerationService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Log;
 use Tests\TestCase;
 
 class MonthlyFeeGenerationFlowTest extends TestCase
 {
     use RefreshDatabase;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $this->createUserTypeIfMissing('atleta', 'Atleta');
+    }
 
     public function test_it_generates_monthly_fees_for_all_eligible_users_via_endpoint(): void
     {
@@ -73,6 +82,52 @@ class MonthlyFeeGenerationFlowTest extends TestCase
         $this->assertCount(2, $firstRun);
         $this->assertCount(0, $secondRun);
         $this->assertSame(2, Invoice::query()->where('user_id', $user->id)->where('tipo', 'mensalidade')->count());
+    }
+
+    public function test_generation_uses_canonical_monthly_fee_over_legacy_without_warning(): void
+    {
+        Log::spy();
+
+        $canonicalPlan = $this->createMonthlyPlan(40.00);
+        $legacyPlan = $this->createMonthlyPlan(35.00);
+
+        $user = $this->createEligibleUser($canonicalPlan, [
+            'data_inscricao' => '2026-05-01',
+            'tipo_mensalidade' => $legacyPlan->id,
+        ]);
+
+        $invoice = app(MonthlyFeeGenerationService::class)
+            ->generateForUser($user->fresh('dadosFinanceiros'), Carbon::parse('2026-05-01'), Carbon::parse('2026-05-01'))
+            ->sole();
+
+        $this->assertSame('40.00', $invoice->valor_total);
+
+        Log::shouldNotHaveReceived('warning', [
+            'Monthly fee generation used monthly fee legacy fallback.',
+        ]);
+    }
+
+    public function test_generation_ignores_legacy_monthly_fee_when_no_canonical_plan_exists(): void
+    {
+        Log::spy();
+
+        $legacyPlan = $this->createMonthlyPlan(45.00);
+        $user = User::factory()->create([
+            'nome_completo' => 'Fallback Monthly Fee',
+            'email' => 'fallback-monthly-fee@example.com',
+            'estado' => 'ativo',
+            'data_inscricao' => '2026-05-01',
+            'tipo_membro' => ['atleta'],
+            'ativo_desportivo' => true,
+            'tipo_mensalidade' => $legacyPlan->id,
+        ]);
+        $user->userTypes()->sync([$this->findUserTypeId('atleta')]);
+
+        $result = app(MonthlyFeeGenerationService::class)
+            ->generateForUser($user, Carbon::parse('2026-05-01'), Carbon::parse('2026-05-01'));
+
+        $this->assertCount(0, $result);
+        Log::shouldNotHaveReceived('warning');
     }
 
     public function test_it_generates_using_financial_cycle_without_requiring_active_sporting_season(): void
@@ -314,6 +369,81 @@ class MonthlyFeeGenerationFlowTest extends TestCase
         $this->assertSame(1, Invoice::query()->where('user_id', $user->id)->where('tipo', 'mensalidade')->count());
     }
 
+    public function test_active_admin_without_eligible_member_type_does_not_generate_monthly_fee(): void
+    {
+        $plan = $this->createMonthlyPlan();
+        $user = $this->createEligibleUser($plan, [
+            'perfil' => 'admin',
+            'tipo_membro' => [],
+            'ativo_desportivo' => false,
+        ]);
+        $user->userTypes()->sync([]);
+
+        $summary = app(MonthlyFeeGenerationService::class)->generateForAllEligibleUsers(
+            Carbon::parse('2026-05-01'),
+            Carbon::parse('2026-05-01')
+        );
+
+        $this->assertSame(0, $summary['created_count']);
+        $this->assertSame(0, Invoice::query()->where('user_id', $user->id)->where('tipo', 'mensalidade')->count());
+    }
+
+    public function test_active_generic_user_without_functional_type_does_not_generate_monthly_fee(): void
+    {
+        $plan = $this->createMonthlyPlan();
+        $user = $this->createEligibleUser($plan, [
+            'tipo_membro' => [],
+            'ativo_desportivo' => false,
+        ]);
+        $user->userTypes()->sync([]);
+
+        $summary = app(MonthlyFeeGenerationService::class)->generateForAllEligibleUsers(
+            Carbon::parse('2026-05-01'),
+            Carbon::parse('2026-05-01')
+        );
+
+        $this->assertSame(0, $summary['created_count']);
+        $this->assertSame(0, Invoice::query()->where('user_id', $user->id)->where('tipo', 'mensalidade')->count());
+    }
+
+    public function test_inactive_athlete_does_not_receive_new_monthly_fee(): void
+    {
+        $plan = $this->createMonthlyPlan();
+        $user = $this->createEligibleUser($plan, [
+            'estado' => 'inativo',
+            'tipo_membro' => ['atleta'],
+            'ativo_desportivo' => true,
+        ]);
+        $user->userTypes()->sync([$this->findUserTypeId('atleta')]);
+
+        $summary = app(MonthlyFeeGenerationService::class)->generateForAllEligibleUsers(
+            Carbon::parse('2026-05-01'),
+            Carbon::parse('2026-05-01')
+        );
+
+        $this->assertSame(0, $summary['created_count']);
+        $this->assertSame(0, Invoice::query()->where('user_id', $user->id)->where('tipo', 'mensalidade')->count());
+    }
+
+    public function test_active_athlete_with_inactive_sports_does_not_receive_new_monthly_fee(): void
+    {
+        $plan = $this->createMonthlyPlan();
+        $user = $this->createEligibleUser($plan, [
+            'estado' => 'ativo',
+            'tipo_membro' => ['atleta'],
+            'ativo_desportivo' => false,
+        ]);
+        $user->userTypes()->sync([$this->findUserTypeId('atleta')]);
+
+        $summary = app(MonthlyFeeGenerationService::class)->generateForAllEligibleUsers(
+            Carbon::parse('2026-05-01'),
+            Carbon::parse('2026-05-01')
+        );
+
+        $this->assertSame(0, $summary['created_count']);
+        $this->assertSame(0, Invoice::query()->where('user_id', $user->id)->where('tipo', 'mensalidade')->count());
+    }
+
     public function test_command_outputs_summary_and_scheduler_registers_financial_tasks(): void
     {
         $plan = $this->createMonthlyPlan();
@@ -494,6 +624,8 @@ class MonthlyFeeGenerationFlowTest extends TestCase
             'email' => 'eligible-' . uniqid() . '@example.com',
             'estado' => 'ativo',
             'data_inscricao' => '2026-05-01',
+            'tipo_membro' => ['atleta'],
+            'ativo_desportivo' => true,
         ], $overrides));
 
         DadosFinanceiros::create([
@@ -501,7 +633,30 @@ class MonthlyFeeGenerationFlowTest extends TestCase
             'mensalidade_id' => $plan->id,
         ] + $financeOverrides);
 
+        if (($overrides['tipo_membro'][0] ?? null) === 'atleta') {
+            $user->userTypes()->sync([$this->findUserTypeId('atleta')]);
+        }
+
         return $user->fresh('dadosFinanceiros');
+    }
+
+    private function createUserTypeIfMissing(string $codigo, string $nome): void
+    {
+        if (UserType::query()->where('codigo', $codigo)->exists()) {
+            return;
+        }
+
+        UserType::query()->create([
+            'codigo' => $codigo,
+            'nome' => $nome,
+            'descricao' => $nome,
+            'ativo' => true,
+        ]);
+    }
+
+    private function findUserTypeId(string $codigo): string
+    {
+        return (string) UserType::query()->where('codigo', $codigo)->value('id');
     }
 
     private function createClubSettings(array $overrides = []): ClubSetting

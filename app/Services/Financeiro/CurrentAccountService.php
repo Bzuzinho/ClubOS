@@ -3,7 +3,6 @@
 namespace App\Services\Financeiro;
 
 use App\Models\AccountCredit;
-use App\Models\DadosFinanceiros;
 use App\Models\FinancialEntry;
 use App\Models\Invoice;
 use App\Models\Movement;
@@ -15,6 +14,11 @@ use Illuminate\Support\Collection;
 
 class CurrentAccountService
 {
+    public function __construct(
+        private readonly MemberManualAccountBalanceResolver $memberManualAccountBalanceResolver,
+    ) {
+    }
+
     public function openDebtInvoicesQuery(array $filters = []): Builder
     {
         $today = $this->resolveReferenceDate($filters);
@@ -122,8 +126,9 @@ class CurrentAccountService
         $availableCredit = round((float) $this->availableCreditsQuery($filters)->get()->sum(function (AccountCredit $credit): float {
             return (float) ($credit->remaining_amount ?? $credit->amount ?? 0);
         }), 2);
+        // Manual account balance is an explicit adjustment component; it is not debt by itself.
         $manualAccountBalance = round($this->resolveManualAccountBalance($filters), 2);
-        $netDebt = round(max($grossDebt - $availableCredit, 0), 2);
+        $netDebt = round(($grossDebt - $availableCredit) + $manualAccountBalance, 2);
 
         return [
             'gross_debt' => $grossDebt,
@@ -229,16 +234,12 @@ class CurrentAccountService
             return 0.0;
         }
 
-        $manualAmount = (float) DadosFinanceiros::query()
-            ->whereIn('user_id', $userIds->all())
-            ->sum('conta_corrente_manual');
-
-        $legacyUserAmount = (float) User::query()
+        $users = User::query()
+            ->with('dadosFinanceiros:id,user_id,conta_corrente_manual')
             ->whereIn('id', $userIds->all())
-            ->whereDoesntHave('dadosFinanceiros')
-            ->sum('conta_corrente');
+            ->get(['id', 'conta_corrente']);
 
-        return round($manualAmount + $legacyUserAmount, 2);
+        return round((float) $users->sum(fn (User $user): float => $this->memberManualAccountBalanceResolver->resolveForUser($user)), 2);
     }
 
     private function excludedInvoiceCount(array $filters = []): int
