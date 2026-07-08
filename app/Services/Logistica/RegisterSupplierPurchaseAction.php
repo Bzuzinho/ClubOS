@@ -2,7 +2,6 @@
 
 namespace App\Services\Logistica;
 
-use App\Models\FinancialEntry;
 use App\Models\Movement;
 use App\Models\MovementDocument;
 use App\Models\MovementItem;
@@ -82,13 +81,13 @@ class RegisterSupplierPurchaseAction
                 'categoria' => 'compras_stock',
                 'data_emissao' => $purchase->invoice_date,
                 'data_vencimento' => $data['due_date'] ?? $purchase->invoice_date,
-                'valor_total' => -abs($total),
+                'valor_total' => abs($total),
                 'estado_pagamento' => 'por_pagar',
                 'estado_conciliacao' => 'nao_conciliado',
                 'estado_documental' => 'sem_documentos',
                 'centro_custo_id' => $data['centro_custo_id'] ?? null,
                 'tipo' => 'fornecedor',
-                'origem_tipo' => 'stock',
+                'origem_tipo' => 'supplier_purchase',
                 'origem_id' => $purchase->id,
                 'referencia_pagamento' => $purchase->invoice_reference,
                 'observacoes' => 'Despesa gerada pela compra de fornecedor na logística.',
@@ -107,23 +106,8 @@ class RegisterSupplierPurchaseAction
                 ]);
             }
 
-            $financialEntry = FinancialEntry::create([
-                'data' => $purchase->invoice_date,
-                'tipo' => 'despesa',
-                'categoria' => 'Compras fornecedor',
-                'descricao' => 'Compra a fornecedor: '.$purchase->supplier_name_snapshot,
-                'documento_ref' => $purchase->invoice_reference,
-                'valor' => $total,
-                'centro_custo_id' => $data['centro_custo_id'] ?? null,
-                'origem_tipo' => 'stock',
-                'origem_id' => $purchase->id,
-                'metodo_pagamento' => $data['metodo_pagamento'] ?? null,
-                'user_id' => $actor?->id,
-            ]);
-
             $purchase->update([
                 'financial_movement_id' => $movement->id,
-                'financial_entry_id' => $financialEntry->id,
             ]);
 
             if (!empty($data['attachment'])) {

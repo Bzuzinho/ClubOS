@@ -20,6 +20,7 @@ class SupplierPurchase extends Model
         'invoice_date',
         'total_amount',
         'financial_movement_id',
+        // Legacy compatibility only: new SupplierPurchase lifecycle should not write this field.
         'financial_entry_id',
         'notes',
         'created_by',
@@ -42,6 +43,7 @@ class SupplierPurchase extends Model
 
     public function financialEntry(): BelongsTo
     {
+        // Legacy relationship retained for historical data reads.
         return $this->belongsTo(FinancialEntry::class, 'financial_entry_id');
     }
 

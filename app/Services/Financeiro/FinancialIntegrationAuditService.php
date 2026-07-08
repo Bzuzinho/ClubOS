@@ -446,7 +446,7 @@ final class FinancialIntegrationAuditService
             if ($purchase->financial_movement_id && !$movement) {
                 $findings[] = $this->finding(
                     'critical',
-                    'supplier_purchase_orphan_financial_reference',
+                    'supplier_purchase_orphan_financial_movement_reference',
                     'supplier_purchases',
                     'supplier_purchase',
                     (string) $purchase->id,
@@ -460,7 +460,7 @@ final class FinancialIntegrationAuditService
             if ($purchase->financial_entry_id && !$entry) {
                 $findings[] = $this->finding(
                     'critical',
-                    'supplier_purchase_orphan_financial_reference',
+                    'supplier_purchase_orphan_financial_entry_reference',
                     'supplier_purchases',
                     'supplier_purchase',
                     (string) $purchase->id,
@@ -489,7 +489,7 @@ final class FinancialIntegrationAuditService
             }
 
             $sourceMovements = Movement::query()
-                ->where('origem_tipo', 'stock')
+                ->whereIn('origem_tipo', ['supplier_purchase', 'stock'])
                 ->where('origem_id', $purchase->id)
                 ->get();
 
@@ -512,7 +512,7 @@ final class FinancialIntegrationAuditService
             }
 
             $sourceEntries = FinancialEntry::query()
-                ->where('origem_tipo', 'stock')
+                ->whereIn('origem_tipo', ['supplier_purchase', 'stock'])
                 ->where('origem_id', $purchase->id)
                 ->get();
 
@@ -541,11 +541,11 @@ final class FinancialIntegrationAuditService
                     ->count();
 
                 $sourceKeyedEntries = FinancialEntry::query()
-                    ->where('origem_tipo', 'stock')
+                    ->whereIn('origem_tipo', ['supplier_purchase', 'stock'])
                     ->where('origem_id', $purchase->id)
                     ->count();
 
-                if ($movementEntries === 0 && $sourceKeyedEntries > 0) {
+                if ($sourceKeyedEntries > 0) {
                     $findings[] = $this->finding(
                         'warning',
                         'supplier_purchase_source_keyed_entry',
@@ -556,6 +556,7 @@ final class FinancialIntegrationAuditService
                         (string) $movement->id,
                         'Movement da compra nao tem financial entry origem=movement, mas existe entry keyed pela origem stock/purchase.',
                         [
+                            'canonical_movement_entries_count' => $movementEntries,
                             'source_keyed_entries_count' => $sourceKeyedEntries,
                         ],
                     );

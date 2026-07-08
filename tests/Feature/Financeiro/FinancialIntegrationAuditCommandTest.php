@@ -165,7 +165,7 @@ final class FinancialIntegrationAuditCommandTest extends TestCase
         $findings = collect($payload['findings'] ?? []);
 
         $this->assertTrue($findings->contains(fn (array $finding): bool => $finding['code'] === 'supplier_purchase_parallel_movement_and_entry'));
-        $this->assertTrue($findings->contains(fn (array $finding): bool => $finding['code'] === 'supplier_purchase_orphan_financial_reference' && $finding['source_id'] === (string) $orphanPurchase->id));
+    $this->assertTrue($findings->contains(fn (array $finding): bool => $finding['code'] === 'supplier_purchase_orphan_financial_movement_reference' && $finding['source_id'] === (string) $orphanPurchase->id));
     }
 
     public function test_reporting_module_no_longer_flags_paid_non_monthly_invoice_excluded(): void
@@ -306,15 +306,23 @@ final class FinancialIntegrationAuditCommandTest extends TestCase
 
     private function seedSupplierPurchaseParallelCase(): SupplierPurchase
     {
+        $purchase = SupplierPurchase::query()->create([
+            'supplier_name_snapshot' => 'Fornecedor XFIN',
+            'invoice_reference' => 'SUP-001',
+            'invoice_date' => now()->toDateString(),
+            'total_amount' => 100,
+            'notes' => 'Caso paralelo',
+        ]);
+
         $movement = Movement::query()->create([
             'classificacao' => 'despesa',
             'data_emissao' => now()->toDateString(),
             'data_vencimento' => now()->toDateString(),
-            'valor_total' => -100,
+            'valor_total' => 100,
             'estado_pagamento' => 'por_pagar',
             'tipo' => 'fornecedor',
-            'origem_tipo' => 'stock',
-            'origem_id' => 'purchase-xfin',
+            'origem_tipo' => 'supplier_purchase',
+            'origem_id' => $purchase->id,
         ]);
 
         $entry = FinancialEntry::query()->create([
@@ -324,19 +332,16 @@ final class FinancialIntegrationAuditCommandTest extends TestCase
             'descricao' => 'Compra XFIN',
             'valor' => 100,
             'origem_tipo' => 'stock',
-            'origem_id' => 'purchase-xfin',
+            'origem_id' => $purchase->id,
             'estado' => 'pendente',
         ]);
 
-        return SupplierPurchase::query()->create([
-            'supplier_name_snapshot' => 'Fornecedor XFIN',
-            'invoice_reference' => 'SUP-001',
-            'invoice_date' => now()->toDateString(),
-            'total_amount' => 100,
+        $purchase->update([
             'financial_movement_id' => $movement->id,
             'financial_entry_id' => $entry->id,
-            'notes' => 'Caso paralelo',
         ]);
+
+        return $purchase->fresh();
     }
 
     private function seedPaidNonMonthlyInvoiceExcluded(): Invoice

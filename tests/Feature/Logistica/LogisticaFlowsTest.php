@@ -3,7 +3,6 @@
 namespace Tests\Feature\Logistica;
 
 use App\Models\EquipmentLoan;
-use App\Models\FinancialEntry;
 use App\Models\Invoice;
 use App\Models\LogisticsRequest;
 use App\Models\Movement;
@@ -148,18 +147,15 @@ class LogisticaFlowsTest extends TestCase
 
         $this->assertSame(7, (int) $product->stock);
         $this->assertNotNull($purchase->financial_movement_id);
-        $this->assertNotNull($purchase->financial_entry_id);
+        $this->assertNull($purchase->financial_entry_id);
 
         $movement = Movement::find($purchase->financial_movement_id);
-        $entry = FinancialEntry::find($purchase->financial_entry_id);
 
         $this->assertNotNull($movement);
-        $this->assertNotNull($entry);
         $this->assertSame('despesa', $movement->classificacao);
-        $this->assertSame('stock', $movement->origem_tipo);
+        $this->assertSame(62.0, (float) $movement->valor_total);
+        $this->assertSame('supplier_purchase', $movement->origem_tipo);
         $this->assertSame('por_pagar', $movement->estado_pagamento);
-        $this->assertSame('despesa', $entry->tipo);
-        $this->assertSame('stock', $entry->origem_tipo);
         $this->assertDatabaseHas('movement_documents', [
             'movement_id' => $movement->id,
             'document_type' => 'invoice',
@@ -170,6 +166,10 @@ class LogisticaFlowsTest extends TestCase
             'movement_type' => 'entry',
             'reference_type' => 'supplier_purchase',
             'reference_id' => $purchase->id,
+        ]);
+        $this->assertDatabaseMissing('financial_entries', [
+            'origem_tipo' => 'supplier_purchase',
+            'origem_id' => $purchase->id,
         ]);
     }
 
