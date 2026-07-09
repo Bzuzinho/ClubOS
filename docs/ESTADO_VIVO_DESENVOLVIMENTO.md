@@ -555,3 +555,7 @@ npm run build
 ```
 
 Sempre que estes comandos forem executados com sucesso, deve ser acrescentada uma nota no histórico vivo.
+
+### XFIN8 — Sprint summary
+
+| 2026-07-09 | Loja / Financeiro transversal | Sprint XFIN8 concluída para desativar efeitos financeiros/stock legacy de Sale. Baseline: `total_sales=0`. Sem escrita operacional detectada em rotas/controllers. Model Sale desativado (sem hooks de side effects). Criado LegacySaleAuditService + finance:audit-legacy-sales command (read-only). Testes: 7 passed (Sale shutdown scenario A-G). Auditor result: 0 findings legacy + 1 warning XFIN (Movement manual fora do escopo). Nenhuma escrita destrutiva. | app/Models/Sale.php, app/Services/Financeiro/LegacySaleAuditService.php, app/Console/Commands/Financeiro/AuditLegacySaleCommand.php, database/factories/ProductFactory.php, database/factories/SaleFactory.php, tests/Feature/Loja/LegacySaleShutdownTest.php | 46% | 47% | LojaEncomenda canonical flow maintained. Sale passive read-only. Zero destructive backfill. XFIN8.1 not opened (no real legacy financial data). |
