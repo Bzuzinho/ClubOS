@@ -42,23 +42,25 @@ class FullWorkflowTest extends TestCase
         $member = User::create([
             'name' => 'Test Athlete',
             'numero_socio' => '999',
-            'nome_completo' => 'Test Athlete',
             'email' => 'athlete@test.com',
             'password' => bcrypt('password123'),
             'perfil' => 'atleta',
             'estado' => 'ativo',
-            'data_nascimento' => '2005-05-15',
-            'sexo' => 'masculino',
             'tipo_membro' => ['Atleta'],
             'menor' => true,
+            'ativo_desportivo' => true,
+        ]);
+        $member->forceFill([
+            'nome_completo' => 'Test Athlete',
+            'data_nascimento' => '2005-05-15',
+            'sexo' => 'masculino',
             'rgpd' => true,
             'consentimento' => true,
             'afiliacao' => true,
             'declaracao_de_transporte' => true,
-            'ativo_desportivo' => true,
-        ]);
+        ])->save();
         $this->assertNotNull($member);
-        $this->assertEquals('Test Athlete', $member->nome_completo);
+        $this->assertEquals('Test Athlete', $member->fresh()->nome_completo);
         $this->assertEquals('atleta', $member->perfil);
 
         // 3. Create an event
@@ -337,7 +339,7 @@ class FullWorkflowTest extends TestCase
         $this->assertEquals('CRUD Test User', $foundUser->nome_completo);
 
         // Update
-        $foundUser->update(['nome_completo' => 'Updated Name']);
+        $foundUser->forceFill(['nome_completo' => 'Updated Name'])->save();
         $this->assertDatabaseHas('users', [
             'numero_socio' => '500',
             'nome_completo' => 'Updated Name',

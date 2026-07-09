@@ -56,12 +56,13 @@ final class UsersLegacyFieldMapAuditCommandTest extends TestCase
         $this->assertIsArray($payload['missing_configured_columns']);
         $missing = $payload['missing_configured_columns'];
 
-        if (!in_array('estado_civil', $missing, true) && !in_array('numero_irmaos', $missing, true)) {
-            $this->assertSame([], $missing);
-        } else {
-            sort($missing);
-            $this->assertSame(['estado_civil', 'numero_irmaos'], $missing);
-        }
+        $expectedRemoved = array_merge(
+            config('member_user_legacy_fields.categories.removed_after_m5.fields', []),
+            config('member_user_legacy_fields.categories.removed_after_fc2.fields', []),
+        );
+        sort($missing);
+        sort($expectedRemoved);
+        $this->assertSame($expectedRemoved, $missing);
 
         $this->assertSame([], $payload['unknown_columns']);
         $this->assertTrue($payload['passed']);
@@ -98,7 +99,8 @@ final class UsersLegacyFieldMapAuditCommandTest extends TestCase
 
         $this->assertContains('nome_completo', $config['categories']['member_personal_legacy']['fields']);
         $this->assertContains('rgpd', $config['categories']['member_configuration_legacy']['fields']);
-        $this->assertContains('tipo_mensalidade', $config['categories']['member_financial_legacy']['fields']);
+        $this->assertContains('inscricao', $config['categories']['member_financial_legacy']['fields']);
+        $this->assertContains('tipo_mensalidade', $config['categories']['removed_after_fc2']['fields']);
         $this->assertContains('name', $config['categories']['auth_operational_keep']['fields']);
         $this->assertContains('email', $config['categories']['auth_operational_keep']['fields']);
         $this->assertContains('password', $config['categories']['auth_operational_keep']['fields']);

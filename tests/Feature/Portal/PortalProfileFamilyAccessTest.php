@@ -159,8 +159,8 @@ class PortalProfileFamilyAccessTest extends TestCase
         $response = $this->inertiaGetAs($guardian, route('portal.profile', ['member' => $educando->id]));
 
         $response->assertOk();
-        $response->assertJsonPath('props.profile.financial.account_balance', '45,00 €');
-        $response->assertJsonPath('props.profile.financial.outstanding_value', '45,00 €');
+        $response->assertJsonPath('props.profile.financial.account_balance', '52,50 €');
+        $response->assertJsonPath('props.profile.financial.outstanding_value', '52,50 €');
         $response->assertJsonPath('props.profile.financial.gross_debt', '60,00 €');
         $response->assertJsonPath('props.profile.financial.available_credit', '15,00 €');
         $response->assertJsonPath('props.profile.financial.next_payment.amount', '60,00 €');

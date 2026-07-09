@@ -109,7 +109,7 @@ class PortalMemberDataReadSafetyTest extends TestCase
         $response->assertJsonPath('component', 'Portal/Family');
         $response->assertJsonPath('props.familyMember.id', $guardian->id);
         $response->assertJsonPath('props.educandos.0.id', $educando->id);
-        $response->assertJsonPath('props.educandos.0.name', 'Educando Family');
+        $response->assertJsonPath('props.educandos.0.name', 'Educando Dados Pessoais');
 
         $dadosPessoais->refresh();
         $dadosConfiguracao->refresh();

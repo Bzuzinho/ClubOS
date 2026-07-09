@@ -38,14 +38,14 @@ class FiscalDocumentRequestFlowTest extends TestCase
         $invoice = $this->createInvoice();
         $user = $invoice->user;
 
-        $user->update([
+        $user->forceFill([
             'nome_completo' => 'Nome Legacy User',
             'name' => 'Legacy Name Fallback',
             'nif' => '299999999',
             'morada' => 'Rua Legacy 1',
             'codigo_postal' => '9000-900',
             'localidade' => 'Porto Legacy',
-        ]);
+        ])->save();
 
         DadosPessoais::query()->create([
             'user_id' => $user->id,
@@ -71,13 +71,13 @@ class FiscalDocumentRequestFlowTest extends TestCase
 
         DadosPessoais::query()->where('user_id', $user->id)->delete();
 
-        $user->update([
+        $user->forceFill([
             'nome_completo' => 'Nome Legacy Prioritario',
             'nif' => '233333333',
             'morada' => 'Rua Legacy Fallback 10',
             'codigo_postal' => '2000-200',
             'localidade' => 'Santarém',
-        ]);
+        ])->save();
 
         $request = app(FiscalDocumentRequestService::class)->createFromInvoice($invoice->fresh(['user', 'items']));
 
@@ -92,13 +92,13 @@ class FiscalDocumentRequestFlowTest extends TestCase
         $invoice = $this->createInvoice();
         $user = $invoice->user;
 
-        $user->update([
+        $user->forceFill([
             'nome_completo' => 'Socio Sem NIF',
             'nif' => null,
             'morada' => 'Rua Sem NIF 10',
             'codigo_postal' => '3000-300',
             'localidade' => 'Coimbra',
-        ]);
+        ])->save();
 
         DadosPessoais::query()->updateOrCreate(
             ['user_id' => $user->id],

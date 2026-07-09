@@ -4,6 +4,20 @@
 
 Formalizar os dois contratos financeiros que a auditoria XFIN1 usa como referencia factual, sem alterar comportamento nem dados.
 
+## Estado das sprints XFIN
+
+- XFIN1: concluida
+- XFIN2: concluida
+- XFIN3: concluida
+- XFIN4: concluida
+- XFIN5: concluida
+- XFIN6: concluida
+- XFIN7: concluida
+- XFIN8: concluida
+- XFIN8.1: concluida
+- XFIN9: concluida
+- XFIN10: pendente (nao executada nesta sprint)
+
 ## Contrato 1: Recebivel individual
 
 Fluxo esperado:
@@ -276,3 +290,44 @@ Regras:
 - `LegacySaleShutdownTest` sem incompletes/skips (`0 incomplete`, `0 skipped`);
 - fixture factual de paralelismo legacy (`Sale` + `Invoice stock` + `FinancialEntry stock`) validando finding `legacy_sale_parallel_invoice_and_entry`;
 - regressao operacional da Loja continua canonicamente em `StoreOrderRevenueMovementTest` (sem duplicacao de fluxo no shutdown test).
+
+## XFIN8: Sale legacy em modo passivo
+
+Estado: concluido em 2026-07-09.
+
+Regras operacionais:
+
+- `Sale` permanece model passivo (sem side effects de stock/financeiro);
+- dataset factual de reporting nao inclui `Sale` como fluxo operacional pago;
+- fluxo canónico da Loja permanece `LojaEncomenda -> Movement -> settlement canónico`;
+- auditoria dedicada `finance:audit-legacy-sales` controla reintroducao de write paths e paralelismo financeiro.
+
+## XFIN9: Regressao transversal final e fecho da frente XFIN
+
+Estado: concluido em 2026-07-09.
+
+Entregas de validacao:
+
+- criado teste transversal `CrossModuleFinancialIntegrationTest` cobrindo os cenarios A-H do contrato (mensalidade, competition registration, loja, logistics request, supplier purchase, convocation group, sponsorship e sale legacy passiva);
+- validado lifecycle canónico de pagamentos/alocacoes/settlement sem backfill e sem alteracao do movement manual negativo conhecido;
+- validada deduplicacao de reporting por origem funcional, sem duplicacao `Invoice + FinancialEntry(fatura_id)` e sem duplicacao `Movement + FinancialEntry(origem=movement)`;
+- validada semantica monetaria (`amount` positivo, `type` em `receita|despesa`) e coerencia entre `FinancialReportingFactService`, `FinanceReportService` e `FinanceDashboardService` no mesmo scope temporal;
+- validada formula operacional de conta corrente via `CurrentAccountService`:
+	- `net_debt = (gross_debt - available_credit) + manual_account_balance`.
+
+Resultados factuais finais XFIN9:
+
+- auditoria `finance:audit-integrations --json`:
+	- `total_findings=1`, `critical=0`, `warning=1`, `info=0`;
+	- unico finding: `negative_expense_movement_value` em `movement.id=a1c55e47-bf5f-48b4-a115-e1655dbc7fb2` (legacy manual);
+	- `EXIT_CODE_CRITICAL=0`, `EXIT_CODE_WARNING=1`.
+- auditoria `finance:audit-legacy-sales --json`:
+	- `total_findings=0`, `critical=0`, `warning=0`, `info=0`;
+	- `operational_write_paths_count=0`, `parallel_finance_findings_count=0`;
+	- `EXIT_CODE_SALE_WRITE=0`, `EXIT_CODE_SALE_PARALLEL=0`.
+
+Decisao de fecho:
+
+- `operational_blocker=0` para a frente XFIN;
+- finding remanescente classificado como `legacy_data_pending`/`accepted_compatibility` fora do escopo de XFIN9;
+- proxima micro-sprint proposta: `XFIN10 - normalize legacy manual movement sign` (nao executada nesta sprint).

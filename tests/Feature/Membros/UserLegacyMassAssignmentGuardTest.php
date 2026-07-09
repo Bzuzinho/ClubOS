@@ -58,9 +58,6 @@ class UserLegacyMassAssignmentGuardTest extends TestCase
         $user = new User();
 
         foreach ([
-            'tipo_mensalidade',
-            'conta_corrente',
-            'centro_custo',
             'inscricao',
             'ativo_desportivo',
             'escalao',
