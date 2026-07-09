@@ -14,6 +14,8 @@ use App\Models\EventResult;
 use App\Models\EventTypeConfig;
 use App\Models\ResultProva;
 use App\Models\User;
+use App\Services\Eventos\DeleteConvocationGroupAction;
+use App\Services\Eventos\SyncConvocationGroupFinancialMovementAction;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
@@ -21,6 +23,20 @@ use Illuminate\Support\Facades\DB;
 
 class EventosKeyValueService
 {
+    private const CONVOCATION_GROUP_FINANCIAL_FIELDS = [
+        'atletas_ids',
+        'tipo_custo',
+        'valor_por_salto',
+        'valor_por_estafeta',
+        'valor_inscricao_unitaria',
+    ];
+
+    private const CONVOCATION_GROUP_DECIMAL_FIELDS = [
+        'valor_por_salto',
+        'valor_por_estafeta',
+        'valor_inscricao_unitaria',
+    ];
+
     private const SUPPORTED_KEYS = [
         'club-events',
         'club-eventos-tipos',
@@ -81,7 +97,7 @@ class EventosKeyValueService
             'club-resultados' => EventResult::query()->delete(),
             'club-resultados-provas' => ResultProva::query()->delete(),
             'club-convocatorias' => EventConvocation::query()->delete(),
-            'club-convocatorias-grupo' => ConvocationGroup::query()->delete(),
+            'club-convocatorias-grupo' => $this->deleteConvocationGroups(),
             'club-convocatorias-atleta' => ConvocationAthlete::query()->delete(),
             'movimentos-convocatoria' => $this->deleteConvocationMovements(),
             default => null,
@@ -631,6 +647,9 @@ class EventosKeyValueService
     {
         DB::transaction(function () use ($items, $userId) {
             $ids = [];
+            $groupsNeedingFinancialSync = [];
+            $financialSyncAction = app(SyncConvocationGroupFinancialMovementAction::class);
+            $deleteAction = app(DeleteConvocationGroupAction::class);
 
             foreach ($items as $item) {
                 if (!is_array($item)) {
@@ -640,49 +659,86 @@ class EventosKeyValueService
                 $id = $item['id'] ?? (string) Str::uuid();
                 $ids[] = $id;
 
-                ConvocationGroup::updateOrCreate(
+                $existingGroup = ConvocationGroup::query()->find($id);
+
+                $payload = [
+                    'evento_id' => $item['evento_id'] ?? null,
+                    'data_criacao' => $item['data_criacao'] ?? now(),
+                    'criado_por' => $this->resolveUserId($item['criado_por'] ?? null, $userId),
+                    'atletas_ids' => $item['atletas_ids'] ?? [],
+                    'hora_encontro' => $item['hora_encontro'] ?? null,
+                    'local_encontro' => $item['local_encontro'] ?? null,
+                    'observacoes' => $item['observacoes'] ?? null,
+                    'tipo_custo' => $item['tipo_custo'] ?? 'por_salto',
+                    'valor_por_salto' => $item['valor_por_salto'] ?? null,
+                    'valor_por_estafeta' => $item['valor_por_estafeta'] ?? null,
+                    'valor_inscricao_unitaria' => $item['valor_inscricao_unitaria'] ?? null,
+                    'centro_custo_id' => $item['centro_custo_id'] ?? null,
+                ];
+
+                $hasFinancialChange = true;
+                if ($existingGroup) {
+                    $hasFinancialChange = $this->isConvocationFinancialPayloadChanged($existingGroup, $payload);
+                    if (!$hasFinancialChange) {
+                        $payload['movimento_id'] = $existingGroup->movimento_id;
+                    }
+                }
+
+                $group = ConvocationGroup::updateOrCreate(
                     ['id' => $id],
-                    [
-                        'evento_id' => $item['evento_id'] ?? null,
-                        'data_criacao' => $item['data_criacao'] ?? now(),
-                        'criado_por' => $this->resolveUserId($item['criado_por'] ?? null, $userId),
-                        'atletas_ids' => $item['atletas_ids'] ?? [],
-                        'hora_encontro' => $item['hora_encontro'] ?? null,
-                        'local_encontro' => $item['local_encontro'] ?? null,
-                        'observacoes' => $item['observacoes'] ?? null,
-                        'tipo_custo' => $item['tipo_custo'] ?? 'por_salto',
-                        'valor_por_salto' => $item['valor_por_salto'] ?? null,
-                        'valor_por_estafeta' => $item['valor_por_estafeta'] ?? null,
-                        'valor_inscricao_unitaria' => $item['valor_inscricao_unitaria'] ?? null,
-                        'valor_inscricao_calculado' => $item['valor_inscricao_calculado'] ?? null,
-                        'movimento_id' => $item['movimento_id'] ?? null,
-                        'centro_custo_id' => $item['centro_custo_id'] ?? null,
-                    ]
+                    $payload
                 );
+
+                if (!$existingGroup || $hasFinancialChange) {
+                    $groupsNeedingFinancialSync[] = (string) $group->id;
+                }
             }
 
             if (count($ids) === 0) {
-                ConvocationGroup::query()->delete();
+                ConvocationGroup::query()
+                    ->get()
+                    ->each(fn (ConvocationGroup $group) => $deleteAction->execute($group));
                 return;
             }
 
-            ConvocationGroup::whereNotIn('id', $ids)->delete();
+            ConvocationGroup::query()
+                ->whereNotIn('id', $ids)
+                ->get()
+                ->each(fn (ConvocationGroup $group) => $deleteAction->execute($group));
+
+            if (!empty($groupsNeedingFinancialSync)) {
+                ConvocationGroup::query()
+                    ->whereIn('id', array_values(array_unique($groupsNeedingFinancialSync)))
+                    ->get()
+                    ->each(fn (ConvocationGroup $group) => $financialSyncAction->execute($group));
+            }
         });
     }
 
     private function syncConvocationAthletes(array $items): void
     {
         DB::transaction(function () use ($items) {
+            $financialSyncAction = app(SyncConvocationGroupFinancialMovementAction::class);
+
             if (count($items) === 0) {
                 ConvocationAthlete::query()->delete();
+
+                ConvocationGroup::query()
+                    ->whereNotNull('movimento_id')
+                    ->get()
+                    ->each(fn (ConvocationGroup $group) => $financialSyncAction->execute($group));
+
                 return;
             }
 
             $grouped = collect($items)->filter(fn ($item) => is_array($item))
                 ->groupBy('convocatoria_grupo_id');
 
+            $updatedGroupIds = [];
+
             foreach ($grouped as $groupId => $athletes) {
                 $athleteIds = $athletes->pluck('atleta_id')->filter()->values();
+                $updatedGroupIds[] = (string) $groupId;
 
                 foreach ($athletes as $item) {
                     // Delete existing record first
@@ -712,7 +768,14 @@ class EventosKeyValueService
 
                 ConvocationGroup::whereIn('id', $groupIds)
                     ->get()
-                    ->each(fn (ConvocationGroup $group) => $group->refreshFinancialMovement());
+                    ->each(fn (ConvocationGroup $group) => $financialSyncAction->execute($group));
+            }
+
+            if (!empty($updatedGroupIds)) {
+                ConvocationGroup::query()
+                    ->whereIn('id', array_values(array_unique($updatedGroupIds)))
+                    ->get()
+                    ->each(fn (ConvocationGroup $group) => $financialSyncAction->execute($group));
             }
         });
     }
@@ -823,5 +886,52 @@ class EventosKeyValueService
         ConvocationMovement::query()->delete();
 
         return true;
+    }
+
+    private function deleteConvocationGroups(): void
+    {
+        $deleteAction = app(DeleteConvocationGroupAction::class);
+
+        DB::transaction(function () use ($deleteAction): void {
+            ConvocationGroup::query()
+                ->get()
+                ->each(fn (ConvocationGroup $group) => $deleteAction->execute($group));
+        });
+    }
+
+    private function isConvocationFinancialPayloadChanged(ConvocationGroup $group, array $payload): bool
+    {
+        foreach (self::CONVOCATION_GROUP_FINANCIAL_FIELDS as $field) {
+            $currentValue = $group->{$field};
+            $newValue = $payload[$field] ?? null;
+
+            if (is_array($currentValue) || is_array($newValue)) {
+                $current = collect($currentValue ?? [])->map(fn ($value) => (string) $value)->values()->all();
+                $incoming = collect($newValue ?? [])->map(fn ($value) => (string) $value)->values()->all();
+
+                if ($current !== $incoming) {
+                    return true;
+                }
+
+                continue;
+            }
+
+            if (in_array($field, self::CONVOCATION_GROUP_DECIMAL_FIELDS, true)) {
+                $currentDecimal = $currentValue === null ? null : round((float) $currentValue, 2);
+                $newDecimal = $newValue === null ? null : round((float) $newValue, 2);
+
+                if ($currentDecimal !== $newDecimal) {
+                    return true;
+                }
+
+                continue;
+            }
+
+            if ((string) ($currentValue ?? '') !== (string) ($newValue ?? '')) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

@@ -11,7 +11,9 @@ use App\Models\FiscalDocumentRequest;
 use App\Models\Invoice;
 use App\Models\LogisticsRequest;
 use App\Models\LojaEncomenda;
+use App\Models\MapaConciliacao;
 use App\Models\Movement;
+use App\Models\MovementDocument;
 use App\Models\PaymentAllocation;
 use App\Models\Prova;
 use App\Models\Sale;
@@ -803,10 +805,20 @@ final class FinancialIntegrationAuditService
             $movement = $group->movimento_id ? Movement::query()->find($group->movimento_id) : null;
             $calculatedCost = abs((float) ($group->valor_inscricao_calculado ?? 0));
 
+            $canonicalMovements = Movement::query()
+                ->where('origem_tipo', 'convocation_group')
+                ->where('origem_id', $group->id)
+                ->get();
+
+            $eventOriginMovements = Movement::query()
+                ->where('origem_tipo', 'evento')
+                ->where('origem_id', $group->evento_id)
+                ->get();
+
             if ($group->movimento_id && !$movement) {
                 $findings[] = $this->finding(
                     'critical',
-                    'convocation_group_missing_movement_reference',
+                    'convocation_group_orphan_movement_reference',
                     'convocation_groups',
                     'convocation_group',
                     (string) $group->id,
@@ -817,10 +829,10 @@ final class FinancialIntegrationAuditService
                 );
             }
 
-            if ($calculatedCost > 0.009 && !$movement) {
+            if ($calculatedCost > 0.009 && !$movement && $canonicalMovements->isEmpty()) {
                 $findings[] = $this->finding(
                     'warning',
-                    'convocation_group_missing_movement_for_positive_cost',
+                    'convocation_group_missing_financial_movement',
                     'convocation_groups',
                     'convocation_group',
                     (string) $group->id,
@@ -833,40 +845,51 @@ final class FinancialIntegrationAuditService
                 );
             }
 
-            $eventMovements = Movement::query()
-                ->where('origem_tipo', 'evento')
-                ->where('origem_id', $group->evento_id)
-                ->get();
-
-            if ($eventMovements->count() > 1) {
-                foreach ($eventMovements as $eventMovement) {
+            if ($canonicalMovements->count() > 1) {
+                foreach ($canonicalMovements as $candidateMovement) {
                     $findings[] = $this->finding(
                         'warning',
-                        'convocation_group_multiple_event_movements',
+                        'convocation_group_multiple_movements',
                         'convocation_groups',
                         'convocation_group',
                         (string) $group->id,
                         'movement',
-                        (string) $eventMovement->id,
-                        'Multiplos movements por evento com origem ambigua para grupos de convocacao.',
+                        (string) $candidateMovement->id,
+                        'ConvocationGroup com multiplos movements canónicos candidatos.',
                         [
-                            'movement_count' => $eventMovements->count(),
-                            'event_id' => (string) $group->evento_id,
+                            'movement_count' => $canonicalMovements->count(),
                         ],
                     );
                 }
             }
 
-            if ($movement && $movement->origem_tipo === 'evento') {
+            if ($eventOriginMovements->count() > 1) {
                 $findings[] = $this->finding(
                     'warning',
-                    'convocation_group_event_origin_movement',
+                    'convocation_group_ambiguous_event_origin',
+                    'convocation_groups',
+                    'convocation_group',
+                    (string) $group->id,
+                    'movement',
+                    (string) $eventOriginMovements->first()->id,
+                    'Multiplos movements com origem evento ligados ao mesmo evento da convocacao.',
+                    [
+                        'event_id' => (string) $group->evento_id,
+                        'movement_count' => $eventOriginMovements->count(),
+                    ],
+                );
+            }
+
+            if ($movement && ((string) $movement->origem_tipo !== 'convocation_group' || (string) $movement->origem_id !== (string) $group->id)) {
+                $findings[] = $this->finding(
+                    'warning',
+                    'convocation_group_non_specific_movement_origin',
                     'convocation_groups',
                     'convocation_group',
                     (string) $group->id,
                     'movement',
                     (string) $movement->id,
-                    'Movement do grupo usa origem evento em vez de identificar convocation_group.',
+                    'Movement do grupo nao usa origem especifica convocation_group.',
                     [
                         'movement_origin_type' => $movement->origem_tipo,
                         'movement_origin_id' => $movement->origem_id,
@@ -874,74 +897,168 @@ final class FinancialIntegrationAuditService
                 );
             }
 
-            if ($movement) {
+            $candidateMovements = collect([$movement])
+                ->merge($canonicalMovements)
+                ->filter()
+                ->unique(fn (Movement $candidate) => (string) $candidate->id)
+                ->values();
+
+            foreach ($candidateMovements as $candidateMovement) {
                 $movementEntries = FinancialEntry::query()
                     ->where('origem_tipo', 'movement')
-                    ->where('origem_id', $movement->id)
+                    ->where('origem_id', $candidateMovement->id)
                     ->get();
 
-                foreach ($movementEntries as $entry) {
-                    $findings[] = $this->finding(
-                        'info',
-                        'convocation_group_movement_financial_entry_link',
-                        'convocation_groups',
-                        'convocation_group',
-                        (string) $group->id,
-                        'financial_entry',
-                        (string) $entry->id,
-                        'ConvocationGroup movement ja tem financial entry ligada.',
-                        [
-                            'movement_id' => (string) $movement->id,
-                        ],
-                    );
-                }
+                $entryIds = $movementEntries->pluck('id')->filter()->values();
 
-                $hasLifecycleRisk = in_array($movement->estado_pagamento, ['pago', 'parcial'], true)
-                    || in_array((string) $movement->estado_conciliacao, ['conciliado', 'parcialmente_conciliado'], true)
-                    || in_array((string) $movement->estado_documental, ['emitido', 'fiscal_emitido'], true);
+                $isSettled = in_array((string) $candidateMovement->estado_pagamento, ['pago', 'parcial', 'pago_parcial'], true)
+                    || $movementEntries->contains(fn (FinancialEntry $entry): bool => in_array((string) $entry->estado, ['pago', 'parcial'], true)
+                        || (float) ($entry->valor_pago ?? 0) > 0.009);
 
-                if ($hasLifecycleRisk) {
+                if ($isSettled) {
                     $findings[] = $this->finding(
                         'critical',
-                        'convocation_group_refresh_delete_recreate_lifecycle_risk',
+                        'convocation_group_settled_movement_mutable_lifecycle',
                         'convocation_groups',
                         'convocation_group',
                         (string) $group->id,
                         'movement',
-                        (string) $movement->id,
-                        'Movement ligado a group continua sujeito a refresh delete/recreate apesar de estado financeiro sensivel.',
+                        (string) $candidateMovement->id,
+                        'Movement de convocacao em estado liquidado/parcial num lifecycle mutavel.',
                         [
-                            'movement_payment_status' => $movement->estado_pagamento,
-                            'movement_reconciliation_status' => $movement->estado_conciliacao,
-                            'movement_document_status' => $movement->estado_documental,
+                            'movement_payment_status' => $candidateMovement->estado_pagamento,
                         ],
+                    );
+                }
+
+                $hasAllocation = $entryIds->isNotEmpty()
+                    && PaymentAllocation::query()
+                        ->confirmed()
+                        ->whereIn('financial_entry_id', $entryIds)
+                        ->whereNull('deleted_at')
+                        ->exists();
+
+                if ($hasAllocation) {
+                    $findings[] = $this->finding(
+                        'critical',
+                        'convocation_group_allocated_movement_mutable_lifecycle',
+                        'convocation_groups',
+                        'convocation_group',
+                        (string) $group->id,
+                        'movement',
+                        (string) $candidateMovement->id,
+                        'Movement de convocacao com allocations confirmadas em lifecycle mutavel.',
+                        [],
+                    );
+                }
+
+                $isReconciled = (string) $candidateMovement->estado_conciliacao === 'conciliado'
+                    || MapaConciliacao::query()
+                        ->where('movimento_id', $candidateMovement->id)
+                        ->where('status', 'confirmado')
+                        ->exists()
+                    || ($entryIds->isNotEmpty() && MapaConciliacao::query()
+                        ->whereIn('lancamento_id', $entryIds)
+                        ->where('status', 'confirmado')
+                        ->exists());
+
+                if ($isReconciled) {
+                    $findings[] = $this->finding(
+                        'critical',
+                        'convocation_group_reconciled_movement_mutable_lifecycle',
+                        'convocation_groups',
+                        'convocation_group',
+                        (string) $group->id,
+                        'movement',
+                        (string) $candidateMovement->id,
+                        'Movement de convocacao conciliado em lifecycle mutavel.',
+                        [
+                            'movement_reconciliation_status' => $candidateMovement->estado_conciliacao,
+                        ],
+                    );
+                }
+
+                $hasFiscal = filled($candidateMovement->numero_recibo)
+                    || filled($candidateMovement->external_document_number ?? null)
+                    || ($entryIds->isNotEmpty() && FiscalDocumentRequest::query()
+                        ->whereIn('financial_entry_id', $entryIds)
+                        ->where(function ($query): void {
+                            $query
+                                ->where('status', FiscalDocumentRequest::STATUS_ISSUED)
+                                ->orWhere(function ($nested): void {
+                                    $nested->whereNotNull('external_document_number')
+                                        ->where('external_document_number', '!=', '');
+                                });
+                        })
+                        ->exists())
+                    || MovementDocument::query()
+                        ->where('movement_id', $candidateMovement->id)
+                        ->whereIn('document_type', ['invoice', 'receipt', 'invoice_receipt'])
+                        ->whereIn('status', ['issued', 'emitido', 'approved', 'validated'])
+                        ->exists();
+
+                if ($hasFiscal) {
+                    $findings[] = $this->finding(
+                        'critical',
+                        'convocation_group_fiscal_movement_mutable_lifecycle',
+                        'convocation_groups',
+                        'convocation_group',
+                        (string) $group->id,
+                        'movement',
+                        (string) $candidateMovement->id,
+                        'Movement de convocacao com vinculo fiscal/documental em lifecycle mutavel.',
+                        [],
                     );
                 }
             }
         }
 
-        $groupIds = $groups->pluck('id')->map(static fn ($id) => (string) $id)->all();
         $eventIds = $groups->pluck('evento_id')->filter()->map(static fn ($id) => (string) $id)->all();
 
-        $orphanMovements = Movement::query()
-            ->where('origem_tipo', 'evento')
-            ->whereIn('origem_id', $eventIds)
+        $orphanConvocationMovements = Movement::query()
+            ->where('origem_tipo', 'convocation_group')
             ->get()
-            ->filter(function (Movement $movement) use ($groupIds): bool {
-            return !ConvocationGroup::query()->where('movimento_id', $movement->id)->exists();
+            ->filter(function (Movement $movement): bool {
+                return !ConvocationGroup::query()->whereKey((string) $movement->origem_id)->exists();
             });
 
-        foreach ($orphanMovements as $movement) {
+        foreach ($orphanConvocationMovements as $movement) {
             $findings[] = $this->finding(
                 'warning',
-                'convocation_group_orphan_movement',
+                'convocation_movement_orphan_source',
                 'convocation_groups',
                 'movement',
                 (string) $movement->id,
                 'movement',
                 (string) $movement->id,
-                'Movement de convocacao sem group identificavel.',
+                'Movement de convocacao com origem convocation_group sem source existente.',
                 [
+                    'movement_origin_type' => (string) $movement->origem_tipo,
+                    'movement_origin_id' => (string) $movement->origem_id,
+                ],
+            );
+        }
+
+        $orphanMovements = Movement::query()
+            ->where('origem_tipo', 'evento')
+            ->whereIn('origem_id', $eventIds)
+            ->get()
+            ->filter(function (Movement $movement): bool {
+                return !ConvocationGroup::query()->where('movimento_id', $movement->id)->exists();
+            });
+
+        foreach ($orphanMovements as $movement) {
+            $findings[] = $this->finding(
+                'warning',
+                'convocation_movement_orphan_source',
+                'convocation_groups',
+                'movement',
+                (string) $movement->id,
+                'movement',
+                (string) $movement->id,
+                'Movement legacy de origem evento sem group identificavel.',
+                [
+                    'movement_origin_type' => (string) $movement->origem_tipo,
                     'event_id' => (string) $movement->origem_id,
                 ],
             );

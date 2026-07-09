@@ -6,6 +6,7 @@ namespace Tests\Feature\Financeiro;
 
 use App\Models\Competition;
 use App\Models\CompetitionRegistration;
+use App\Models\ConvocationGroup;
 use App\Models\Event;
 use App\Models\FinancialEntry;
 use App\Models\FiscalDocumentRequest;
@@ -226,6 +227,51 @@ final class FinancialIntegrationAuditCommandTest extends TestCase
         $findings = collect($payload['findings'] ?? []);
 
         $this->assertTrue($findings->contains(fn (array $finding): bool => $finding['code'] === 'sponsorship_pending_integration_with_existing_movement' && $finding['source_id'] === (string) $integration->id));
+    }
+
+    public function test_detects_convocation_group_non_specific_movement_origin(): void
+    {
+        $user = User::factory()->create();
+        $event = Event::query()->create([
+            'titulo' => 'Evento Convocatoria',
+            'descricao' => 'Caso convocation XFIN6',
+            'data_inicio' => now()->toDateString(),
+            'tipo' => 'prova',
+            'estado' => 'agendado',
+            'criado_por' => $user->id,
+        ]);
+
+        $movement = Movement::query()->create([
+            'classificacao' => 'despesa',
+            'data_emissao' => now()->toDateString(),
+            'data_vencimento' => now()->toDateString(),
+            'valor_total' => 50,
+            'estado_pagamento' => 'pendente',
+            'tipo' => 'inscricao',
+            'origem_tipo' => 'evento',
+            'origem_id' => $event->id,
+        ]);
+
+        ConvocationGroup::query()->create([
+            'evento_id' => $event->id,
+            'data_criacao' => now(),
+            'criado_por' => $user->id,
+            'atletas_ids' => [$user->id],
+            'tipo_custo' => 'por_salto',
+            'valor_por_salto' => 1,
+            'valor_inscricao_calculado' => 50,
+            'movimento_id' => $movement->id,
+        ]);
+
+        Artisan::call('finance:audit-integrations', [
+            '--json' => true,
+            '--module' => 'convocation_groups',
+        ]);
+
+        $payload = json_decode(trim(Artisan::output()), true);
+        $findings = collect($payload['findings'] ?? []);
+
+        $this->assertTrue($findings->contains(fn (array $finding): bool => $finding['code'] === 'convocation_group_non_specific_movement_origin'));
     }
 
     /**

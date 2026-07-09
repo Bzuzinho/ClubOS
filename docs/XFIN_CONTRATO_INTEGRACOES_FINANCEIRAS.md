@@ -150,3 +150,50 @@ Sinais de bloqueio mínimo:
 	- `logistics_paid_invoice_mutable_lifecycle`
 	- `logistics_allocated_invoice_mutable_lifecycle`
 	- `logistics_fiscal_invoice_mutable_lifecycle`
+
+## XFIN6: ConvocationGroup lifecycle financeiro canónico
+
+Estado: runtime concluido em 2026-07-09, sem backfill legacy.
+
+### Contrato canónico de origem
+
+Fluxo esperado:
+
+ConvocationGroup -> Movement(classificacao=despesa, valor_total positivo, origem_tipo=convocation_group, origem_id=convocation_group.id) -> FinancialSettlementService -> FinancialEntry(origem_tipo=movement, origem_id=movement.id) -> Payment/PaymentAllocation
+
+Regras:
+
+- `ConvocationGroup` nao pode conter side effects financeiros automaticos em hooks de model;
+- sync financeiro deve ser explicito, transacional, idempotente e com reutilizacao do mesmo `Movement` quando mutavel;
+- `movimento_id` e ligacao interna e nao pode ser aceite como input autoritativo de payload externo;
+- update administrativo sem delta financeiro deve ser permitido mesmo com lifecycle protegido;
+- update financeiro e delete devem bloquear quando houver estado parcial/pago, allocations/pagamentos confirmados, conciliação confirmada ou vinculo fiscal/documental.
+
+### Convencao monetaria e mutabilidade
+
+Regras:
+
+- `Movement.classificacao=despesa` com `valor_total` positivo;
+- `MovementItem.total_linha` positivo;
+- custo calculado `<= 0` nao cria movement novo;
+- quando existir movement canónico mutável e o novo total for `<= 0`, pode remover movement/items apenas em estado seguro (sem impacto financeiro);
+- nunca fazer delete/recreate do `Movement` em update normal: manter o mesmo `id` e apenas sincronizar campos/itens.
+
+### Compatibilidade legacy e auditoria
+
+Regras:
+
+- XFIN6 nao faz backfill nem migracao automatica de origens legacy `evento`;
+- XFIN6 nao altera automaticamente movimentos pagos/conciliados/fiscais legacy;
+- a auditoria continua explicita para riscos legacy em convocatorias, incluindo códigos:
+	- `convocation_group_orphan_movement_reference`
+	- `convocation_group_missing_financial_movement`
+	- `convocation_group_ambiguous_event_origin`
+	- `convocation_group_multiple_movements`
+	- `convocation_group_non_specific_movement_origin`
+	- `convocation_group_settled_movement_mutable_lifecycle`
+	- `convocation_group_allocated_movement_mutable_lifecycle`
+	- `convocation_group_reconciled_movement_mutable_lifecycle`
+	- `convocation_group_fiscal_movement_mutable_lifecycle`
+	- `convocation_movement_orphan_source`
+	- `negative_expense_movement_value`
