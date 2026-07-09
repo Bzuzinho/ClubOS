@@ -16,7 +16,7 @@ Formalizar os dois contratos financeiros que a auditoria XFIN1 usa como referenc
 - XFIN8: concluida
 - XFIN8.1: concluida
 - XFIN9: concluida
-- XFIN10: pendente (nao executada nesta sprint)
+- XFIN10: concluida
 
 ## Contrato 1: Recebivel individual
 
@@ -329,5 +329,47 @@ Resultados factuais finais XFIN9:
 Decisao de fecho:
 
 - `operational_blocker=0` para a frente XFIN;
-- finding remanescente classificado como `legacy_data_pending`/`accepted_compatibility` fora do escopo de XFIN9;
-- proxima micro-sprint proposta: `XFIN10 - normalize legacy manual movement sign` (nao executada nesta sprint).
+- finding remanescente de XFIN9 foi encerrado em XFIN10;
+- frente XFIN sem findings ativos no contrato de auditoria.
+
+## XFIN10: normalizacao de sinal em movement manual legacy conhecido
+
+Estado: concluido em 2026-07-09.
+
+Escopo:
+
+- normalizacao estritamente pontual do registo `movement.id=a1c55e47-bf5f-48b4-a115-e1655dbc7fb2`;
+- sem normalizacao generica na base de dados;
+- sem alteracao de regras de negocio nem de runtime financeiro.
+
+Pre-condicoes e guardas aplicadas:
+
+- `origem_tipo=manual`, `classificacao=despesa`, `valor_total<0`, `abs(valor_total)=1537.50`;
+- existencia de `FinancialEntry` canonica unica (`origem_tipo=movement`, `origem_id=movement.id`);
+- coerencia de `PaymentAllocation` confirmada com estado pago;
+- ausencia de fiscal emitido;
+- ausencia de duplicacao de facto de reporting para o lifecycle.
+
+Alteracao aplicada:
+
+- `movements.valor_total`: `-1537.50 -> 1537.50`.
+
+Campos preservados:
+
+- `movement_items.valor_unitario` e `movement_items.total_linha` (ja positivos);
+- `financial_entries.valor` e `financial_entries.valor_pago` (ja positivos);
+- `payments.amount` e `payment_allocations.amount`;
+- IDs e relacoes (`Movement`, `MovementItem`, `FinancialEntry`, `Payment`, `PaymentAllocation`).
+
+Impacto funcional pos-aplicacao:
+
+- `FinancialReportingFactService`: sem delta de valores/factos;
+- `FinanceReportService`: sem delta de receitas/despesas/saldo;
+- `FinanceDashboardService`: sem delta de totais;
+- `CurrentAccountService`: `current_account_delta=0`.
+
+Auditoria pos-XFIN10:
+
+- `finance:audit-integrations --json`: `total_findings=0`, `critical=0`, `warning=0`, `info=0`;
+- `finance:audit-integrations --fail-on-critical`: `EXIT_CODE=0`;
+- `finance:audit-integrations --fail-on-warning`: `EXIT_CODE=0`.

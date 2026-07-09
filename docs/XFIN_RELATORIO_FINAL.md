@@ -117,22 +117,80 @@ Build frontend:
 
 - `npm run build`: success
 
-## 8. Findings remanescentes
+## 8. XFIN10 — Normalizacao de sinal legacy
 
-| code | source | classification | impact | decision |
-|---|---|---|---|---|
-| `negative_expense_movement_value` | `movement:a1c55e47-bf5f-48b4-a115-e1655dbc7fb2` | `legacy_data_pending` | Nao bloqueia fluxos operacionais XFIN; afeta apenas consistencia legacy de sinal | Manter sem alteracao nesta sprint; tratar em micro-sprint dedicada |
+Movement alvo:
 
-## 9. Operational blockers
+- `movement.id = a1c55e47-bf5f-48b4-a115-e1655dbc7fb2`
+- `origem_tipo = manual`
+- `classificacao = despesa`
+
+Snapshot factual before:
+
+- `valor_total = -1537.50`
+- `movement_items.total_linha = 1537.50`
+- `movement_items.valor_unitario = 1250.00`
+- `financial_entry.valor = 1537.50`
+- `financial_entry.valor_pago = 1537.50`
+- `payment.amount = 1537.50`
+- `payment_allocation.amount = 1537.50`
+
+Campos efetivamente alterados (aplicacao):
+
+- `movements.valor_total`: `-1537.50 -> 1537.50`
+
+Campos preservados:
+
+- `movement_items.valor_unitario` e `movement_items.total_linha` (ja canónicos positivos)
+- `financial_entries.valor` e `financial_entries.valor_pago` (ja canónicos positivos)
+- `payments.amount`
+- `payment_allocations.amount`
+- estados e relacoes (`estado_pagamento`, `estado_conciliacao`, ids e chaves relacionais)
+
+Snapshot factual after:
+
+- `valor_total = 1537.50`
+- `classificacao = despesa` (inalterada)
+- `estado_pagamento = pago` (inalterado)
+- `estado_conciliacao = nao_conciliado` (inalterado)
+
+IDs preservados:
+
+- `movement_id = a1c55e47-bf5f-48b4-a115-e1655dbc7fb2`
+- `financial_entry_id = a1c5609f-f1cd-4ff6-be07-fc335121b1a2`
+- `payment_id = a1c560a0-a1cb-4bef-a768-9a33bc7606b2`
+- `payment_allocation_id = a1c560a1-3d3d-427d-85e7-bb7cf1cd3e8d`
+- `movement_item_id = a1c55e48-3bc0-4583-85f7-7f0752312982`
+
+Impacto financeiro (dry-run e apply):
+
+- `reporting_revenue_delta = 0`
+- `reporting_expense_delta = 0`
+- `reporting_balance_delta = 0`
+- `finance_report_receitas_delta = 0`
+- `finance_report_despesas_delta = 0`
+- `finance_report_saldo_delta = 0`
+- `dashboard_total_geral_delta = 0`
+- `dashboard_receitas_mes_delta = 0`
+- `dashboard_despesas_mes_delta = 0`
+- `current_account_delta = 0`
+
+Auditoria final pos-XFIN10:
+
+- `finance:audit-integrations`: `total_findings=0`, `critical=0`, `warning=0`, `info=0`
+- `EXIT_CODE_CRITICAL=0`
+- `EXIT_CODE_WARNING=0`
+
+## 9. Findings remanescentes
+
+Nenhum finding remanescente no contrato de auditoria XFIN.
+
+## 10. Operational blockers
 
 Com base exclusiva na auditoria final:
 
 - `operational_blocker = 0`
 
-## 10. Proxima acao
+## 11. Proxima acao
 
-Como o unico finding remanescente e o `negative_expense_movement_value` manual legacy (`a1c55e47-bf5f-48b4-a115-e1655dbc7fb2`), a proxima acao recomendada e:
-
-- `XFIN10 - normalize legacy manual movement sign`
-
-XFIN10 nao foi executada nesta sprint.
+Frente XFIN concluida sem findings ativos no contrato de auditoria.
