@@ -50,8 +50,12 @@ final class AuditLegacySaleCommand extends Command
         }
 
         if ((bool) $this->option('fail-on-operational-write')) {
-            // No operational write detection yet (offline analysis would be required)
-            $this->warn('--fail-on-operational-write requires code analysis; no runtime writes detected');
+            $operationalWriteCount = (int) ($summary['operational_write_paths_count'] ?? 0);
+
+            if ($operationalWriteCount > 0) {
+                $this->error("Found {$operationalWriteCount} operational Sale write path(s)");
+                return self::FAILURE;
+            }
         }
 
         return self::SUCCESS;

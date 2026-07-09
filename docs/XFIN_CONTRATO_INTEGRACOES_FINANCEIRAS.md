@@ -238,3 +238,41 @@ Regras:
 		- `sponsorship_allocated_movement_mutable_lifecycle`
 		- `sponsorship_reconciled_movement_mutable_lifecycle`
 		- `sponsorship_fiscal_movement_mutable_lifecycle`
+
+## XFIN8.1: Fecho de validacao do shutdown legacy Sale
+
+Estado: validacao concluida em 2026-07-09, sem alteracoes de runtime e sem backfill.
+
+### Guardas do auditor legacy Sale
+
+Comando:
+
+`php artisan finance:audit-legacy-sales`
+
+Regras fechadas em XFIN8.1:
+
+- `--fail-on-parallel-finance` e guard semantico:
+	- `EXIT_CODE=1` quando existir pelo menos um finding `legacy_sale_parallel_invoice_and_entry`;
+	- `EXIT_CODE=0` quando nao existir finding de paralelismo.
+- `--fail-on-operational-write` e guard semantico:
+	- `EXIT_CODE=1` quando `summary.operational_write_paths_count > 0`;
+	- `EXIT_CODE=0` quando `summary.operational_write_paths_count = 0`.
+
+### Scanner read-only de referencias Sale
+
+`LegacySaleCodeReferenceScanner` classifica referencias `Sale::` em dois grupos:
+
+- `operational_write_paths`: paths com assinaturas de escrita (`create`, `updateOrCreate`, `insert`, `upsert`, `update`, `delete`, `destroy`, `truncate`);
+- `operational_read_paths`: referencias restantes de leitura/relacao.
+
+Regras:
+
+- scanner estritamente read-only (sem side effects e sem alteracao de dados);
+- varrimento limitado a `app/` e `routes/` para suportar guard operacional deterministico;
+- saida incluida no payload JSON em `code_references` e contadores agregados no `summary`.
+
+### Contrato de validacao de testes XFIN8.1
+
+- `LegacySaleShutdownTest` sem incompletes/skips (`0 incomplete`, `0 skipped`);
+- fixture factual de paralelismo legacy (`Sale` + `Invoice stock` + `FinancialEntry stock`) validando finding `legacy_sale_parallel_invoice_and_entry`;
+- regressao operacional da Loja continua canonicamente em `StoreOrderRevenueMovementTest` (sem duplicacao de fluxo no shutdown test).

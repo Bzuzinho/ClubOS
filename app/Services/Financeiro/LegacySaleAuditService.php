@@ -13,6 +13,11 @@ final class LegacySaleAuditService
 {
     public const VERSION = 'xfin8-legacy-sale-audit-v1';
 
+    public function __construct(
+        private readonly LegacySaleCodeReferenceScanner $codeReferenceScanner,
+    ) {
+    }
+
     /**
      * Audit legacy Sale model for operational writes, parallel financial effects, and data integrity.
      *
@@ -21,6 +26,8 @@ final class LegacySaleAuditService
     public function audit(): array
     {
         $findings = [];
+
+        $codeReferences = $this->codeReferenceScanner->scan();
 
         // Detect parallel Invoice + FinancialEntry
         $findings = array_merge($findings, $this->auditParallelFinancialRecords());
@@ -34,12 +41,13 @@ final class LegacySaleAuditService
         // Detect fiscal Sales
         $findings = array_merge($findings, $this->auditFiscalSales());
 
-        $summary = $this->buildSummary($findings);
+        $summary = $this->buildSummary($findings, $codeReferences);
 
         return [
             'version' => self::VERSION,
             'generated_at' => now()->toIso8601String(),
             'summary' => $summary,
+            'code_references' => $codeReferences,
             'findings' => $findings,
         ];
     }
@@ -79,7 +87,7 @@ final class LegacySaleAuditService
 
             foreach ($entries as $entry) {
                 $findings[] = $this->finding(
-                    'warning',
+                    'critical',
                     'legacy_sale_parallel_invoice_and_entry',
                     'sale',
                     (string) $sale->id,
@@ -275,9 +283,10 @@ final class LegacySaleAuditService
      * Build summary statistics from findings.
      *
      * @param list<array<string,mixed>> $findings
+     * @param array{operational_write_paths:list<array{path:string,line:int,snippet:string}>,operational_read_paths:list<array{path:string,line:int,snippet:string}>} $codeReferences
      * @return array<string,int>
      */
-    private function buildSummary(array $findings): array
+    private function buildSummary(array $findings, array $codeReferences): array
     {
         $countByCode = collect($findings)
             ->groupBy('code')
@@ -290,10 +299,14 @@ final class LegacySaleAuditService
             ->all();
 
         return [
+            'total_sales' => Sale::query()->count(),
             'total_findings' => count($findings),
+            'legacy_sale_findings' => count($findings),
             'critical_count' => (int) ($countBySeverity['critical'] ?? 0),
             'warning_count' => (int) ($countBySeverity['warning'] ?? 0),
             'info_count' => (int) ($countBySeverity['info'] ?? 0),
+            'operational_write_paths_count' => count($codeReferences['operational_write_paths'] ?? []),
+            'operational_read_paths_count' => count($codeReferences['operational_read_paths'] ?? []),
             'findings_by_code' => $countByCode,
         ];
     }
