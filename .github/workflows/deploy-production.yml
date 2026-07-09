@@ -1,0 +1,78 @@
+name: Deploy production
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy ClubOS to Oracle VM
+    runs-on: ubuntu-22.04
+    environment: production
+    timeout-minutes: 30
+
+    env:
+      VM_USER: ${{ secrets.ORACLE_VM_USER || 'ubuntu' }}
+      VM_HOST: ${{ secrets.ORACLE_VM_HOST || '129.159.13.211' }}
+      VM_APP_DIR: ${{ secrets.ORACLE_VM_APP_DIR || '/var/www/clubmanager' }}
+      SSH_KEY: /home/runner/.ssh/id_ed25519
+      APP_NAME: ClubOS
+      APP_URL: ${{ secrets.PRODUCTION_APP_URL }}
+      ALLOW_SHARED_DB: '0'
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Configure production SSH key
+        shell: bash
+        env:
+          ORACLE_VM_SSH_KEY: ${{ secrets.ORACLE_VM_SSH_KEY }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${ORACLE_VM_SSH_KEY}" ]]; then
+            echo "::error::Missing GitHub secret ORACLE_VM_SSH_KEY"
+            exit 1
+          fi
+
+          mkdir -p "${HOME}/.ssh"
+          chmod 700 "${HOME}/.ssh"
+          printf '%s\n' "${ORACLE_VM_SSH_KEY}" > "${SSH_KEY}"
+          chmod 600 "${SSH_KEY}"
+          ssh-keygen -y -f "${SSH_KEY}" > "${SSH_KEY}.pub"
+          chmod 644 "${SSH_KEY}.pub"
+
+      - name: Deploy production
+        shell: bash
+        run: npm run deploy:vm
+
+      - name: Deployment summary
+        if: success()
+        shell: bash
+        run: |
+          {
+            echo '## ClubOS production deploy'
+            echo ''
+            echo "- Commit: \`${GITHUB_SHA}\`"
+            echo "- Branch: \`${GITHUB_REF_NAME}\`"
+            echo "- Target: \`${VM_USER}@${VM_HOST}:${VM_APP_DIR}\`"
+            echo '- Result: successful'
+          } >> "${GITHUB_STEP_SUMMARY}"
