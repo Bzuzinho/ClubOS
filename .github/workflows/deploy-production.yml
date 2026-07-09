@@ -1,24 +1,64 @@
-name: Deploy production
+name: Validate and deploy production
 
 on:
+  pull_request:
+    branches:
+      - main
   push:
     branches:
       - main
   workflow_dispatch:
 
-concurrency:
-  group: production-deploy
-  cancel-in-progress: false
-
 permissions:
   contents: read
 
 jobs:
+  validate:
+    name: Validate Laravel and frontend
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, pdo_sqlite
+          coverage: none
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install PHP dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Run Laravel tests
+        run: php artisan test
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build frontend
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
+        run: npm run build
+
   deploy:
     name: Deploy ClubOS to Oracle VM
+    if: github.event_name != 'pull_request'
+    needs: validate
     runs-on: ubuntu-22.04
     environment: production
     timeout-minutes: 30
+    concurrency:
+      group: production-deploy
+      cancel-in-progress: false
 
     env:
       VM_USER: ${{ secrets.ORACLE_VM_USER || 'ubuntu' }}
@@ -74,5 +114,6 @@ jobs:
             echo "- Commit: \`${GITHUB_SHA}\`"
             echo "- Branch: \`${GITHUB_REF_NAME}\`"
             echo "- Target: \`${VM_USER}@${VM_HOST}:${VM_APP_DIR}\`"
+            echo '- Validation: Laravel tests and frontend build passed'
             echo '- Result: successful'
           } >> "${GITHUB_STEP_SUMMARY}"
