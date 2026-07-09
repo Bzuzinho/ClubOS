@@ -226,7 +226,7 @@ final class FinancialIntegrationAuditCommandTest extends TestCase
         $payload = json_decode(trim(Artisan::output()), true);
         $findings = collect($payload['findings'] ?? []);
 
-        $this->assertTrue($findings->contains(fn (array $finding): bool => $finding['code'] === 'sponsorship_pending_integration_with_existing_movement' && $finding['source_id'] === (string) $integration->id));
+        $this->assertTrue($findings->contains(fn (array $finding): bool => $finding['code'] === 'sponsorship_pending_with_existing_movement' && $finding['source_id'] === (string) $integration->id));
     }
 
     public function test_detects_convocation_group_non_specific_movement_origin(): void

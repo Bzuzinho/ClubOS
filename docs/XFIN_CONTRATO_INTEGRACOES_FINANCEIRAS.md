@@ -197,3 +197,44 @@ Regras:
 	- `convocation_group_fiscal_movement_mutable_lifecycle`
 	- `convocation_movement_orphan_source`
 	- `negative_expense_movement_value`
+
+	## XFIN7: SponsorshipMoneyItem lifecycle financeiro canónico
+
+	Estado: runtime concluido em 2026-07-09, sem backfill legacy.
+
+	### Contrato canónico de origem
+
+	Fluxo esperado:
+
+	SponsorshipMoneyItem -> Movement(classificacao=receita, valor_total positivo, origem_tipo=sponsorship_money_item, origem_id=sponsorship_money_item.id) -> FinancialSettlementService -> FinancialEntry(origem_tipo=movement, origem_id=movement.id) -> Payment/PaymentAllocation
+
+	Regras:
+
+	- `SponsorshipMoneyItem` nao pode depender de `origem_tipo=sponsorship` ou `origem_id=sponsorship.id` como origem primária de cada prestação;
+	- sync financeiro deve ser transacional, idempotente e com reutilizacao do mesmo `Movement` quando o item canónico ja existir;
+	- `Movement.classificacao=receita` com `valor_total` positivo;
+	- `MovementItem.valor_unitario` e `MovementItem.total_linha` positivos;
+	- update/delete do item devem bloquear quando houver estado parcial/pago, allocations/pagamentos confirmados, conciliação confirmada ou vinculo fiscal/documental;
+	- retry de integração parcial canónica deve reparar `financial_movement_id` e `SponsorshipIntegration` sem criar novo `Movement`;
+	- delete de sponsorship deve ser transacional, nunca apagar `Movement` diretamente por origem legacy ambígua e nunca destruir dados financeiros fechados.
+
+	### Compatibilidade legacy e auditoria
+
+	Regras:
+
+	- XFIN7 nao faz backfill nem migracao automatica de origens legacy `patrocinio`/`sponsorship`;
+	- XFIN7 nao altera automaticamente movimentos pagos/conciliados/fiscais legacy;
+	- a auditoria continua explicita para riscos legacy em patrocinios, incluindo códigos:
+		- `sponsorship_money_item_orphan_movement_reference`
+		- `sponsorship_generated_without_movement`
+		- `sponsorship_pending_with_existing_movement`
+		- `sponsorship_failed_with_existing_movement`
+		- `sponsorship_non_specific_movement_origin`
+		- `sponsorship_multiple_movements_for_money_item`
+		- `sponsorship_shared_origin_between_money_items`
+		- `sponsorship_movement_value_mismatch`
+		- `sponsorship_movement_wrong_classification`
+		- `sponsorship_settled_movement_mutable_lifecycle`
+		- `sponsorship_allocated_movement_mutable_lifecycle`
+		- `sponsorship_reconciled_movement_mutable_lifecycle`
+		- `sponsorship_fiscal_movement_mutable_lifecycle`

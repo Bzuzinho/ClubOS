@@ -10,13 +10,16 @@ use App\Models\SponsorshipIntegration;
 use App\Models\SponsorshipMoneyItem;
 use App\Models\User;
 use App\Services\Logistica\RegisterStockMovementAction;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\ValidationException;
 use Throwable;
 
 class SponsorshipIntegrationService
 {
     public function __construct(
-        private RegisterStockMovementAction $registerStockMovementAction
+        private RegisterStockMovementAction $registerStockMovementAction,
+        private SponsorshipFinancialGuardService $financialGuardService
     ) {
     }
 
@@ -64,81 +67,63 @@ class SponsorshipIntegrationService
 
     private function syncMoneyItem(Sponsorship $sponsorship, SponsorshipMoneyItem $item): string
     {
-        if ($item->financial_movement_id && $item->integration_status === 'generated') {
-            return 'skipped';
-        }
-
-        $existingIntegration = SponsorshipIntegration::query()
-            ->where('sponsorship_id', $sponsorship->id)
-            ->where('integration_type', 'financial')
-            ->where('source_type', 'money_item')
-            ->where('source_id', $item->id)
-            ->where('status', 'generated')
-            ->latest('executed_at')
-            ->first();
-
-        if ($existingIntegration?->target_record_id && !$item->financial_movement_id) {
-            $item->update([
-                'financial_movement_id' => $existingIntegration->target_record_id,
-                'integration_status' => 'generated',
-                'integration_message' => 'Movimento financeiro reconciliado a partir do histórico.',
-            ]);
-
-            return 'skipped';
-        }
-
-        $integration = SponsorshipIntegration::create([
-            'sponsorship_id' => $sponsorship->id,
-            'integration_type' => 'financial',
-            'source_type' => 'money_item',
-            'source_id' => $item->id,
-            'target_module' => 'financeiro',
-            'target_table' => 'movements',
-            'status' => 'pending',
-        ]);
-
         try {
-            $movementDate = $item->expected_date?->toDateString() ?? $sponsorship->start_date?->toDateString() ?? now()->toDateString();
+            return DB::transaction(function () use ($sponsorship, $item): string {
+                $lockedSponsorship = Sponsorship::query()->lockForUpdate()->findOrFail($sponsorship->id);
+                $lockedItem = SponsorshipMoneyItem::query()->lockForUpdate()->findOrFail($item->id);
 
-            $movement = Movement::create([
-                'user_id' => null,
-                'nome_manual' => $sponsorship->sponsor_name,
-                'classificacao' => 'receita',
-                'data_emissao' => $movementDate,
-                'data_vencimento' => $movementDate,
-                'valor_total' => $item->amount,
-                'estado_pagamento' => 'pendente',
-                'centro_custo_id' => $sponsorship->cost_center_id,
-                'tipo' => 'patrocinio',
-                'origem_tipo' => 'patrocinio',
-                'origem_id' => $sponsorship->id,
-                'observacoes' => $sponsorship->codigo.' - '.$item->description,
-            ]);
+                $existingIntegration = SponsorshipIntegration::query()
+                    ->where('sponsorship_id', $lockedSponsorship->id)
+                    ->where('integration_type', 'financial')
+                    ->where('source_type', 'money_item')
+                    ->where('source_id', $lockedItem->id)
+                    ->lockForUpdate()
+                    ->latest('created_at')
+                    ->first();
 
-            MovementItem::create([
-                'movimento_id' => $movement->id,
-                'descricao' => $item->description,
-                'quantidade' => 1,
-                'valor_unitario' => $item->amount,
-                'imposto_percentual' => 0,
-                'total_linha' => $item->amount,
-                'centro_custo_id' => $sponsorship->cost_center_id,
-            ]);
+                $movement = $this->resolveCanonicalMovement($lockedItem);
+                $payload = $this->movementPayload($lockedSponsorship, $lockedItem, $movement);
 
-            $item->update([
-                'financial_movement_id' => $movement->id,
-                'integration_status' => 'generated',
-                'integration_message' => 'Movimento financeiro criado com sucesso.',
-            ]);
+                if ($movement) {
+                    if (!$this->financialGuardService->canMutate($lockedItem)) {
+                        throw ValidationException::withMessages([
+                            'money_items' => 'Este item de patrocínio já possui liquidação, conciliação ou documento financeiro associado e não pode ser alterado diretamente.',
+                        ]);
+                    }
 
-            $integration->update([
-                'target_record_id' => $movement->id,
-                'status' => 'generated',
-                'message' => 'Movimento financeiro criado automaticamente.',
-                'executed_at' => now(),
-            ]);
+                    if ($this->movementHasChanges($movement, $payload)) {
+                        $movement->update($payload);
+                    }
+                } else {
+                    $movement = Movement::query()->create($payload);
+                }
 
-            return 'generated';
+                $movement->items()->delete();
+                $this->persistMovementItems($movement, $lockedItem, $lockedSponsorship);
+
+                $lockedItem->update([
+                    'financial_movement_id' => $movement->id,
+                    'integration_status' => 'generated',
+                    'integration_message' => 'Movimento financeiro criado com sucesso.',
+                ]);
+
+                $integration = $existingIntegration ?: new SponsorshipIntegration();
+                $integration->fill([
+                    'sponsorship_id' => $lockedSponsorship->id,
+                    'integration_type' => 'financial',
+                    'source_type' => 'money_item',
+                    'source_id' => $lockedItem->id,
+                    'target_module' => 'financeiro',
+                    'target_table' => 'movements',
+                    'target_record_id' => $movement->id,
+                    'status' => 'generated',
+                    'message' => 'Movimento financeiro criado automaticamente.',
+                    'executed_at' => now(),
+                ]);
+                $integration->save();
+
+                return 'generated';
+            });
         } catch (Throwable $exception) {
             Log::error('Falha ao integrar item monetário de patrocínio.', [
                 'sponsorship_id' => $sponsorship->id,
@@ -153,14 +138,88 @@ class SponsorshipIntegrationService
                 'integration_message' => $message,
             ]);
 
-            $integration->update([
-                'status' => 'failed',
-                'message' => $message,
-                'executed_at' => now(),
-            ]);
+            SponsorshipIntegration::query()
+                ->where('sponsorship_id', $sponsorship->id)
+                ->where('integration_type', 'financial')
+                ->where('source_type', 'money_item')
+                ->where('source_id', $item->id)
+                ->latest('created_at')
+                ->first()?->update([
+                    'status' => 'failed',
+                    'message' => $message,
+                    'executed_at' => now(),
+                ]);
 
             return 'failed';
         }
+    }
+
+    protected function resolveCanonicalMovement(SponsorshipMoneyItem $item): ?Movement
+    {
+        if ($item->financial_movement_id) {
+            $linkedMovement = Movement::query()->find($item->financial_movement_id);
+
+            if ($linkedMovement && (string) $linkedMovement->origem_tipo === 'sponsorship_money_item' && (string) $linkedMovement->origem_id === (string) $item->id) {
+                return $linkedMovement;
+            }
+        }
+
+        return Movement::query()
+            ->where('origem_tipo', 'sponsorship_money_item')
+            ->where('origem_id', $item->id)
+            ->latest('created_at')
+            ->first();
+    }
+
+    /**
+     * @return array<string,mixed>
+     */
+    protected function movementPayload(Sponsorship $sponsorship, SponsorshipMoneyItem $item, ?Movement $movement = null): array
+    {
+        $movementDate = $item->expected_date?->toDateString() ?? $sponsorship->start_date?->toDateString() ?? now()->toDateString();
+
+        return [
+            'user_id' => null,
+            'nome_manual' => $sponsorship->sponsor_name,
+            'classificacao' => 'receita',
+            'data_emissao' => $movementDate,
+            'data_vencimento' => $movementDate,
+            'valor_total' => round(abs((float) $item->amount), 2),
+            'estado_pagamento' => $movement?->estado_pagamento ?: 'pendente',
+            'centro_custo_id' => $sponsorship->cost_center_id,
+            'tipo' => 'patrocinio',
+            'origem_tipo' => 'sponsorship_money_item',
+            'origem_id' => $item->id,
+            'observacoes' => $sponsorship->codigo.' - '.$item->description,
+        ];
+    }
+
+    protected function movementHasChanges(Movement $movement, array $payload): bool
+    {
+        return (string) $movement->nome_manual !== (string) $payload['nome_manual']
+            || (string) $movement->classificacao !== (string) $payload['classificacao']
+            || optional($movement->data_emissao)->toDateString() !== $payload['data_emissao']
+            || optional($movement->data_vencimento)->toDateString() !== $payload['data_vencimento']
+            || abs((float) $movement->valor_total - (float) $payload['valor_total']) > 0.009
+            || (string) $movement->estado_pagamento !== (string) $payload['estado_pagamento']
+            || (string) $movement->centro_custo_id !== (string) ($payload['centro_custo_id'] ?? null)
+            || (string) $movement->tipo !== (string) $payload['tipo']
+            || (string) $movement->origem_tipo !== (string) $payload['origem_tipo']
+            || (string) $movement->origem_id !== (string) $payload['origem_id']
+            || (string) ($movement->observacoes ?? '') !== (string) ($payload['observacoes'] ?? '');
+    }
+
+    protected function persistMovementItems(Movement $movement, SponsorshipMoneyItem $item, Sponsorship $sponsorship): void
+    {
+        MovementItem::query()->create([
+            'movimento_id' => $movement->id,
+            'descricao' => $item->description,
+            'quantidade' => 1,
+            'valor_unitario' => round(abs((float) $item->amount), 2),
+            'imposto_percentual' => 0,
+            'total_linha' => round(abs((float) $item->amount), 2),
+            'centro_custo_id' => $sponsorship->cost_center_id,
+        ]);
     }
 
     private function syncGoodsItem(Sponsorship $sponsorship, SponsorshipGoodsItem $item, ?User $actor = null): string

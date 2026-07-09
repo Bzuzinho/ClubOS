@@ -98,6 +98,7 @@ class PatrociniosFlowsTest extends TestCase
         $sponsorship = Sponsorship::query()
             ->with(['moneyItems', 'goodsItems', 'integrations'])
             ->firstOrFail();
+        $moneyItem = $sponsorship->moneyItems->firstOrFail();
 
         $this->assertSame('Empresa Exemplo', $sponsorship->sponsor_name);
         $this->assertSame($sponsor->id, $sponsorship->sponsor_id);
@@ -109,8 +110,8 @@ class PatrociniosFlowsTest extends TestCase
 
         $movement = Movement::query()->firstOrFail();
 
-        $this->assertSame('patrocinio', $movement->origem_tipo);
-        $this->assertSame($sponsorship->id, $movement->origem_id);
+        $this->assertSame('sponsorship_money_item', $movement->origem_tipo);
+        $this->assertSame($moneyItem->id, $movement->origem_id);
         $this->assertSame('receita', $movement->classificacao);
         $this->assertSame('1200.50', (string) $movement->valor_total);
 

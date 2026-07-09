@@ -3,6 +3,7 @@
 namespace App\Services\Patrocinios;
 
 use App\Models\Movement;
+use App\Models\MovementItem;
 use App\Models\Product;
 use App\Models\Sponsor;
 use App\Models\Sponsorship;
@@ -17,7 +18,8 @@ use Illuminate\Validation\ValidationException;
 class SponsorshipService
 {
     public function __construct(
-        private SponsorshipIntegrationService $integrationService
+        private SponsorshipIntegrationService $integrationService,
+        private SponsorshipFinancialGuardService $financialGuardService
     ) {
     }
 
@@ -150,14 +152,32 @@ class SponsorshipService
                 $stockMovement->delete();
             }
 
-            $movementIds = $sponsorship->moneyItems
-                ->pluck('financial_movement_id')
-                ->filter()
-                ->unique()
-                ->values();
+            foreach ($sponsorship->moneyItems as $item) {
+                if (!$item->financial_movement_id) {
+                    $item->delete();
+                    continue;
+                }
 
-            if ($movementIds->isNotEmpty()) {
-                Movement::query()->whereIn('id', $movementIds)->delete();
+                if (!$this->financialGuardService->canDelete($item)) {
+                    throw ValidationException::withMessages([
+                        'sponsorship' => 'Este item de patrocínio já possui liquidação, conciliação ou documento financeiro associado e não pode ser removido diretamente.',
+                    ]);
+                }
+
+                $movement = Movement::query()->find($item->financial_movement_id);
+                if ($movement) {
+                    MovementItem::query()->where('movimento_id', $movement->id)->delete();
+                    $movement->delete();
+                }
+
+                SponsorshipIntegration::query()
+                    ->where('sponsorship_id', $sponsorship->id)
+                    ->where('integration_type', 'financial')
+                    ->where('source_type', 'money_item')
+                    ->where('source_id', $item->id)
+                    ->delete();
+
+                $item->delete();
             }
 
             $sponsorship->integrations()->delete();
@@ -256,9 +276,9 @@ class SponsorshipService
                 continue;
             }
 
-            if ($this->isIntegratedMoneyItem($existingItem)) {
+            if ($this->financialGuardService->blockingReasons($existingItem) !== []) {
                 throw ValidationException::withMessages([
-                    'money_items' => 'Não é possível remover linhas monetárias já integradas no Financeiro.',
+                    'money_items' => 'Este item de patrocínio já possui liquidação, conciliação ou documento financeiro associado e não pode ser removido diretamente.',
                 ]);
             }
 
@@ -279,13 +299,13 @@ class SponsorshipService
             if (!empty($item['id']) && $existing->has($item['id'])) {
                 $existingItem = $existing->get($item['id']);
 
-                if ($this->isIntegratedMoneyItem($existingItem) && $this->moneyItemChanged($existingItem, $attributes)) {
+                if ($this->financialGuardService->blockingReasons($existingItem) !== [] && $this->moneyItemChanged($existingItem, $attributes)) {
                     throw ValidationException::withMessages([
-                        'money_items' => 'Não é possível alterar linhas monetárias já integradas no Financeiro.',
+                        'money_items' => 'Este item de patrocínio já possui liquidação, conciliação ou documento financeiro associado e não pode ser alterado diretamente.',
                     ]);
                 }
 
-                if (!$this->isIntegratedMoneyItem($existingItem)) {
+                if ($this->financialGuardService->blockingReasons($existingItem) === []) {
                     $existingItem->update([
                         ...$attributes,
                         'integration_status' => 'pending',

@@ -1075,14 +1075,28 @@ final class FinancialIntegrationAuditService
         $findings = [];
 
         $moneyItems = SponsorshipMoneyItem::query()->orderBy('created_at')->get();
+        $moneyItemIds = $moneyItems->pluck('id')->map(static fn ($id) => (string) $id)->all();
+
+        $canonicalMovementsByItem = Movement::query()
+            ->where('origem_tipo', 'sponsorship_money_item')
+            ->whereIn('origem_id', $moneyItemIds)
+            ->get()
+            ->groupBy(fn (Movement $movement): string => (string) $movement->origem_id);
+
+        $legacyMovementsBySponsorship = Movement::query()
+            ->whereIn('origem_tipo', ['patrocinio', 'sponsorship'])
+            ->get()
+            ->groupBy(fn (Movement $movement): string => (string) $movement->origem_id);
 
         foreach ($moneyItems as $item) {
             $movement = $item->financial_movement_id ? Movement::query()->find($item->financial_movement_id) : null;
+            $canonicalMovements = $canonicalMovementsByItem->get((string) $item->id, collect());
+            $legacyMovements = $legacyMovementsBySponsorship->get((string) $item->sponsorship_id, collect());
 
-            if ($item->integration_status === 'generated' && !$item->financial_movement_id) {
+            if ($item->integration_status === 'generated' && !$movement) {
                 $findings[] = $this->finding(
                     'warning',
-                    'sponsorship_money_item_generated_without_movement',
+                    'sponsorship_generated_without_movement',
                     'sponsorships',
                     'sponsorship_money_item',
                     (string) $item->id,
@@ -1107,49 +1121,215 @@ final class FinancialIntegrationAuditService
                 );
             }
 
-            if ($movement) {
-                $sameItemMovements = Movement::query()
-                    ->where('tipo', 'patrocinio')
-                    ->where('origem_tipo', 'patrocinio')
-                    ->where('origem_id', $item->sponsorship_id)
-                    ->get();
+            if ($item->integration_status === 'pending' && $movement) {
+                $findings[] = $this->finding(
+                    'warning',
+                    'sponsorship_pending_with_existing_movement',
+                    'sponsorships',
+                    'sponsorship_money_item',
+                    (string) $item->id,
+                    'movement',
+                    (string) $movement->id,
+                    'Item monetario continua pendente apesar de existir movement associado.',
+                    [],
+                );
+            }
 
-                if ($sameItemMovements->count() > 1) {
-                    foreach ($sameItemMovements as $sameMovement) {
-                        $findings[] = $this->finding(
-                            'warning',
-                            'sponsorship_origin_shared_across_money_items',
-                            'sponsorships',
-                            'sponsorship_money_item',
-                            (string) $item->id,
-                            'movement',
-                            (string) $sameMovement->id,
-                            'Varios money items partilham movement origin keyed ao sponsorship em vez do money item.',
-                            [
-                                'shared_origin_sponsorship_id' => (string) $item->sponsorship_id,
-                                'movement_count' => $sameItemMovements->count(),
-                            ],
-                        );
-                    }
-                }
+            if ($item->integration_status === 'failed' && $movement) {
+                $findings[] = $this->finding(
+                    'warning',
+                    'sponsorship_failed_with_existing_movement',
+                    'sponsorships',
+                    'sponsorship_money_item',
+                    (string) $item->id,
+                    'movement',
+                    (string) $movement->id,
+                    'Item monetario falhou apesar de existir movement associado.',
+                    [],
+                );
+            }
 
-                if (in_array($movement->estado_pagamento, ['pago', 'parcial'], true)
-                    || in_array((string) $movement->estado_conciliacao, ['conciliado', 'parcialmente_conciliado'], true)
-                    || in_array((string) $movement->estado_documental, ['emitido', 'fiscal_emitido'], true)) {
+            if ($canonicalMovements->count() > 1) {
+                foreach ($canonicalMovements as $candidateMovement) {
                     $findings[] = $this->finding(
-                        'critical',
-                        'sponsorship_destructive_lifecycle_risk',
+                        'warning',
+                        'sponsorship_multiple_movements_for_money_item',
+                        'sponsorships',
+                        'sponsorship_money_item',
+                        (string) $item->id,
+                        'movement',
+                        (string) $candidateMovement->id,
+                        'Money item com multiplos movements canónicos candidatos.',
+                        [
+                            'movement_count' => $canonicalMovements->count(),
+                        ],
+                    );
+                }
+            }
+
+            if ($legacyMovements->count() > 1) {
+                foreach ($legacyMovements as $candidateMovement) {
+                    $findings[] = $this->finding(
+                        'warning',
+                        'sponsorship_shared_origin_between_money_items',
+                        'sponsorships',
+                        'sponsorship_money_item',
+                        (string) $item->id,
+                        'movement',
+                        (string) $candidateMovement->id,
+                        'Varios money items partilham movement origin keyed ao sponsorship em vez do money item.',
+                        [
+                            'shared_origin_sponsorship_id' => (string) $item->sponsorship_id,
+                            'movement_count' => $legacyMovements->count(),
+                        ],
+                    );
+                }
+            }
+
+            if ($movement) {
+                if ((string) $movement->origem_tipo !== 'sponsorship_money_item' || (string) $movement->origem_id !== (string) $item->id) {
+                    $findings[] = $this->finding(
+                        'warning',
+                        'sponsorship_non_specific_movement_origin',
                         'sponsorships',
                         'sponsorship_money_item',
                         (string) $item->id,
                         'movement',
                         (string) $movement->id,
-                        'Movement ligada a sponsorship continua ligada a fluxo potencialmente destrutivel.',
+                        'Movement da sponsorship nao usa origem especifica money_item.',
+                        [
+                            'movement_origin_type' => $movement->origem_tipo,
+                            'movement_origin_id' => $movement->origem_id,
+                        ],
+                    );
+                }
+
+                if (!$this->amountsMatch((float) $movement->valor_total, (float) $item->amount)) {
+                    $findings[] = $this->finding(
+                        'warning',
+                        'sponsorship_movement_value_mismatch',
+                        'sponsorships',
+                        'sponsorship_money_item',
+                        (string) $item->id,
+                        'movement',
+                        (string) $movement->id,
+                        'Movement da sponsorship tem valor diferente do money item.',
+                        [
+                            'item_amount' => (float) $item->amount,
+                            'movement_total' => (float) $movement->valor_total,
+                        ],
+                    );
+                }
+
+                if ($movement->classificacao !== 'receita' || (float) $movement->valor_total <= 0) {
+                    $findings[] = $this->finding(
+                        'warning',
+                        'sponsorship_movement_wrong_classification',
+                        'sponsorships',
+                        'sponsorship_money_item',
+                        (string) $item->id,
+                        'movement',
+                        (string) $movement->id,
+                        'Movement da sponsorship nao usa classificacao receita e valor positivo.',
+                        [
+                            'movement_classification' => $movement->classificacao,
+                            'movement_total' => (float) $movement->valor_total,
+                        ],
+                    );
+                }
+
+                $movementEntries = FinancialEntry::query()
+                    ->where('origem_tipo', 'movement')
+                    ->where('origem_id', $movement->id)
+                    ->get();
+
+                $entryIds = $movementEntries->pluck('id')->filter()->values();
+
+                $isSettled = in_array((string) $movement->estado_pagamento, ['pago', 'parcial', 'pago_parcial'], true)
+                    || $movementEntries->contains(fn (FinancialEntry $entry): bool => in_array((string) $entry->estado, ['pago', 'parcial'], true)
+                        || (float) ($entry->valor_pago ?? 0) > 0.009);
+
+                if ($isSettled) {
+                    $findings[] = $this->finding(
+                        'critical',
+                        'sponsorship_settled_movement_mutable_lifecycle',
+                        'sponsorships',
+                        'sponsorship_money_item',
+                        (string) $item->id,
+                        'movement',
+                        (string) $movement->id,
+                        'Movement de sponsorship em estado liquidado/parcial num lifecycle mutavel.',
                         [
                             'movement_payment_status' => $movement->estado_pagamento,
-                            'movement_reconciliation_status' => $movement->estado_conciliacao,
-                            'movement_document_status' => $movement->estado_documental,
                         ],
+                    );
+                }
+
+                if ($entryIds->isNotEmpty() && PaymentAllocation::query()
+                    ->confirmed()
+                    ->whereIn('financial_entry_id', $entryIds)
+                    ->whereNull('deleted_at')
+                    ->exists()) {
+                    $findings[] = $this->finding(
+                        'critical',
+                        'sponsorship_allocated_movement_mutable_lifecycle',
+                        'sponsorships',
+                        'sponsorship_money_item',
+                        (string) $item->id,
+                        'movement',
+                        (string) $movement->id,
+                        'Movement de sponsorship com allocations confirmadas em lifecycle mutavel.',
+                        [],
+                    );
+                }
+
+                if ((string) $movement->estado_conciliacao === 'conciliado' || MapaConciliacao::query()
+                    ->where('movimento_id', $movement->id)
+                    ->where('status', 'confirmado')
+                    ->exists()) {
+                    $findings[] = $this->finding(
+                        'critical',
+                        'sponsorship_reconciled_movement_mutable_lifecycle',
+                        'sponsorships',
+                        'sponsorship_money_item',
+                        (string) $item->id,
+                        'movement',
+                        (string) $movement->id,
+                        'Movement de sponsorship conciliado em lifecycle mutavel.',
+                        [],
+                    );
+                }
+
+                $hasFiscal = filled($movement->numero_recibo)
+                    || ($entryIds->isNotEmpty() && FiscalDocumentRequest::query()
+                        ->whereIn('financial_entry_id', $entryIds)
+                        ->whereNull('deleted_at')
+                        ->where(function ($query): void {
+                            $query
+                                ->where('status', FiscalDocumentRequest::STATUS_ISSUED)
+                                ->orWhere(function ($nested): void {
+                                    $nested->whereNotNull('external_document_number')
+                                        ->where('external_document_number', '!=', '');
+                                });
+                        })
+                        ->exists())
+                    || MovementDocument::query()
+                        ->where('movement_id', $movement->id)
+                        ->whereIn('document_type', ['invoice', 'receipt', 'invoice_receipt'])
+                        ->whereIn('status', ['issued', 'emitido', 'validated', 'approved'])
+                        ->exists();
+
+                if ($hasFiscal) {
+                    $findings[] = $this->finding(
+                        'critical',
+                        'sponsorship_fiscal_movement_mutable_lifecycle',
+                        'sponsorships',
+                        'sponsorship_money_item',
+                        (string) $item->id,
+                        'movement',
+                        (string) $movement->id,
+                        'Movement de sponsorship com vinculo fiscal/documental em lifecycle mutavel.',
+                        [],
                     );
                 }
             }
@@ -1168,7 +1348,7 @@ final class FinancialIntegrationAuditService
             if ($integration->status === 'generated' && !$movementExists) {
                 $findings[] = $this->finding(
                     'warning',
-                    'sponsorship_integration_generated_without_movement',
+                    'sponsorship_generated_without_movement',
                     'sponsorships',
                     'sponsorship_integration',
                     (string) $integration->id,
@@ -1179,19 +1359,31 @@ final class FinancialIntegrationAuditService
                 );
             }
 
-            if (in_array($integration->status, ['pending', 'failed'], true) && $movementExists) {
+            if ($integration->status === 'pending' && $movementExists) {
                 $findings[] = $this->finding(
                     'warning',
-                    'sponsorship_pending_integration_with_existing_movement',
+                    'sponsorship_pending_with_existing_movement',
                     'sponsorships',
                     'sponsorship_integration',
                     (string) $integration->id,
                     'movement',
                     (string) $integration->target_record_id,
-                    'Integration pending/failed apesar de movement ja existir.',
-                    [
-                        'integration_status' => $integration->status,
-                    ],
+                    'Integration pending apesar de movement ja existir.',
+                    [],
+                );
+            }
+
+            if ($integration->status === 'failed' && $movementExists) {
+                $findings[] = $this->finding(
+                    'warning',
+                    'sponsorship_failed_with_existing_movement',
+                    'sponsorships',
+                    'sponsorship_integration',
+                    (string) $integration->id,
+                    'movement',
+                    (string) $integration->target_record_id,
+                    'Integration failed apesar de movement ja existir.',
+                    [],
                 );
             }
         }
