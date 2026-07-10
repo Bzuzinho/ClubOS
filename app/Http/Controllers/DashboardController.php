@@ -8,7 +8,6 @@ use App\Models\User;
 use App\Models\UserType;
 use App\Models\AgeGroup;
 use App\Models\Event;
-use App\Models\EventAttendance;
 use App\Models\EventConvocation;
 use App\Models\Invoice;
 use App\Models\Movement;
@@ -16,7 +15,6 @@ use App\Models\Result;
 use App\Models\Presence;
 use App\Models\Training;
 use App\Models\TrainingAthlete;
-use App\Models\UserDocument;
 use App\Services\Financeiro\CurrentAccountService;
 use App\Services\Members\MemberIdentityDisplayResolver;
 use App\Services\Performance\AuthenticatedModuleWarmupService;
@@ -286,200 +284,6 @@ class DashboardController extends Controller
             ->all();
     }
 
-    private function renderFamilyPortal(User $user, array $accessControl): Response
-    {
-        $educandos = $user->educandos()
-            ->select([
-                'users.id',
-                'users.name',
-                'users.email',
-                'users.nome_completo',
-                'users.numero_socio',
-                'users.foto_perfil',
-                'users.estado',
-                'users.escalao',
-                'users.tipo_membro',
-            ])
-            ->orderByRaw('COALESCE(users.nome_completo, users.name)')
-            ->get();
-
-        $paymentMemberIds = $educandos->pluck('id')
-            ->push($user->id)
-            ->filter()
-            ->unique()
-            ->values();
-        $educandoIds = $educandos->pluck('id')->filter()->values();
-
-        $pagamentos = $paymentMemberIds->isEmpty()
-            ? collect()
-            : Invoice::query()
-                ->with(['user:id,name,nome_completo'])
-                ->whereIn('user_id', $paymentMemberIds)
-                ->where('oculta', false)
-                ->where(function ($query) {
-                    $query->whereNull('estado_pagamento')
-                        ->orWhereNotIn('estado_pagamento', ['pago', 'cancelado']);
-                })
-                ->orderByRaw('CASE WHEN data_vencimento IS NULL THEN 1 ELSE 0 END')
-                ->orderBy('data_vencimento')
-                ->take(6)
-                ->get();
-
-        $proximosTreinos = $educandoIds->isEmpty()
-            ? collect()
-            : TrainingAthlete::query()
-                ->with([
-                    'user:id,name,nome_completo',
-                    'training:id,numero_treino,data,hora_inicio,local,tipo_treino',
-                ])
-                ->whereIn('user_id', $educandoIds)
-                ->whereHas('training', function ($query) {
-                    $query->whereDate('data', '>=', now()->toDateString());
-                })
-                ->get()
-                ->filter(fn (TrainingAthlete $record) => $record->training !== null)
-                ->sortBy(fn (TrainingAthlete $record) => sprintf(
-                    '%s %s',
-                    $record->training?->data?->toDateString() ?? '9999-12-31',
-                    $record->training?->hora_inicio ?? '23:59'
-                ))
-                ->values()
-                ->take(6);
-
-        $convocatoriasPendentes = $paymentMemberIds->isEmpty()
-            ? collect()
-            : EventAttendance::query()
-                ->with([
-                    'user:id,name,nome_completo',
-                    'event:id,titulo,data_inicio,hora_inicio,local,tipo,estado',
-                ])
-                ->whereIn('user_id', $paymentMemberIds)
-                ->whereHas('event', function ($query) {
-                    $query->whereDate('data_inicio', '>=', now()->toDateString())
-                        ->where('estado', '!=', 'cancelado');
-                })
-                ->get()
-                ->filter(fn (EventAttendance $attendance) => $attendance->event !== null)
-                ->sortBy(fn (EventAttendance $attendance) => sprintf(
-                    '%s %s',
-                    $attendance->event?->data_inicio?->toDateString() ?? '9999-12-31',
-                    $attendance->event?->hora_inicio ?? '23:59'
-                ))
-                ->values()
-                ->take(6);
-
-        $documentosAlerta = $paymentMemberIds->isEmpty()
-            ? collect()
-            : UserDocument::query()
-                ->with(['user:id,name,nome_completo'])
-            ->whereIn('user_id', $paymentMemberIds)
-                ->whereNotNull('expiry_date')
-                ->whereDate('expiry_date', '<=', now()->addDays(30)->toDateString())
-                ->orderBy('expiry_date')
-                ->take(6)
-                ->get();
-
-        $pagamentosPorEducando = $pagamentos->groupBy('user_id');
-        $treinosPorEducando = $proximosTreinos->groupBy('user_id');
-        $convocatoriasPorEducando = $convocatoriasPendentes->groupBy('user_id');
-        $documentosPorEducando = $documentosAlerta->groupBy('user_id');
-
-        $educandosPayload = $educandos->map(function (User $educando) use (
-            $pagamentosPorEducando,
-            $treinosPorEducando,
-            $convocatoriasPorEducando,
-            $documentosPorEducando
-        ) {
-            $nextTraining = $treinosPorEducando->get($educando->id)?->first()?->training;
-
-            return [
-                'id' => $educando->id,
-                'name' => $this->displayName($educando),
-                'email' => $educando->email,
-                'numero_socio' => $educando->numero_socio,
-                'escalao' => $this->primaryEscalao($educando),
-                'estado' => $educando->estado,
-                'foto_perfil' => $educando->foto_perfil,
-                'member_url' => route('membros.show', ['member' => $educando->id]),
-                'pending_payments' => $pagamentosPorEducando->get($educando->id, collect())->count(),
-                'pending_documents' => $documentosPorEducando->get($educando->id, collect())->count(),
-                'pending_convocations' => $convocatoriasPorEducando->get($educando->id, collect())->count(),
-                'next_training' => $nextTraining ? [
-                    'title' => $nextTraining->numero_treino ?: 'Treino agendado',
-                    'date' => $nextTraining->data?->toDateString(),
-                    'time' => $nextTraining->hora_inicio,
-                    'location' => $nextTraining->local,
-                ] : null,
-            ];
-        })->values()->all();
-
-        return Inertia::render('Portal/Family', [
-            'user' => $this->portalUserPayload($user),
-            'familyMember' => [
-                'id' => $user->id,
-                'name' => $this->displayName($user),
-                'email' => $user->email,
-                'numero_socio' => $user->numero_socio,
-                'foto_perfil' => $user->foto_perfil,
-                'estado' => $user->estado,
-            ],
-            'is_also_admin' => $this->userHasAdministratorProfile($user),
-            'is_encarregado_educacao' => true,
-            'is_also_athlete' => $this->userIsAtleta($user, $accessControl),
-            'educandos' => $educandosPayload,
-            'familySummary' => [
-                'total_educandos' => count($educandosPayload),
-                'pagamentos_pendentes' => $pagamentos->count(),
-                'pagamentos_pendentes_valor' => (float) $pagamentos->sum('valor_total'),
-                'convocatorias_pendentes' => $convocatoriasPendentes->count(),
-                'proximos_treinos' => $proximosTreinos->count(),
-                'documentos_alerta' => $documentosAlerta->count(),
-            ],
-            'alertas' => [],
-            'pagamentos' => $pagamentos->map(fn (Invoice $invoice) => [
-                'id' => $invoice->id,
-                'user_id' => $invoice->user_id,
-                'user_name' => $this->displayName($invoice->user),
-                'mes' => $invoice->mes,
-                'valor' => $invoice->valor_total,
-                'estado' => $invoice->estado_pagamento,
-                'data_vencimento' => $invoice->data_vencimento?->toDateString(),
-            ])->values()->all(),
-            'convocatorias_pendentes' => $convocatoriasPendentes->map(fn (EventAttendance $attendance) => [
-                'id' => $attendance->id,
-                'user_id' => $attendance->user_id,
-                'user_name' => $this->displayName($attendance->user),
-                'title' => $attendance->event?->titulo,
-                'date' => $attendance->event?->data_inicio?->toDateString(),
-                'time' => $attendance->event?->hora_inicio,
-                'location' => $attendance->event?->local,
-                'type' => $attendance->event?->tipo,
-            ])->values()->all(),
-            'proximos_treinos' => $proximosTreinos->map(fn (TrainingAthlete $record) => [
-                'id' => $record->id,
-                'user_id' => $record->user_id,
-                'user_name' => $this->displayName($record->user),
-                'title' => $record->training?->numero_treino,
-                'date' => $record->training?->data?->toDateString(),
-                'time' => $record->training?->hora_inicio,
-                'location' => $record->training?->local,
-                'type' => $record->training?->tipo_treino,
-            ])->values()->all(),
-            'documentos_alerta' => $documentosAlerta->map(fn (UserDocument $document) => [
-                'id' => $document->id,
-                'user_id' => $document->user_id,
-                'user_name' => $this->displayName($document->user),
-                'name' => $document->name,
-                'type' => $document->type,
-                'expiry_date' => $document->expiry_date?->toDateString(),
-            ])->values()->all(),
-            'comunicados_relevantes' => [],
-            'perfil_tipos' => $this->resolveProfileTypes($user, $accessControl),
-            'athlete_portal_url' => $this->userIsAtleta($user, $accessControl) ? route('dashboard') : null,
-            'modulos_visiveis' => $accessControl['visibleMenuModules'] ?? [],
-        ]);
-    }
-
     private function renderBasePortal(User $user, array $accessControl): Response
     {
             $familyService = app(FamilyService::class);
@@ -616,27 +420,21 @@ class DashboardController extends Controller
         });
         $contaCorrente = (float) ($accountSummary['net_debt'] ?? 0);
 
-        $proxima_mensalidade_pendente = Cache::remember("athlete_dashboard:{$uid}:pending_invoice", 60, function () use ($user) {
-            $invoice = Invoice::where('user_id', $user->id)
-                ->where('oculta', false)
-                ->where('estado_pagamento', '!=', 'pago')
-                ->orderByRaw('CASE WHEN data_vencimento IS NULL THEN 1 ELSE 0 END')
-                ->orderBy('data_vencimento')
-                ->orderByDesc('data_emissao')
-                ->first(['id', 'mes', 'valor_total', 'estado_pagamento', 'data_vencimento']);
-
-            if (! $invoice) {
-                return null;
-            }
-
-            return [
-                'id' => $invoice->id,
-                'mes' => $invoice->mes,
-                'valor' => $invoice->valor_total,
-                'estado' => $invoice->estado_pagamento,
-                'data_vencimento' => $invoice->data_vencimento?->toDateString(),
-            ];
-        });
+        $proxima_mensalidade_pendente = collect($accountSummary['breakdown']['invoices'] ?? [])
+            ->sortBy([
+                fn (array $invoice) => empty($invoice['data_vencimento']) ? 1 : 0,
+                'data_vencimento',
+            ])
+            ->map(fn (array $invoice) => [
+                'id' => $invoice['id'] ?? null,
+                'mes' => $invoice['mes'] ?? null,
+                'valor' => round((float) ($invoice['valor_em_aberto'] ?? 0), 2),
+                'valor_total' => round((float) ($invoice['valor_total'] ?? 0), 2),
+                'valor_em_aberto' => round((float) ($invoice['valor_em_aberto'] ?? 0), 2),
+                'estado' => $invoice['estado_pagamento'] ?? null,
+                'data_vencimento' => $invoice['data_vencimento'] ?? null,
+            ])
+            ->first();
 
         $mensalidades = Cache::remember("athlete_dashboard:{$uid}:invoices", 60, function () use ($user) {
             return Invoice::where('user_id', $user->id)
