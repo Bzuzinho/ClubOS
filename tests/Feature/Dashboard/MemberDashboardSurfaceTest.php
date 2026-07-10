@@ -154,8 +154,14 @@ class MemberDashboardSurfaceTest extends TestCase
         $response->assertJsonPath('props.proxima_mensalidade_pendente.valor', 60);
         $response->assertJsonPath('props.proxima_mensalidade_pendente.valor_total', 100);
         $response->assertJsonPath('props.proxima_mensalidade_pendente.valor_em_aberto', 60);
-        $response->assertJsonPath('props.athlete.conta_corrente', (float) $summary['net_debt']);
-        $response->assertJsonPath('props.resumo.conta_corrente', (float) $summary['net_debt']);
+        $this->assertEquals(
+            (float) $summary['net_debt'],
+            (float) $response->json('props.athlete.conta_corrente')
+        );
+        $this->assertEquals(
+            (float) $summary['net_debt'],
+            (float) $response->json('props.resumo.conta_corrente')
+        );
     }
 
     private function inertiaGetAs(User $user, string $uri)
