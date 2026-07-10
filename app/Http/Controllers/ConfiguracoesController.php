@@ -31,12 +31,15 @@ use App\Models\ProvaTipo;
 use App\Models\User;
 use App\Services\AccessControl\UserTypeAccessControlService;
 use App\Services\Club\ClubSettingsService;
+use App\Services\Financeiro\MemberMonthlyFeeEligibilityService;
+use App\Services\Financeiro\MemberMonthlyFeeLifecycleService;
 use App\Services\Members\MemberIdentityDisplayResolver;
 use Inertia\Inertia;
 use Inertia\Response;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -44,6 +47,12 @@ use App\Support\Communication\AlertCategoryRegistry;
 
 class ConfiguracoesController extends Controller
 {
+    public function __construct(
+        private readonly MemberMonthlyFeeEligibilityService $memberMonthlyFeeEligibilityService,
+        private readonly MemberMonthlyFeeLifecycleService $memberMonthlyFeeLifecycleService,
+    ) {
+    }
+
     private function forgetLogisticaCaches(): void
     {
         Cache::forget('configuracoes:logistica');
@@ -600,7 +609,29 @@ class ConfiguracoesController extends Controller
             'ativo' => 'boolean',
         ]);
 
-        $monthlyFee->update($data);
+        $financialTermsChanged = trim((string) $monthlyFee->designacao) !== trim((string) $data['designacao'])
+            || round((float) $monthlyFee->valor, 2) !== round((float) $data['valor'], 2);
+
+        DB::transaction(function () use ($monthlyFee, $data, $financialTermsChanged): void {
+            $monthlyFee->update($data);
+
+            if (! $financialTermsChanged) {
+                return;
+            }
+
+            User::query()
+                ->with(['userTypes', 'dadosFinanceiros.mensalidade', 'centrosCusto'])
+                ->whereHas('dadosFinanceiros', fn ($query) => $query->where('mensalidade_id', $monthlyFee->id))
+                ->chunkById(100, function ($members): void {
+                    foreach ($members as $member) {
+                        if (! $this->memberMonthlyFeeEligibilityService->shouldHaveMonthlyFee($member)) {
+                            continue;
+                        }
+
+                        $this->memberMonthlyFeeLifecycleService->reconcileFutureMonthlyTerms($member);
+                    }
+                });
+        });
 
         $this->forgetFinanceiroCaches();
 

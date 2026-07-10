@@ -5,6 +5,7 @@ namespace Tests\Feature\Financeiro;
 use App\Models\ClubSetting;
 use App\Models\CommunicationCampaign;
 use App\Models\CommunicationDelivery;
+use App\Models\CostCenter;
 use App\Models\DadosFinanceiros;
 use App\Models\FiscalDocumentRequest;
 use App\Models\InAppAlert;
@@ -21,7 +22,9 @@ use App\Services\Financeiro\MonthlyFeeGenerationService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 use RuntimeException;
 use Tests\TestCase;
 
@@ -115,6 +118,21 @@ class MonthlyFeeGenerationFlowTest extends TestCase
         Log::shouldNotHaveReceived('warning', [
             'Monthly fee generation used monthly fee legacy fallback.',
         ]);
+    }
+
+    public function test_new_monthly_fee_generation_records_monthly_fee_origin(): void
+    {
+        $plan = $this->createMonthlyPlan(40.00);
+        $user = $this->createEligibleUser($plan, [
+            'data_inscricao' => '2026-05-01',
+        ]);
+
+        $invoice = app(MonthlyFeeGenerationService::class)
+            ->generateForUser($user->fresh('dadosFinanceiros'), Carbon::parse('2026-05-01'), Carbon::parse('2026-05-01'))
+            ->sole();
+
+        $this->assertSame('monthly_fee', $invoice->fresh()->origem_tipo);
+        $this->assertSame($plan->id, $invoice->fresh()->origem_id);
     }
 
     public function test_generation_ignores_legacy_monthly_fee_when_no_canonical_plan_exists(): void
@@ -912,10 +930,224 @@ class MonthlyFeeGenerationFlowTest extends TestCase
         $this->assertTrue((bool) $august->oculta);
     }
 
-    private function createMonthlyPlan(float $amount = 40.00): MonthlyFee
+    public function test_monthly_fee_terms_reconciliation_cancel_regenerates_future_plan_changes_only(): void
+    {
+        Carbon::setTestNow('2026-07-15 10:00:00');
+
+        $planA = $this->createMonthlyPlan(30.00, 'Plano A');
+        $planB = $this->createMonthlyPlan(40.00, 'Plano B');
+        $user = $this->createEligibleUser($planA, ['data_inscricao' => '2026-07-01']);
+        $july = $this->createMonthlyInvoiceForLifecycle($user, '2026-07', hidden: false, overrides: ['valor_total' => 30, 'valor_em_aberto' => 30]);
+        $august = $this->createMonthlyInvoiceForLifecycle($user, '2026-08', hidden: true, overrides: ['valor_total' => 30, 'valor_em_aberto' => 30]);
+        $september = $this->createMonthlyInvoiceForLifecycle($user, '2026-09', hidden: true, overrides: ['valor_total' => 30, 'valor_em_aberto' => 30]);
+
+        $user->dadosFinanceiros->forceFill(['mensalidade_id' => $planB->id])->save();
+
+        $summary = app(MemberMonthlyFeeLifecycleService::class)
+            ->reconcileFutureMonthlyTerms($user->fresh(['dadosFinanceiros', 'userTypes']), Carbon::parse('2026-07-15'));
+
+        $this->assertSame(2, $summary['cancelled_count']);
+        $this->assertSame(2, $summary['regenerated_count']);
+        $this->assertSame('pendente', $july->fresh()->estado_pagamento);
+        $this->assertSame('cancelado', $august->fresh()->estado_pagamento);
+        $this->assertSame('cancelado', $september->fresh()->estado_pagamento);
+
+        foreach (['2026-08', '2026-09'] as $month) {
+            $active = Invoice::query()
+                ->with('items')
+                ->where('user_id', $user->id)
+                ->where('mes', $month)
+                ->where('tipo', 'mensalidade')
+                ->where('estado_pagamento', '!=', 'cancelado')
+                ->sole();
+
+            $this->assertSame('40.00', $active->valor_total);
+            $this->assertSame('Plano B', $active->items->first()->descricao);
+            $this->assertSame('monthly_fee', $active->origem_tipo);
+            $this->assertSame($planB->id, $active->origem_id);
+        }
+    }
+
+    public function test_monthly_fee_terms_reconciliation_regenerates_discount_changes(): void
+    {
+        Carbon::setTestNow('2026-07-15 10:00:00');
+
+        $plan = $this->createMonthlyPlan(40.00, 'Plano Desconto');
+        $user = $this->createEligibleUser($plan, ['data_inscricao' => '2026-07-01']);
+        $august = $this->createMonthlyInvoiceForLifecycle($user, '2026-08', hidden: true);
+
+        $user->dadosFinanceiros->forceFill([
+            'discount_type' => 'percent',
+            'discount_value' => 25,
+        ])->save();
+
+        app(MemberMonthlyFeeLifecycleService::class)
+            ->reconcileFutureMonthlyTerms($user->fresh(['dadosFinanceiros', 'userTypes']), Carbon::parse('2026-07-15'));
+
+        $active = Invoice::query()
+            ->with('items')
+            ->where('user_id', $user->id)
+            ->where('mes', '2026-08')
+            ->where('estado_pagamento', '!=', 'cancelado')
+            ->sole();
+
+        $this->assertSame('cancelado', $august->fresh()->estado_pagamento);
+        $this->assertSame('30.00', $active->valor_total);
+        $this->assertSame('Desconto/Correcao 25%', $active->items->last()->descricao);
+        $this->assertSame('-10.00', $active->items->last()->total_linha);
+    }
+
+    public function test_monthly_fee_terms_snapshot_ignores_discount_reason_only_change(): void
+    {
+        $plan = $this->createMonthlyPlan(40.00);
+        $user = $this->createEligibleUser($plan, ['data_inscricao' => '2026-07-01'], [
+            'discount_type' => 'percent',
+            'discount_value' => 10,
+            'discount_reason' => 'Inicial',
+        ]);
+        $invoice = $this->createMonthlyInvoiceForLifecycle($user, '2026-08', hidden: true);
+
+        $user->dadosFinanceiros->forceFill(['discount_reason' => 'Nova nota interna'])->save();
+
+        $this->assertSame('pendente', $invoice->fresh()->estado_pagamento);
+        $this->assertSame(1, Invoice::query()->where('user_id', $user->id)->where('mes', '2026-08')->count());
+    }
+
+    public function test_monthly_fee_terms_reconciliation_regenerates_cost_center_distribution_changes(): void
+    {
+        Carbon::setTestNow('2026-07-15 10:00:00');
+
+        $plan = $this->createMonthlyPlan(100.00, 'Plano Centros');
+        $user = $this->createEligibleUser($plan, ['data_inscricao' => '2026-07-01']);
+        $centerA = $this->createCostCenter('Centro A');
+        $centerB = $this->createCostCenter('Centro B');
+        $this->attachCostCenter($user, $centerA, 1);
+        $old = $this->createMonthlyInvoiceForLifecycle($user, '2026-08', hidden: true, overrides: [
+            'valor_total' => 100,
+            'valor_em_aberto' => 100,
+        ]);
+
+        DB::table('centro_custo_user')->where('user_id', $user->id)->delete();
+        $this->attachCostCenter($user, $centerA, 3);
+        $this->attachCostCenter($user, $centerB, 1);
+
+        app(MemberMonthlyFeeLifecycleService::class)
+            ->reconcileFutureMonthlyTerms($user->fresh(['dadosFinanceiros', 'centrosCusto', 'userTypes']), Carbon::parse('2026-07-15'));
+
+        $active = Invoice::query()
+            ->with('items')
+            ->where('user_id', $user->id)
+            ->where('mes', '2026-08')
+            ->where('estado_pagamento', '!=', 'cancelado')
+            ->sole();
+
+        $this->assertSame('cancelado', $old->fresh()->estado_pagamento);
+        $this->assertSame('75.00', $active->items->firstWhere('centro_custo_id', $centerA->id)->total_linha);
+        $this->assertSame('25.00', $active->items->firstWhere('centro_custo_id', $centerB->id)->total_linha);
+    }
+
+    public function test_monthly_fee_terms_reconciliation_preserves_protected_and_non_future_invoices(): void
+    {
+        Carbon::setTestNow('2026-07-15 10:00:00');
+
+        $plan = $this->createMonthlyPlan();
+        $user = $this->createEligibleUser($plan, ['data_inscricao' => '2026-06-01']);
+        $june = $this->createMonthlyInvoiceForLifecycle($user, '2026-06', hidden: false, overrides: ['estado_pagamento' => 'vencido']);
+        $july = $this->createMonthlyInvoiceForLifecycle($user, '2026-07', hidden: false);
+        $partial = $this->createMonthlyInvoiceForLifecycle($user, '2026-08', hidden: true, overrides: [
+            'estado_pagamento' => 'parcial',
+            'valor_pago' => 10,
+            'valor_em_aberto' => 30,
+        ]);
+        $paid = $this->createMonthlyInvoiceForLifecycle($user, '2026-09', hidden: true, overrides: [
+            'estado_pagamento' => 'pago',
+            'valor_pago' => 40,
+            'valor_em_aberto' => 0,
+        ]);
+        $withAllocation = $this->createMonthlyInvoiceForLifecycle($user, '2026-10', hidden: true);
+        $payment = Payment::create([
+            'user_id' => $user->id,
+            'amount' => 5,
+            'allocated_amount' => 5,
+            'unallocated_amount' => 0,
+            'payment_date' => '2026-07-20',
+            'source' => Payment::SOURCE_MANUAL,
+            'status' => 'confirmed',
+        ]);
+        PaymentAllocation::create([
+            'payment_id' => $payment->id,
+            'invoice_id' => $withAllocation->id,
+            'amount' => 5,
+            'status' => PaymentAllocation::STATUS_CONFIRMED,
+            'allocated_at' => now(),
+        ]);
+        $withFiscal = $this->createMonthlyInvoiceForLifecycle($user, '2026-11', hidden: true);
+        FiscalDocumentRequest::create([
+            'invoice_id' => $withFiscal->id,
+            'provider' => FiscalDocumentRequest::PROVIDER_WINTOUCH,
+            'document_type' => FiscalDocumentRequest::DOCUMENT_TYPE_RECEIPT,
+            'status' => FiscalDocumentRequest::STATUS_PENDING,
+            'priority' => FiscalDocumentRequest::PRIORITY_NORMAL,
+        ]);
+
+        $summary = app(MemberMonthlyFeeLifecycleService::class)
+            ->reconcileFutureMonthlyTerms($user->fresh(['dadosFinanceiros', 'userTypes']), Carbon::parse('2026-07-15'));
+
+        $this->assertSame(0, $summary['cancelled_count']);
+        $this->assertSame('vencido', $june->fresh()->estado_pagamento);
+        $this->assertSame('pendente', $july->fresh()->estado_pagamento);
+        $this->assertSame('parcial', $partial->fresh()->estado_pagamento);
+        $this->assertSame('pago', $paid->fresh()->estado_pagamento);
+        $this->assertSame('pendente', $withAllocation->fresh()->estado_pagamento);
+        $this->assertSame('pendente', $withFiscal->fresh()->estado_pagamento);
+    }
+
+    public function test_monthly_fee_terms_reconciliation_is_idempotent(): void
+    {
+        Carbon::setTestNow('2026-07-15 10:00:00');
+
+        $plan = $this->createMonthlyPlan(50.00);
+        $user = $this->createEligibleUser($plan, ['data_inscricao' => '2026-07-01']);
+        $this->createMonthlyInvoiceForLifecycle($user, '2026-08', hidden: true);
+        $service = app(MemberMonthlyFeeLifecycleService::class);
+
+        $first = $service->reconcileFutureMonthlyTerms($user->fresh(['dadosFinanceiros', 'userTypes']), Carbon::parse('2026-07-15'));
+        $second = $service->reconcileFutureMonthlyTerms($user->fresh(['dadosFinanceiros', 'userTypes']), Carbon::parse('2026-07-15'));
+
+        $this->assertSame(1, $first['cancelled_count']);
+        $this->assertSame(1, $first['regenerated_count']);
+        $this->assertSame(0, $second['cancelled_count']);
+        $this->assertSame(0, $second['regenerated_count']);
+        $this->assertSame(1, Invoice::query()
+            ->where('user_id', $user->id)
+            ->where('mes', '2026-08')
+            ->where('estado_pagamento', '!=', 'cancelado')
+            ->count());
+    }
+
+    public function test_monthly_fee_eligibility_loss_still_cancels_without_regenerating(): void
+    {
+        Carbon::setTestNow('2026-07-15 10:00:00');
+
+        $plan = $this->createMonthlyPlan();
+        $user = $this->createEligibleUser($plan);
+        $august = $this->createMonthlyInvoiceForLifecycle($user, '2026-08', hidden: true);
+
+        app(MemberMonthlyFeeLifecycleService::class)
+            ->reconcileEligibilityTransition($user->fresh('userTypes'), true, false, Carbon::parse('2026-07-15'));
+
+        $this->assertSame('cancelado', $august->fresh()->estado_pagamento);
+        $this->assertSame(0, Invoice::query()
+            ->where('user_id', $user->id)
+            ->where('mes', '2026-08')
+            ->where('estado_pagamento', '!=', 'cancelado')
+            ->count());
+    }
+
+    private function createMonthlyPlan(float $amount = 40.00, string $designacao = 'Mensalidade Base'): MonthlyFee
     {
         return MonthlyFee::create([
-            'designacao' => 'Mensalidade Base',
+            'designacao' => $designacao,
             'valor' => $amount,
             'ativo' => true,
         ]);
@@ -1014,5 +1246,26 @@ class MonthlyFeeGenerationFlowTest extends TestCase
             'tipo' => 'mensalidade',
             'origem_tipo' => 'manual',
         ], $overrides));
+    }
+
+    private function createCostCenter(string $name): CostCenter
+    {
+        return CostCenter::query()->create([
+            'nome' => $name,
+            'codigo' => Str::slug($name) . '-' . Str::lower(Str::random(4)),
+            'ativo' => true,
+        ]);
+    }
+
+    private function attachCostCenter(User $user, CostCenter $center, float $weight): void
+    {
+        DB::table('centro_custo_user')->insert([
+            'id' => (string) Str::uuid(),
+            'user_id' => $user->id,
+            'centro_custo_id' => $center->id,
+            'peso' => $weight,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
     }
 }

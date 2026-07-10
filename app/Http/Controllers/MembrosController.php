@@ -747,11 +747,12 @@ class MembrosController extends Controller
             );
             $data = $request->validated();
             $memberBeforeEligibilityWrite = User::query()
-                ->with(['userTypes', 'dadosFinanceiros'])
+                ->with(['userTypes', 'dadosFinanceiros', 'centrosCusto'])
                 ->whereKey($memberKey)
                 ->firstOrFail();
             $previouslyEligibleForMonthlyFee = $this->memberMonthlyFeeEligibilityService
                 ->shouldHaveMonthlyFee($memberBeforeEligibilityWrite);
+            $previousMonthlyTerms = $this->monthlyFeeTermsSnapshot($memberBeforeEligibilityWrite);
 
             Log::info('membros.update incoming relations', [
                 'member_key' => $memberKey,
@@ -823,7 +824,7 @@ class MembrosController extends Controller
             
             $data = $this->syncAuthIdentityFields($data, $member);
 
-            $member = DB::transaction(function () use ($member, $data, $memberKey, $previouslyEligibleForMonthlyFee): User {
+            $member = DB::transaction(function () use ($member, $data, $memberKey, $previouslyEligibleForMonthlyFee, $previousMonthlyTerms): User {
                 $member->update($this->legacyUserPayloadForMemberWrite($data));
                 $member->refresh();
 
@@ -848,17 +849,26 @@ class MembrosController extends Controller
                 }
 
                 $memberAfterEligibilityWrite = User::query()
-                    ->with(['userTypes', 'dadosFinanceiros'])
+                    ->with(['userTypes', 'dadosFinanceiros', 'centrosCusto'])
                     ->whereKey($memberKey)
                     ->firstOrFail();
                 $currentlyEligibleForMonthlyFee = $this->memberMonthlyFeeEligibilityService
                     ->shouldHaveMonthlyFee($memberAfterEligibilityWrite);
+                $currentMonthlyTerms = $this->monthlyFeeTermsSnapshot($memberAfterEligibilityWrite);
 
                 $this->memberMonthlyFeeLifecycleService->reconcileEligibilityTransition(
                     $memberAfterEligibilityWrite,
                     $previouslyEligibleForMonthlyFee,
                     $currentlyEligibleForMonthlyFee,
                 );
+
+                if (
+                    $previouslyEligibleForMonthlyFee
+                    && $currentlyEligibleForMonthlyFee
+                    && $this->monthlyFeeTermsChanged($previousMonthlyTerms, $currentMonthlyTerms)
+                ) {
+                    $this->memberMonthlyFeeLifecycleService->reconcileFutureMonthlyTerms($memberAfterEligibilityWrite);
+                }
 
                 return $memberAfterEligibilityWrite;
             });
@@ -1044,6 +1054,37 @@ class MembrosController extends Controller
         }
 
         return false;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function monthlyFeeTermsSnapshot(User $member): array
+    {
+        $member->loadMissing(['dadosFinanceiros', 'centrosCusto']);
+        $costCenters = collect($this->memberCostCenterResolver->resolveForUser($member)['centro_custo_pesos'] ?? [])
+            ->map(fn (array $row): array => [
+                'id' => (string) ($row['id'] ?? ''),
+                'peso' => round((float) ($row['peso'] ?? 1), 6),
+            ])
+            ->filter(fn (array $row): bool => $row['id'] !== '')
+            ->sortBy('id')
+            ->values()
+            ->all();
+
+        return [
+            'mensalidade_id' => $this->memberMonthlyFeeResolver->resolveForUser($member),
+            'discount_type' => $member->dadosFinanceiros?->discount_type ?: null,
+            'discount_value' => $member->dadosFinanceiros?->discount_value !== null
+                ? round((float) $member->dadosFinanceiros->discount_value, 2)
+                : null,
+            'cost_centers' => $costCenters,
+        ];
+    }
+
+    private function monthlyFeeTermsChanged(array $previous, array $current): bool
+    {
+        return $previous !== $current;
     }
 
     /**
