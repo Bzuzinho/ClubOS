@@ -245,8 +245,8 @@ final class UsersLegacyWriteGuardScanner
 
     private function normalizeRelativePath(string $path): string
     {
-        $normalized = str_replace('\\\\', '/', trim($path));
-        $basePath = str_replace('\\\\', '/', base_path());
+        $normalized = str_replace('\\', '/', trim($path));
+        $basePath = str_replace('\\', '/', base_path());
 
         if (str_starts_with($normalized, $basePath . '/')) {
             $normalized = substr($normalized, strlen($basePath) + 1);

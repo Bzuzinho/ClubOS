@@ -79,6 +79,8 @@ class UserFactory extends Factory
     {
         return $this->state(fn (array $attributes) => [
             'perfil' => 'admin',
+            'tipo_membro' => ['Admin'],
+            'ativo_desportivo' => false,
         ]);
     }
 }
