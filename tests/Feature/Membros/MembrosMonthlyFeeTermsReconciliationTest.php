@@ -8,6 +8,7 @@ use App\Models\MonthlyFee;
 use App\Models\User;
 use App\Models\UserType;
 use App\Services\Financeiro\MemberMonthlyFeeLifecycleService;
+use App\Services\Financeiro\MonthlyFeeGenerationService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use RuntimeException;
@@ -88,6 +89,74 @@ class MembrosMonthlyFeeTermsReconciliationTest extends TestCase
 
         $this->assertSame('pendente', $invoice->fresh()->estado_pagamento);
         $this->assertSame(1, Invoice::query()->where('user_id', $member->id)->where('mes', '2026-08')->count());
+    }
+
+    public function test_member_update_reconciles_same_total_with_different_discount_terms_without_cost_centers(): void
+    {
+        Carbon::setTestNow('2026-07-15 10:00:00');
+
+        $admin = User::factory()->admin()->create();
+        $plan = $this->createMonthlyPlan(40.00, 'Plano Desconto Estrutural');
+        $member = $this->createEligibleUser($plan, 'member-same-total-discount@example.test', [
+            'discount_type' => 'fixed',
+            'discount_value' => 10,
+        ]);
+
+        $old = app(MonthlyFeeGenerationService::class)
+            ->generateForUser($member, Carbon::parse('2026-08-01'), Carbon::parse('2026-08-01'))
+            ->sole()
+            ->load('items');
+
+        $this->assertSame('30.00', $old->valor_total);
+        $this->assertTrue($old->items->contains(
+            fn ($item): bool => $item->descricao === 'Desconto/Correcao financeira'
+                && (float) $item->total_linha === -10.0
+        ));
+
+        $payload = $this->memberPayload($member, [
+            'tipo_mensalidade' => $plan->id,
+            'discount_type' => 'percent',
+            'discount_value' => 25,
+        ]);
+
+        $this->actingAs($admin)
+            ->from(route('membros.show', $member))
+            ->put(route('membros.update', $member), $payload)
+            ->assertRedirect(route('membros.show', ['member' => $member->id]));
+
+        $active = Invoice::query()
+            ->with('items')
+            ->where('user_id', $member->id)
+            ->where('mes', '2026-08')
+            ->where('estado_pagamento', '!=', 'cancelado')
+            ->sole();
+
+        $this->assertSame('cancelado', $old->fresh()->estado_pagamento);
+        $this->assertSame('30.00', $active->valor_total);
+        $this->assertTrue($active->items->contains(
+            fn ($item): bool => $item->descricao === 'Desconto/Correcao 25%'
+                && (float) $item->total_linha === -10.0
+        ));
+        $this->assertSame(1, Invoice::query()
+            ->where('user_id', $member->id)
+            ->where('mes', '2026-08')
+            ->where('estado_pagamento', '!=', 'cancelado')
+            ->count());
+
+        $activeId = $active->id;
+
+        $this->actingAs($admin)
+            ->from(route('membros.show', $member))
+            ->put(route('membros.update', $member), $payload)
+            ->assertRedirect(route('membros.show', ['member' => $member->id]));
+
+        $this->assertSame($activeId, Invoice::query()
+            ->where('user_id', $member->id)
+            ->where('mes', '2026-08')
+            ->where('estado_pagamento', '!=', 'cancelado')
+            ->sole()
+            ->id);
+        $this->assertSame(2, Invoice::query()->where('user_id', $member->id)->where('mes', '2026-08')->count());
     }
 
     public function test_member_update_rolls_back_monthly_terms_when_reconciliation_fails(): void

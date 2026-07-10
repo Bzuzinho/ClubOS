@@ -240,15 +240,6 @@ class MemberMonthlyFeeLifecycleService
             return false;
         }
 
-        $currentCostCenters = $this->memberCostCenterResolver->resolveForUser($user)['centro_custo_pesos'] ?? [];
-        if ($currentCostCenters === []
-            && $invoice->items->isNotEmpty()
-            && $invoice->items->every(fn ($item): bool => blank($item->centro_custo_id))
-            && $invoice->items->contains(fn ($item): bool => (string) $item->descricao === (string) $plan->designacao)
-        ) {
-            return true;
-        }
-
         $expectedLines = $this->expectedMonthlyTermLines($user, (string) $plan->designacao, $baseAmount, $adjustment);
         $actualLines = $invoice->items
             ->map(fn ($item): array => [
