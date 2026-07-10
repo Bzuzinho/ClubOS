@@ -14,7 +14,6 @@ use App\Http\Controllers\EventosController;
 use App\Http\Controllers\DesportivoController;
 use App\Http\Controllers\FinanceiroController;
 use App\Http\Controllers\TransacoesController;
-use App\Http\Controllers\TaxasController;
 use App\Http\Controllers\CategoriasFinanceirasController;
 use App\Http\Controllers\RelatoriosFinanceirosController;
 use App\Http\Controllers\AdminLojaController;
@@ -579,14 +578,6 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::post('/transacoes', [TransacoesController::class, 'store'])->name('transacoes.store');
         Route::put('/transacoes/{transaction}', [TransacoesController::class, 'update'])->name('transacoes.update');
         Route::delete('/transacoes/{transaction}', [TransacoesController::class, 'destroy'])->name('transacoes.destroy');
-        
-        // Membership Fees
-        Route::get('/taxas', [TaxasController::class, 'index'])->name('taxas.index');
-        Route::post('/taxas', [TaxasController::class, 'store'])->name('taxas.store');
-        Route::put('/taxas/{membershipFee}', [TaxasController::class, 'update'])->name('taxas.update');
-        Route::delete('/taxas/{membershipFee}', [TaxasController::class, 'destroy'])->name('taxas.destroy');
-        Route::post('/taxas/gerar', [TaxasController::class, 'generate'])->name('taxas.gerar');
-        Route::post('/taxas/{membershipFee}/marcar-pago', [TaxasController::class, 'markAsPaid'])->name('taxas.marcar-pago');
         
         // Categories
         Route::get('/categorias', [CategoriasFinanceirasController::class, 'index'])->name('categorias-financeiras.index');
