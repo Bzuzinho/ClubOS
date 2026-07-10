@@ -823,48 +823,45 @@ class MembrosController extends Controller
             
             $data = $this->syncAuthIdentityFields($data, $member);
 
-            $member->update($this->legacyUserPayloadForMemberWrite($data));
-            $member->refresh();
+            $member = DB::transaction(function () use ($member, $data, $memberKey, $previouslyEligibleForMonthlyFee): User {
+                $member->update($this->legacyUserPayloadForMemberWrite($data));
+                $member->refresh();
 
-            $this->memberDataWriteService->persistFromMemberRequest($member, $data, $memberKey);
+                $this->memberDataWriteService->persistFromMemberRequest($member, $data, $memberKey);
 
-            if ($this->hasFinancialDataPayload($data)) {
-                $financeData = DadosFinanceiros::firstOrNew(['user_id' => $member->id]);
-                $this->fillFinancialData($financeData, $data);
-                $financeData->save();
-            }
-
-            if (array_key_exists('tipo_mensalidade', $data)) {
-                try {
-                    $this->memberMonthlyFeeSyncService->sync($member, $data['tipo_mensalidade']);
-                } catch (InvalidArgumentException $exception) {
-                    return redirect()->back()
-                        ->withInput()
-                        ->withErrors(['tipo_mensalidade' => 'A mensalidade selecionada nao e valida.']);
+                if ($this->hasFinancialDataPayload($data)) {
+                    $financeData = DadosFinanceiros::firstOrNew(['user_id' => $member->id]);
+                    $this->fillFinancialData($financeData, $data);
+                    $financeData->save();
                 }
-            }
 
-            if (array_key_exists('centro_custo', $data) && is_array($data['centro_custo'])) {
-                $this->syncMemberCostCenters($member, $data['centro_custo']);
-            }
-            
-            // Sync relationships
-            if (isset($data['user_types'])) {
-                $member->userTypes()->sync($data['user_types']);
-            }
+                if (array_key_exists('tipo_mensalidade', $data)) {
+                    $this->memberMonthlyFeeSyncService->sync($member, $data['tipo_mensalidade']);
+                }
 
-            $memberAfterEligibilityWrite = User::query()
-                ->with(['userTypes', 'dadosFinanceiros'])
-                ->whereKey($memberKey)
-                ->firstOrFail();
-            $currentlyEligibleForMonthlyFee = $this->memberMonthlyFeeEligibilityService
-                ->shouldHaveMonthlyFee($memberAfterEligibilityWrite);
+                if (array_key_exists('centro_custo', $data) && is_array($data['centro_custo'])) {
+                    $this->syncMemberCostCenters($member, $data['centro_custo']);
+                }
 
-            $this->memberMonthlyFeeLifecycleService->reconcileEligibilityTransition(
-                $memberAfterEligibilityWrite,
-                $previouslyEligibleForMonthlyFee,
-                $currentlyEligibleForMonthlyFee,
-            );
+                if (isset($data['user_types'])) {
+                    $member->userTypes()->sync($data['user_types']);
+                }
+
+                $memberAfterEligibilityWrite = User::query()
+                    ->with(['userTypes', 'dadosFinanceiros'])
+                    ->whereKey($memberKey)
+                    ->firstOrFail();
+                $currentlyEligibleForMonthlyFee = $this->memberMonthlyFeeEligibilityService
+                    ->shouldHaveMonthlyFee($memberAfterEligibilityWrite);
+
+                $this->memberMonthlyFeeLifecycleService->reconcileEligibilityTransition(
+                    $memberAfterEligibilityWrite,
+                    $previouslyEligibleForMonthlyFee,
+                    $currentlyEligibleForMonthlyFee,
+                );
+
+                return $memberAfterEligibilityWrite;
+            });
             
             // Explicit sync flags let the frontend clear relations by sending empty arrays.
             if ($request->boolean('sync_encarregado_educacao')) {

@@ -22,6 +22,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Log;
+use RuntimeException;
 use Tests\TestCase;
 
 class MonthlyFeeGenerationFlowTest extends TestCase
@@ -860,6 +861,55 @@ class MonthlyFeeGenerationFlowTest extends TestCase
 
         $this->assertFalse((bool) $user->fresh()->ativo_desportivo);
         $this->assertSame('cancelado', $august->fresh()->estado_pagamento);
+    }
+
+    public function test_member_update_rolls_back_eligibility_change_when_monthly_fee_lifecycle_fails(): void
+    {
+        Carbon::setTestNow('2026-07-15 10:00:00');
+
+        $admin = User::factory()->admin()->create();
+        $plan = $this->createMonthlyPlan();
+        $user = $this->createEligibleUser($plan, [
+            'nome_completo' => 'Atleta Rollback',
+            'email' => 'atleta.rollback@example.test',
+            'numero_socio' => 'ROLL-100',
+            'sexo' => 'masculino',
+            'estado' => 'ativo',
+            'ativo_desportivo' => true,
+        ]);
+        $august = $this->createMonthlyInvoiceForLifecycle($user, '2026-08', hidden: true);
+
+        $lifecycle = \Mockery::mock(MemberMonthlyFeeLifecycleService::class);
+        $lifecycle->shouldReceive('reconcileEligibilityTransition')
+            ->once()
+            ->andThrow(new RuntimeException('forced lifecycle failure'));
+        $this->app->instance(MemberMonthlyFeeLifecycleService::class, $lifecycle);
+
+        $this->actingAs($admin)
+            ->from(route('membros.show', $user))
+            ->put(route('membros.update', $user), [
+                'nome_completo' => 'Atleta Rollback',
+                'email_utilizador' => 'atleta.rollback@example.test',
+                'numero_socio' => 'ROLL-100',
+                'sexo' => 'masculino',
+                'estado' => 'ativo',
+                'perfil' => 'atleta',
+                'tipo_membro' => ['atleta'],
+                'user_types' => [$this->findUserTypeId('atleta')],
+                'ativo_desportivo' => '0',
+                'tipo_mensalidade' => $plan->id,
+            ])
+            ->assertRedirect(route('membros.show', ['member' => $user->id]))
+            ->assertSessionHas('error');
+
+        $user->refresh();
+        $august->refresh();
+
+        $this->assertSame('ativo', $user->estado);
+        $this->assertTrue((bool) $user->ativo_desportivo);
+        $this->assertSame('pendente', $august->estado_pagamento);
+        $this->assertSame('40.00', (string) $august->valor_em_aberto);
+        $this->assertTrue((bool) $august->oculta);
     }
 
     private function createMonthlyPlan(float $amount = 40.00): MonthlyFee

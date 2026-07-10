@@ -14,7 +14,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
-final class MemberMonthlyFeeLifecycleService
+class MemberMonthlyFeeLifecycleService
 {
     /**
      * @return array{cancelled_count:int,cancelled_invoice_ids:list<string>,effective_month:string,cutoff_month:string}

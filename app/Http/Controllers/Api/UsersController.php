@@ -126,7 +126,7 @@ class UsersController extends Controller
             }
         }
 
-        $user = DB::transaction(function () use ($user, $validated): User {
+        $user = DB::transaction(function () use ($user, $validated, $previouslyEligibleForMonthlyFee): User {
             $user->update($this->legacyUserPayloadForApiWrite($validated, false));
 
             $freshUser = User::query()
@@ -135,17 +135,22 @@ class UsersController extends Controller
                 ->firstOrFail();
             $this->memberDataWriteService->persistFromMemberRequest($freshUser, $validated, (string) $user->id);
 
+            $freshUser = User::query()
+                ->with(['userTypes', 'dadosFinanceiros'])
+                ->whereKey($user->id)
+                ->firstOrFail();
+
+            $currentlyEligibleForMonthlyFee = $this->memberMonthlyFeeEligibilityService
+                ->shouldHaveMonthlyFee($freshUser);
+
+            $this->memberMonthlyFeeLifecycleService->reconcileEligibilityTransition(
+                $freshUser,
+                $previouslyEligibleForMonthlyFee,
+                $currentlyEligibleForMonthlyFee,
+            );
+
             return $freshUser;
         });
-
-        $currentlyEligibleForMonthlyFee = $this->memberMonthlyFeeEligibilityService
-            ->shouldHaveMonthlyFee($user);
-
-        $this->memberMonthlyFeeLifecycleService->reconcileEligibilityTransition(
-            $user,
-            $previouslyEligibleForMonthlyFee,
-            $currentlyEligibleForMonthlyFee,
-        );
 
         $user->refresh()->load(['userTypes', 'ageGroup', 'dadosPessoais', 'dadosConfiguracao']);
         

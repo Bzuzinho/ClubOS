@@ -7,9 +7,11 @@ namespace Tests\Feature\Api;
 use App\Models\DadosPessoais;
 use App\Models\Invoice;
 use App\Models\User;
+use App\Services\Financeiro\MemberMonthlyFeeLifecycleService;
 use App\Services\Members\MemberDataReadService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
+use RuntimeException;
 use Tests\TestCase;
 
 class UsersCanonicalWriteContractTest extends TestCase
@@ -153,6 +155,51 @@ class UsersCanonicalWriteContractTest extends TestCase
         $this->assertSame('cancelado', $futureInvoice->estado_pagamento);
         $this->assertSame('0.00', (string) $futureInvoice->valor_em_aberto);
         $this->assertFalse((bool) $futureInvoice->oculta);
+    }
+
+    public function test_api_users_update_rolls_back_eligibility_change_when_monthly_fee_lifecycle_fails(): void
+    {
+        $admin = User::factory()->admin()->create();
+
+        $member = User::factory()->athlete()->create([
+            'estado' => 'ativo',
+            'ativo_desportivo' => true,
+        ]);
+
+        $futureInvoice = Invoice::query()->create([
+            'user_id' => $member->id,
+            'tipo' => 'mensalidade',
+            'mes' => now()->addMonth()->format('Y-m'),
+            'data_fatura' => now()->addMonth()->startOfMonth()->toDateString(),
+            'data_emissao' => now()->addMonth()->startOfMonth()->toDateString(),
+            'data_vencimento' => now()->addMonth()->endOfMonth()->toDateString(),
+            'valor_total' => 35.00,
+            'valor_pago' => 0,
+            'valor_em_aberto' => 35.00,
+            'estado_pagamento' => 'pendente',
+            'oculta' => true,
+        ]);
+
+        $lifecycle = \Mockery::mock(MemberMonthlyFeeLifecycleService::class);
+        $lifecycle->shouldReceive('reconcileEligibilityTransition')
+            ->once()
+            ->andThrow(new RuntimeException('forced lifecycle failure'));
+        $this->app->instance(MemberMonthlyFeeLifecycleService::class, $lifecycle);
+
+        $this->actingAs($admin)
+            ->putJson('/api/users/' . $member->id, [
+                'estado' => 'inativo',
+            ])
+            ->assertStatus(500);
+
+        $member->refresh();
+        $futureInvoice->refresh();
+
+        $this->assertSame('ativo', $member->estado);
+        $this->assertTrue((bool) $member->ativo_desportivo);
+        $this->assertSame('pendente', $futureInvoice->estado_pagamento);
+        $this->assertSame('35.00', (string) $futureInvoice->valor_em_aberto);
+        $this->assertTrue((bool) $futureInvoice->oculta);
     }
 
     public function test_api_users_store_does_not_mirror_full_personal_payload_to_users(): void
