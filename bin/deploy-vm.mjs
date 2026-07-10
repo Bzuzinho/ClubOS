@@ -7,7 +7,7 @@ const VM_USER = process.env.VM_USER || 'ubuntu';
 const VM_HOST = process.env.VM_HOST || '129.159.13.211';
 const VM_APP_DIR = process.env.VM_APP_DIR || '/var/www/clubmanager';
 const remote = `${VM_USER}@${VM_HOST}`;
-const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+const npmCli = process.env.npm_execpath;
 
 function run(command, args, options = {}) {
     console.log(`\n> ${command} ${args.join(' ')}`);
@@ -46,6 +46,15 @@ function output(command, args) {
     return result.stdout.trim();
 }
 
+function runNpm(args, options = {}) {
+    if (!npmCli) {
+        console.error('\n❌ npm_execpath não está disponível. Executa o deploy através de npm run deploy:vm.');
+        process.exit(1);
+    }
+
+    run(process.execPath, [npmCli, ...args], options);
+}
+
 console.log('==> ClubOS deploy VM');
 console.log(`    Repo: ${process.cwd()}`);
 console.log(`    VM:   ${remote}:${VM_APP_DIR}`);
@@ -72,8 +81,8 @@ if (localHead !== remoteHead) {
 }
 
 console.log('\n==> Build frontend');
-run(npmCommand, ['ci']);
-run(npmCommand, ['run', 'build'], {
+runNpm(['ci']);
+runNpm(['run', 'build'], {
     env: {
         ...process.env,
         NODE_OPTIONS: process.env.NODE_OPTIONS || '--max-old-space-size=4096',
