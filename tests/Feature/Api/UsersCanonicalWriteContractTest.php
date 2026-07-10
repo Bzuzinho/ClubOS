@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature\Api;
 
 use App\Models\DadosPessoais;
+use App\Models\Invoice;
 use App\Models\User;
 use App\Services\Members\MemberDataReadService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -116,6 +117,42 @@ class UsersCanonicalWriteContractTest extends TestCase
         $this->assertSame('Rua API Update', $payloadFromReadService['morada']);
         $this->assertSame('910000002', $payloadFromReadService['contacto']);
         $this->assertSame('223344556', $payloadFromReadService['nif']);
+    }
+
+    public function test_api_users_update_reconciles_future_monthly_fees_when_member_becomes_inactive(): void
+    {
+        $admin = User::factory()->admin()->create();
+
+        $member = User::factory()->athlete()->create([
+            'estado' => 'ativo',
+            'ativo_desportivo' => true,
+        ]);
+
+        $futureInvoice = Invoice::query()->create([
+            'user_id' => $member->id,
+            'tipo' => 'mensalidade',
+            'mes' => now()->addMonth()->format('Y-m'),
+            'data_fatura' => now()->addMonth()->startOfMonth()->toDateString(),
+            'data_emissao' => now()->addMonth()->startOfMonth()->toDateString(),
+            'data_vencimento' => now()->addMonth()->endOfMonth()->toDateString(),
+            'valor_total' => 35.00,
+            'valor_pago' => 0,
+            'valor_em_aberto' => 35.00,
+            'estado_pagamento' => 'pendente',
+            'oculta' => true,
+        ]);
+
+        $this->actingAs($admin)
+            ->putJson('/api/users/' . $member->id, [
+                'estado' => 'inativo',
+            ])
+            ->assertOk();
+
+        $futureInvoice->refresh();
+
+        $this->assertSame('cancelado', $futureInvoice->estado_pagamento);
+        $this->assertSame('0.00', (string) $futureInvoice->valor_em_aberto);
+        $this->assertFalse((bool) $futureInvoice->oculta);
     }
 
     public function test_api_users_store_does_not_mirror_full_personal_payload_to_users(): void

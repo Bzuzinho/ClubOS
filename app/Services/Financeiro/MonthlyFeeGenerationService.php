@@ -73,6 +73,7 @@ class MonthlyFeeGenerationService
         $existingPeriods = Invoice::query()
             ->where('user_id', $user->id)
             ->where('tipo', 'mensalidade')
+            ->where('estado_pagamento', '!=', 'cancelado')
             ->whereBetween('mes', [$effectiveStart->format('Y-m'), $effectiveEnd->format('Y-m')])
             ->pluck('mes')
             ->filter()
@@ -287,6 +288,7 @@ class MonthlyFeeGenerationService
         $updated = Invoice::query()
             ->where('tipo', 'mensalidade')
             ->where('oculta', true)
+            ->where('estado_pagamento', '!=', 'cancelado')
             ->whereDate('data_vencimento', '<=', $referenceDate)
             ->update([
                 'oculta' => false,

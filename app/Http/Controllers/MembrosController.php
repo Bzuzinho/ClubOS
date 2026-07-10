@@ -20,6 +20,8 @@ use App\Services\Family\FamilyService;
 use App\Services\Financeiro\CurrentAccountService;
 use App\Services\Financeiro\MemberCostCenterResolver;
 use App\Services\Financeiro\MemberCostCenterSyncService;
+use App\Services\Financeiro\MemberMonthlyFeeEligibilityService;
+use App\Services\Financeiro\MemberMonthlyFeeLifecycleService;
 use App\Services\Financeiro\MemberMonthlyFeeResolver;
 use App\Services\Financeiro\MemberMonthlyFeeSyncService;
 use App\Services\Members\MemberDataReadService;
@@ -51,6 +53,8 @@ class MembrosController extends Controller
         private readonly MemberIdentityDisplayResolver $memberIdentityDisplayResolver,
         private readonly MemberCostCenterResolver $memberCostCenterResolver,
         private readonly MemberCostCenterSyncService $memberCostCenterSyncService,
+        private readonly MemberMonthlyFeeEligibilityService $memberMonthlyFeeEligibilityService,
+        private readonly MemberMonthlyFeeLifecycleService $memberMonthlyFeeLifecycleService,
         private readonly MemberMonthlyFeeResolver $memberMonthlyFeeResolver,
         private readonly MemberMonthlyFeeSyncService $memberMonthlyFeeSyncService,
         private readonly MemberTypeResolver $memberTypeResolver,
@@ -742,6 +746,12 @@ class MembrosController extends Controller
                 ?? $request->segment(2)
             );
             $data = $request->validated();
+            $memberBeforeEligibilityWrite = User::query()
+                ->with(['userTypes', 'dadosFinanceiros'])
+                ->whereKey($memberKey)
+                ->firstOrFail();
+            $previouslyEligibleForMonthlyFee = $this->memberMonthlyFeeEligibilityService
+                ->shouldHaveMonthlyFee($memberBeforeEligibilityWrite);
 
             Log::info('membros.update incoming relations', [
                 'member_key' => $memberKey,
@@ -842,6 +852,19 @@ class MembrosController extends Controller
             if (isset($data['user_types'])) {
                 $member->userTypes()->sync($data['user_types']);
             }
+
+            $memberAfterEligibilityWrite = User::query()
+                ->with(['userTypes', 'dadosFinanceiros'])
+                ->whereKey($memberKey)
+                ->firstOrFail();
+            $currentlyEligibleForMonthlyFee = $this->memberMonthlyFeeEligibilityService
+                ->shouldHaveMonthlyFee($memberAfterEligibilityWrite);
+
+            $this->memberMonthlyFeeLifecycleService->reconcileEligibilityTransition(
+                $memberAfterEligibilityWrite,
+                $previouslyEligibleForMonthlyFee,
+                $currentlyEligibleForMonthlyFee,
+            );
             
             // Explicit sync flags let the frontend clear relations by sending empty arrays.
             if ($request->boolean('sync_encarregado_educacao')) {

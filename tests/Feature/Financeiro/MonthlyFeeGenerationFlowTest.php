@@ -10,8 +10,12 @@ use App\Models\FiscalDocumentRequest;
 use App\Models\InAppAlert;
 use App\Models\Invoice;
 use App\Models\MonthlyFee;
+use App\Models\Payment;
+use App\Models\PaymentAllocation;
 use App\Models\User;
 use App\Models\UserType;
+use App\Services\Financeiro\CurrentAccountService;
+use App\Services\Financeiro\MemberMonthlyFeeLifecycleService;
 use Illuminate\Console\Scheduling\Schedule;
 use App\Services\Financeiro\MonthlyFeeGenerationService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -29,6 +33,13 @@ class MonthlyFeeGenerationFlowTest extends TestCase
         parent::setUp();
 
         $this->createUserTypeIfMissing('atleta', 'Atleta');
+    }
+
+    protected function tearDown(): void
+    {
+        Carbon::setTestNow();
+
+        parent::tearDown();
     }
 
     public function test_it_generates_monthly_fees_for_all_eligible_users_via_endpoint(): void
@@ -604,6 +615,253 @@ class MonthlyFeeGenerationFlowTest extends TestCase
         $this->assertSame(0, InAppAlert::query()->count());
     }
 
+    public function test_monthly_fee_lifecycle_cancels_only_future_unpaid_invoices_after_sports_inactivation(): void
+    {
+        Carbon::setTestNow('2026-07-15 10:00:00');
+
+        $plan = $this->createMonthlyPlan();
+        $user = $this->createEligibleUser($plan, ['data_inscricao' => '2026-07-01']);
+        $july = $this->createMonthlyInvoiceForLifecycle($user, '2026-07', hidden: false);
+        $august = $this->createMonthlyInvoiceForLifecycle($user, '2026-08', hidden: true);
+        $september = $this->createMonthlyInvoiceForLifecycle($user, '2026-09', hidden: true);
+
+        $summary = app(MemberMonthlyFeeLifecycleService::class)
+            ->reconcileEligibilityTransition($user->fresh('userTypes'), true, false, Carbon::parse('2026-07-15'));
+
+        $this->assertSame(2, $summary['cancelled_count']);
+        $this->assertSame('pendente', $july->fresh()->estado_pagamento);
+        $this->assertSame('cancelado', $august->fresh()->estado_pagamento);
+        $this->assertSame('0.00', $august->fresh()->valor_em_aberto);
+        $this->assertFalse((bool) $august->fresh()->oculta);
+        $this->assertSame('cancelado', $september->fresh()->estado_pagamento);
+
+        $breakdownIds = collect(app(CurrentAccountService::class)->summarize([
+            'user_id' => $user->id,
+        ])['breakdown']['invoices'])->pluck('id');
+
+        $this->assertTrue($breakdownIds->contains($july->id));
+        $this->assertFalse($breakdownIds->contains($august->id));
+        $this->assertFalse($breakdownIds->contains($september->id));
+
+        app(MonthlyFeeGenerationService::class)->activateDueInvoices(Carbon::parse('2026-09-01'));
+
+        $this->assertSame('cancelado', $august->fresh()->estado_pagamento);
+        $this->assertFalse((bool) $august->fresh()->oculta);
+        $this->assertSame('cancelado', $september->fresh()->estado_pagamento);
+    }
+
+    public function test_monthly_fee_lifecycle_cancels_future_invoices_when_member_becomes_inactive(): void
+    {
+        Carbon::setTestNow('2026-07-15 10:00:00');
+
+        $plan = $this->createMonthlyPlan();
+        $user = $this->createEligibleUser($plan);
+        $august = $this->createMonthlyInvoiceForLifecycle($user, '2026-08', hidden: true);
+
+        $user->forceFill(['estado' => 'inativo'])->save();
+
+        app(MemberMonthlyFeeLifecycleService::class)
+            ->reconcileEligibilityTransition($user->fresh('userTypes'), true, false, Carbon::parse('2026-07-15'));
+
+        $this->assertSame('cancelado', $august->fresh()->estado_pagamento);
+    }
+
+    public function test_monthly_fee_lifecycle_cancels_future_invoices_when_athlete_type_is_removed(): void
+    {
+        Carbon::setTestNow('2026-07-15 10:00:00');
+
+        $plan = $this->createMonthlyPlan();
+        $user = $this->createEligibleUser($plan);
+        $august = $this->createMonthlyInvoiceForLifecycle($user, '2026-08', hidden: true);
+
+        $user->userTypes()->sync([]);
+        $user->forceFill(['tipo_membro' => []])->save();
+
+        app(MemberMonthlyFeeLifecycleService::class)
+            ->reconcileEligibilityTransition($user->fresh('userTypes'), true, false, Carbon::parse('2026-07-15'));
+
+        $this->assertSame('cancelado', $august->fresh()->estado_pagamento);
+    }
+
+    public function test_monthly_fee_lifecycle_preserves_future_invoice_with_partial_or_full_payment_trail(): void
+    {
+        Carbon::setTestNow('2026-07-15 10:00:00');
+
+        $plan = $this->createMonthlyPlan();
+        $user = $this->createEligibleUser($plan);
+        $partial = $this->createMonthlyInvoiceForLifecycle($user, '2026-08', hidden: true, overrides: [
+            'estado_pagamento' => 'parcial',
+            'valor_pago' => 10,
+            'valor_em_aberto' => 30,
+        ]);
+        $paid = $this->createMonthlyInvoiceForLifecycle($user, '2026-09', hidden: true, overrides: [
+            'estado_pagamento' => 'pago',
+            'valor_pago' => 40,
+            'valor_em_aberto' => 0,
+        ]);
+
+        $summary = app(MemberMonthlyFeeLifecycleService::class)
+            ->reconcileEligibilityTransition($user->fresh('userTypes'), true, false, Carbon::parse('2026-07-15'));
+
+        $this->assertSame(0, $summary['cancelled_count']);
+        $this->assertSame('parcial', $partial->fresh()->estado_pagamento);
+        $this->assertSame('pago', $paid->fresh()->estado_pagamento);
+    }
+
+    public function test_monthly_fee_lifecycle_preserves_future_invoice_with_confirmed_payment_allocation(): void
+    {
+        Carbon::setTestNow('2026-07-15 10:00:00');
+
+        $plan = $this->createMonthlyPlan();
+        $user = $this->createEligibleUser($plan);
+        $invoice = $this->createMonthlyInvoiceForLifecycle($user, '2026-08', hidden: true);
+        $payment = Payment::create([
+            'user_id' => $user->id,
+            'amount' => 10,
+            'allocated_amount' => 10,
+            'unallocated_amount' => 0,
+            'payment_date' => '2026-07-20',
+            'source' => Payment::SOURCE_MANUAL,
+            'status' => 'confirmed',
+        ]);
+        PaymentAllocation::create([
+            'payment_id' => $payment->id,
+            'invoice_id' => $invoice->id,
+            'amount' => 10,
+            'status' => PaymentAllocation::STATUS_CONFIRMED,
+            'allocated_at' => now(),
+        ]);
+
+        app(MemberMonthlyFeeLifecycleService::class)
+            ->reconcileEligibilityTransition($user->fresh('userTypes'), true, false, Carbon::parse('2026-07-15'));
+
+        $this->assertSame('pendente', $invoice->fresh()->estado_pagamento);
+    }
+
+    public function test_monthly_fee_lifecycle_preserves_future_invoice_with_external_fiscal_document(): void
+    {
+        Carbon::setTestNow('2026-07-15 10:00:00');
+
+        $plan = $this->createMonthlyPlan();
+        $user = $this->createEligibleUser($plan);
+        $invoice = $this->createMonthlyInvoiceForLifecycle($user, '2026-08', hidden: true);
+
+        FiscalDocumentRequest::create([
+            'invoice_id' => $invoice->id,
+            'provider' => FiscalDocumentRequest::PROVIDER_WINTOUCH,
+            'document_type' => FiscalDocumentRequest::DOCUMENT_TYPE_RECEIPT,
+            'status' => FiscalDocumentRequest::STATUS_ISSUED,
+            'priority' => FiscalDocumentRequest::PRIORITY_NORMAL,
+            'external_document_number' => 'RC 2026/200',
+        ]);
+
+        app(MemberMonthlyFeeLifecycleService::class)
+            ->reconcileEligibilityTransition($user->fresh('userTypes'), true, false, Carbon::parse('2026-07-15'));
+
+        $this->assertSame('pendente', $invoice->fresh()->estado_pagamento);
+    }
+
+    public function test_monthly_fee_lifecycle_preserves_previous_and_effective_month_debt(): void
+    {
+        Carbon::setTestNow('2026-07-15 10:00:00');
+
+        $plan = $this->createMonthlyPlan();
+        $user = $this->createEligibleUser($plan);
+        $june = $this->createMonthlyInvoiceForLifecycle($user, '2026-06', hidden: false, overrides: [
+            'estado_pagamento' => 'vencido',
+        ]);
+        $july = $this->createMonthlyInvoiceForLifecycle($user, '2026-07', hidden: false);
+        $august = $this->createMonthlyInvoiceForLifecycle($user, '2026-08', hidden: true);
+
+        app(MemberMonthlyFeeLifecycleService::class)
+            ->reconcileEligibilityTransition($user->fresh('userTypes'), true, false, Carbon::parse('2026-07-15'));
+
+        $this->assertSame('vencido', $june->fresh()->estado_pagamento);
+        $this->assertSame('pendente', $july->fresh()->estado_pagamento);
+        $this->assertSame('cancelado', $august->fresh()->estado_pagamento);
+    }
+
+    public function test_monthly_fee_lifecycle_is_idempotent(): void
+    {
+        Carbon::setTestNow('2026-07-15 10:00:00');
+
+        $plan = $this->createMonthlyPlan();
+        $user = $this->createEligibleUser($plan);
+        $invoice = $this->createMonthlyInvoiceForLifecycle($user, '2026-08', hidden: true);
+        $service = app(MemberMonthlyFeeLifecycleService::class);
+
+        $first = $service->reconcileEligibilityTransition($user->fresh('userTypes'), true, false, Carbon::parse('2026-07-15'));
+        $second = $service->reconcileEligibilityTransition($user->fresh('userTypes'), true, false, Carbon::parse('2026-07-15'));
+
+        $this->assertSame(1, $first['cancelled_count']);
+        $this->assertSame(0, $second['cancelled_count']);
+        $this->assertSame('cancelado', $invoice->fresh()->estado_pagamento);
+    }
+
+    public function test_monthly_fee_reactivation_does_not_reopen_cancelled_invoices_and_generation_can_create_future_active_invoice(): void
+    {
+        Carbon::setTestNow('2026-07-15 10:00:00');
+
+        $plan = $this->createMonthlyPlan();
+        $user = $this->createEligibleUser($plan);
+        $cancelledAugust = $this->createMonthlyInvoiceForLifecycle($user, '2026-08', hidden: true);
+
+        app(MemberMonthlyFeeLifecycleService::class)
+            ->reconcileEligibilityTransition($user->fresh('userTypes'), true, false, Carbon::parse('2026-07-15'));
+
+        $user->forceFill(['ativo_desportivo' => true, 'estado' => 'ativo'])->save();
+
+        $summary = app(MonthlyFeeGenerationService::class)->generateForUserWithSummary(
+            $user->fresh(['userTypes', 'dadosFinanceiros']),
+            Carbon::parse('2026-08-01'),
+            Carbon::parse('2026-08-01'),
+            ['today' => Carbon::parse('2026-08-01')]
+        );
+
+        $this->assertSame('cancelado', $cancelledAugust->fresh()->estado_pagamento);
+        $this->assertSame(1, $summary['created_count']);
+        $this->assertSame(1, Invoice::query()
+            ->where('user_id', $user->id)
+            ->where('mes', '2026-08')
+            ->where('tipo', 'mensalidade')
+            ->where('estado_pagamento', '!=', 'cancelado')
+            ->count());
+    }
+
+    public function test_member_update_reconciles_future_monthly_fees_when_sports_activity_is_disabled(): void
+    {
+        Carbon::setTestNow('2026-07-15 10:00:00');
+
+        $admin = User::factory()->admin()->create();
+        $plan = $this->createMonthlyPlan();
+        $user = $this->createEligibleUser($plan, [
+            'nome_completo' => 'Atleta Lifecycle',
+            'email' => 'atleta.lifecycle@example.test',
+            'numero_socio' => 'LIFE-100',
+            'sexo' => 'masculino',
+        ]);
+        $august = $this->createMonthlyInvoiceForLifecycle($user, '2026-08', hidden: true);
+
+        $this->actingAs($admin)
+            ->from(route('membros.show', $user))
+            ->put(route('membros.update', $user), [
+                'nome_completo' => 'Atleta Lifecycle',
+                'email_utilizador' => 'atleta.lifecycle@example.test',
+                'numero_socio' => 'LIFE-100',
+                'sexo' => 'masculino',
+                'estado' => 'ativo',
+                'perfil' => 'atleta',
+                'tipo_membro' => ['atleta'],
+                'user_types' => [$this->findUserTypeId('atleta')],
+                'ativo_desportivo' => '0',
+                'tipo_mensalidade' => $plan->id,
+            ])
+            ->assertRedirect(route('membros.show', ['member' => $user->id]));
+
+        $this->assertFalse((bool) $user->fresh()->ativo_desportivo);
+        $this->assertSame('cancelado', $august->fresh()->estado_pagamento);
+    }
+
     private function createMonthlyPlan(float $amount = 40.00): MonthlyFee
     {
         return MonthlyFee::create([
@@ -688,5 +946,23 @@ class MonthlyFeeGenerationFlowTest extends TestCase
             'tipo' => 'mensalidade',
             'origem_tipo' => 'manual',
         ]);
+    }
+
+    private function createMonthlyInvoiceForLifecycle(User $user, string $month, bool $hidden, array $overrides = []): Invoice
+    {
+        return Invoice::create(array_merge([
+            'user_id' => $user->id,
+            'data_fatura' => $month . '-01',
+            'mes' => $month,
+            'data_emissao' => $month . '-01',
+            'data_vencimento' => $month . '-01',
+            'valor_total' => 40,
+            'valor_pago' => 0,
+            'valor_em_aberto' => 40,
+            'oculta' => $hidden,
+            'estado_pagamento' => 'pendente',
+            'tipo' => 'mensalidade',
+            'origem_tipo' => 'manual',
+        ], $overrides));
     }
 }

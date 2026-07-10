@@ -4,6 +4,8 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\User;
+use App\Services\Financeiro\MemberMonthlyFeeEligibilityService;
+use App\Services\Financeiro\MemberMonthlyFeeLifecycleService;
 use App\Services\Members\MemberDataWriteService;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
@@ -16,6 +18,8 @@ class UsersController extends Controller
 {
     public function __construct(
         private readonly MemberDataWriteService $memberDataWriteService,
+        private readonly MemberMonthlyFeeEligibilityService $memberMonthlyFeeEligibilityService,
+        private readonly MemberMonthlyFeeLifecycleService $memberMonthlyFeeLifecycleService,
     ) {
     }
 
@@ -90,7 +94,9 @@ class UsersController extends Controller
      */
     public function update(Request $request, string $id): JsonResponse
     {
-        $user = User::findOrFail($id);
+        $user = User::query()->with(['userTypes', 'dadosFinanceiros'])->findOrFail($id);
+        $previouslyEligibleForMonthlyFee = $this->memberMonthlyFeeEligibilityService
+            ->shouldHaveMonthlyFee($user);
         
         $validated = $request->validate([
             'nome_completo' => 'sometimes|string|max:255',
@@ -123,11 +129,23 @@ class UsersController extends Controller
         $user = DB::transaction(function () use ($user, $validated): User {
             $user->update($this->legacyUserPayloadForApiWrite($validated, false));
 
-            $freshUser = $user->fresh() ?? $user;
+            $freshUser = User::query()
+                ->with(['userTypes', 'dadosFinanceiros'])
+                ->whereKey($user->id)
+                ->firstOrFail();
             $this->memberDataWriteService->persistFromMemberRequest($freshUser, $validated, (string) $user->id);
 
             return $freshUser;
         });
+
+        $currentlyEligibleForMonthlyFee = $this->memberMonthlyFeeEligibilityService
+            ->shouldHaveMonthlyFee($user);
+
+        $this->memberMonthlyFeeLifecycleService->reconcileEligibilityTransition(
+            $user,
+            $previouslyEligibleForMonthlyFee,
+            $currentlyEligibleForMonthlyFee,
+        );
 
         $user->refresh()->load(['userTypes', 'ageGroup', 'dadosPessoais', 'dadosConfiguracao']);
         
