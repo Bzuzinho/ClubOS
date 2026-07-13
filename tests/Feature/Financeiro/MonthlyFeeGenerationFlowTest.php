@@ -354,6 +354,41 @@ class MonthlyFeeGenerationFlowTest extends TestCase
         $this->assertSame(2, Invoice::query()->where('user_id', $user->id)->where('tipo', 'mensalidade')->count());
     }
 
+    public function test_manual_endpoint_generates_only_unless_activate_due_is_explicit(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $plan = $this->createMonthlyPlan();
+        $user = $this->createEligibleUser($plan, [
+            'data_inscricao' => '2026-05-01',
+        ]);
+        $hiddenDue = $this->createHiddenMonthlyInvoice(User::factory()->create(), '2026-05', '2026-05-01');
+
+        Carbon::setTestNow('2026-05-15');
+
+        $this->actingAs($admin)->postJson(route('financeiro.monthly-fees.generate'), [
+            'generate_for_all' => false,
+            'user_id' => $user->id,
+            'start_date' => '2026-05-01',
+            'end_date' => '2026-05-01',
+        ])->assertOk()
+            ->assertJsonPath('summary.created_count', 1)
+            ->assertJsonPath('summary.activated_count', 0);
+
+        $this->assertTrue((bool) $hiddenDue->fresh()->oculta);
+
+        $this->actingAs($admin)->postJson(route('financeiro.monthly-fees.generate'), [
+            'generate_for_all' => false,
+            'user_id' => $user->id,
+            'start_date' => '2026-05-01',
+            'end_date' => '2026-05-01',
+            'activate_due' => true,
+        ])->assertOk()
+            ->assertJsonPath('summary.created_count', 0)
+            ->assertJsonPath('summary.activated_count', 1);
+
+        $this->assertFalse((bool) $hiddenDue->fresh()->oculta);
+    }
+
     public function test_existing_paid_and_fiscalized_monthly_invoice_is_not_recalculated(): void
     {
         $plan = $this->createMonthlyPlan();
@@ -484,9 +519,8 @@ class MonthlyFeeGenerationFlowTest extends TestCase
 
         $output = Artisan::output();
 
-        $commands = collect(app(Schedule::class)->events())
-            ->map(fn ($event) => (string) $event->command)
-            ->filter();
+        $scheduledEvents = collect(app(Schedule::class)->events());
+        $commands = $scheduledEvents->map(fn ($event) => (string) $event->command)->filter();
 
         $this->assertStringContainsString('Mensalidades geradas: 1', $output);
         $this->assertFalse($commands->contains(fn (string $command) => str_contains($command, 'finance:generate-monthly-fees')));
@@ -495,12 +529,22 @@ class MonthlyFeeGenerationFlowTest extends TestCase
         config()->set('clubos.automations.monthly_fee_scheduler', true);
         require base_path('routes/console.php');
 
-        $commands = collect(app(Schedule::class)->events())
-            ->map(fn ($event) => (string) $event->command)
-            ->filter();
+        $scheduledEvents = collect(app(Schedule::class)->events());
+        $monthlyEvents = $scheduledEvents
+            ->filter(fn ($event): bool => str_contains((string) $event->command, 'finance:generate-monthly-fees')
+                || str_contains((string) $event->command, 'finance:activate-due-monthly-fees'))
+            ->values();
+        $commands = $monthlyEvents->map(fn ($event) => (string) $event->command);
 
+        $this->assertCount(2, $monthlyEvents);
         $this->assertTrue($commands->contains(fn (string $command) => str_contains($command, 'finance:generate-monthly-fees')));
         $this->assertTrue($commands->contains(fn (string $command) => str_contains($command, 'finance:activate-due-monthly-fees')));
+        $this->assertStringContainsString('finance:generate-monthly-fees', (string) $monthlyEvents[0]->command);
+        $this->assertStringContainsString('finance:activate-due-monthly-fees', (string) $monthlyEvents[1]->command);
+        $this->assertSame('10 0 * * *', $this->readScheduleEventProperty($monthlyEvents[0], 'expression'));
+        $this->assertSame('20 0 * * *', $this->readScheduleEventProperty($monthlyEvents[1], 'expression'));
+        $this->assertTrue((bool) $this->readScheduleEventProperty($monthlyEvents[0], 'withoutOverlapping'));
+        $this->assertTrue((bool) $this->readScheduleEventProperty($monthlyEvents[1], 'withoutOverlapping'));
     }
 
     public function test_generate_command_does_not_create_invoices_without_club_settings(): void
@@ -540,8 +584,10 @@ class MonthlyFeeGenerationFlowTest extends TestCase
         $user = $this->createEligibleUser($plan, [
             'data_inscricao' => '2026-09-05',
         ]);
+        $hiddenDue = $this->createHiddenMonthlyInvoice(User::factory()->create(), '2026-09', '2026-09-01');
         $this->createClubSettings([
             'monthly_fee_generation_enabled' => true,
+            'monthly_fee_auto_activate_due' => true,
         ]);
 
         Carbon::setTestNow('2026-09-10');
@@ -550,9 +596,13 @@ class MonthlyFeeGenerationFlowTest extends TestCase
 
         Carbon::setTestNow();
 
+        $output = Artisan::output();
+
         $this->assertSame(0, $exitCode);
-        $this->assertStringContainsString('Mensalidades geradas: 11', Artisan::output());
+        $this->assertStringContainsString('Mensalidades geradas: 11', $output);
+        $this->assertStringContainsString('ativadas: 0', $output);
         $this->assertSame(11, Invoice::query()->where('user_id', $user->id)->where('tipo', 'mensalidade')->count());
+        $this->assertTrue((bool) $hiddenDue->fresh()->oculta);
     }
 
     public function test_generate_command_with_explicit_period_can_override_disabled_automation(): void
@@ -561,18 +611,57 @@ class MonthlyFeeGenerationFlowTest extends TestCase
         $user = $this->createEligibleUser($plan, [
             'data_inscricao' => '2026-05-01',
         ]);
+        $hiddenDue = $this->createHiddenMonthlyInvoice(User::factory()->create(), '2026-05', '2026-05-01');
         $this->createClubSettings([
             'monthly_fee_generation_enabled' => false,
+            'monthly_fee_auto_activate_due' => true,
         ]);
+
+        Carbon::setTestNow('2026-05-15');
 
         $exitCode = Artisan::call('finance:generate-monthly-fees', [
             '--start' => '2026-05-01',
             '--end' => '2026-06-01',
         ]);
 
+        Carbon::setTestNow();
+
+        $output = Artisan::output();
+
         $this->assertSame(0, $exitCode);
-        $this->assertStringContainsString('Mensalidades geradas: 2', Artisan::output());
+        $this->assertStringContainsString('Mensalidades geradas: 2', $output);
+        $this->assertStringContainsString('ativadas: 0', $output);
         $this->assertSame(2, Invoice::query()->where('user_id', $user->id)->where('tipo', 'mensalidade')->count());
+        $this->assertTrue((bool) $hiddenDue->fresh()->oculta);
+    }
+
+    public function test_GenerateMonthlyFeesCommand_force_ignores_only_generation_setting(): void
+    {
+        $plan = $this->createMonthlyPlan();
+        $user = $this->createEligibleUser($plan, [
+            'data_inscricao' => '2026-09-01',
+        ]);
+        $hiddenDue = $this->createHiddenMonthlyInvoice(User::factory()->create(), '2026-09', '2026-09-01');
+        $this->createClubSettings([
+            'monthly_fee_generation_enabled' => false,
+            'monthly_fee_auto_activate_due' => true,
+        ]);
+
+        Carbon::setTestNow('2026-09-10');
+
+        $exitCode = Artisan::call('finance:generate-monthly-fees', [
+            '--force' => true,
+        ]);
+
+        Carbon::setTestNow();
+
+        $output = Artisan::output();
+
+        $this->assertSame(0, $exitCode);
+        $this->assertStringContainsString('Mensalidades geradas: 11', $output);
+        $this->assertStringContainsString('ativadas: 0', $output);
+        $this->assertSame(11, Invoice::query()->where('user_id', $user->id)->where('tipo', 'mensalidade')->count());
+        $this->assertTrue((bool) $hiddenDue->fresh()->oculta);
     }
 
     public function test_activate_command_returns_zero_without_club_settings(): void
@@ -602,6 +691,35 @@ class MonthlyFeeGenerationFlowTest extends TestCase
         $this->assertTrue((bool) $invoice->fresh()->oculta);
     }
 
+    public function test_ActivateDueMonthlyFeesCommand_force_ignores_only_activation_setting_and_does_not_generate(): void
+    {
+        $plan = $this->createMonthlyPlan();
+        $eligibleUser = $this->createEligibleUser($plan, [
+            'data_inscricao' => '2026-05-01',
+        ]);
+        $hiddenDue = $this->createHiddenMonthlyInvoice(User::factory()->create(), '2026-05', '2026-05-01');
+        $this->createClubSettings([
+            'monthly_fee_generation_enabled' => true,
+            'monthly_fee_auto_activate_due' => false,
+        ]);
+
+        Carbon::setTestNow('2026-05-15');
+
+        $exitCode = Artisan::call('finance:activate-due-monthly-fees', [
+            '--force' => true,
+        ]);
+
+        Carbon::setTestNow();
+
+        $this->assertSame(0, $exitCode);
+        $this->assertStringContainsString('Mensalidades ativadas: 1', Artisan::output());
+        $this->assertFalse((bool) $hiddenDue->fresh()->oculta);
+        $this->assertSame(0, Invoice::query()
+            ->where('user_id', $eligibleUser->id)
+            ->where('tipo', 'mensalidade')
+            ->count());
+    }
+
     public function test_activate_command_activates_due_hidden_invoices_when_auto_activation_is_enabled(): void
     {
         $user = User::factory()->create();
@@ -614,6 +732,12 @@ class MonthlyFeeGenerationFlowTest extends TestCase
 
         $this->assertSame(0, $exitCode);
         $this->assertStringContainsString('Mensalidades ativadas: 1', Artisan::output());
+        $this->assertFalse((bool) $invoice->fresh()->oculta);
+
+        $exitCode = Artisan::call('finance:activate-due-monthly-fees');
+
+        $this->assertSame(0, $exitCode);
+        $this->assertStringContainsString('Mensalidades ativadas: 0', Artisan::output());
         $this->assertFalse((bool) $invoice->fresh()->oculta);
     }
 
@@ -1193,6 +1317,11 @@ class MonthlyFeeGenerationFlowTest extends TestCase
     private function findUserTypeId(string $codigo): string
     {
         return (string) UserType::query()->where('codigo', $codigo)->value('id');
+    }
+
+    private function readScheduleEventProperty(object $event, string $property): mixed
+    {
+        return (fn () => $this->{$property} ?? null)->call($event);
     }
 
     private function createClubSettings(array $overrides = []): ClubSetting

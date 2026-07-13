@@ -913,6 +913,7 @@ class FinanceiroController extends Controller
             'user_id' => ['nullable', 'exists:users,id'],
             'monthly_fee_id' => ['nullable', 'exists:monthly_fees,id'],
             'only_active' => ['nullable', 'boolean'],
+            'activate_due' => ['nullable', 'boolean'],
         ]);
 
         if (($data['generate_for_all'] ?? false) !== true && empty($data['user_id'])) {
@@ -954,7 +955,9 @@ class FinanceiroController extends Controller
                 ]);
         }
 
-        $summary['activated_count'] = $this->monthlyFeeGenerationService->activateDueInvoices(null, ['force' => true]);
+        if (($data['activate_due'] ?? false) === true) {
+            $summary['activated_count'] = $this->monthlyFeeGenerationService->activateDueInvoices(null, ['force' => true]);
+        }
 
         $createdInvoices = Invoice::query()
             ->with('items')

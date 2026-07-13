@@ -313,16 +313,9 @@ class MonthlyFeeGenerationService
     {
         $scheduledOptions = array_merge($options, [
             'respect_generation_setting' => true,
-            'respect_auto_activation_setting' => true,
         ]);
 
-        $summary = $this->generateConfiguredCycle($scheduledOptions);
-        $summary['activated_count'] = $this->activateDueInvoices(
-            isset($scheduledOptions['today']) && $scheduledOptions['today'] instanceof Carbon ? $scheduledOptions['today'] : null,
-            $scheduledOptions,
-        );
-
-        return $summary;
+        return $this->generateConfiguredCycle($scheduledOptions);
     }
 
     /**

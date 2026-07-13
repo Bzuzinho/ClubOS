@@ -13,6 +13,6 @@ if (config('clubos.automations.release_invoice_communications_schedule', false))
 }
 
 if (config('clubos.automations.monthly_fee_scheduler', false)) {
-    Schedule::command('finance:activate-due-monthly-fees')->dailyAt('00:10')->withoutOverlapping();
-    Schedule::command('finance:generate-monthly-fees')->dailyAt('00:20')->withoutOverlapping();
+    Schedule::command('finance:generate-monthly-fees')->dailyAt('00:10')->withoutOverlapping();
+    Schedule::command('finance:activate-due-monthly-fees')->dailyAt('00:20')->withoutOverlapping();
 }

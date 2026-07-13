@@ -39,7 +39,6 @@ class GenerateMonthlyFeesCommand extends Command
             $end = Carbon::parse((string) ($this->option('end') ?: $start->copy()->toDateString()))->startOfMonth();
 
             $summary = $this->monthlyFeeGenerationService->generateForAllEligibleUsers($start, $end, $filters);
-            $summary['activated_count'] = $this->monthlyFeeGenerationService->activateDueInvoices();
         } else {
             if ($this->option('current-season')) {
                 $this->warn('A opcao --current-season esta obsoleta. Foi usado o ciclo financeiro configurado.');
