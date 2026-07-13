@@ -23,8 +23,8 @@ CLUBOS_MONTHLY_FEE_SCHEDULER=true
 - O cron chama `php artisan schedule:run` a cada minuto.
 - O Laravel verifica internamente quais tarefas estao marcadas para esse minuto.
 - Se `CLUBOS_MONTHLY_FEE_SCHEDULER=false` ou ausente, os comandos de mensalidades nem sequer sao registados no scheduler.
-- `finance:activate-due-monthly-fees` corre diariamente as `00:10` para tornar visiveis mensalidades ocultas cujo vencimento chegou, mas so atua quando `monthly_fee_auto_activate_due` estiver explicitamente ligado.
-- `finance:generate-monthly-fees` corre diariamente as `00:20` para gerar mensalidades do ciclo financeiro configurado, mas so atua quando `monthly_fee_generation_enabled` estiver explicitamente ligado.
+- `finance:generate-monthly-fees` corre diariamente as `00:10` para gerar mensalidades do ciclo financeiro configurado, mas so atua quando `monthly_fee_generation_enabled` estiver explicitamente ligado.
+- `finance:activate-due-monthly-fees` corre diariamente as `00:20` para tornar visiveis mensalidades ocultas cujo vencimento chegou, mas so atua quando `monthly_fee_auto_activate_due` estiver explicitamente ligado.
 - Os flags `monthly_fee_hide_future` e `monthly_fee_respect_registration_date` continuam a controlar o comportamento da geracao, mas nao ativam automacoes por si.
 
 ## Porque foi escolhida execucao diaria
