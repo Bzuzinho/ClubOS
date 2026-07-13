@@ -32,6 +32,8 @@ use App\Models\User;
 use App\Services\AccessControl\UserTypeAccessControlService;
 use App\Services\Club\ClubSettingsService;
 use App\Services\Financeiro\MemberMonthlyFeeEligibilityService;
+use App\Services\Financeiro\MonthlyFeeCycleLifecycleService;
+use App\Services\Financeiro\MonthlyFeeSettingsService;
 use App\Services\Financeiro\MemberMonthlyFeeLifecycleService;
 use App\Services\Members\MemberIdentityDisplayResolver;
 use Inertia\Inertia;
@@ -50,6 +52,8 @@ class ConfiguracoesController extends Controller
     public function __construct(
         private readonly MemberMonthlyFeeEligibilityService $memberMonthlyFeeEligibilityService,
         private readonly MemberMonthlyFeeLifecycleService $memberMonthlyFeeLifecycleService,
+        private readonly MonthlyFeeCycleLifecycleService $monthlyFeeCycleLifecycleService,
+        private readonly MonthlyFeeSettingsService $monthlyFeeSettingsService,
     ) {
     }
 
@@ -411,13 +415,23 @@ class ConfiguracoesController extends Controller
 
         unset($data['logo']);
 
-        $clubSettings = $clubSettingsService->model();
-        
-        if ($clubSettings) {
-            $clubSettings->update($data);
-        } else {
-            ClubSetting::create($data);
-        }
+        DB::transaction(function () use ($clubSettingsService, $data): void {
+            $clubSettings = $clubSettingsService->model();
+            $previousMonthlySettings = $this->monthlyFeeSettingsService->normalize($clubSettings);
+
+            if ($clubSettings) {
+                $clubSettings->update($data);
+            } else {
+                $clubSettings = ClubSetting::create($data);
+            }
+
+            $currentMonthlySettings = $this->monthlyFeeSettingsService->normalize($clubSettings->fresh());
+
+            $this->monthlyFeeCycleLifecycleService->reconcileFutureInvoicesForSettingsChange(
+                $previousMonthlySettings,
+                $currentMonthlySettings,
+            );
+        });
 
         $clubSettingsService->clearCache();
         Cache::forget('club_settings_shared');

@@ -14,16 +14,24 @@ class MonthlyFeeSettingsService
     {
         $settings = ClubSetting::query()->first();
 
+        return $this->normalize($settings);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function normalize(ClubSetting|array|null $settings): array
+    {
         return [
-            'generation_enabled' => $this->toBoolean($settings?->monthly_fee_generation_enabled, false),
-            'start_month' => $this->normalizeMonth($settings?->monthly_fee_start_month ?? 9),
-            'end_month' => $this->normalizeMonth($settings?->monthly_fee_end_month ?? 7),
-            'due_day' => $this->normalizeDueDay($settings?->monthly_fee_due_day ?? 1),
-            'hide_future' => $this->toBoolean($settings?->monthly_fee_hide_future, true),
-            'auto_activate_due' => $this->toBoolean($settings?->monthly_fee_auto_activate_due, false),
-            'respect_registration_date' => $this->toBoolean($settings?->monthly_fee_respect_registration_date, true),
-            'generate_months_ahead' => $this->normalizeMonthsAhead($settings?->monthly_fee_generate_months_ahead),
-            'default_period_mode' => (string) ($settings?->monthly_fee_default_period_mode ?: 'financial_cycle'),
+            'generation_enabled' => $this->toBoolean($this->settingValue($settings, 'monthly_fee_generation_enabled'), false),
+            'start_month' => $this->normalizeMonth($this->settingValue($settings, 'monthly_fee_start_month') ?? 9),
+            'end_month' => $this->normalizeMonth($this->settingValue($settings, 'monthly_fee_end_month') ?? 7),
+            'due_day' => $this->normalizeDueDay($this->settingValue($settings, 'monthly_fee_due_day') ?? 1),
+            'hide_future' => $this->toBoolean($this->settingValue($settings, 'monthly_fee_hide_future'), true),
+            'auto_activate_due' => $this->toBoolean($this->settingValue($settings, 'monthly_fee_auto_activate_due'), false),
+            'respect_registration_date' => $this->toBoolean($this->settingValue($settings, 'monthly_fee_respect_registration_date'), true),
+            'generate_months_ahead' => $this->normalizeMonthsAhead($this->settingValue($settings, 'monthly_fee_generate_months_ahead')),
+            'default_period_mode' => (string) ($this->settingValue($settings, 'monthly_fee_default_period_mode') ?: 'financial_cycle'),
         ];
     }
 
@@ -33,6 +41,16 @@ class MonthlyFeeSettingsService
     public function resolveReferenceWindow(?Carbon $referenceDate = null): array
     {
         $settings = $this->get();
+
+        return $this->resolveReferenceWindowFromSettings($settings, $referenceDate);
+    }
+
+    /**
+     * @param array<string, mixed> $settings
+     * @return array{start: Carbon, end: Carbon}
+     */
+    public function resolveReferenceWindowFromSettings(array $settings, ?Carbon $referenceDate = null): array
+    {
         $today = ($referenceDate ?? Carbon::today())->copy()->startOfDay();
         $startMonth = $settings['start_month'];
         $endMonth = $settings['end_month'];
@@ -73,7 +91,18 @@ class MonthlyFeeSettingsService
     {
         $today = ($referenceDate ?? Carbon::today())->copy()->startOfDay();
         $settings = $this->get();
-        $window = $this->resolveReferenceWindow($today);
+
+        return $this->resolveGenerationWindowFromSettings($settings, $today);
+    }
+
+    /**
+     * @param array<string, mixed> $settings
+     * @return array{start: Carbon, end: Carbon}
+     */
+    public function resolveGenerationWindowFromSettings(array $settings, ?Carbon $referenceDate = null): array
+    {
+        $today = ($referenceDate ?? Carbon::today())->copy()->startOfDay();
+        $window = $this->resolveReferenceWindowFromSettings($settings, $today);
 
         if ($settings['generate_months_ahead'] !== null) {
             $maxEnd = $today->copy()->startOfMonth()->addMonthsNoOverflow((int) $settings['generate_months_ahead']);
@@ -92,6 +121,15 @@ class MonthlyFeeSettingsService
     public function resolveDueDate(Carbon $periodStart): Carbon
     {
         $settings = $this->get();
+
+        return $this->resolveDueDateFromSettings($periodStart, $settings);
+    }
+
+    /**
+     * @param array<string, mixed> $settings
+     */
+    public function resolveDueDateFromSettings(Carbon $periodStart, array $settings): Carbon
+    {
         $day = min((int) $settings['due_day'], $periodStart->copy()->endOfMonth()->day);
 
         return $periodStart->copy()->day($day)->startOfDay();
@@ -133,5 +171,36 @@ class MonthlyFeeSettingsService
         $normalized = filter_var($value, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
 
         return $normalized ?? $default;
+    }
+
+    private function settingValue(ClubSetting|array|null $settings, string $key): mixed
+    {
+        if ($settings instanceof ClubSetting) {
+            return $settings->{$key};
+        }
+
+        if (! is_array($settings)) {
+            return null;
+        }
+
+        if (array_key_exists($key, $settings)) {
+            return $settings[$key];
+        }
+
+        $aliases = [
+            'monthly_fee_generation_enabled' => 'generation_enabled',
+            'monthly_fee_start_month' => 'start_month',
+            'monthly_fee_end_month' => 'end_month',
+            'monthly_fee_due_day' => 'due_day',
+            'monthly_fee_hide_future' => 'hide_future',
+            'monthly_fee_auto_activate_due' => 'auto_activate_due',
+            'monthly_fee_respect_registration_date' => 'respect_registration_date',
+            'monthly_fee_generate_months_ahead' => 'generate_months_ahead',
+            'monthly_fee_default_period_mode' => 'default_period_mode',
+        ];
+
+        $alias = $aliases[$key] ?? null;
+
+        return $alias && array_key_exists($alias, $settings) ? $settings[$alias] : null;
     }
 }

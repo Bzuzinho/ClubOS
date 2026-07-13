@@ -190,7 +190,7 @@ class MemberMonthlyFeeLifecycleService
             ->greaterThan($effectiveMonth);
     }
 
-    private function canReconcileFutureMonthlyInvoice(Invoice $invoice): bool
+    public function canReconcileFutureMonthlyInvoice(Invoice $invoice): bool
     {
         if ($invoice->tipo !== 'mensalidade') {
             return false;
@@ -214,7 +214,7 @@ class MemberMonthlyFeeLifecycleService
             && ! FiscalDocumentRequest::withTrashed()->where('invoice_id', $invoice->id)->exists();
     }
 
-    private function matchesCurrentMonthlyTerms(User $user, Invoice $invoice): bool
+    public function matchesCurrentMonthlyTerms(User $user, Invoice $invoice): bool
     {
         $user->loadMissing(['dadosFinanceiros.mensalidade', 'centrosCusto']);
         $planId = $user->dadosFinanceiros?->mensalidade_id;

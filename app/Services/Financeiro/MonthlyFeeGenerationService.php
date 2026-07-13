@@ -385,7 +385,7 @@ class MonthlyFeeGenerationService
     {
         $periodStart = $period->copy()->startOfMonth();
         $settings = $this->resolveSettings($options);
-        $dueDate = $this->settingsService->resolveDueDate($periodStart);
+        $dueDate = $this->settingsService->resolveDueDateFromSettings($periodStart, $settings);
         $shouldHide = ($settings['hide_future'] ?? true) === true && $dueDate->greaterThan($today);
         $baseAmount = round((float) $plan->valor, 2);
         $shares = $this->resolveCostCenterShares($user, $baseAmount);
@@ -670,11 +670,36 @@ class MonthlyFeeGenerationService
      */
     private function resolveSettings(array $options): array
     {
-        return array_merge($this->settingsService->get(), [
-            'generation_enabled' => $options['generation_enabled'] ?? $this->settingsService->get()['generation_enabled'],
-            'hide_future' => $options['hide_future'] ?? $this->settingsService->get()['hide_future'],
-            'auto_activate_due' => $options['auto_activate_due'] ?? $this->settingsService->get()['auto_activate_due'],
-            'respect_registration_date' => $options['respect_registration_date'] ?? $this->settingsService->get()['respect_registration_date'],
+        $settings = isset($options['settings']) && is_array($options['settings'])
+            ? $this->settingsService->normalize($options['settings'])
+            : $this->settingsService->get();
+
+        foreach ([
+            'generation_enabled',
+            'start_month',
+            'end_month',
+            'due_day',
+            'hide_future',
+            'auto_activate_due',
+            'respect_registration_date',
+            'generate_months_ahead',
+            'default_period_mode',
+        ] as $key) {
+            if (array_key_exists($key, $options)) {
+                $settings[$key] = $options[$key];
+            }
+        }
+
+        return $this->settingsService->normalize([
+            'monthly_fee_generation_enabled' => $settings['generation_enabled'] ?? null,
+            'monthly_fee_start_month' => $settings['start_month'] ?? null,
+            'monthly_fee_end_month' => $settings['end_month'] ?? null,
+            'monthly_fee_due_day' => $settings['due_day'] ?? null,
+            'monthly_fee_hide_future' => $settings['hide_future'] ?? null,
+            'monthly_fee_auto_activate_due' => $settings['auto_activate_due'] ?? null,
+            'monthly_fee_respect_registration_date' => $settings['respect_registration_date'] ?? null,
+            'monthly_fee_generate_months_ahead' => $settings['generate_months_ahead'] ?? null,
+            'monthly_fee_default_period_mode' => $settings['default_period_mode'] ?? null,
         ]);
     }
 }

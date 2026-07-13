@@ -17,6 +17,7 @@ use App\Models\User;
 use App\Models\UserType;
 use App\Services\Financeiro\CurrentAccountService;
 use App\Services\Financeiro\MemberMonthlyFeeLifecycleService;
+use App\Services\Financeiro\MonthlyFeeCycleLifecycleService;
 use Illuminate\Console\Scheduling\Schedule;
 use App\Services\Financeiro\MonthlyFeeGenerationService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -1266,6 +1267,288 @@ class MonthlyFeeGenerationFlowTest extends TestCase
             ->where('mes', '2026-08')
             ->where('estado_pagamento', '!=', 'cancelado')
             ->count());
+    }
+
+    public function test_monthly_fee_cycle_reconciliation_cancels_future_invoices_beyond_reduced_generation_window(): void
+    {
+        Carbon::setTestNow('2026-07-15 10:00:00');
+
+        $plan = $this->createMonthlyPlan();
+        $user = $this->createEligibleUser($plan, ['data_inscricao' => '2026-07-01']);
+        $oldSettings = $this->monthlyCycleSettings(['monthly_fee_generate_months_ahead' => 3]);
+        $newSettings = $this->monthlyCycleSettings(['monthly_fee_generate_months_ahead' => 1]);
+
+        app(MonthlyFeeGenerationService::class)->generateForUserWithSummary(
+            $user,
+            Carbon::parse('2026-08-01'),
+            Carbon::parse('2026-10-01'),
+            ['today' => Carbon::parse('2026-07-15'), 'settings' => $oldSettings, 'load_created_items' => true],
+        );
+
+        $summary = app(MonthlyFeeCycleLifecycleService::class)
+            ->reconcileFutureInvoicesForSettingsChange($oldSettings, $newSettings, Carbon::parse('2026-07-15'));
+
+        $this->assertSame(['generate_months_ahead'], $summary['changed_keys']);
+        $this->assertSame(2, $summary['cancelled_count']);
+        $this->assertSame(0, $summary['regenerated_count']);
+        $this->assertSame('pendente', $this->activeMonthlyInvoice($user, '2026-08')->estado_pagamento);
+        $this->assertNull($this->activeMonthlyInvoice($user, '2026-09'));
+        $this->assertNull($this->activeMonthlyInvoice($user, '2026-10'));
+
+        $again = app(MonthlyFeeGenerationService::class)->generateForUserWithSummary(
+            $user,
+            Carbon::parse('2026-08-01'),
+            Carbon::parse('2026-08-01'),
+            ['today' => Carbon::parse('2026-07-15'), 'settings' => $newSettings, 'load_created_items' => true],
+        );
+
+        $this->assertSame(0, $again['created_count']);
+        $this->assertSame(1, Invoice::query()
+            ->where('user_id', $user->id)
+            ->where('mes', '2026-08')
+            ->where('tipo', 'mensalidade')
+            ->where('estado_pagamento', '!=', 'cancelado')
+            ->count());
+    }
+
+    public function test_monthly_fee_cycle_reconciliation_regenerates_future_invoice_when_due_day_changes(): void
+    {
+        Carbon::setTestNow('2026-07-15 10:00:00');
+
+        $plan = $this->createMonthlyPlan();
+        $user = $this->createEligibleUser($plan, ['data_inscricao' => '2026-07-01']);
+        $oldSettings = $this->monthlyCycleSettings(['monthly_fee_due_day' => 1]);
+        $newSettings = $this->monthlyCycleSettings(['monthly_fee_due_day' => 15]);
+
+        app(MonthlyFeeGenerationService::class)->generateForUserWithSummary(
+            $user,
+            Carbon::parse('2026-08-01'),
+            Carbon::parse('2026-08-01'),
+            ['today' => Carbon::parse('2026-07-15'), 'settings' => $oldSettings, 'load_created_items' => true],
+        );
+        $old = $this->activeMonthlyInvoice($user, '2026-08');
+
+        $summary = app(MonthlyFeeCycleLifecycleService::class)
+            ->reconcileFutureInvoicesForSettingsChange($oldSettings, $newSettings, Carbon::parse('2026-07-15'));
+
+        $active = $this->activeMonthlyInvoice($user, '2026-08');
+
+        $this->assertSame(1, $summary['cancelled_count']);
+        $this->assertSame(1, $summary['regenerated_count']);
+        $this->assertSame('cancelado', $old->fresh()->estado_pagamento);
+        $this->assertSame('2026-08-15', $active->data_vencimento->toDateString());
+        $this->assertTrue((bool) $active->oculta);
+    }
+
+    public function test_monthly_fee_cycle_reconciliation_updates_hide_future_in_both_directions(): void
+    {
+        Carbon::setTestNow('2026-07-15 10:00:00');
+
+        $plan = $this->createMonthlyPlan();
+        $first = $this->createEligibleUser($plan, ['data_inscricao' => '2026-07-01']);
+        $hideSettings = $this->monthlyCycleSettings(['monthly_fee_hide_future' => true]);
+        $visibleSettings = $this->monthlyCycleSettings(['monthly_fee_hide_future' => false]);
+
+        app(MonthlyFeeGenerationService::class)->generateForUserWithSummary(
+            $first,
+            Carbon::parse('2026-08-01'),
+            Carbon::parse('2026-08-01'),
+            ['today' => Carbon::parse('2026-07-15'), 'settings' => $hideSettings, 'load_created_items' => true],
+        );
+
+        app(MonthlyFeeCycleLifecycleService::class)
+            ->reconcileFutureInvoicesForSettingsChange($hideSettings, $visibleSettings, Carbon::parse('2026-07-15'));
+
+        $this->assertFalse((bool) $this->activeMonthlyInvoice($first, '2026-08')->oculta);
+
+        $second = $this->createEligibleUser($plan, ['data_inscricao' => '2026-07-01']);
+        app(MonthlyFeeGenerationService::class)->generateForUserWithSummary(
+            $second,
+            Carbon::parse('2026-08-01'),
+            Carbon::parse('2026-08-01'),
+            ['today' => Carbon::parse('2026-07-15'), 'settings' => $visibleSettings, 'load_created_items' => true],
+        );
+
+        app(MonthlyFeeCycleLifecycleService::class)
+            ->reconcileFutureInvoicesForSettingsChange($visibleSettings, $hideSettings, Carbon::parse('2026-07-15'));
+
+        $this->assertTrue((bool) $this->activeMonthlyInvoice($second, '2026-08')->oculta);
+    }
+
+    public function test_monthly_fee_cycle_reconciliation_respects_registration_date_for_future_projection(): void
+    {
+        Carbon::setTestNow('2026-07-15 10:00:00');
+
+        $plan = $this->createMonthlyPlan();
+        $user = $this->createEligibleUser($plan, ['data_inscricao' => '2026-09-10']);
+        $oldSettings = $this->monthlyCycleSettings(['monthly_fee_respect_registration_date' => false]);
+        $newSettings = $this->monthlyCycleSettings(['monthly_fee_respect_registration_date' => true]);
+
+        app(MonthlyFeeGenerationService::class)->generateForUserWithSummary(
+            $user,
+            Carbon::parse('2026-08-01'),
+            Carbon::parse('2026-09-01'),
+            ['today' => Carbon::parse('2026-07-15'), 'settings' => $oldSettings, 'load_created_items' => true],
+        );
+
+        app(MonthlyFeeCycleLifecycleService::class)
+            ->reconcileFutureInvoicesForSettingsChange($oldSettings, $newSettings, Carbon::parse('2026-07-15'));
+
+        $this->assertNull($this->activeMonthlyInvoice($user, '2026-08'));
+        $this->assertSame('pendente', $this->activeMonthlyInvoice($user, '2026-09')->estado_pagamento);
+    }
+
+    public function test_monthly_fee_cycle_reconciliation_preserves_current_past_and_financially_protected_invoices(): void
+    {
+        Carbon::setTestNow('2026-07-15 10:00:00');
+
+        $plan = $this->createMonthlyPlan();
+        $user = $this->createEligibleUser($plan, ['data_inscricao' => '2026-06-01']);
+        $oldSettings = $this->monthlyCycleSettings(['monthly_fee_end_month' => 12, 'monthly_fee_generate_months_ahead' => 5]);
+        $newSettings = $this->monthlyCycleSettings(['monthly_fee_end_month' => 8, 'monthly_fee_generate_months_ahead' => 1]);
+
+        app(MonthlyFeeGenerationService::class)->generateForUserWithSummary(
+            $user,
+            Carbon::parse('2026-06-01'),
+            Carbon::parse('2026-12-01'),
+            ['today' => Carbon::parse('2026-07-15'), 'settings' => $oldSettings, 'load_created_items' => true],
+        );
+
+        $june = $this->activeMonthlyInvoice($user, '2026-06');
+        $july = $this->activeMonthlyInvoice($user, '2026-07');
+        $september = $this->activeMonthlyInvoice($user, '2026-09');
+        $october = $this->activeMonthlyInvoice($user, '2026-10');
+        $november = $this->activeMonthlyInvoice($user, '2026-11');
+        $december = $this->activeMonthlyInvoice($user, '2026-12');
+
+        $september->forceFill(['estado_pagamento' => 'parcial', 'valor_pago' => 10, 'valor_em_aberto' => 30])->save();
+        $october->forceFill(['estado_pagamento' => 'pago', 'valor_pago' => 40, 'valor_em_aberto' => 0])->save();
+        $payment = Payment::create([
+            'user_id' => $user->id,
+            'amount' => 5,
+            'allocated_amount' => 5,
+            'unallocated_amount' => 0,
+            'payment_date' => '2026-07-20',
+            'source' => Payment::SOURCE_MANUAL,
+            'status' => 'confirmed',
+        ]);
+        PaymentAllocation::create([
+            'payment_id' => $payment->id,
+            'invoice_id' => $november->id,
+            'amount' => 5,
+            'status' => PaymentAllocation::STATUS_CONFIRMED,
+            'allocated_at' => now(),
+        ]);
+        FiscalDocumentRequest::create([
+            'invoice_id' => $december->id,
+            'provider' => FiscalDocumentRequest::PROVIDER_WINTOUCH,
+            'document_type' => FiscalDocumentRequest::DOCUMENT_TYPE_RECEIPT,
+            'status' => FiscalDocumentRequest::STATUS_PENDING,
+            'priority' => FiscalDocumentRequest::PRIORITY_NORMAL,
+        ]);
+
+        app(MonthlyFeeCycleLifecycleService::class)
+            ->reconcileFutureInvoicesForSettingsChange($oldSettings, $newSettings, Carbon::parse('2026-07-15'));
+
+        $this->assertSame('vencido', $june->fresh()->estado_pagamento);
+        $this->assertSame('vencido', $july->fresh()->estado_pagamento);
+        $this->assertSame('parcial', $september->fresh()->estado_pagamento);
+        $this->assertSame('pago', $october->fresh()->estado_pagamento);
+        $this->assertSame('pendente', $november->fresh()->estado_pagamento);
+        $this->assertSame('pendente', $december->fresh()->estado_pagamento);
+    }
+
+    public function test_monthly_fee_cycle_reconciliation_ignores_generation_and_auto_activation_flags(): void
+    {
+        Carbon::setTestNow('2026-07-15 10:00:00');
+
+        $plan = $this->createMonthlyPlan();
+        $user = $this->createEligibleUser($plan, ['data_inscricao' => '2026-07-01']);
+        $oldSettings = $this->monthlyCycleSettings([
+            'monthly_fee_generation_enabled' => true,
+            'monthly_fee_auto_activate_due' => true,
+        ]);
+        $newSettings = $this->monthlyCycleSettings([
+            'monthly_fee_generation_enabled' => false,
+            'monthly_fee_auto_activate_due' => false,
+        ]);
+
+        app(MonthlyFeeGenerationService::class)->generateForUserWithSummary(
+            $user,
+            Carbon::parse('2026-08-01'),
+            Carbon::parse('2026-08-01'),
+            ['today' => Carbon::parse('2026-07-15'), 'settings' => $oldSettings, 'load_created_items' => true],
+        );
+        $invoice = $this->activeMonthlyInvoice($user, '2026-08');
+
+        $summary = app(MonthlyFeeCycleLifecycleService::class)
+            ->reconcileFutureInvoicesForSettingsChange($oldSettings, $newSettings, Carbon::parse('2026-07-15'));
+
+        $this->assertFalse($summary['changed']);
+        $this->assertSame(0, $summary['cancelled_count']);
+        $this->assertSame('pendente', $invoice->fresh()->estado_pagamento);
+    }
+
+    public function test_monthly_fee_cycle_reconciliation_is_idempotent_and_does_not_generate_for_extended_window(): void
+    {
+        Carbon::setTestNow('2026-07-15 10:00:00');
+
+        $plan = $this->createMonthlyPlan();
+        $user = $this->createEligibleUser($plan, ['data_inscricao' => '2026-07-01']);
+        $oldSettings = $this->monthlyCycleSettings(['monthly_fee_due_day' => 1, 'monthly_fee_generate_months_ahead' => 1]);
+        $newSettings = $this->monthlyCycleSettings(['monthly_fee_due_day' => 15, 'monthly_fee_generate_months_ahead' => 3]);
+
+        app(MonthlyFeeGenerationService::class)->generateForUserWithSummary(
+            $user,
+            Carbon::parse('2026-08-01'),
+            Carbon::parse('2026-08-01'),
+            ['today' => Carbon::parse('2026-07-15'), 'settings' => $oldSettings, 'load_created_items' => true],
+        );
+
+        $service = app(MonthlyFeeCycleLifecycleService::class);
+        $first = $service->reconcileFutureInvoicesForSettingsChange($oldSettings, $newSettings, Carbon::parse('2026-07-15'));
+        $second = $service->reconcileFutureInvoicesForSettingsChange($oldSettings, $newSettings, Carbon::parse('2026-07-15'));
+
+        $this->assertSame(1, $first['cancelled_count']);
+        $this->assertSame(1, $first['regenerated_count']);
+        $this->assertSame(0, $second['cancelled_count']);
+        $this->assertSame(0, $second['regenerated_count']);
+        $this->assertSame(1, Invoice::query()
+            ->where('user_id', $user->id)
+            ->where('mes', '2026-08')
+            ->where('estado_pagamento', '!=', 'cancelado')
+            ->count());
+        $this->assertNull($this->activeMonthlyInvoice($user, '2026-09'));
+        $this->assertNull($this->activeMonthlyInvoice($user, '2026-10'));
+    }
+
+    private function activeMonthlyInvoice(User $user, string $month): ?Invoice
+    {
+        return Invoice::query()
+            ->with('items')
+            ->where('user_id', $user->id)
+            ->where('mes', $month)
+            ->where('tipo', 'mensalidade')
+            ->where('estado_pagamento', '!=', 'cancelado')
+            ->first();
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function monthlyCycleSettings(array $overrides = []): array
+    {
+        return array_merge([
+            'monthly_fee_generation_enabled' => true,
+            'monthly_fee_start_month' => 7,
+            'monthly_fee_end_month' => 12,
+            'monthly_fee_due_day' => 1,
+            'monthly_fee_hide_future' => true,
+            'monthly_fee_auto_activate_due' => true,
+            'monthly_fee_respect_registration_date' => true,
+            'monthly_fee_generate_months_ahead' => null,
+            'monthly_fee_default_period_mode' => 'financial_cycle',
+        ], $overrides);
     }
 
     private function createMonthlyPlan(float $amount = 40.00, string $designacao = 'Mensalidade Base'): MonthlyFee
