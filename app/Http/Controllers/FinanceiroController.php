@@ -29,6 +29,8 @@ use App\Services\Financeiro\CurrentAccountService;
 use App\Services\Financeiro\FinanceDashboardService;
 use App\Services\Financeiro\FinancialSettlementService;
 use App\Services\Financeiro\FiscalDocumentRequestService;
+use App\Services\Financeiro\InvoiceFinancialGuardService;
+use App\Services\Financeiro\ManualInvoiceService;
 use App\Services\Financeiro\ManualExpenseService;
 use App\Services\Financeiro\MovementDocumentControlService;
 use App\Services\Financeiro\MonthlyInvoiceStatusService;
@@ -67,6 +69,8 @@ class FinanceiroController extends Controller
         private readonly MovementDocumentControlService $movementDocumentControlService,
         private readonly MemberFiscalDataResolver $memberFiscalDataResolver,
         private readonly MemberMonthlyFeeResolver $memberMonthlyFeeResolver,
+        private readonly ManualInvoiceService $manualInvoiceService,
+        private readonly InvoiceFinancialGuardService $invoiceFinancialGuardService,
     ) {
     }
 
@@ -423,49 +427,7 @@ class FinanceiroController extends Controller
 
     public function store(StoreInvoiceRequest $request): RedirectResponse|JsonResponse
     {
-        $data = $request->validated();
-
-        if (in_array($data['estado_pagamento'] ?? 'pendente', ['pago', 'parcial'], true)) {
-            throw ValidationException::withMessages([
-                'estado_pagamento' => 'A liquidacao da fatura tem de ser efetuada pelo fluxo canonico de pagamento.',
-            ]);
-        }
-
-        $invoice = Invoice::create([
-            'user_id' => $data['user_id'],
-            'data_fatura' => $data['data_fatura'] ?? $data['data_emissao'],
-            'mes' => $data['mes'] ?? null,
-            'data_emissao' => $data['data_emissao'],
-            'data_vencimento' => $data['data_vencimento'],
-            'valor_total' => $data['valor_total'],
-            'oculta' => $data['oculta'] ?? false,
-            'estado_pagamento' => $data['estado_pagamento'] ?? 'pendente',
-            'referencia_pagamento' => $data['referencia_pagamento'] ?? null,
-            'centro_custo_id' => $data['centro_custo_id'] ?? null,
-            'tipo' => $data['tipo'],
-            'origem_tipo' => $data['origem_tipo'] ?? null,
-            'origem_id' => $data['origem_id'] ?? null,
-            'observacoes' => $data['observacoes'] ?? null,
-        ]);
-
-        if (isset($data['items'])) {
-            foreach ($data['items'] as $item) {
-                InvoiceItem::create([
-                    'fatura_id' => $invoice->id,
-                    'descricao' => $item['descricao'],
-                    'quantidade' => $item['quantidade'],
-                    'valor_unitario' => $item['valor_unitario'],
-                    'imposto_percentual' => $item['imposto_percentual'] ?? 0,
-                    'total_linha' => $item['total_linha'],
-                    'produto_id' => $item['produto_id'] ?? null,
-                    'centro_custo_id' => $item['centro_custo_id'] ?? $data['centro_custo_id'] ?? null,
-                ]);
-
-                if (!empty($item['produto_id'])) {
-                    Product::where('id', $item['produto_id'])->decrement('stock', (int) $item['quantidade']);
-                }
-            }
-        }
+        $invoice = $this->manualInvoiceService->create($request->validated(), $request->user());
 
         $this->invalidateFinanceiroCaches();
 
@@ -734,106 +696,7 @@ class FinanceiroController extends Controller
 
     public function update(UpdateInvoiceRequest $request, Invoice $financeiro): RedirectResponse|JsonResponse
     {
-        $data = $request->validated();
-
-        $requestedStatus = $data['estado_pagamento'] ?? $financeiro->estado_pagamento;
-        $isMonthlyFinancialTransition = $financeiro->tipo === 'mensalidade'
-            && (
-                (
-                    in_array($requestedStatus, ['pago', 'parcial'], true)
-                    && ! in_array($financeiro->estado_pagamento, ['pago', 'parcial'], true)
-                )
-                || (
-                    in_array($financeiro->estado_pagamento, ['pago', 'parcial'], true)
-                    && ! in_array($requestedStatus, ['pago', 'parcial'], true)
-                )
-                || ($financeiro->estado_pagamento === 'parcial' && $requestedStatus === 'pago')
-            );
-
-        if ($isMonthlyFinancialTransition) {
-            throw ValidationException::withMessages([
-                'estado_pagamento' => 'A alteracao de estado financeiro da mensalidade tem de ser efetuada pelo fluxo canonico da mensalidade.',
-            ]);
-        }
-
-        if (
-            in_array($requestedStatus, ['pago', 'parcial'], true)
-            && !in_array($financeiro->estado_pagamento, ['pago', 'parcial'], true)
-        ) {
-            throw ValidationException::withMessages([
-                'estado_pagamento' => 'A liquidacao da fatura tem de ser efetuada pelo fluxo de pagamento.',
-            ]);
-        }
-
-        $isManualPaymentReversal = $financeiro->tipo !== 'mensalidade'
-            && in_array($financeiro->estado_pagamento, ['pago', 'parcial'], true)
-            && !in_array($requestedStatus, ['pago', 'parcial'], true);
-
-        if ($isManualPaymentReversal) {
-            throw ValidationException::withMessages([
-                'estado_pagamento' => 'A reabertura da fatura tem de ser efetuada pelo endpoint canonico de reabertura.',
-            ]);
-        }
-
-        $financeiro->update([
-            'user_id' => $data['user_id'],
-            'data_fatura' => $data['data_fatura'] ?? $data['data_emissao'],
-            'mes' => $data['mes'] ?? null,
-            'data_emissao' => $data['data_emissao'],
-            'data_vencimento' => $data['data_vencimento'],
-            'valor_total' => $data['valor_total'],
-            'oculta' => $data['oculta'] ?? $financeiro->oculta,
-            'estado_pagamento' => $requestedStatus,
-            'referencia_pagamento' => $data['referencia_pagamento'] ?? $financeiro->referencia_pagamento,
-            'centro_custo_id' => $data['centro_custo_id'] ?? null,
-            'tipo' => $data['tipo'],
-            'origem_tipo' => $data['origem_tipo'] ?? $financeiro->origem_tipo,
-            'origem_id' => $data['origem_id'] ?? $financeiro->origem_id,
-            'observacoes' => $data['observacoes'] ?? null,
-        ]);
-
-        if (isset($data['items'])) {
-            $existingItems = InvoiceItem::where('fatura_id', $financeiro->id)->get();
-            $existingByProduct = $existingItems
-                ->filter(fn ($item) => !empty($item->produto_id))
-                ->groupBy('produto_id')
-                ->map(fn ($group) => (int) $group->sum('quantidade'));
-
-            InvoiceItem::where('fatura_id', $financeiro->id)->delete();
-
-            $newByProduct = [];
-            foreach ($data['items'] as $item) {
-                InvoiceItem::create([
-                    'fatura_id' => $financeiro->id,
-                    'descricao' => $item['descricao'],
-                    'quantidade' => $item['quantidade'],
-                    'valor_unitario' => $item['valor_unitario'],
-                    'imposto_percentual' => $item['imposto_percentual'] ?? 0,
-                    'total_linha' => $item['total_linha'],
-                    'produto_id' => $item['produto_id'] ?? null,
-                    'centro_custo_id' => $item['centro_custo_id'] ?? $data['centro_custo_id'] ?? null,
-                ]);
-
-                if (!empty($item['produto_id'])) {
-                    $newByProduct[$item['produto_id']] = ($newByProduct[$item['produto_id']] ?? 0) + (int) $item['quantidade'];
-                }
-            }
-
-            $allProductIds = collect($existingByProduct->keys())
-                ->merge(array_keys($newByProduct))
-                ->unique();
-
-            foreach ($allProductIds as $productId) {
-                $previous = (int) ($existingByProduct[$productId] ?? 0);
-                $next = (int) ($newByProduct[$productId] ?? 0);
-                $delta = $next - $previous;
-                if ($delta > 0) {
-                    Product::where('id', $productId)->decrement('stock', $delta);
-                } elseif ($delta < 0) {
-                    Product::where('id', $productId)->increment('stock', abs($delta));
-                }
-            }
-        }
+        $financeiro = $this->manualInvoiceService->update($financeiro, $request->validated(), $request->user());
 
         $this->invalidateFinanceiroCaches();
 
@@ -988,7 +851,7 @@ class FinanceiroController extends Controller
                 ->with('error', $message);
         }
 
-        $financeiro->delete();
+        $this->manualInvoiceService->delete($financeiro, request()->user());
 
         $this->invalidateFinanceiroCaches();
 
@@ -2053,34 +1916,7 @@ class FinanceiroController extends Controller
 
     private function invoiceHasFinancialTrail(Invoice $invoice): bool
     {
-        $invoice = $invoice->fresh();
-
-        $hasFiscalRequest = FiscalDocumentRequest::withTrashed()
-            ->where('invoice_id', $invoice->id)
-            ->exists();
-
-        $hasExternalFiscalDocument = FiscalDocumentRequest::withTrashed()
-            ->where('invoice_id', $invoice->id)
-            ->where(function ($query): void {
-                $query
-                    ->whereNotNull('external_document_number')
-                    ->where('external_document_number', '!=', '')
-                    ->orWhere(function ($providerQuery): void {
-                        $providerQuery
-                            ->where('provider', FiscalDocumentRequest::PROVIDER_WINTOUCH)
-                            ->whereNotNull('external_document_id');
-                    });
-            })
-            ->exists();
-
-        return in_array($invoice->estado_pagamento, ['pago', 'parcial'], true)
-            || (float) ($invoice->valor_pago ?? 0) > 0
-            || filled($invoice->numero_recibo)
-            || $invoice->paymentAllocations()->exists()
-            || $invoice->payments()->exists()
-            || MapaConciliacao::query()->where('fatura_id', $invoice->id)->exists()
-            || $hasFiscalRequest
-            || $hasExternalFiscalDocument;
+        return $this->invoiceFinancialGuardService->hasFinancialOrFiscalTrail($invoice);
     }
 
     public function storeMovimento(Request $request)
