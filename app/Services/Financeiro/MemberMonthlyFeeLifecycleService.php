@@ -214,6 +214,52 @@ class MemberMonthlyFeeLifecycleService
             && ! FiscalDocumentRequest::withTrashed()->where('invoice_id', $invoice->id)->exists();
     }
 
+    /**
+     * @return list<string>
+     */
+    public function futureMonthlyInvoiceProtectionReasons(Invoice $invoice): array
+    {
+        $reasons = [];
+
+        if ($invoice->tipo !== 'mensalidade') {
+            $reasons[] = 'not_monthly_fee';
+        }
+
+        if (! in_array($invoice->estado_pagamento, ['pendente', 'vencido'], true)) {
+            $reasons[] = 'estado_not_reconcilable';
+        }
+
+        if (round((float) ($invoice->valor_pago ?? 0), 2) > 0.0) {
+            $reasons[] = 'paid_amount';
+        }
+
+        if (filled($invoice->numero_recibo)) {
+            $reasons[] = 'receipt_number';
+        }
+
+        if (filled($invoice->receipt_import_item_id)) {
+            $reasons[] = 'receipt_import';
+        }
+
+        if (PaymentAllocation::withTrashed()->where('invoice_id', $invoice->id)->exists()) {
+            $reasons[] = 'payment_allocation';
+        }
+
+        if (MapaConciliacao::query()->where('fatura_id', $invoice->id)->exists()) {
+            $reasons[] = 'mapa_conciliacao';
+        }
+
+        if (BankTransactionAllocation::query()->where('invoice_id', $invoice->id)->exists()) {
+            $reasons[] = 'bank_transaction_allocation';
+        }
+
+        if (FiscalDocumentRequest::withTrashed()->where('invoice_id', $invoice->id)->exists()) {
+            $reasons[] = 'fiscal_request';
+        }
+
+        return array_values(array_unique($reasons));
+    }
+
     public function matchesCurrentMonthlyTerms(User $user, Invoice $invoice): bool
     {
         $user->loadMissing(['dadosFinanceiros.mensalidade', 'centrosCusto']);

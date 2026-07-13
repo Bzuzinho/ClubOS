@@ -38,6 +38,7 @@ return Application::configure(basePath: dirname(__DIR__))
         \App\Console\Commands\Financeiro\AuditMemberMonthlyFeesCommand::class,
         \App\Console\Commands\Financeiro\AuditPendingMonthlyFeeRequirementsCommand::class,
         \App\Console\Commands\Financeiro\FinancialIntegrationAuditCommand::class,
+        \App\Console\Commands\Financeiro\MonthlyFeeFutureInvoiceAuditCommand::class,
         \App\Console\Commands\Financeiro\NormalizeLegacyManualMovementSignCommand::class,
         \App\Console\Commands\Financeiro\BackfillMemberCostCentersCommand::class,
         \App\Console\Commands\Financeiro\BackfillMemberMonthlyFeesCommand::class,
