@@ -199,6 +199,12 @@ final class InvoiceObligationAuditService
         $mapaCount = MapaConciliacao::query()->where('fatura_id', $invoice->id)->count();
         $bankAllocations = BankTransactionAllocation::query()->where('invoice_id', $invoice->id)->get();
         $fiscalRequests = FiscalDocumentRequest::withTrashed()->where('invoice_id', $invoice->id)->get();
+        $archivedStaleFiscalRequests = $fiscalRequests->filter(
+            fn (FiscalDocumentRequest $request): bool => $this->isArchivedStaleFiscalRequest($request),
+        );
+        $nonArchivedFiscalRequests = $fiscalRequests->reject(
+            fn (FiscalDocumentRequest $request): bool => $this->isArchivedStaleFiscalRequest($request),
+        );
 
         return [
             'payment_allocation_count' => $allocations->count(),
@@ -217,9 +223,12 @@ final class InvoiceObligationAuditService
             'fiscal_document_request_count' => $fiscalRequests->count(),
             'fiscal_document_request_deleted_count' => $fiscalRequests->whereNotNull('deleted_at')->count(),
             'has_fiscal_request' => $fiscalRequests->isNotEmpty(),
+            'archived_stale_fiscal_request_count' => $archivedStaleFiscalRequests->count(),
+            'has_archived_stale_fiscal_request' => $archivedStaleFiscalRequests->isNotEmpty(),
+            'has_non_archived_fiscal_request' => $nonArchivedFiscalRequests->isNotEmpty(),
             'has_issued_fiscal_request' => $fiscalRequests->contains(static fn (FiscalDocumentRequest $request): bool => $request->status === FiscalDocumentRequest::STATUS_ISSUED),
-            'has_pending_fiscal_request' => $fiscalRequests->contains(static fn (FiscalDocumentRequest $request): bool => $request->status === FiscalDocumentRequest::STATUS_PENDING),
-            'external_document_numbers' => $fiscalRequests
+            'has_pending_fiscal_request' => $nonArchivedFiscalRequests->contains(static fn (FiscalDocumentRequest $request): bool => $request->status === FiscalDocumentRequest::STATUS_PENDING),
+            'external_document_numbers' => $nonArchivedFiscalRequests
                 ->pluck('external_document_number')
                 ->filter()
                 ->map(static fn (mixed $value): string => (string) $value)
@@ -385,8 +394,12 @@ final class InvoiceObligationAuditService
             $findings[] = $this->finding('receipt_number_without_fiscal_request', $diagnostic, 'warning', 'review_receipt_number_without_fiscal_request');
         }
 
-        if ((bool) $trail['has_fiscal_request'] && $diagnostic['estado_pagamento'] !== 'pago') {
+        if ((bool) $trail['has_non_archived_fiscal_request'] && $diagnostic['estado_pagamento'] !== 'pago') {
             $findings[] = $this->finding('fiscal_request_without_invoice_paid', $diagnostic, 'warning', 'review_fiscal_request_for_non_paid_invoice');
+        }
+
+        if ((bool) $trail['has_archived_stale_fiscal_request']) {
+            $findings[] = $this->finding('stale_fiscal_request_archived', $diagnostic, 'info', 'no_action_needed_stale_fiscal_request_archived');
         }
 
         if ($diagnostic['numero_recibo'] === null && $trail['external_document_numbers'] !== []) {
@@ -633,5 +646,15 @@ final class InvoiceObligationAuditService
         $normalized = trim($value);
 
         return $normalized === '' ? null : $normalized;
+    }
+
+    private function isArchivedStaleFiscalRequest(FiscalDocumentRequest $request): bool
+    {
+        return (bool) data_get($request->metadata, 'stale_cleanup') === true
+            && data_get($request->metadata, 'stale_cleanup_version') === 'a3-6'
+            && $request->trashed()
+            && blank($request->external_document_number)
+            && blank($request->external_document_id)
+            && $request->issued_at === null;
     }
 }
