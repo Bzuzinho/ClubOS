@@ -224,6 +224,36 @@ class ManualInvoiceServiceTest extends TestCase
             ->assertJsonValidationErrors(['invoice']);
     }
 
+    public function test_update_and_destroy_with_soft_deleted_fiscal_document_request_are_blocked(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $invoice = $this->createManualInvoice();
+
+        $request = FiscalDocumentRequest::query()->create([
+            'invoice_id' => $invoice->id,
+            'user_id' => $invoice->user_id,
+            'provider' => FiscalDocumentRequest::PROVIDER_WINTOUCH,
+            'document_type' => FiscalDocumentRequest::DOCUMENT_TYPE_INVOICE,
+            'status' => FiscalDocumentRequest::STATUS_PENDING,
+            'priority' => FiscalDocumentRequest::PRIORITY_NORMAL,
+            'amount' => 15,
+        ]);
+        $request->delete();
+
+        $this->actingAs($admin)
+            ->putJson(route('financeiro.update', $invoice), $this->payload($invoice->user, $invoice->costCenter, ['valor_total' => 30]))
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['invoice']);
+
+        $this->actingAs($admin)
+            ->postJson(route('financeiro.destroy.post', $invoice))
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['invoice']);
+
+        $this->assertDatabaseHas('invoices', ['id' => $invoice->id]);
+        $this->assertSame(1, $invoice->fresh()->items()->count());
+    }
+
     public function test_update_with_receipt_or_import_trace_is_blocked(): void
     {
         $admin = User::factory()->admin()->create();

@@ -7,6 +7,7 @@ use App\Models\Invoice;
 use App\Services\Members\MemberFiscalDataResolver;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 class FiscalDocumentRequestService
@@ -19,6 +20,7 @@ class FiscalDocumentRequestService
 
     public function __construct(
         private readonly MemberFiscalDataResolver $memberFiscalDataResolver,
+        private readonly FiscalDocumentRequestGuardService $guard,
     ) {}
 
     public function findActiveForInvoice($invoice, ?string $provider = null, ?string $documentType = null): ?FiscalDocumentRequest
@@ -75,8 +77,19 @@ class FiscalDocumentRequestService
 
         return FiscalDocumentRequest::query()
             ->where('invoice_id', $invoiceId)
-            ->whereNotNull('external_document_number')
-            ->where('external_document_number', '!=', '')
+            ->where(function ($query): void {
+                $query
+                    ->where(function ($numberQuery): void {
+                        $numberQuery
+                            ->whereNotNull('external_document_number')
+                            ->where('external_document_number', '!=', '');
+                    })
+                    ->orWhere(function ($idQuery): void {
+                        $idQuery
+                            ->whereNotNull('external_document_id')
+                            ->where('external_document_id', '!=', '');
+                    });
+            })
             ->exists();
     }
 
@@ -90,6 +103,11 @@ class FiscalDocumentRequestService
                 $query
                     ->whereNull('external_document_number')
                     ->orWhere('external_document_number', '');
+            })
+            ->where(function ($query): void {
+                $query
+                    ->whereNull('external_document_id')
+                    ->orWhere('external_document_id', '');
             })
             ->delete();
     }
@@ -198,32 +216,57 @@ class FiscalDocumentRequestService
     {
         $issuedAt = !empty($data['issued_at']) ? Carbon::parse($data['issued_at']) : now();
 
-        $request->fill([
-            'status' => FiscalDocumentRequest::STATUS_ISSUED,
-            'document_type' => $data['document_type'] ?? $request->document_type,
-            'external_document_number' => $data['external_document_number'],
-            'external_document_id' => $data['external_document_id'] ?? $request->external_document_id,
-            'external_document_url' => $data['external_document_url'] ?? $request->external_document_url,
-            'external_series' => $data['external_series'] ?? $request->external_series,
-            'notes' => $data['notes'] ?? $request->notes,
-            'issued_at' => $issuedAt,
-            'issued_by' => $userId,
-            'handled_by' => $userId,
-            'handled_at' => now(),
-            'last_error' => null,
-        ]);
-        $request->save();
+        return DB::transaction(function () use ($request, $data, $userId, $issuedAt): FiscalDocumentRequest {
+            $lockedRequest = FiscalDocumentRequest::query()
+                ->whereKey($request->id)
+                ->lockForUpdate()
+                ->firstOrFail();
 
-        if ($request->invoice_id) {
-            Invoice::query()
-                ->whereKey($request->invoice_id)
-                ->update([
+            $this->ensureExistingDocumentIdentityMatches($lockedRequest, $data);
+
+            $lockedInvoice = null;
+
+            if ($lockedRequest->invoice_id) {
+                $lockedInvoice = Invoice::query()
+                    ->whereKey($lockedRequest->invoice_id)
+                    ->lockForUpdate()
+                    ->firstOrFail();
+
+                if (
+                    filled($lockedInvoice->numero_recibo)
+                    && $lockedInvoice->numero_recibo !== $data['external_document_number']
+                ) {
+                    throw ValidationException::withMessages([
+                        'external_document_number' => 'A fatura ja tem um numero de recibo diferente registado.',
+                    ]);
+                }
+            }
+
+            $lockedRequest->fill([
+                'status' => FiscalDocumentRequest::STATUS_ISSUED,
+                'document_type' => $data['document_type'] ?? $lockedRequest->document_type,
+                'external_document_number' => $data['external_document_number'],
+                'external_document_id' => $data['external_document_id'] ?? $lockedRequest->external_document_id,
+                'external_document_url' => $data['external_document_url'] ?? $lockedRequest->external_document_url,
+                'external_series' => $data['external_series'] ?? $lockedRequest->external_series,
+                'notes' => $data['notes'] ?? $lockedRequest->notes,
+                'issued_at' => $issuedAt,
+                'issued_by' => $userId,
+                'handled_by' => $userId,
+                'handled_at' => now(),
+                'last_error' => null,
+            ]);
+            $lockedRequest->save();
+
+            if ($lockedInvoice) {
+                $lockedInvoice->forceFill([
                     'numero_recibo' => $data['external_document_number'],
                     'recibo_emitido_em' => $issuedAt->toDateString(),
-                ]);
-        }
+                ])->save();
+            }
 
-        return $request->refresh();
+            return $lockedRequest->refresh();
+        });
     }
 
     public function markCancelled(FiscalDocumentRequest $request, ?string $reason = null, ?string $userId = null): FiscalDocumentRequest
@@ -247,7 +290,7 @@ class FiscalDocumentRequestService
 
     public function requestHasRegisteredDocument(FiscalDocumentRequest $request): bool
     {
-        return filled($request->external_document_number);
+        return $this->guard->hasRegisteredDocument($request);
     }
 
     public function markErrorData(FiscalDocumentRequest $request, string $error, ?string $notes = null, ?string $userId = null): FiscalDocumentRequest
@@ -311,6 +354,29 @@ class FiscalDocumentRequestService
                 'line_items' => $lineItems,
             ],
         ];
+    }
+
+    private function ensureExistingDocumentIdentityMatches(FiscalDocumentRequest $request, array $data): void
+    {
+        if (
+            filled($request->external_document_number)
+            && $request->external_document_number !== $data['external_document_number']
+        ) {
+            throw ValidationException::withMessages([
+                'external_document_number' => 'O pedido fiscal ja tem um numero de documento externo diferente registado.',
+            ]);
+        }
+
+        if (
+            filled($request->external_document_id)
+            && array_key_exists('external_document_id', $data)
+            && filled($data['external_document_id'])
+            && $request->external_document_id !== $data['external_document_id']
+        ) {
+            throw ValidationException::withMessages([
+                'external_document_id' => 'O pedido fiscal ja tem um identificador externo diferente registado.',
+            ]);
+        }
     }
 
     private function resolveAddress(array $fiscalData): ?string

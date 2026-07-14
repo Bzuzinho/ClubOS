@@ -273,6 +273,259 @@ class FiscalDocumentRequestFlowTest extends TestCase
         ]);
     }
 
+    public function test_pending_request_generic_update_allows_notes_and_priority_only(): void
+    {
+        $user = User::factory()->admin()->create();
+        $request = $this->createFiscalRequest([
+            'status' => FiscalDocumentRequest::STATUS_PENDING,
+            'priority' => FiscalDocumentRequest::PRIORITY_NORMAL,
+            'notes' => 'Inicial',
+        ]);
+
+        $response = $this->actingAs($user)->patchJson(
+            route('financeiro.fiscal-document-requests.update', $request),
+            [
+                'priority' => FiscalDocumentRequest::PRIORITY_HIGH,
+                'notes' => 'Validar antes de emitir',
+            ]
+        );
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('data.priority', FiscalDocumentRequest::PRIORITY_HIGH)
+            ->assertJsonPath('data.notes', 'Validar antes de emitir');
+
+        $this->assertDatabaseHas('fiscal_document_requests', [
+            'id' => $request->id,
+            'priority' => FiscalDocumentRequest::PRIORITY_HIGH,
+            'notes' => 'Validar antes de emitir',
+        ]);
+    }
+
+    public function test_pending_request_generic_update_blocks_document_identity(): void
+    {
+        $user = User::factory()->admin()->create();
+        $request = $this->createFiscalRequest();
+
+        $this->actingAs($user)
+            ->patchJson(route('financeiro.fiscal-document-requests.update', $request), [
+                'external_document_number' => 'RC 2026/500',
+            ])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['external_document_number']);
+
+        $this->assertDatabaseHas('fiscal_document_requests', [
+            'id' => $request->id,
+            'external_document_number' => null,
+        ]);
+    }
+
+    public function test_pending_request_generic_update_blocks_status_transition(): void
+    {
+        $user = User::factory()->admin()->create();
+        $request = $this->createFiscalRequest();
+
+        $this->actingAs($user)
+            ->patchJson(route('financeiro.fiscal-document-requests.update', $request), [
+                'status' => FiscalDocumentRequest::STATUS_ISSUED,
+            ])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['status']);
+
+        $this->assertDatabaseHas('fiscal_document_requests', [
+            'id' => $request->id,
+            'status' => FiscalDocumentRequest::STATUS_PENDING,
+        ]);
+    }
+
+    public function test_pending_request_generic_update_blocks_structural_fields(): void
+    {
+        $user = User::factory()->admin()->create();
+        $request = $this->createFiscalRequest([
+            'amount' => 55,
+            'customer_name' => 'Socio Fiscal',
+        ]);
+
+        foreach (['amount' => 60, 'customer_name' => 'Outro Socio', 'document_type' => FiscalDocumentRequest::DOCUMENT_TYPE_INVOICE] as $field => $value) {
+            $this->actingAs($user)
+                ->patchJson(route('financeiro.fiscal-document-requests.update', $request), [$field => $value])
+                ->assertStatus(422)
+                ->assertJsonValidationErrors([$field]);
+        }
+
+        $this->assertDatabaseHas('fiscal_document_requests', [
+            'id' => $request->id,
+            'amount' => 55,
+            'customer_name' => 'Socio Fiscal',
+            'document_type' => FiscalDocumentRequest::DOCUMENT_TYPE_RECEIPT,
+        ]);
+    }
+
+    public function test_issued_request_generic_update_blocks_structural_status_and_priority_fields(): void
+    {
+        $user = User::factory()->admin()->create();
+        $request = $this->createFiscalRequest([
+            'status' => FiscalDocumentRequest::STATUS_ISSUED,
+            'external_document_number' => 'RC 2026/501',
+            'amount' => 55,
+            'customer_name' => 'Socio Fiscal',
+            'priority' => FiscalDocumentRequest::PRIORITY_NORMAL,
+        ]);
+
+        foreach ([
+            'amount' => 60,
+            'customer_name' => 'Outro Socio',
+            'status' => FiscalDocumentRequest::STATUS_CANCELLED,
+            'document_type' => FiscalDocumentRequest::DOCUMENT_TYPE_INVOICE,
+            'provider' => 'outro',
+            'priority' => FiscalDocumentRequest::PRIORITY_HIGH,
+        ] as $field => $value) {
+            $this->actingAs($user)
+                ->patchJson(route('financeiro.fiscal-document-requests.update', $request), [$field => $value])
+                ->assertStatus(422)
+                ->assertJsonValidationErrors([$field]);
+        }
+
+        $request->refresh();
+        $this->assertSame('55.00', $request->amount);
+        $this->assertSame('Socio Fiscal', $request->customer_name);
+        $this->assertSame(FiscalDocumentRequest::STATUS_ISSUED, $request->status);
+        $this->assertSame(FiscalDocumentRequest::DOCUMENT_TYPE_RECEIPT, $request->document_type);
+        $this->assertSame(FiscalDocumentRequest::PROVIDER_WINTOUCH, $request->provider);
+        $this->assertSame(FiscalDocumentRequest::PRIORITY_NORMAL, $request->priority);
+    }
+
+    public function test_issued_request_generic_update_allows_notes_only(): void
+    {
+        $user = User::factory()->admin()->create();
+        $request = $this->createFiscalRequest([
+            'status' => FiscalDocumentRequest::STATUS_ISSUED,
+            'external_document_number' => 'RC 2026/502',
+            'notes' => 'Antes',
+        ]);
+
+        $response = $this->actingAs($user)->patchJson(
+            route('financeiro.fiscal-document-requests.update', $request),
+            ['notes' => 'Nota operacional']
+        );
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('data.notes', 'Nota operacional')
+            ->assertJsonPath('data.external_document_number', 'RC 2026/502');
+    }
+
+    public function test_mark_issued_blocks_invoice_receipt_conflict_without_partial_request_update(): void
+    {
+        $invoice = $this->createInvoice('pago');
+        $invoice->forceFill(['numero_recibo' => 'RC 2026/OLD'])->save();
+
+        $request = $this->createFiscalRequest([
+            'invoice_id' => $invoice->id,
+            'user_id' => $invoice->user_id,
+            'status' => FiscalDocumentRequest::STATUS_PENDING,
+            'external_document_number' => null,
+        ]);
+
+        try {
+            app(FiscalDocumentRequestService::class)->markIssued($request, [
+                'external_document_number' => 'RC 2026/NEW',
+                'issued_at' => '2026-05-07 10:00:00',
+            ]);
+
+            $this->fail('Expected receipt number conflict to block markIssued.');
+        } catch (ValidationException $exception) {
+            $this->assertSame(
+                'A fatura ja tem um numero de recibo diferente registado.',
+                $exception->errors()['external_document_number'][0] ?? null,
+            );
+        }
+
+        $request->refresh();
+        $invoice->refresh();
+
+        $this->assertSame(FiscalDocumentRequest::STATUS_PENDING, $request->status);
+        $this->assertNull($request->external_document_number);
+        $this->assertNull($request->issued_at);
+        $this->assertSame('RC 2026/OLD', $invoice->numero_recibo);
+    }
+
+    public function test_mark_issued_blocks_different_external_document_number_when_already_registered(): void
+    {
+        $request = $this->createFiscalRequest([
+            'status' => FiscalDocumentRequest::STATUS_ISSUED,
+            'external_document_number' => 'RC 2026/OLD',
+        ]);
+
+        $this->expectException(ValidationException::class);
+
+        try {
+            app(FiscalDocumentRequestService::class)->markIssued($request, [
+                'external_document_number' => 'RC 2026/NEW',
+            ]);
+        } catch (ValidationException $exception) {
+            $this->assertSame(
+                'O pedido fiscal ja tem um numero de documento externo diferente registado.',
+                $exception->errors()['external_document_number'][0] ?? null,
+            );
+
+            throw $exception;
+        }
+    }
+
+    public function test_cancelled_request_with_external_document_cannot_be_deleted_via_http(): void
+    {
+        $user = User::factory()->admin()->create();
+        $request = $this->createFiscalRequest([
+            'status' => FiscalDocumentRequest::STATUS_CANCELLED,
+            'external_document_number' => 'RC 2026/503',
+        ]);
+
+        $this->actingAs($user)
+            ->deleteJson(route('financeiro.fiscal-document-requests.destroy', $request))
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['request']);
+
+        $this->assertDatabaseHas('fiscal_document_requests', [
+            'id' => $request->id,
+            'status' => FiscalDocumentRequest::STATUS_CANCELLED,
+            'external_document_number' => 'RC 2026/503',
+            'deleted_at' => null,
+        ]);
+    }
+
+    public function test_paid_invoice_reversion_with_external_document_id_is_blocked(): void
+    {
+        $invoice = $this->createInvoice('pendente');
+
+        $invoice->update([
+            'estado_pagamento' => 'pago',
+            'data_pagamento' => '2026-05-05',
+        ]);
+
+        $request = FiscalDocumentRequest::query()->where('invoice_id', $invoice->id)->firstOrFail();
+        $request->forceFill([
+            'status' => FiscalDocumentRequest::STATUS_ISSUED,
+            'external_document_id' => 'WT-ID-123',
+        ])->save();
+
+        try {
+            $invoice->update([
+                'estado_pagamento' => 'pendente',
+                'data_pagamento' => null,
+            ]);
+
+            $this->fail('Expected invoice status change to be blocked.');
+        } catch (ValidationException $exception) {
+            $this->assertSame(
+                FiscalDocumentRequestService::INVOICE_STATUS_CHANGE_BLOCK_MESSAGE,
+                $exception->errors()['estado_pagamento'][0] ?? null,
+            );
+        }
+
+        $this->assertSame('pago', $invoice->fresh()->estado_pagamento);
+    }
+
     public function test_it_lists_pending_requests(): void
     {
         $user = User::factory()->admin()->create();
@@ -698,6 +951,18 @@ class FiscalDocumentRequestFlowTest extends TestCase
         ]);
 
         return $invoice;
+    }
+
+    private function createFiscalRequest(array $overrides = []): FiscalDocumentRequest
+    {
+        return FiscalDocumentRequest::query()->create(array_merge([
+            'provider' => FiscalDocumentRequest::PROVIDER_WINTOUCH,
+            'document_type' => FiscalDocumentRequest::DOCUMENT_TYPE_RECEIPT,
+            'status' => FiscalDocumentRequest::STATUS_PENDING,
+            'priority' => FiscalDocumentRequest::PRIORITY_NORMAL,
+            'amount' => 55,
+            'customer_name' => 'Socio Fiscal',
+        ], $overrides));
     }
 
     private function createInvoiceWithItems(array $items, string $estadoPagamento = 'pendente'): Invoice

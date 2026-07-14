@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Financeiro;
 use App\Http\Controllers\Controller;
 use App\Models\FiscalDocumentRequest;
 use App\Models\Invoice;
+use App\Services\Financeiro\FiscalDocumentRequestGuardService;
 use App\Services\Financeiro\FiscalDocumentRequestService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -16,6 +17,7 @@ class FiscalDocumentRequestController extends Controller
 {
     public function __construct(
         private readonly FiscalDocumentRequestService $service,
+        private readonly FiscalDocumentRequestGuardService $guard,
     ) {
     }
 
@@ -148,7 +150,9 @@ class FiscalDocumentRequestController extends Controller
     public function update(Request $request, FiscalDocumentRequest $fiscalDocumentRequest): JsonResponse
     {
         $validated = $request->validate($this->updateRules());
-        $fiscalDocumentRequest->fill($validated);
+        $payload = $this->guard->sanitizeGenericUpdatePayload($fiscalDocumentRequest, $validated);
+
+        $fiscalDocumentRequest->fill($payload);
         $fiscalDocumentRequest->save();
 
         $this->invalidateFinanceiroCaches();
