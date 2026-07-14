@@ -110,6 +110,7 @@ class ManualInvoiceService
                 ->lockForUpdate()
                 ->firstOrFail();
 
+            $this->ensureManualInvoiceType($lockedInvoice->tipo);
             $this->ensureEditable($lockedInvoice);
 
             $existingItems = $lockedInvoice->items()->lockForUpdate()->get();
@@ -179,7 +180,7 @@ class ManualInvoiceService
     {
         if ($type === 'mensalidade') {
             throw ValidationException::withMessages([
-                'tipo' => 'Mensalidades devem ser criadas e reconciliadas pelo motor canonico de mensalidades.',
+                'tipo' => 'Mensalidades devem ser criadas, canceladas e reconciliadas pelo lifecycle/motor canonico de mensalidades.',
             ]);
         }
     }

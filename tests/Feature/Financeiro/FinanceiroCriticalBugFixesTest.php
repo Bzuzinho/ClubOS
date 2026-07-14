@@ -101,7 +101,9 @@ class FinanceiroCriticalBugFixesTest extends TestCase
     public function test_it_allows_deleting_a_clean_pending_invoice(): void
     {
         $admin = User::factory()->admin()->create();
-        $invoice = $this->createInvoice();
+        $invoice = $this->createInvoice([
+            'tipo' => 'material',
+        ]);
 
         $this->actingAs($admin)
             ->postJson(route('financeiro.destroy.post', $invoice))

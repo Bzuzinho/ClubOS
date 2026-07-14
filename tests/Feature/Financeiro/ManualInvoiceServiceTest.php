@@ -270,6 +270,25 @@ class ManualInvoiceServiceTest extends TestCase
         $this->assertSame(8, $product->fresh()->stock);
     }
 
+    public function test_destroy_monthly_invoice_without_financial_trail_is_blocked_without_stock_change(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $product = Product::factory()->create(['stock' => 10]);
+        $invoice = $this->createManualInvoiceWithProduct($product, 2, 30);
+        $invoice->forceFill(['tipo' => 'mensalidade'])->save();
+
+        $this->assertSame(8, $product->fresh()->stock);
+
+        $this->actingAs($admin)
+            ->postJson(route('financeiro.destroy.post', $invoice))
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['tipo']);
+
+        $this->assertDatabaseHas('invoices', ['id' => $invoice->id, 'tipo' => 'mensalidade']);
+        $this->assertDatabaseHas('invoice_items', ['fatura_id' => $invoice->id, 'produto_id' => $product->id]);
+        $this->assertSame(8, $product->fresh()->stock);
+    }
+
     public function test_current_account_includes_pending_manual_invoice_and_excludes_cancelled(): void
     {
         $user = User::factory()->create();
