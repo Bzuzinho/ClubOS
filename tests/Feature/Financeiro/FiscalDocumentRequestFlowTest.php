@@ -213,7 +213,7 @@ class FiscalDocumentRequestFlowTest extends TestCase
         ]);
     }
 
-    public function test_paid_invoice_reversion_without_wintouch_number_soft_deletes_fiscal_request(): void
+    public function test_paid_invoice_reversion_without_external_document_number_soft_deletes_fiscal_request(): void
     {
         $invoice = $this->createInvoice('pendente');
 
@@ -234,7 +234,7 @@ class FiscalDocumentRequestFlowTest extends TestCase
         ]);
     }
 
-    public function test_paid_invoice_reversion_with_wintouch_number_is_blocked(): void
+    public function test_paid_invoice_reversion_with_external_document_number_is_blocked(): void
     {
         $invoice = $this->createInvoice('pendente');
 
@@ -775,20 +775,20 @@ class FiscalDocumentRequestFlowTest extends TestCase
         $response = $this->actingAs($user)->postJson(
             route('financeiro.fiscal-document-requests.mark-cancelled', $request),
             [
-                'reason' => 'Documento anulado na Wintouch',
+                'reason' => 'Documento anulado no provider fiscal externo',
             ]
         );
 
         $response
             ->assertOk()
             ->assertJsonPath('data.status', FiscalDocumentRequest::STATUS_CANCELLED)
-            ->assertJsonPath('data.last_error', 'Documento anulado na Wintouch')
+            ->assertJsonPath('data.last_error', 'Documento anulado no provider fiscal externo')
             ->assertJsonPath('data.external_document_number', 'RC 2026/51');
 
         $this->assertDatabaseHas('fiscal_document_requests', [
             'id' => $request->id,
             'status' => FiscalDocumentRequest::STATUS_CANCELLED,
-            'last_error' => 'Documento anulado na Wintouch',
+            'last_error' => 'Documento anulado no provider fiscal externo',
             'external_document_number' => 'RC 2026/51',
             'handled_by' => $user->id,
         ]);

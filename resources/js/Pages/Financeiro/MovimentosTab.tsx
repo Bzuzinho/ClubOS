@@ -1413,7 +1413,7 @@ export function MovimentosTab({
                   <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
                     <p className="font-medium">Reabertura controlada do movimento</p>
                     <p className="mt-1">
-                      Para voltar este movimento a pendente ou vencido, use a acao canonica abaixo. Se existir documento Wintouch emitido, a reabertura sera bloqueada.
+                      Para voltar este movimento a pendente ou vencido, use a acao canonica abaixo. Se existir documento fiscal externo emitido, a reabertura sera bloqueada.
                     </p>
                   </div>
                 ) : null}

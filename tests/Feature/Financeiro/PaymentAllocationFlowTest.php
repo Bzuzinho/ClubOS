@@ -1794,7 +1794,7 @@ class PaymentAllocationFlowTest extends TestCase
         $this->assertSame('unreconciled', $statement->conciliacao_status);
     }
 
-    public function test_unreconciling_bank_statement_is_blocked_when_invoice_has_wintouch_document(): void
+    public function test_unreconciling_bank_statement_is_blocked_when_invoice_has_external_fiscal_document(): void
     {
         $admin = User::factory()->admin()->create();
         [$invoice] = $this->createInvoicesForUser([30.00]);

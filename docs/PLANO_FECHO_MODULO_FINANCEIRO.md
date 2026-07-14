@@ -305,9 +305,9 @@ Corrigir a regra operacional descoberta na validação manual da F2:
 
 - liquidar fatura manual sem exigir nº de recibo/documento externo;
 - criar `Payment` + `PaymentAllocation` e pedido fiscal pendente quando a fatura fica totalmente paga;
-- deixar o nº Wintouch apenas para a tab Emissão Fiscal;
+- deixar o número do documento fiscal externo apenas para a tab Emissão Fiscal;
 - permitir reabertura canónica segura antes de existir documento fiscal externo;
-- bloquear reabertura direta quando já existe Wintouch/documento externo.
+- bloquear reabertura direta quando já existe documento fiscal externo.
 
 ### Regras fechadas nesta sprint
 
@@ -343,7 +343,7 @@ Criar testes para validar:
    - pagamento/alocação revertidos;
    - pedido fiscal pendente removido.
 5. Repetir com Transferência usando linha bancária e confirmar que o extrato volta a `partial` ou `unreconciled` conforme o saldo por conciliar restante.
-6. Na tab Emissão Fiscal, tratar manualmente a fatura e preencher nº Wintouch.
+6. Na tab Emissão Fiscal, tratar manualmente a fatura e preencher número do documento fiscal externo.
 7. Tentar reabrir de novo a fatura e confirmar a mensagem:
    - `Esta fatura já tem documento fiscal emitido. Para reabrir é necessário anular/cancelar o documento fiscal.`
 
@@ -362,7 +362,7 @@ O pagamento continua canónico, o pedido fiscal continua pendente até emissão 
 
 ### Estado para avanço
 
-F2 continua pendente de validação manual orientada e F2.1 fecha a correção da regra de nº de recibo/reversão segura antes de Wintouch. Não avançar para F3 antes de recolher feedback manual de F2 e F2.1.
+F2 continua pendente de validação manual orientada e F2.1 fecha a correção da regra de nº de recibo/reversão segura antes de existir documento fiscal externo. Não avançar para F3 antes de recolher feedback manual de F2 e F2.1.
 
 ---
 
@@ -482,7 +482,7 @@ Criar ou ajustar testes para validar:
 10. Escolher um método manual ativo, por exemplo Dinheiro, e confirmar que a secção de linha bancária desaparece e o pagamento continua possível.
 11. Na tab Emissão Fiscal, tentar marcar um pedido como emitido sem nº externo.
 12. Confirmar que o backend devolve erro de validação para `external_document_number`.
-13. Preencher o nº Wintouch e confirmar então que `invoice.numero_recibo` é atualizado.
+13. Preencher o número do documento fiscal externo e confirmar então que `invoice.numero_recibo` é atualizado.
 
 ### Resultado esperado
 
@@ -547,7 +547,7 @@ Criar ou ajustar testes para validar:
 6. Tentar confirmar sem linha bancária e confirmar que o botão fica bloqueado com aviso explícito.
 7. Selecionar uma linha bancária e confirmar que a liquidação avança.
 8. Repetir com `Dinheiro` e confirmar que a secção bancária desaparece e a liquidação continua possível.
-9. Repetir com um movimento de receita e confirmar que não aparece nº Wintouch e que o pedido fiscal fica pendente quando o movimento tem dados fiscais mínimos.
+9. Repetir com um movimento de receita e confirmar que não aparece número de documento fiscal externo e que o pedido fiscal fica pendente quando o movimento tem dados fiscais mínimos.
 10. Repetir com um movimento de despesa e confirmar que não é criado pedido fiscal de receita.
 
 ### Resultado esperado
@@ -602,7 +602,7 @@ Fechar a lacuna deixada pela F2.4 na tab Movimentos, permitindo reabrir moviment
 - extratos bancários afetados são recalculados e voltam a `partial` ou `unreconciled` conforme o remanescente;
 - movimentos com `numero_recibo` preenchido ou com documento fiscal externo emitido ficam bloqueados com erro `422` claro;
 - `FinanceiroController::updateMovimento` continua a bloquear reabertura direta fora do endpoint canónico;
-- a tab Movimentos passou a expor ações explícitas para `Reabrir para pendente` e `Reabrir para vencido` no modal de edição, com aviso específico quando existe risco fiscal/Wintouch.
+- a tab Movimentos passou a expor ações explícitas para `Reabrir para pendente` e `Reabrir para vencido` no modal de edição, com aviso específico quando existe risco fiscal externo.
 
 ### Testes automáticos mínimos
 
@@ -628,7 +628,7 @@ Criar ou ajustar testes para validar:
    - o movimento passa para `vencido`;
    - o extrato volta a `partial` ou `unreconciled`;
    - a linha volta a ficar disponível para nova conciliação.
-7. Escolher um movimento que já tenha nº Wintouch/documento emitido.
+7. Escolher um movimento que já tenha número de documento fiscal externo/documento emitido.
 8. Tentar reabrir e confirmar que a operação é bloqueada com mensagem explícita.
 9. Tentar alterar o mesmo estado por uma edição administrativa normal e confirmar que continua bloqueado.
 
@@ -643,7 +643,7 @@ O utilizador confirmou manualmente no browser que:
 - Financeiro > Movimentos > `Liquidar` já funciona;
 - o movimento liquidado passa para a tab Emissão Fiscal;
 - reabrir o movimento para `pendente` e `vencido` já funciona;
-- ao reabrir, o pedido fiscal pendente é removido quando ainda não existe nº Wintouch;
+- ao reabrir, o pedido fiscal pendente é removido quando ainda não existe número de documento fiscal externo;
 - a regra ficou confinada ao fluxo de Movimentos, sem mexer em Mensalidades.
 
 ### Regressão de Mensalidades validada manualmente
@@ -809,9 +809,9 @@ Criar testes para validar:
 5. Confirmar estado parcial e valor em aberto correto.
 6. Pagar o restante.
 7. Confirmar estado pago e pedido fiscal criado.
-8. Reabrir uma mensalidade paga sem número Wintouch.
+8. Reabrir uma mensalidade paga sem número de documento fiscal externo.
 9. Confirmar que deixa reabrir.
-10. Marcar pedido fiscal como emitido com número Wintouch.
+10. Marcar pedido fiscal como emitido com número de documento fiscal externo.
 11. Tentar reabrir novamente.
 12. Confirmar que bloqueia.
 13. Abrir o Dashboard do atleta e confirmar que a conta corrente mostra apenas a dívida líquida atual.
@@ -889,11 +889,11 @@ Checklist confirmado:
 - importar linha já existente na base de dados rejeita como duplicada e identifica a linha: OK;
 - importar duas linhas com mesma data/valor mas referência/descrição diferente aceita ambas: OK;
 - conciliar manualmente extrato a mensalidade cria pagamento/alocação e atualiza estado: OK;
-- desconciliar essa linha repõe mensalidade no estado correto e remove pedido fiscal pendente quando ainda não havia Wintouch: OK;
+- desconciliar essa linha repõe mensalidade no estado correto e remove pedido fiscal pendente quando ainda não havia documento fiscal externo: OK;
 - criar despesa a partir do extrato deixa movimento pago/conciliado: OK;
 - desconciliar despesa repõe movimento como não conciliado e não cria pedido fiscal indevido: OK;
 - fluxo legado/catalogar está bloqueado/descontinuado: OK;
-- documento Wintouch emitido continua a bloquear desconciliação: OK.
+- documento fiscal externo emitido continua a bloquear desconciliação: OK.
 
 ### Estado para avanço
 
@@ -1435,17 +1435,17 @@ Movimentos são operacionais, mas não criam uma segunda verdade financeira.
 
 ---
 
-## Sprint F6 — Emissão fiscal manual / Wintouch
+## Sprint F6 — Emissão fiscal manual / provider externo
 
 ### Objetivo
 
-Fechar fila manual de emissão fiscal enquanto não existir API real Wintouch Cloud.
+Fechar fila manual de emissão fiscal enquanto não existir API real do software certificado externo.
 
 ### Regras finais
 
-- Botão `Tratar manualmente`: inserir número Wintouch, série, data e notas.
-- Botão `Cancelar/Anular`: só disponível se existir número Wintouch.
-- Botão `Apagar`: só disponível se não existir número Wintouch.
+- Botão `Tratar manualmente`: inserir número do documento fiscal externo, série, data e notas.
+- Botão `Cancelar/Anular`: só disponível se existir número de documento fiscal externo.
+- Botão `Apagar`: só disponível se não existir número de documento fiscal externo.
 - Estados: por tratar, recibo emitido, erro de dados, cancelado/anulado.
 
 ### Testes automáticos mínimos
@@ -1455,7 +1455,7 @@ Criar testes para validar:
 - pedido fiscal criado quando fatura fica paga;
 - pedido com NIF em falta fica erro de dados;
 - marcar como emitido exige número externo;
-- pedido emitido grava número Wintouch;
+- pedido emitido grava número de documento fiscal externo;
 - pedido com número externo não pode ser apagado;
 - pedido sem número externo pode ser apagado;
 - pedido com número externo pode ser cancelado/anulado;
@@ -1467,7 +1467,7 @@ Criar testes para validar:
 2. Ir à tab Emissão Fiscal.
 3. Confirmar que aparece pedido por tratar.
 4. Abrir `Tratar manualmente`.
-5. Inserir número Wintouch.
+5. Inserir número de documento fiscal externo.
 6. Confirmar que passa a recibo emitido.
 7. Confirmar que deixa de aparecer botão apagar.
 8. Confirmar que aparece botão cancelar/anular.
@@ -1628,7 +1628,7 @@ Executar cenário completo:
 4. Criar/importar linha bancária.
 5. Conciliar mensalidade.
 6. Confirmar pedido fiscal.
-7. Marcar recibo Wintouch emitido.
+7. Marcar recibo fiscal externo emitido.
 8. Tentar reabrir mensalidade e confirmar bloqueio.
 9. Importar recibo antigo.
 10. Confirmar associação a atleta, fatura, banco e PDF.

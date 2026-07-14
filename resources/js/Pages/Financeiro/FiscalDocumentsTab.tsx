@@ -480,7 +480,7 @@ export function FiscalDocumentsTab({ fiscalRequests }: FiscalDocumentsTabProps) 
           <div>
             <h2 className="text-sm font-semibold text-foreground">Emissao Fiscal</h2>
             <p className="mt-1 text-xs text-muted-foreground">
-              Esta area mostra pagamentos liquidados que ainda precisam de recibo/documento fiscal na Wintouch. Quando emitir o documento na Wintouch, use 'Tratar manualmente' para registar o numero.
+              Esta area mostra pagamentos liquidados que ainda precisam de recibo/documento fiscal no software certificado externo. Quando emitir o documento no provider fiscal, use 'Tratar manualmente' para registar o numero.
             </p>
           </div>
 
@@ -727,12 +727,12 @@ export function FiscalDocumentsTab({ fiscalRequests }: FiscalDocumentsTabProps) 
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Tratar manualmente</DialogTitle>
-            <DialogDescription>Registe o numero do documento emitido na Wintouch e conclua este pedido.</DialogDescription>
+            <DialogDescription>Registe o numero do documento fiscal externo e conclua este pedido.</DialogDescription>
           </DialogHeader>
 
           <div className="grid gap-3 py-2">
             <div className="space-y-1.5">
-              <Label htmlFor="issued-number">Numero documento Wintouch</Label>
+              <Label htmlFor="issued-number">Numero documento fiscal externo</Label>
               <Input
                 id="issued-number"
                 value={issuedForm.external_document_number}

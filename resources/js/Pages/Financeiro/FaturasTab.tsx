@@ -1001,7 +1001,7 @@ export function FaturasTab({
 
         if (isReopenTransition) {
           const confirmed = window.confirm(
-            'Esta operacao vai desfazer pagamento, conciliacao bancaria e pedido fiscal associado, se ainda nao existir documento Wintouch emitido.'
+            'Esta operacao vai desfazer pagamento, conciliacao bancaria e pedido fiscal associado, se ainda nao existir documento fiscal externo emitido.'
           );
 
           if (!confirmed) {
@@ -1896,7 +1896,7 @@ export function FaturasTab({
               {selectedFaturaId ? 'Registar Pagamento' : `Registar Pagamento de ${paymentInvoices.length} Fatura(s)`}
             </DialogTitle>
             <DialogDescription>
-              Registe o pagamento desta fatura. Pode associar uma linha do extrato bancario e repartir o valor por uma ou varias faturas. O numero do recibo/documento fiscal sera preenchido apenas na Emissao Fiscal, apos emissao na Wintouch.
+              Registe o pagamento desta fatura. Pode associar uma linha do extrato bancario e repartir o valor por uma ou varias faturas. O numero do recibo/documento fiscal sera preenchido apenas na Emissao Fiscal, apos emissao no provider fiscal externo.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">

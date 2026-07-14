@@ -530,7 +530,7 @@ class ManualExpenseFlowsTest extends TestCase
     {
         $admin = User::factory()->admin()->create();
         $member = User::factory()->create([
-            'nome_completo' => 'Atleta Wintouch',
+            'nome_completo' => 'Atleta Documento Externo',
             'nif' => '245678904',
         ]);
 

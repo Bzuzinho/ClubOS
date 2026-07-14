@@ -14,9 +14,9 @@ class FiscalDocumentRequestService
 {
     public const INVOICE_STATUS_CHANGE_BLOCK_MESSAGE = 'Esta fatura já tem documento fiscal emitido. Para reabrir é necessário anular/cancelar o documento fiscal.';
 
-    public const DELETE_WITH_DOCUMENT_MESSAGE = 'Nao e possivel apagar um pedido com documento Wintouch registado. Deve ser cancelado/anulado.';
+    public const DELETE_WITH_DOCUMENT_MESSAGE = 'Nao e possivel apagar um pedido com documento fiscal externo registado. Deve ser cancelado/anulado.';
 
-    public const CANCEL_WITHOUT_DOCUMENT_MESSAGE = 'So e possivel cancelar/anular pedidos com documento Wintouch registado.';
+    public const CANCEL_WITHOUT_DOCUMENT_MESSAGE = 'So e possivel cancelar/anular pedidos com documento fiscal externo registado.';
 
     public function __construct(
         private readonly MemberFiscalDataResolver $memberFiscalDataResolver,
