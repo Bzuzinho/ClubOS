@@ -19,6 +19,8 @@ final class InvoiceObligationAuditService
 {
     private const VERSION = 'a3-3-invoice-obligation-audit-v1';
     private const TOLERANCE = 0.01;
+    private const MONTHLY_FEE_ORIGIN = 'monthly_fee';
+    private const LEGACY_MONTHLY_FEE_ORIGIN = 'monthly_fee_legacy';
 
     public function __construct(
         private readonly InvoiceFinancialGuardService $guardService,
@@ -420,7 +422,9 @@ final class InvoiceObligationAuditService
             $findings[] = $this->finding('monthly_invoice_without_month', $diagnostic, 'critical', 'review_monthly_invoice_period');
         }
 
-        if ($diagnostic['tipo'] === 'mensalidade' && $diagnostic['origem_tipo'] !== 'monthly_fee') {
+        if ($diagnostic['tipo'] === 'mensalidade' && $diagnostic['origem_tipo'] === self::LEGACY_MONTHLY_FEE_ORIGIN) {
+            $findings[] = $this->finding('monthly_invoice_legacy_classified', $diagnostic, 'info', 'no_action_needed_legacy_monthly_invoice_classified');
+        } elseif ($diagnostic['tipo'] === 'mensalidade' && $diagnostic['origem_tipo'] !== self::MONTHLY_FEE_ORIGIN) {
             $findings[] = $this->finding('monthly_invoice_without_canonical_origin', $diagnostic, 'warning', 'review_monthly_invoice_origin_before_reconciliation');
         }
 
@@ -430,7 +434,7 @@ final class InvoiceObligationAuditService
 
         if ($diagnostic['origem_tipo'] === null) {
             $findings[] = $this->finding('invoice_origin_missing', $diagnostic, $diagnostic['tipo'] === 'mensalidade' ? 'warning' : 'info', 'review_legacy_invoice_without_origin');
-        } elseif ($diagnostic['origem_tipo'] !== 'manual' && $diagnostic['origem_id'] === null) {
+        } elseif ($diagnostic['origem_tipo'] !== 'manual' && $diagnostic['origem_tipo'] !== self::LEGACY_MONTHLY_FEE_ORIGIN && $diagnostic['origem_id'] === null) {
             $findings[] = $this->finding('invoice_origin_reference_missing', $diagnostic, 'warning', 'review_invoice_origin_without_reference');
         } elseif ($diagnostic['origem_tipo'] !== 'manual' && $diagnostic['origin_reference_exists'] === false) {
             $findings[] = $this->finding('invoice_origin_reference_not_found', $diagnostic, 'warning', 'review_missing_origin_reference');

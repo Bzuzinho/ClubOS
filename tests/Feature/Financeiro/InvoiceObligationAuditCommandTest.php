@@ -8,6 +8,7 @@ use App\Models\FiscalDocumentRequest;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\InvoiceType;
+use App\Models\MonthlyFee;
 use App\Models\Payment;
 use App\Models\PaymentAllocation;
 use App\Models\Product;
@@ -186,6 +187,59 @@ final class InvoiceObligationAuditCommandTest extends TestCase
         $this->assertFindingForInvoice($payload, 'monthly_invoice_without_month', $withoutMonth->id, 'critical');
     }
 
+    public function test_classified_legacy_monthly_fee_origin_is_not_a_warning(): void
+    {
+        $monthlyFee = MonthlyFee::query()->create([
+            'designacao' => 'Mensalidade canonica',
+            'valor' => 40,
+            'ativo' => true,
+        ]);
+
+        $manual = $this->createInvoice([
+            'tipo' => 'mensalidade',
+            'mes' => '2026-08',
+            'valor_total' => 40,
+            'valor_em_aberto' => 40,
+            'origem_tipo' => 'manual',
+            'origem_id' => null,
+        ]);
+        $this->createItem($manual, ['valor_unitario' => 40, 'total_linha' => 40]);
+
+        $canonical = $this->createInvoice([
+            'tipo' => 'mensalidade',
+            'mes' => '2026-09',
+            'valor_total' => 40,
+            'valor_em_aberto' => 40,
+            'origem_tipo' => 'monthly_fee',
+            'origem_id' => $monthlyFee->id,
+        ]);
+        $this->createItem($canonical, ['valor_unitario' => 40, 'total_linha' => 40]);
+
+        $legacyClassified = $this->createInvoice([
+            'tipo' => 'mensalidade',
+            'mes' => '2026-10',
+            'valor_total' => 40,
+            'valor_em_aberto' => 40,
+            'origem_tipo' => 'monthly_fee_legacy',
+            'origem_id' => null,
+        ]);
+        $this->createItem($legacyClassified, ['valor_unitario' => 40, 'total_linha' => 40]);
+
+        $payload = $this->jsonAuditPayload();
+
+        $this->assertFindingForInvoice($payload, 'monthly_invoice_without_canonical_origin', $manual->id, 'warning');
+        $this->assertFindingForInvoice($payload, 'manual_invoice_with_monthly_type', $manual->id, 'warning');
+
+        $this->assertNoFindingForInvoice($payload, 'monthly_invoice_without_canonical_origin', $canonical->id);
+        $this->assertNoFindingForInvoice($payload, 'manual_invoice_with_monthly_type', $canonical->id);
+        $this->assertNoFindingForInvoice($payload, 'invoice_origin_reference_missing', $canonical->id);
+
+        $this->assertNoFindingForInvoice($payload, 'invoice_origin_reference_missing', $legacyClassified->id);
+        $this->assertNoFindingForInvoice($payload, 'manual_invoice_with_monthly_type', $legacyClassified->id);
+        $this->assertNoFindingForInvoice($payload, 'monthly_invoice_without_canonical_origin', $legacyClassified->id);
+        $this->assertFindingForInvoice($payload, 'monthly_invoice_legacy_classified', $legacyClassified->id, 'info');
+    }
+
     public function test_filters_json_report_path_exit_codes_include_cancelled_and_read_only_contract(): void
     {
         $product = Product::factory()->create(['stock' => 10]);
@@ -323,6 +377,19 @@ final class InvoiceObligationAuditCommandTest extends TestCase
         );
 
         $this->assertIsArray($finding, sprintf('Missing finding %s for invoice %s.', $code, $invoiceId));
+    }
+
+    /**
+     * @param array<string,mixed> $payload
+     */
+    private function assertNoFindingForInvoice(array $payload, string $code, string $invoiceId): void
+    {
+        $finding = collect($payload['findings'])->first(
+            fn (array $finding): bool => $finding['code'] === $code
+                && $finding['invoice_id'] === $invoiceId,
+        );
+
+        $this->assertNull($finding, sprintf('Unexpected finding %s for invoice %s.', $code, $invoiceId));
     }
 
     /**
