@@ -32,6 +32,7 @@ return Application::configure(basePath: dirname(__DIR__))
         \App\Console\Commands\SyncPermissionNodes::class,
         \App\Console\Commands\GenerateMonthlyFeesCommand::class,
         \App\Console\Commands\ActivateDueMonthlyFeesCommand::class,
+        \App\Console\Commands\Financeiro\AccountCreditAuditCommand::class,
         \App\Console\Commands\Financeiro\AuditMemberCostCentersCommand::class,
         \App\Console\Commands\Financeiro\AuditMemberCurrentAccountsCommand::class,
         \App\Console\Commands\Financeiro\AuditLegacyCleanupReadinessCommand::class,
