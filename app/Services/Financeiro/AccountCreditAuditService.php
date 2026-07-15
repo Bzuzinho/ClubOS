@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace App\Services\Financeiro;
 
 use App\Models\AccountCredit;
+use App\Models\AccountCreditUsage;
 use App\Models\FinancialEntry;
+use App\Models\Invoice;
 use App\Models\Payment;
 use App\Models\PaymentAllocation;
 use Illuminate\Support\Carbon;
@@ -27,6 +29,8 @@ final class AccountCreditAuditService
         $credits = $this->credits($filters);
         $payments = $this->payments($credits);
         $allocations = $this->allocations($payments);
+        $usages = $this->usages($credits, $filters);
+        $invoices = $this->usageInvoices($usages);
         $financialEntries = $this->financialEntries($credits);
 
         $findings = [];
@@ -51,6 +55,8 @@ final class AccountCreditAuditService
                     credit: $credit,
                     payments: $payments,
                     allocations: $allocations,
+                    usages: $usages,
+                    invoices: $invoices,
                     financialEntries: $financialEntries,
                 ),
             );
@@ -120,7 +126,23 @@ final class AccountCreditAuditService
                 ->values()
                 ->all();
 
-            $query->whereIn('payment_id', $paymentIds);
+            $creditIds = Schema::hasTable('account_credit_usages')
+                ? AccountCreditUsage::withTrashed()
+                    ->where('invoice_id', $filters['invoice'])
+                    ->pluck('account_credit_id')
+                    ->filter()
+                    ->unique()
+                    ->values()
+                    ->all()
+                : [];
+
+            $query->where(function ($invoiceQuery) use ($paymentIds, $creditIds): void {
+                $invoiceQuery->whereIn('payment_id', $paymentIds);
+
+                if ($creditIds !== []) {
+                    $invoiceQuery->orWhereIn('id', $creditIds);
+                }
+            });
         }
 
         if ($filters['from']) {
@@ -176,6 +198,53 @@ final class AccountCreditAuditService
 
     /**
      * @param Collection<int,AccountCredit> $credits
+     * @param array<string,mixed> $filters
+     * @return Collection<int,AccountCreditUsage>
+     */
+    private function usages(Collection $credits, array $filters): Collection
+    {
+        if (! Schema::hasTable('account_credit_usages')) {
+            return collect();
+        }
+
+        $creditIds = $credits->pluck('id')->filter()->unique()->values();
+
+        if ($creditIds->isEmpty()) {
+            return collect();
+        }
+
+        $query = AccountCreditUsage::withTrashed()
+            ->whereIn('account_credit_id', $creditIds->all())
+            ->orderBy('applied_at')
+            ->orderBy('id');
+
+        if ($filters['invoice']) {
+            $query->where('invoice_id', $filters['invoice']);
+        }
+
+        return $query->get();
+    }
+
+    /**
+     * @param Collection<int,AccountCreditUsage> $usages
+     * @return Collection<string,Invoice>
+     */
+    private function usageInvoices(Collection $usages): Collection
+    {
+        $invoiceIds = $usages->pluck('invoice_id')->filter()->unique()->values();
+
+        if ($invoiceIds->isEmpty()) {
+            return collect();
+        }
+
+        return Invoice::query()
+            ->whereIn('id', $invoiceIds->all())
+            ->get()
+            ->keyBy('id');
+    }
+
+    /**
+     * @param Collection<int,AccountCredit> $credits
      * @return Collection<int,FinancialEntry>
      */
     private function financialEntries(Collection $credits): Collection
@@ -187,8 +256,27 @@ final class AccountCreditAuditService
         }
 
         return FinancialEntry::query()
-            ->where('origem_tipo', 'account_credit')
-            ->whereIn('origem_id', $creditIds->all())
+            ->where(function ($query) use ($creditIds): void {
+                $query
+                    ->where(function ($creditEntryQuery) use ($creditIds): void {
+                        $creditEntryQuery
+                            ->where('origem_tipo', 'account_credit')
+                            ->whereIn('origem_id', $creditIds->all());
+                    });
+
+                if (Schema::hasTable('account_credit_usages')) {
+                    $usageIds = AccountCreditUsage::withTrashed()
+                        ->whereIn('account_credit_id', $creditIds->all())
+                        ->pluck('id')
+                        ->all();
+
+                    $query->orWhere(function ($usageEntryQuery) use ($usageIds): void {
+                        $usageEntryQuery
+                            ->where('origem_tipo', 'account_credit_usage')
+                            ->whereIn('origem_id', $usageIds);
+                    });
+                }
+            })
             ->orderBy('data')
             ->orderBy('id')
             ->get();
@@ -197,18 +285,27 @@ final class AccountCreditAuditService
     /**
      * @param Collection<string,Payment> $payments
      * @param Collection<int,PaymentAllocation> $allocations
+     * @param Collection<int,AccountCreditUsage> $usages
+     * @param Collection<string,Invoice> $invoices
      * @param Collection<int,FinancialEntry> $financialEntries
      * @return list<array<string,mixed>>
      */
-    private function creditFindings(AccountCredit $credit, Collection $payments, Collection $allocations, Collection $financialEntries): array
+    private function creditFindings(AccountCredit $credit, Collection $payments, Collection $allocations, Collection $usages, Collection $invoices, Collection $financialEntries): array
     {
         $findings = [];
         $amount = $this->money($credit->amount);
         $availableBalance = $this->money($credit->remaining_amount);
-        $usedAmount = $this->money($amount - $availableBalance);
+        $creditUsages = $usages->where('account_credit_id', $credit->id);
+        $activeUsageAmount = $this->money($creditUsages
+            ->where('status', AccountCreditUsage::STATUS_APPLIED)
+            ->whereNull('deleted_at')
+            ->sum(fn (AccountCreditUsage $usage): float => (float) $usage->amount));
+        $usedAmount = $this->money(max($amount - $availableBalance, $activeUsageAmount));
         $status = (string) $credit->status;
         $payment = $credit->payment_id ? $payments->get($credit->payment_id) : null;
-        $creditEntries = $financialEntries->where('origem_id', $credit->id);
+        $creditEntries = $financialEntries
+            ->where('origem_tipo', 'account_credit')
+            ->where('origem_id', $credit->id);
 
         if ($amount < -self::TOLERANCE) {
             $findings[] = $this->finding('critical', 'account_credit_negative_amount', $credit, $amount, $availableBalance, $usedAmount, $status, 'review_account_credit_original_amount');
@@ -224,6 +321,24 @@ final class AccountCreditAuditService
 
         if ($usedAmount - $amount > self::TOLERANCE) {
             $findings[] = $this->finding('critical', 'account_credit_used_amount_exceeds_amount', $credit, $amount, $availableBalance, $usedAmount, $status, 'review_account_credit_used_amount');
+        }
+
+        if ($activeUsageAmount - $amount > self::TOLERANCE) {
+            $findings[] = $this->finding('critical', 'account_credit_usage_exceeds_amount', $credit, $amount, $availableBalance, $activeUsageAmount, $status, 'review_account_credit_usage_sum');
+        }
+
+        if ($creditUsages->isNotEmpty() && abs($availableBalance - $this->money($amount - $activeUsageAmount)) > self::TOLERANCE) {
+            $findings[] = $this->finding('critical', 'account_credit_balance_differs_from_usages', $credit, $amount, $availableBalance, $activeUsageAmount, $status, 'review_account_credit_balance_against_usage_ledger', [
+                'active_usage_sum' => $activeUsageAmount,
+                'expected_remaining_amount' => $this->money($amount - $activeUsageAmount),
+            ]);
+        }
+
+        if ($status === AccountCredit::STATUS_USED && $this->schemaDetected()['usage_tables_detected'] && $activeUsageAmount <= self::TOLERANCE && $amount > self::TOLERANCE) {
+            $findings[] = $this->finding('critical', 'account_credit_balance_differs_from_usages', $credit, $amount, $availableBalance, $activeUsageAmount, $status, 'review_used_credit_without_active_usage_ledger', [
+                'active_usage_sum' => $activeUsageAmount,
+                'expected_usage_sum' => $amount,
+            ]);
         }
 
         if ($status === AccountCredit::STATUS_AVAILABLE && $availableBalance <= self::TOLERANCE) {
@@ -275,8 +390,43 @@ final class AccountCreditAuditService
             }
         }
 
+        foreach ($creditUsages as $usage) {
+            array_push($findings, ...$this->usageFindings($credit, $usage, $invoices, $amount, $availableBalance, $usedAmount, $status));
+        }
+
         if ($usedAmount > self::TOLERANCE && ! $this->schemaDetected()['usage_tables_detected']) {
             $findings[] = $this->finding('info', 'account_credit_open_without_usage_trace', $credit, $amount, $availableBalance, $usedAmount, $status, 'no_action_possible_account_credit_usage_table_not_present');
+        }
+
+        return $findings;
+    }
+
+    /**
+     * @param Collection<string,Invoice> $invoices
+     * @return list<array<string,mixed>>
+     */
+    private function usageFindings(AccountCredit $credit, AccountCreditUsage $usage, Collection $invoices, float $amount, float $availableBalance, float $usedAmount, string $status): array
+    {
+        $findings = [];
+        $invoice = $usage->invoice_id ? $invoices->get($usage->invoice_id) : null;
+
+        if ((float) $usage->amount <= self::TOLERANCE) {
+            $findings[] = $this->finding('critical', 'account_credit_usage_invalid_amount', $credit, $amount, $availableBalance, $usedAmount, $status, 'review_account_credit_usage_amount', [
+                'account_credit_usage_id' => (string) $usage->id,
+                'usage_amount' => $this->money($usage->amount),
+            ]);
+        }
+
+        if ($usage->invoice_id === null || ! $invoice instanceof Invoice) {
+            $findings[] = $this->finding('critical', 'account_credit_usage_invoice_missing', $credit, $amount, $availableBalance, $usedAmount, $status, 'review_account_credit_usage_invoice_reference', [
+                'account_credit_usage_id' => (string) $usage->id,
+                'invoice_id' => $usage->invoice_id ? (string) $usage->invoice_id : null,
+            ]);
+        } elseif ($invoice->estado_pagamento === 'cancelado' && $usage->status === AccountCreditUsage::STATUS_APPLIED && $usage->deleted_at === null) {
+            $findings[] = $this->finding('warning', 'account_credit_usage_cancelled_invoice', $credit, $amount, $availableBalance, $usedAmount, $status, 'review_account_credit_usage_on_cancelled_invoice', [
+                'account_credit_usage_id' => (string) $usage->id,
+                'invoice_id' => (string) $invoice->id,
+            ]);
         }
 
         return $findings;
@@ -344,7 +494,7 @@ final class AccountCreditAuditService
 
     private function requiresPaymentOrigin(AccountCredit $credit): bool
     {
-        return in_array((string) $credit->source, ['', 'overpayment', 'bank_statement', 'payment'], true);
+        return in_array((string) $credit->source, ['', AccountCredit::SOURCE_PAYMENT_OVERALLOCATION, AccountCredit::SOURCE_LEGACY_OVERPAYMENT, 'bank_statement', 'payment'], true);
     }
 
     /**
@@ -402,6 +552,7 @@ final class AccountCreditAuditService
     {
         return [
             'account_credit' => Schema::hasTable('account_credits') && class_exists(AccountCredit::class),
+            'account_credit_usage' => Schema::hasTable('account_credit_usages') && class_exists(AccountCreditUsage::class),
             'payment' => Schema::hasTable('payments') && class_exists(Payment::class),
             'payment_allocation' => Schema::hasTable('payment_allocations') && class_exists(PaymentAllocation::class),
             'financial_entry' => Schema::hasTable('financial_entries') && class_exists(FinancialEntry::class),

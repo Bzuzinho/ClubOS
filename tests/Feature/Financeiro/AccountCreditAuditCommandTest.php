@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature\Financeiro;
 
 use App\Models\AccountCredit;
+use App\Models\AccountCreditUsage;
 use App\Models\FinancialEntry;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
@@ -188,13 +189,35 @@ final class AccountCreditAuditCommandTest extends TestCase
         $this->assertFinding($payload, 'account_credit_payment_unallocated_mismatch', 'warning', creditId: $credit->id);
     }
 
-    public function test_used_credit_reports_usage_model_limitation_as_info(): void
+    public function test_used_credit_without_active_usage_is_critical_with_usage_ledger(): void
     {
         $credit = $this->cleanCredit(['status' => AccountCredit::STATUS_USED, 'remaining_amount' => 0]);
 
         $payload = $this->jsonPayload(['--credit' => $credit->id]);
 
-        $this->assertFinding($payload, 'account_credit_open_without_usage_trace', 'info', creditId: $credit->id);
+        $this->assertFinding($payload, 'account_credit_balance_differs_from_usages', 'critical', creditId: $credit->id);
+    }
+
+    public function test_usage_above_credit_amount_is_critical(): void
+    {
+        $credit = $this->cleanCredit(['amount' => 20, 'remaining_amount' => 0, 'status' => AccountCredit::STATUS_USED]);
+        $invoice = $this->invoice(['user_id' => $credit->user_id, 'valor_total' => 25, 'valor_pago' => 25, 'valor_em_aberto' => 0, 'estado_pagamento' => 'pago']);
+        $this->usage($credit, $invoice, ['amount' => 25]);
+
+        $payload = $this->jsonPayload(['--credit' => $credit->id]);
+
+        $this->assertFinding($payload, 'account_credit_usage_exceeds_amount', 'critical', creditId: $credit->id);
+    }
+
+    public function test_usage_on_cancelled_invoice_is_warning(): void
+    {
+        $credit = $this->cleanCredit(['amount' => 20, 'remaining_amount' => 10, 'status' => AccountCredit::STATUS_PARTIALLY_USED]);
+        $invoice = $this->invoice(['user_id' => $credit->user_id, 'estado_pagamento' => 'cancelado']);
+        $this->usage($credit, $invoice, ['amount' => 10]);
+
+        $payload = $this->jsonPayload(['--credit' => $credit->id]);
+
+        $this->assertFinding($payload, 'account_credit_usage_cancelled_invoice', 'warning', creditId: $credit->id);
     }
 
     public function test_json_output_report_path_and_schema_detection(): void
@@ -215,7 +238,8 @@ final class AccountCreditAuditCommandTest extends TestCase
         $this->assertIsArray($payload);
         $this->assertTrue($payload['detected_models']['account_credit']);
         $this->assertSame([], $payload['schema_detected']['refund_reversal_entities_detected']);
-        $this->assertFalse($payload['schema_detected']['usage_tables_detected']);
+        $this->assertTrue($payload['schema_detected']['usage_tables_detected']);
+        $this->assertContains('account_credit_usages', $payload['schema_detected']['usage_tables']);
         $this->assertFileExists($absolutePath);
         $this->assertIsArray(json_decode((string) file_get_contents($absolutePath), true));
         @unlink($absolutePath);
@@ -432,6 +456,20 @@ final class AccountCreditAuditCommandTest extends TestCase
     }
 
     /**
+     * @param array<string,mixed> $overrides
+     */
+    private function usage(AccountCredit $credit, Invoice $invoice, array $overrides = []): AccountCreditUsage
+    {
+        return AccountCreditUsage::query()->create(array_merge([
+            'account_credit_id' => $credit->id,
+            'invoice_id' => $invoice->id,
+            'amount' => 10,
+            'status' => AccountCreditUsage::STATUS_APPLIED,
+            'applied_at' => '2026-07-15 12:00:00',
+        ], $overrides));
+    }
+
+    /**
      * @return array<string,mixed>
      */
     private function snapshot(): array
@@ -441,6 +479,7 @@ final class AccountCreditAuditCommandTest extends TestCase
             'invoices' => Invoice::query()->orderBy('id')->get()->toArray(),
             'payments' => Payment::withTrashed()->orderBy('id')->get()->toArray(),
             'payment_allocations' => PaymentAllocation::withTrashed()->orderBy('id')->get()->toArray(),
+            'account_credit_usages' => AccountCreditUsage::withTrashed()->orderBy('id')->get()->toArray(),
             'financial_entries' => FinancialEntry::query()->orderBy('id')->get()->toArray(),
         ];
     }

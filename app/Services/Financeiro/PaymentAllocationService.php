@@ -23,6 +23,7 @@ class PaymentAllocationService
     public function __construct(
         private readonly FiscalDocumentRequestService $fiscalDocumentRequestService,
         private readonly ReconciliationRepositoryService $reconciliationRepositoryService,
+        private readonly AccountCreditService $accountCreditService,
     ) {
     }
 
@@ -230,12 +231,10 @@ class PaymentAllocationService
 
             $createdCredit = null;
             if ($createCredit && (float) $payment->unallocated_amount > 0) {
-                $createdCredit = $this->createOrUpdateCredit($payment, $createdBy, $options);
-                $payment->forceFill([
-                    'unallocated_amount' => 0,
-                ])->save();
+                $createdCredit = $this->accountCreditService->createFromPaymentOverpayment($payment, null, array_merge($options, [
+                    'created_by' => $createdBy,
+                ]));
                 $payment = $this->syncPaymentBalances($payment->fresh());
-                $this->createOrUpdateCreditFinancialEntry($payment, $createdCredit);
             }
 
             foreach ($invoiceIds as $invoiceId) {
@@ -591,6 +590,7 @@ class PaymentAllocationService
             ->where(function ($query): void {
                 $query
                     ->where('origem_tipo', 'payment_allocation')
+                    ->orWhere('origem_tipo', 'account_credit_usage')
                     ->orWhere('origem_tipo', 'manual')
                     ->orWhere(function ($legacyQuery): void {
                         $legacyQuery
@@ -641,30 +641,6 @@ class PaymentAllocationService
             'centro_custo_id' => $invoice->centro_custo_id,
             'user_id' => $payment->user_id ?? $invoice->user_id,
             'fatura_id' => $invoice->id,
-            'metodo_pagamento' => $payment->method,
-        ]);
-        $entry->save();
-
-        return $entry->refresh();
-    }
-
-    private function createOrUpdateCreditFinancialEntry(Payment $payment, AccountCredit $credit): FinancialEntry
-    {
-        $entry = FinancialEntry::query()->firstOrNew([
-            'origem_tipo' => 'account_credit',
-            'origem_id' => $credit->id,
-        ]);
-
-        $entry->fill([
-            'data' => $payment->payment_date ?? now()->toDateString(),
-            'tipo' => 'receita',
-            'categoria' => 'Credito em Conta Corrente',
-            'descricao' => 'Excedente convertido em credito de conta corrente',
-            'documento_ref' => $payment->reference,
-            'valor' => $credit->amount,
-            'centro_custo_id' => null,
-            'user_id' => $credit->user_id,
-            'fatura_id' => null,
             'metodo_pagamento' => $payment->method,
         ]);
         $entry->save();
@@ -737,30 +713,6 @@ class PaymentAllocationService
         $bankStatement->save();
 
         return $bankStatement->refresh();
-    }
-
-    private function createOrUpdateCredit(Payment $payment, ?string $createdBy, array $options = []): AccountCredit
-    {
-        $amount = round((float) $payment->unallocated_amount, 2);
-
-        $credit = AccountCredit::query()->firstOrNew([
-            'payment_id' => $payment->id,
-            'status' => AccountCredit::STATUS_AVAILABLE,
-        ]);
-
-        $credit->fill([
-            'user_id' => $payment->user_id,
-            'family_id' => $payment->family_id,
-            'amount' => $amount,
-            'remaining_amount' => $amount,
-            'source' => 'overpayment',
-            'status' => AccountCredit::STATUS_AVAILABLE,
-            'description' => $options['credit_description'] ?? 'Excedente de pagamento convertido em credito.',
-            'created_by' => $createdBy,
-        ]);
-        $credit->save();
-
-        return $credit->refresh();
     }
 
     private function resolveFamilyId(?string $userId, ?string $familyId): ?string

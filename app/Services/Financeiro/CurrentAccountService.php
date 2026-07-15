@@ -317,6 +317,7 @@ class CurrentAccountService
             ->where(function (Builder $query): void {
                 $query
                     ->where('origem_tipo', 'payment_allocation')
+                    ->orWhere('origem_tipo', 'account_credit_usage')
                     ->orWhere('origem_tipo', 'manual')
                     ->orWhere(function (Builder $legacyQuery): void {
                         $legacyQuery

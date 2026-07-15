@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class AccountCredit extends Model
@@ -17,6 +18,12 @@ class AccountCredit extends Model
     public const STATUS_PARTIALLY_USED = 'partially_used';
     public const STATUS_USED = 'used';
     public const STATUS_CANCELLED = 'cancelled';
+
+    public const SOURCE_PAYMENT_OVERALLOCATION = 'payment_overallocation';
+    public const SOURCE_LEGACY_OVERPAYMENT = 'overpayment';
+    public const SOURCE_MANUAL_ADJUSTMENT = 'manual_adjustment';
+    public const SOURCE_REFUND = 'refund';
+    public const SOURCE_REVERSAL = 'reversal';
 
     protected $fillable = [
         'user_id',
@@ -53,6 +60,11 @@ class AccountCredit extends Model
     public function createdBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by');
+    }
+
+    public function usages(): HasMany
+    {
+        return $this->hasMany(AccountCreditUsage::class, 'account_credit_id');
     }
 
     public function scopeAvailable(Builder $query): Builder

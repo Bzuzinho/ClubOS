@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services\Financeiro;
 
 use App\Models\BankTransactionAllocation;
+use App\Models\AccountCreditUsage;
 use App\Models\FinancialEntry;
 use App\Models\FiscalDocumentRequest;
 use App\Models\Invoice;
@@ -184,6 +185,10 @@ final class InvoiceObligationAuditService
     {
         $allocations = PaymentAllocation::withTrashed()->where('invoice_id', $invoice->id)->get();
         $confirmedAllocations = $allocations->where('status', PaymentAllocation::STATUS_CONFIRMED);
+        $creditUsages = AccountCreditUsage::withTrashed()->where('invoice_id', $invoice->id)->get();
+        $appliedCreditUsages = $creditUsages
+            ->where('status', AccountCreditUsage::STATUS_APPLIED)
+            ->whereNull('deleted_at');
         $financialEntries = FinancialEntry::query()
             ->where(function (Builder $query) use ($invoice): void {
                 $query->where('fatura_id', $invoice->id)
@@ -210,6 +215,9 @@ final class InvoiceObligationAuditService
             'payment_allocation_count' => $allocations->count(),
             'confirmed_payment_allocation_count' => $confirmedAllocations->count(),
             'payment_allocation_sum' => $this->roundMoney($confirmedAllocations->sum(static fn (PaymentAllocation $allocation): float => (float) $allocation->amount)),
+            'account_credit_usage_count' => $creditUsages->count(),
+            'applied_account_credit_usage_count' => $appliedCreditUsages->count(),
+            'account_credit_usage_sum' => $this->roundMoney($appliedCreditUsages->sum(static fn (AccountCreditUsage $usage): float => (float) $usage->amount)),
             'payment_count' => $invoice->payments()->count(),
             'financial_entry_count' => $financialEntries->count(),
             'mapa_conciliacao_count' => $mapaCount,
@@ -366,11 +374,13 @@ final class InvoiceObligationAuditService
     {
         $trail = $diagnostic['trail_flags'];
 
-        if (abs((float) $trail['payment_allocation_sum'] - (float) $diagnostic['valor_pago']) > self::TOLERANCE) {
+        $settledByCanonicalTrail = $this->roundMoney((float) $trail['payment_allocation_sum'] + (float) ($trail['account_credit_usage_sum'] ?? 0));
+
+        if (abs($settledByCanonicalTrail - (float) $diagnostic['valor_pago']) > self::TOLERANCE) {
             $findings[] = $this->finding('payment_allocation_sum_differs_from_valor_pago', $diagnostic, 'warning', 'review_payment_allocations_against_invoice_paid_amount');
         }
 
-        if ((int) $trail['confirmed_payment_allocation_count'] > 0 && ! in_array($diagnostic['estado_pagamento'], ['pago', 'parcial'], true)) {
+        if (((int) $trail['confirmed_payment_allocation_count'] > 0 || (int) ($trail['applied_account_credit_usage_count'] ?? 0) > 0) && ! in_array($diagnostic['estado_pagamento'], ['pago', 'parcial'], true)) {
             $findings[] = $this->finding('confirmed_allocations_without_paid_state', $diagnostic, 'critical', 'review_invoice_state_against_confirmed_allocations');
         }
 

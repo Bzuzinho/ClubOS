@@ -121,7 +121,7 @@ class FinancialSettlementService
                 || ((float) $payment->unallocated_amount > 0 && ($payment->user_id || $payment->family_id));
 
             if ($shouldCreateCredit && (float) $payment->unallocated_amount > 0) {
-                $this->createAccountCredit($payment, $options['created_by'] ?? null, $options);
+                app(AccountCreditService::class)->createFromPaymentOverpayment($payment, null, $options);
                 $payment = $this->syncPaymentBalances($payment->fresh());
             }
 
@@ -433,30 +433,6 @@ class FinancialSettlementService
         ])->save();
 
         return $payment->refresh();
-    }
-
-    private function createAccountCredit(Payment $payment, ?string $createdBy, array $options = []): AccountCredit
-    {
-        $amount = round((float) $payment->unallocated_amount, 2);
-
-        $credit = AccountCredit::query()->firstOrNew([
-            'payment_id' => $payment->id,
-            'status' => AccountCredit::STATUS_AVAILABLE,
-        ]);
-
-        $credit->fill([
-            'user_id' => $payment->user_id,
-            'family_id' => $payment->family_id,
-            'amount' => $amount,
-            'remaining_amount' => $amount,
-            'source' => 'overpayment',
-            'status' => AccountCredit::STATUS_AVAILABLE,
-            'description' => $options['credit_description'] ?? 'Excedente de pagamento convertido em credito.',
-            'created_by' => $createdBy,
-        ]);
-        $credit->save();
-
-        return $credit->refresh();
     }
 
     private function createOrUpdateReconciliationMap(

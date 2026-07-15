@@ -2,6 +2,7 @@
 
 namespace App\Services\Financeiro;
 
+use App\Models\AccountCreditUsage;
 use App\Models\BankTransactionAllocation;
 use App\Models\FiscalDocumentRequest;
 use App\Models\Invoice;
@@ -44,6 +45,10 @@ class InvoiceFinancialGuardService
 
         if ($invoice->payments()->exists()) {
             $reasons[] = 'payment';
+        }
+
+        if (AccountCreditUsage::withTrashed()->where('invoice_id', $invoice->id)->exists()) {
+            $reasons[] = 'account_credit_usage';
         }
 
         if (MapaConciliacao::query()->where('fatura_id', $invoice->id)->exists()) {
