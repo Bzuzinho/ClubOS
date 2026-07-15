@@ -45,6 +45,7 @@ return Application::configure(basePath: dirname(__DIR__))
         \App\Console\Commands\Financeiro\LegacyMonthlyInvoiceClassificationCommand::class,
         \App\Console\Commands\Financeiro\MonthlyFeeFutureInvoiceAuditCommand::class,
         \App\Console\Commands\Financeiro\PaymentAuditCommand::class,
+        \App\Console\Commands\Financeiro\UnallocatedPaymentAuditCommand::class,
         \App\Console\Commands\Financeiro\StaleFiscalRequestCleanupCommand::class,
         \App\Console\Commands\Financeiro\NormalizeLegacyManualMovementSignCommand::class,
         \App\Console\Commands\Financeiro\BackfillMemberCostCentersCommand::class,
