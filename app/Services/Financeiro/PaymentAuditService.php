@@ -404,18 +404,33 @@ final class PaymentAuditService
             $findings[] = $this->finding('warning', 'payment_confirmed_without_payment_date', $payment, null, null, $amount, $payment->status, 'review_missing_payment_date_for_confirmed_payment');
         }
 
-        if ($payment->source === Payment::SOURCE_RECONCILIATION && blank($payment->bank_statement_id)) {
-            $findings[] = $this->finding('warning', 'payment_reconciliation_without_bank_statement', $payment, null, null, $amount, $payment->status, 'review_reconciliation_payment_without_bank_statement');
-        }
-
         if (filled($payment->bank_statement_id) && ! $bankStatements->has($payment->bank_statement_id)) {
             $findings[] = $this->finding('critical', 'payment_bank_statement_missing', $payment, null, null, $amount, $payment->status, 'review_payment_bank_statement_reference');
+        }
+
+        $bankTraceReasons = [];
+        if ($payment->source === Payment::SOURCE_RECONCILIATION && blank($payment->bank_statement_id)) {
+            $bankTraceReasons[] = 'missing_bank_statement_id';
         }
 
         if (in_array($payment->source, [Payment::SOURCE_RECONCILIATION, Payment::SOURCE_BANK_STATEMENT], true)
             && $reconciliations->where('payment_id', $payment->id)->isEmpty()
             && $bankAllocations->where('payment_id', $payment->id)->isEmpty()) {
-            $findings[] = $this->finding('warning', 'payment_reconciliation_without_bank_statement', $payment, null, null, $amount, $payment->status, 'review_bank_origin_payment_without_reconciliation_trace');
+            $bankTraceReasons[] = 'missing_reconciliation_or_bank_allocation_trace';
+        }
+
+        if ($bankTraceReasons !== []) {
+            $context = [
+                'bank_trace_reasons' => array_values(array_unique($bankTraceReasons)),
+                'active_confirmed_allocation_count' => $confirmedAllocations->count(),
+                'confirmed_allocation_sum' => $confirmedSum,
+            ];
+
+            if ($payment->status === Payment::STATUS_CANCELLED && $confirmedAllocations->isEmpty()) {
+                $findings[] = $this->finding('info', 'cancelled_payment_without_bank_trace', $payment, null, null, $amount, $payment->status, 'no_action_needed_cancelled_payment_without_active_invoice_impact', $context);
+            } else {
+                $findings[] = $this->finding('warning', 'payment_reconciliation_without_bank_statement', $payment, null, null, $amount, $payment->status, 'review_bank_origin_payment_without_bank_statement_or_trace', $context);
+            }
         }
 
         return $findings;

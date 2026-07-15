@@ -144,6 +144,63 @@ final class PaymentAuditCommandTest extends TestCase
         $payload = $this->jsonPayload(['--payment' => $payment->id]);
 
         $this->assertFinding($payload, 'payment_reconciliation_without_bank_statement', 'warning', paymentId: $payment->id);
+        $this->assertSame(1, $this->countFindings($payload, 'payment_reconciliation_without_bank_statement', $payment->id));
+        $this->assertSame(1, $payload['summary']['warning_count']);
+        $this->assertSame(0, $payload['summary']['info_count']);
+    }
+
+    public function test_cancelled_reconciliation_payment_without_bank_statement_is_info_without_active_invoice_impact(): void
+    {
+        $payment = $this->payment([
+            'amount' => 20,
+            'allocated_amount' => 0,
+            'unallocated_amount' => 20,
+            'source' => Payment::SOURCE_RECONCILIATION,
+            'status' => Payment::STATUS_CANCELLED,
+            'bank_statement_id' => null,
+        ]);
+
+        $payload = $this->jsonPayload(['--payment' => $payment->id]);
+
+        $this->assertFinding($payload, 'cancelled_payment_without_bank_trace', 'info', paymentId: $payment->id);
+        $this->assertSame(0, $this->countFindings($payload, 'payment_reconciliation_without_bank_statement', $payment->id));
+        $this->assertSame(0, $payload['summary']['warning_count']);
+        $this->assertSame(1, $payload['summary']['info_count']);
+        $this->assertSame(0, Artisan::call('finance:audit-payments', [
+            '--payment' => $payment->id,
+            '--fail-on-warning' => true,
+        ]));
+    }
+
+    public function test_cancelled_reconciliation_payment_with_active_confirmed_allocation_remains_warning(): void
+    {
+        $invoice = $this->invoice([
+            'valor_total' => 20,
+            'valor_pago' => 20,
+            'valor_em_aberto' => 0,
+            'estado_pagamento' => 'pago',
+            'data_pagamento' => '2026-07-10',
+        ]);
+        $payment = $this->payment([
+            'amount' => 20,
+            'allocated_amount' => 20,
+            'unallocated_amount' => 0,
+            'source' => Payment::SOURCE_RECONCILIATION,
+            'status' => Payment::STATUS_CANCELLED,
+            'bank_statement_id' => null,
+        ]);
+        $this->allocation($payment, ['invoice_id' => $invoice->id, 'amount' => 20]);
+
+        $payload = $this->jsonPayload(['--payment' => $payment->id]);
+
+        $this->assertFinding($payload, 'payment_reconciliation_without_bank_statement', 'warning', paymentId: $payment->id);
+        $this->assertSame(1, $this->countFindings($payload, 'payment_reconciliation_without_bank_statement', $payment->id));
+        $this->assertSame(1, $payload['summary']['warning_count']);
+        $this->assertSame(0, $payload['summary']['info_count']);
+        $this->assertSame(1, Artisan::call('finance:audit-payments', [
+            '--payment' => $payment->id,
+            '--fail-on-warning' => true,
+        ]));
     }
 
     public function test_payment_with_missing_bank_statement_is_critical_when_modelled(): void
@@ -338,6 +395,16 @@ final class PaymentAuditCommandTest extends TestCase
         );
 
         $this->assertNull($finding, sprintf('Unexpected finding %s for invoice %s.', $code, $invoiceId));
+    }
+
+    private function countFindings(array $payload, string $code, string $paymentId): int
+    {
+        return collect($payload['findings'])
+            ->filter(
+                fn (array $finding): bool => $finding['code'] === $code
+                    && $finding['payment_id'] === $paymentId,
+            )
+            ->count();
     }
 
     /**
