@@ -185,6 +185,49 @@ final class PaymentReversalAuditCommandTest extends TestCase
         $this->assertFinding($payload, 'reversed_invoice_with_pending_fiscal_request', 'warning', allocationId: $allocation->id, invoiceId: $invoice->id);
     }
 
+    public function test_historical_reversed_allocation_on_currently_paid_invoice_is_info_not_warning(): void
+    {
+        [$invoice, $reversedAllocation] = $this->paidInvoiceWithHistoricalReversalAndPendingFiscalRequest();
+
+        $payload = $this->jsonPayload(['--allocation' => $reversedAllocation->id]);
+
+        $this->assertFinding($payload, 'reversed_allocation_historical_with_active_paid_invoice', 'info', allocationId: $reversedAllocation->id, invoiceId: $invoice->id);
+        $this->assertNoFinding($payload, 'reversed_invoice_with_pending_fiscal_request', allocationId: $reversedAllocation->id, invoiceId: $invoice->id);
+        $this->assertSame(0, $payload['summary']['warning_count']);
+        $this->assertSame(1, $payload['summary']['info_count']);
+        $this->assertSame(1, $this->countFindings($payload, 'reversed_allocation_historical_with_active_paid_invoice', $reversedAllocation->id));
+    }
+
+    public function test_paid_invoice_without_active_confirmed_allocation_keeps_pending_fiscal_request_warning(): void
+    {
+        $invoice = $this->invoice(['valor_total' => 20, 'valor_pago' => 20, 'valor_em_aberto' => 0, 'estado_pagamento' => 'pago']);
+        $payment = $this->payment(['allocated_amount' => 0, 'unallocated_amount' => 20]);
+        $allocation = $this->allocation($payment, ['invoice_id' => $invoice->id, 'status' => PaymentAllocation::STATUS_CANCELLED]);
+        $this->pendingFiscalRequest($invoice);
+
+        $payload = $this->jsonPayload(['--allocation' => $allocation->id]);
+
+        $this->assertFinding($payload, 'reversed_invoice_with_pending_fiscal_request', 'warning', allocationId: $allocation->id, invoiceId: $invoice->id);
+        $this->assertNoFinding($payload, 'reversed_allocation_historical_with_active_paid_invoice', allocationId: $allocation->id, invoiceId: $invoice->id);
+    }
+
+    public function test_fail_on_warning_does_not_fail_for_historical_paid_invoice_info(): void
+    {
+        [$invoice, $reversedAllocation] = $this->paidInvoiceWithHistoricalReversalAndPendingFiscalRequest();
+
+        $exitCode = Artisan::call('finance:audit-payment-reversals', [
+            '--allocation' => $reversedAllocation->id,
+            '--fail-on-warning' => true,
+            '--json' => true,
+        ]);
+        $payload = json_decode(trim(Artisan::output()), true);
+
+        $this->assertSame(0, $exitCode);
+        $this->assertSame($invoice->id, $payload['findings'][0]['invoice_id']);
+        $this->assertSame('reversed_allocation_historical_with_active_paid_invoice', $payload['findings'][0]['code']);
+        $this->assertSame(0, $payload['summary']['warning_count']);
+    }
+
     public function test_reversed_invoice_with_archived_stale_fiscal_request_is_info_not_warning(): void
     {
         $invoice = $this->invoice();
@@ -383,6 +426,51 @@ final class PaymentReversalAuditCommandTest extends TestCase
         );
 
         $this->assertNull($finding, sprintf('Unexpected finding %s.', $code));
+    }
+
+    /**
+     * @return array{0:Invoice,1:PaymentAllocation}
+     */
+    private function paidInvoiceWithHistoricalReversalAndPendingFiscalRequest(): array
+    {
+        $invoice = $this->invoice(['valor_total' => 20, 'valor_pago' => 20, 'valor_em_aberto' => 0, 'estado_pagamento' => 'pago']);
+        $historicalPayment = $this->payment(['user_id' => $invoice->user_id, 'allocated_amount' => 0, 'unallocated_amount' => 20]);
+        $reversedAllocation = $this->allocation($historicalPayment, [
+            'invoice_id' => $invoice->id,
+            'status' => PaymentAllocation::STATUS_CANCELLED,
+        ]);
+        $currentPayment = $this->payment(['user_id' => $invoice->user_id, 'allocated_amount' => 20, 'unallocated_amount' => 0]);
+        $currentAllocation = $this->allocation($currentPayment, [
+            'invoice_id' => $invoice->id,
+            'status' => PaymentAllocation::STATUS_CONFIRMED,
+        ]);
+        $entry = $this->financialEntry($invoice, $currentPayment, $currentAllocation);
+        $bank = $this->bankStatement();
+        MapaConciliacao::query()->create([
+            'extrato_id' => $bank->id,
+            'lancamento_id' => $entry->id,
+            'fatura_id' => $invoice->id,
+            'payment_id' => $currentPayment->id,
+            'payment_allocation_id' => $currentAllocation->id,
+            'valor_conciliado' => 20,
+            'status' => 'confirmado',
+        ]);
+        $this->pendingFiscalRequest($invoice);
+
+        return [$invoice, $reversedAllocation];
+    }
+
+    private function pendingFiscalRequest(Invoice $invoice): FiscalDocumentRequest
+    {
+        return FiscalDocumentRequest::query()->create([
+            'invoice_id' => $invoice->id,
+            'user_id' => $invoice->user_id,
+            'provider' => FiscalDocumentRequest::PROVIDER_WINTOUCH,
+            'document_type' => FiscalDocumentRequest::DOCUMENT_TYPE_INVOICE_RECEIPT,
+            'status' => FiscalDocumentRequest::STATUS_PENDING,
+            'priority' => FiscalDocumentRequest::PRIORITY_NORMAL,
+            'amount' => 20,
+        ]);
     }
 
     private function countFindings(array $payload, string $code, string $allocationId): int

@@ -632,17 +632,34 @@ final class PaymentReversalAuditService
         $archivedStaleFiscalRequests = $invoice instanceof Invoice ? $this->archivedStaleFiscalRequests($invoice, $fiscalRequests) : collect();
 
         if ($invoice instanceof Invoice && $pendingFiscalRequests->isNotEmpty()) {
-            $findings[] = $this->finding(
-                'warning',
-                'reversed_invoice_with_pending_fiscal_request',
-                $payment instanceof Payment ? $payment : null,
-                $allocation,
-                $invoice,
-                $this->money($allocation->amount),
-                (string) $allocation->status,
-                'review_pending_fiscal_request_after_payment_reversal',
-                ['fiscal_request_ids' => $pendingFiscalRequests->pluck('id')->map(fn (mixed $id): string => (string) $id)->values()->all()],
-            );
+            $pendingFiscalRequestIds = $pendingFiscalRequests->pluck('id')->map(fn (mixed $id): string => (string) $id)->values()->all();
+            $historicalPaidContext = $this->historicalReversalOnCurrentlyPaidInvoiceContext($invoice, $financialEntries, $reconciliations);
+
+            if ((bool) $historicalPaidContext['is_currently_paid_and_protected']) {
+                $findings[] = $this->finding(
+                    'info',
+                    'reversed_allocation_historical_with_active_paid_invoice',
+                    $payment instanceof Payment ? $payment : null,
+                    $allocation,
+                    $invoice,
+                    $this->money($allocation->amount),
+                    (string) $allocation->status,
+                    'no_action_needed_reversed_allocation_invoice_currently_paid',
+                    array_merge($historicalPaidContext, ['fiscal_request_ids' => $pendingFiscalRequestIds]),
+                );
+            } else {
+                $findings[] = $this->finding(
+                    'warning',
+                    'reversed_invoice_with_pending_fiscal_request',
+                    $payment instanceof Payment ? $payment : null,
+                    $allocation,
+                    $invoice,
+                    $this->money($allocation->amount),
+                    (string) $allocation->status,
+                    'review_pending_fiscal_request_after_payment_reversal',
+                    array_merge($historicalPaidContext, ['fiscal_request_ids' => $pendingFiscalRequestIds]),
+                );
+            }
         }
 
         if ($invoice instanceof Invoice && $archivedStaleFiscalRequests->isNotEmpty()) {
@@ -733,6 +750,45 @@ final class PaymentReversalAuditService
 
     /**
      * @param Collection<int,FinancialEntry> $financialEntries
+     * @param Collection<int,MapaConciliacao> $reconciliations
+     * @return array<string,mixed>
+     */
+    private function historicalReversalOnCurrentlyPaidInvoiceContext(Invoice $invoice, Collection $financialEntries, Collection $reconciliations): array
+    {
+        $activeInvoiceAllocationSum = $this->activeInvoiceAllocationSum((string) $invoice->id);
+        $activeConfirmedAllocationCount = PaymentAllocation::query()
+            ->where('invoice_id', $invoice->id)
+            ->where('status', PaymentAllocation::STATUS_CONFIRMED)
+            ->whereNull('deleted_at')
+            ->count();
+        $activeInvoiceFinancialEntries = $this->activeFinancialEntriesForInvoice($invoice, $financialEntries);
+        $activeInvoiceReconciliations = $this->activeReconciliationsForInvoice($invoice, $reconciliations);
+        $invoiceTotal = $this->money($invoice->valor_total);
+        $invoicePaid = $this->money($invoice->valor_pago);
+        $invoiceOpen = $this->money($invoice->valor_em_aberto);
+        $isPaidStateCoherent = (string) $invoice->estado_pagamento === 'pago'
+            && abs($invoicePaid - $invoiceTotal) <= self::TOLERANCE
+            && abs($invoiceOpen) <= self::TOLERANCE;
+        $hasCoherentActiveAllocation = $activeConfirmedAllocationCount > 0
+            && abs($activeInvoiceAllocationSum - $invoicePaid) <= self::TOLERANCE;
+        $hasActiveProtectionTrail = $activeInvoiceFinancialEntries->isNotEmpty()
+            || $activeInvoiceReconciliations->isNotEmpty();
+
+        return [
+            'is_currently_paid_and_protected' => $isPaidStateCoherent && $hasCoherentActiveAllocation && $hasActiveProtectionTrail,
+            'is_paid_state_coherent' => $isPaidStateCoherent,
+            'active_confirmed_allocation_count' => $activeConfirmedAllocationCount,
+            'active_invoice_allocation_sum' => $activeInvoiceAllocationSum,
+            'invoice_valor_total' => $invoiceTotal,
+            'invoice_valor_pago' => $invoicePaid,
+            'invoice_valor_em_aberto' => $invoiceOpen,
+            'active_financial_entry_count' => $activeInvoiceFinancialEntries->count(),
+            'active_reconciliation_count' => $activeInvoiceReconciliations->count(),
+        ];
+    }
+
+    /**
+     * @param Collection<int,FinancialEntry> $financialEntries
      * @return Collection<int,FinancialEntry>
      */
     private function activeFinancialEntriesForPayment(Payment $payment, Collection $financialEntries): Collection
@@ -754,6 +810,18 @@ final class PaymentReversalAuditService
                 return (string) $entry->id === (string) $allocation->financial_entry_id
                     || ((string) $entry->origem_tipo === 'payment_allocation' && (string) $entry->origem_id === (string) $allocation->id);
             })
+            ->filter(fn (FinancialEntry $entry): bool => $this->isFinancialEntryActive($entry))
+            ->values();
+    }
+
+    /**
+     * @param Collection<int,FinancialEntry> $financialEntries
+     * @return Collection<int,FinancialEntry>
+     */
+    private function activeFinancialEntriesForInvoice(Invoice $invoice, Collection $financialEntries): Collection
+    {
+        return $financialEntries
+            ->filter(static fn (FinancialEntry $entry): bool => (string) $entry->fatura_id === (string) $invoice->id)
             ->filter(fn (FinancialEntry $entry): bool => $this->isFinancialEntryActive($entry))
             ->values();
     }
@@ -785,6 +853,18 @@ final class PaymentReversalAuditService
     {
         return $reconciliations
             ->where('payment_allocation_id', $allocation->id)
+            ->filter(fn (MapaConciliacao $map): bool => $this->isReconciliationActive($map))
+            ->values();
+    }
+
+    /**
+     * @param Collection<int,MapaConciliacao> $reconciliations
+     * @return Collection<int,MapaConciliacao>
+     */
+    private function activeReconciliationsForInvoice(Invoice $invoice, Collection $reconciliations): Collection
+    {
+        return $reconciliations
+            ->where('fatura_id', $invoice->id)
             ->filter(fn (MapaConciliacao $map): bool => $this->isReconciliationActive($map))
             ->values();
     }
