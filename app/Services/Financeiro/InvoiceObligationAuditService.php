@@ -661,8 +661,7 @@ final class InvoiceObligationAuditService
     private function isArchivedStaleFiscalRequest(FiscalDocumentRequest $request): bool
     {
         return (bool) data_get($request->metadata, 'stale_cleanup') === true
-            && data_get($request->metadata, 'stale_cleanup_version') === 'a3-6'
-            && $request->trashed()
+            && in_array(data_get($request->metadata, 'stale_cleanup_version'), ['a3-6', 'a4-6'], true)
             && blank($request->external_document_number)
             && blank($request->external_document_id)
             && $request->issued_at === null;

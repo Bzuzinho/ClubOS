@@ -59,6 +59,7 @@ final class FiscalRequestAnomalyInspectionCommand extends Command
         $payments = is_array($payload['payment_snapshot'] ?? null) ? $payload['payment_snapshot'] : [];
         $allocations = is_array($payload['payment_allocation_snapshot'] ?? null) ? $payload['payment_allocation_snapshot'] : [];
         $anomalies = is_array($payload['detected_anomalies'] ?? null) ? $payload['detected_anomalies'] : [];
+        $reversalContext = is_array($payload['reversal_context'] ?? null) ? $payload['reversal_context'] : [];
 
         $this->info('Fiscal request anomaly inspection');
         $this->table(
@@ -74,8 +75,20 @@ final class FiscalRequestAnomalyInspectionCommand extends Command
                 ['valor_em_aberto', number_format((float) ($invoice['valor_em_aberto'] ?? 0), 2, '.', '')],
                 ['risk_level', (string) ($payload['risk_level'] ?? '')],
                 ['can_auto_fix', ((bool) ($payload['can_auto_fix'] ?? false)) ? 'yes' : 'no'],
+                ['can_archive_stale_request', ((bool) ($payload['can_archive_stale_request'] ?? false)) ? 'yes' : 'no'],
                 ['future_action_candidate', (string) ($payload['future_action_candidate'] ?? '')],
             ],
+        );
+
+        $this->table(
+            ['Reversal Field', 'Value'],
+            collect($reversalContext)
+                ->map(static fn (mixed $value, string $key): array => [
+                    $key,
+                    is_bool($value) ? ($value ? 'yes' : 'no') : (string) $value,
+                ])
+                ->values()
+                ->all(),
         );
 
         $this->table(

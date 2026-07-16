@@ -628,7 +628,10 @@ final class PaymentReversalAuditService
             );
         }
 
-        if ($invoice instanceof Invoice && $this->pendingFiscalRequests($invoice, $fiscalRequests)->isNotEmpty()) {
+        $pendingFiscalRequests = $invoice instanceof Invoice ? $this->pendingFiscalRequests($invoice, $fiscalRequests) : collect();
+        $archivedStaleFiscalRequests = $invoice instanceof Invoice ? $this->archivedStaleFiscalRequests($invoice, $fiscalRequests) : collect();
+
+        if ($invoice instanceof Invoice && $pendingFiscalRequests->isNotEmpty()) {
             $findings[] = $this->finding(
                 'warning',
                 'reversed_invoice_with_pending_fiscal_request',
@@ -638,7 +641,21 @@ final class PaymentReversalAuditService
                 $this->money($allocation->amount),
                 (string) $allocation->status,
                 'review_pending_fiscal_request_after_payment_reversal',
-                ['fiscal_request_ids' => $this->pendingFiscalRequests($invoice, $fiscalRequests)->pluck('id')->map(fn (mixed $id): string => (string) $id)->values()->all()],
+                ['fiscal_request_ids' => $pendingFiscalRequests->pluck('id')->map(fn (mixed $id): string => (string) $id)->values()->all()],
+            );
+        }
+
+        if ($invoice instanceof Invoice && $archivedStaleFiscalRequests->isNotEmpty()) {
+            $findings[] = $this->finding(
+                'info',
+                'stale_fiscal_request_after_reversal_archived',
+                $payment instanceof Payment ? $payment : null,
+                $allocation,
+                $invoice,
+                $this->money($allocation->amount),
+                (string) $allocation->status,
+                'no_action_needed_stale_fiscal_request_after_reversal_archived',
+                ['fiscal_request_ids' => $archivedStaleFiscalRequests->pluck('id')->map(fn (mixed $id): string => (string) $id)->values()->all()],
             );
         }
 
@@ -833,8 +850,30 @@ final class PaymentReversalAuditService
         return $fiscalRequests
             ->where('invoice_id', $invoice->id)
             ->where('status', FiscalDocumentRequest::STATUS_PENDING)
-            ->whereNull('deleted_at')
+            ->reject(fn (FiscalDocumentRequest $request): bool => $this->isArchivedStaleFiscalRequest($request))
             ->values();
+    }
+
+    /**
+     * @param Collection<int,FiscalDocumentRequest> $fiscalRequests
+     * @return Collection<int,FiscalDocumentRequest>
+     */
+    private function archivedStaleFiscalRequests(Invoice $invoice, Collection $fiscalRequests): Collection
+    {
+        return $fiscalRequests
+            ->where('invoice_id', $invoice->id)
+            ->where('status', FiscalDocumentRequest::STATUS_PENDING)
+            ->filter(fn (FiscalDocumentRequest $request): bool => $this->isArchivedStaleFiscalRequest($request))
+            ->values();
+    }
+
+    private function isArchivedStaleFiscalRequest(FiscalDocumentRequest $request): bool
+    {
+        return (bool) data_get($request->metadata, 'stale_cleanup') === true
+            && in_array(data_get($request->metadata, 'stale_cleanup_version'), ['a3-6', 'a4-6'], true)
+            && blank($request->external_document_number)
+            && blank($request->external_document_id)
+            && $request->issued_at === null;
     }
 
     /**

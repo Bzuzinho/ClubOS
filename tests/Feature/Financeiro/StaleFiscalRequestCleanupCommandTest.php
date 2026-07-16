@@ -309,6 +309,87 @@ final class StaleFiscalRequestCleanupCommandTest extends TestCase
         $this->assertSame($before, $this->nonFiscalSnapshot());
     }
 
+    public function test_reversed_invoice_pending_request_is_detected_and_dry_run_is_read_only(): void
+    {
+        $invoice = $this->invoice();
+        $request = $this->pendingFiscalRequest($invoice);
+        $this->paymentAllocation($invoice, PaymentAllocation::STATUS_CANCELLED, deleted: true);
+        $before = $this->fullSnapshot();
+
+        $payload = $this->jsonPayload(['--invoice' => $invoice->id, '--dry-run' => true]);
+
+        $this->assertSame(1, $payload['summary']['safe_to_archive_reversed_stale_request']);
+        $this->assertSame('safe_to_archive_reversed_stale_request', $payload['items'][0]['classification']);
+        $this->assertSame($request->id, $payload['items'][0]['fiscal_request_id']);
+        $this->assertTrue($payload['items'][0]['can_archive_stale_request']);
+        $this->assertSame($before, $this->fullSnapshot());
+    }
+
+    public function test_reversed_invoice_apply_marks_a4_6_metadata_and_is_idempotent(): void
+    {
+        $invoice = $this->invoice();
+        $request = $this->pendingFiscalRequest($invoice, ['notes' => 'Nota inicial']);
+        $this->paymentAllocation($invoice, PaymentAllocation::STATUS_CANCELLED, deleted: true);
+
+        $payload = $this->jsonPayload(['--invoice' => $invoice->id, '--apply' => true]);
+        $first = FiscalDocumentRequest::withTrashed()->whereKey($request->id)->firstOrFail();
+
+        Carbon::setTestNow(Carbon::parse('2026-07-16 12:00:00'));
+        $secondPayload = $this->jsonPayload(['--invoice' => $invoice->id, '--apply' => true]);
+        $second = FiscalDocumentRequest::withTrashed()->whereKey($request->id)->firstOrFail();
+
+        $this->assertSame(1, $payload['summary']['applied_count']);
+        $this->assertSame('already_archived_stale_request', $payload['items'][0]['classification']);
+        $this->assertTrue((bool) data_get($first->metadata, 'stale_cleanup'));
+        $this->assertSame('a4-6', data_get($first->metadata, 'stale_cleanup_version'));
+        $this->assertSame('pending_request_after_reversed_payment_allocation_without_external_document', data_get($first->metadata, 'stale_cleanup_reason'));
+        $this->assertStringContainsString('[A4.6] Pedido fiscal pendente stale arquivado logicamente apos reversao de alocacao', (string) $first->notes);
+        $this->assertNull($first->deleted_at);
+        $this->assertSame(FiscalDocumentRequest::STATUS_PENDING, $first->status);
+        $this->assertSame(0, $secondPayload['summary']['applied_count']);
+        $this->assertSame(data_get($first->metadata, 'stale_cleanup_at'), data_get($second->metadata, 'stale_cleanup_at'));
+        $this->assertSame(1, substr_count((string) $second->notes, '[A4.6]'));
+    }
+
+    public function test_reversed_invoice_with_external_document_is_unsafe_and_not_changed(): void
+    {
+        $invoice = $this->invoice();
+        $request = $this->pendingFiscalRequest($invoice, ['external_document_number' => 'FT 2026/9']);
+        $this->paymentAllocation($invoice, PaymentAllocation::STATUS_CANCELLED, deleted: true);
+
+        $payload = $this->jsonPayload(['--invoice' => $invoice->id, '--apply' => true]);
+
+        $this->assertSame('unsafe_external_document_present', $payload['items'][0]['classification']);
+        $this->assertFalse((bool) data_get(FiscalDocumentRequest::withTrashed()->whereKey($request->id)->value('metadata'), 'stale_cleanup'));
+    }
+
+    public function test_reversed_invoice_with_active_confirmed_allocation_is_unsafe_and_not_changed(): void
+    {
+        $invoice = $this->invoice();
+        $request = $this->pendingFiscalRequest($invoice);
+        $this->paymentAllocation($invoice, PaymentAllocation::STATUS_CANCELLED, deleted: true);
+        $this->paymentAllocation($invoice, PaymentAllocation::STATUS_CONFIRMED);
+
+        $payload = $this->jsonPayload(['--invoice' => $invoice->id, '--apply' => true]);
+
+        $this->assertSame('unsafe_confirmed_allocation_present', $payload['items'][0]['classification']);
+        $this->assertFalse((bool) data_get(FiscalDocumentRequest::withTrashed()->whereKey($request->id)->value('metadata'), 'stale_cleanup'));
+    }
+
+    public function test_reversed_invoice_archived_request_is_info_in_invoice_audit(): void
+    {
+        $invoice = $this->invoice();
+        $this->pendingFiscalRequest($invoice);
+        $this->paymentAllocation($invoice, PaymentAllocation::STATUS_CANCELLED, deleted: true);
+
+        $this->jsonPayload(['--invoice' => $invoice->id, '--apply' => true]);
+        $audit = $this->invoiceAuditPayload($invoice->id);
+
+        $this->assertNoAuditFinding($audit, 'fiscal_request_without_invoice_paid', $invoice->id);
+        $this->assertNoAuditFinding($audit, 'fiscal_request_pending_for_unpaid_invoice', $invoice->id);
+        $this->assertAuditFinding($audit, 'stale_fiscal_request_archived', $invoice->id, 'info');
+    }
+
     /**
      * @param array<string,mixed> $options
      * @return array<string,mixed>

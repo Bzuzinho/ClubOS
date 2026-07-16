@@ -64,6 +64,7 @@ final class FiscalRequestAnomalyInspectionService
         $anomalies = $this->detectAnomalies($invoice, $allocations, $payments, $fiscalRequests, $reconciliations, $bankAllocations);
         $riskLevel = $this->riskLevel($invoice, $allocations, $fiscalRequests, $reconciliations, $bankAllocations, $anomalies);
         $futureActionCandidate = $this->futureActionCandidate($fiscalRequests, $allocations, $payments, $reconciliations, $bankAllocations);
+        $reversalContext = $this->reversalContext($invoice, $allocations, $fiscalRequests, $reconciliations, $bankAllocations, $financialEntries);
 
         return [
             'version' => self::VERSION,
@@ -80,8 +81,10 @@ final class FiscalRequestAnomalyInspectionService
             ],
             'financial_entry_snapshot' => $financialEntries->map(fn (FinancialEntry $entry): array => $this->financialEntrySnapshot($entry))->values()->all(),
             'detected_anomalies' => $anomalies,
+            'reversal_context' => $reversalContext,
             'risk_level' => $riskLevel,
             'can_auto_fix' => false,
+            'can_archive_stale_request' => (bool) $reversalContext['can_archive_stale_request'],
             'future_action_candidate' => $futureActionCandidate,
             'recommended_next_action' => $this->recommendedNextAction($riskLevel, $futureActionCandidate, $anomalies),
         ];
@@ -193,6 +196,69 @@ final class FiscalRequestAnomalyInspectionService
         }
 
         return null;
+    }
+
+    private function reversalContext(Invoice $invoice, $allocations, $fiscalRequests, $reconciliations, $bankAllocations, $financialEntries): array
+    {
+        $pendingFiscalRequests = $fiscalRequests->filter(
+            fn (FiscalDocumentRequest $request): bool => $request->status === FiscalDocumentRequest::STATUS_PENDING,
+        );
+        $hasExternalDocument = $fiscalRequests->contains(
+            fn (FiscalDocumentRequest $request): bool => filled($request->external_document_number)
+                || filled($request->external_document_id)
+                || $request->issued_at !== null,
+        );
+        $hasInvoiceReceipt = filled($invoice->numero_recibo)
+            || filled($invoice->recibo_emitido_em)
+            || filled($invoice->recibo_pdf_path)
+            || filled($invoice->receipt_import_item_id);
+        $softDeletedCancelledAllocations = $allocations->filter(
+            fn (PaymentAllocation $allocation): bool => $allocation->status === PaymentAllocation::STATUS_CANCELLED
+                && $allocation->deleted_at !== null,
+        );
+        $activeConfirmedAllocations = $allocations->filter(
+            fn (PaymentAllocation $allocation): bool => $allocation->status === PaymentAllocation::STATUS_CONFIRMED
+                && $allocation->deleted_at === null,
+        );
+        $activeReconciliations = $reconciliations->filter(
+            fn (MapaConciliacao $map): bool => ! in_array((string) $map->status, ['cancelled', 'cancelado', 'reversed', 'anulado'], true),
+        );
+        $activeBankAllocations = $bankAllocations->filter(
+            fn (BankTransactionAllocation $allocation): bool => $allocation->status === BankTransactionAllocation::STATUS_CONFIRMED,
+        );
+        $activeFinancialEntries = $financialEntries->filter(
+            fn (FinancialEntry $entry): bool => in_array((string) $entry->estado, ['pago', 'parcial'], true)
+                || (float) $entry->valor_pago > self::TOLERANCE
+                || filled($entry->payment_id),
+        );
+        $hasIssuedFiscalRequest = $fiscalRequests->contains(
+            fn (FiscalDocumentRequest $request): bool => $request->status === FiscalDocumentRequest::STATUS_ISSUED,
+        );
+
+        return [
+            'pending_fiscal_request_count' => $pendingFiscalRequests->count(),
+            'has_pending_fiscal_request' => $pendingFiscalRequests->isNotEmpty(),
+            'has_soft_deleted_pending_fiscal_request' => $pendingFiscalRequests->contains(fn (FiscalDocumentRequest $request): bool => $request->trashed()),
+            'has_external_document' => $hasExternalDocument,
+            'has_invoice_receipt' => $hasInvoiceReceipt,
+            'soft_deleted_cancelled_allocation_count' => $softDeletedCancelledAllocations->count(),
+            'has_soft_deleted_cancelled_allocation' => $softDeletedCancelledAllocations->isNotEmpty(),
+            'active_confirmed_allocation_count' => $activeConfirmedAllocations->count(),
+            'has_active_confirmed_allocation' => $activeConfirmedAllocations->isNotEmpty(),
+            'has_active_reconciliation' => $activeReconciliations->isNotEmpty(),
+            'has_active_bank_allocation' => $activeBankAllocations->isNotEmpty(),
+            'has_active_financial_entry' => $activeFinancialEntries->isNotEmpty(),
+            'has_issued_fiscal_request' => $hasIssuedFiscalRequest,
+            'can_archive_stale_request' => $pendingFiscalRequests->isNotEmpty()
+                && $softDeletedCancelledAllocations->isNotEmpty()
+                && ! $hasExternalDocument
+                && ! $hasInvoiceReceipt
+                && ! $hasIssuedFiscalRequest
+                && $activeConfirmedAllocations->isEmpty()
+                && $activeReconciliations->isEmpty()
+                && $activeBankAllocations->isEmpty()
+                && $activeFinancialEntries->isEmpty(),
+        ];
     }
 
     private function recommendedNextAction(string $riskLevel, ?string $futureActionCandidate, array $anomalies): string

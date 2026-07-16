@@ -185,6 +185,35 @@ final class PaymentReversalAuditCommandTest extends TestCase
         $this->assertFinding($payload, 'reversed_invoice_with_pending_fiscal_request', 'warning', allocationId: $allocation->id, invoiceId: $invoice->id);
     }
 
+    public function test_reversed_invoice_with_archived_stale_fiscal_request_is_info_not_warning(): void
+    {
+        $invoice = $this->invoice();
+        $payment = $this->payment();
+        $allocation = $this->allocation($payment, ['invoice_id' => $invoice->id, 'status' => PaymentAllocation::STATUS_CANCELLED]);
+        FiscalDocumentRequest::query()->create([
+            'invoice_id' => $invoice->id,
+            'user_id' => $invoice->user_id,
+            'provider' => FiscalDocumentRequest::PROVIDER_WINTOUCH,
+            'document_type' => FiscalDocumentRequest::DOCUMENT_TYPE_INVOICE_RECEIPT,
+            'status' => FiscalDocumentRequest::STATUS_PENDING,
+            'priority' => FiscalDocumentRequest::PRIORITY_NORMAL,
+            'amount' => 20,
+            'metadata' => [
+                'stale_cleanup' => true,
+                'stale_cleanup_at' => '2026-07-16T12:00:00+00:00',
+                'stale_cleanup_reason' => 'pending_request_after_reversed_payment_allocation_without_external_document',
+                'stale_cleanup_version' => 'a4-6',
+            ],
+        ]);
+
+        $payload = $this->jsonPayload(['--allocation' => $allocation->id]);
+
+        $this->assertFinding($payload, 'stale_fiscal_request_after_reversal_archived', 'info', allocationId: $allocation->id, invoiceId: $invoice->id);
+        $this->assertNoFinding($payload, 'reversed_invoice_with_pending_fiscal_request', allocationId: $allocation->id, invoiceId: $invoice->id);
+        $this->assertSame(0, $payload['summary']['warning_count']);
+        $this->assertSame(1, $payload['summary']['info_count']);
+    }
+
     public function test_soft_deleted_allocation_ignored_correctly_is_info(): void
     {
         $invoice = $this->invoice();
@@ -342,6 +371,18 @@ final class PaymentReversalAuditCommandTest extends TestCase
         );
 
         $this->assertIsArray($finding, sprintf('Missing finding %s/%s.', $severity, $code));
+    }
+
+    private function assertNoFinding(array $payload, string $code, ?string $paymentId = null, ?string $allocationId = null, ?string $invoiceId = null): void
+    {
+        $finding = collect($payload['findings'])->first(
+            fn (array $finding): bool => $finding['code'] === $code
+                && ($paymentId === null || $finding['payment_id'] === $paymentId)
+                && ($allocationId === null || $finding['allocation_id'] === $allocationId)
+                && ($invoiceId === null || $finding['invoice_id'] === $invoiceId),
+        );
+
+        $this->assertNull($finding, sprintf('Unexpected finding %s.', $code));
     }
 
     private function countFindings(array $payload, string $code, string $allocationId): int

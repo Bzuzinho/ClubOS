@@ -63,6 +63,23 @@ final class FiscalRequestAnomalyInspectionCommandTest extends TestCase
         $this->assertSame('review_stale_pending_fiscal_request_manually', $payload['recommended_next_action']);
     }
 
+    public function test_reversed_payment_allocation_context_marks_safe_archive_candidate(): void
+    {
+        $invoice = $this->invoice();
+        $allocation = $this->cancelledAllocation($invoice);
+        $allocation->delete();
+        $this->pendingFiscalRequest($invoice);
+
+        $payload = $this->jsonPayload($invoice->id);
+
+        $this->assertTrue($payload['can_archive_stale_request']);
+        $this->assertSame(1, $payload['reversal_context']['pending_fiscal_request_count']);
+        $this->assertTrue($payload['reversal_context']['has_soft_deleted_cancelled_allocation']);
+        $this->assertFalse($payload['reversal_context']['has_external_document']);
+        $this->assertFalse($payload['reversal_context']['has_active_confirmed_allocation']);
+        $this->assertTrue($payload['reversal_context']['can_archive_stale_request']);
+    }
+
     public function test_external_fiscal_document_keeps_high_risk_and_blocks_auto_fix(): void
     {
         $invoice = $this->invoice();
