@@ -12,15 +12,20 @@ use App\Models\Invoice;
 use App\Models\MapaConciliacao;
 use App\Models\Payment;
 use App\Models\PaymentAllocation;
+use App\Models\User;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Str;
 
 final class BankReconciliationConsistencyAuditService
 {
-    private const VERSION = 'a5-1-bank-reconciliation-audit-v1';
+    private const VERSION = 'a5-2-bank-reconciliation-audit-v1';
     private const TOLERANCE = 0.01;
+    private const PAYMENT_ENGINE_ADOPTION_DATE = '2026-05-05';
+    private const HISTORICAL_AFTER_DAYS = 180;
+    private const RECENT_ACTIONABLE_DAYS = 60;
 
     /**
      * @param array<string,mixed> $options
@@ -470,18 +475,7 @@ final class BankReconciliationConsistencyAuditService
             && $activeReconciliations->isEmpty()
             && $activeBankAllocations->isEmpty()
             && ! $this->bankStatementIgnoredOrCancelled($bankStatement)) {
-            $findings[] = $this->finding(
-                'warning',
-                'bank_transaction_without_payment',
-                $bankStatement,
-                null,
-                null,
-                null,
-                null,
-                $bankAmount,
-                true,
-                'review_create_payment_or_mark_bank_transaction_ignored',
-            );
+            $findings[] = $this->unpaidBankStatementFinding($bankStatement, $bankAmount);
         }
 
         if ($activePayments->count() > 1) {
@@ -867,6 +861,280 @@ final class BankReconciliationConsistencyAuditService
         return in_array((string) $bankStatement->conciliacao_status, ['ignored', 'ignore', 'cancelled', 'canceled', 'cancelado', 'rejected'], true);
     }
 
+    /**
+     * @return array<string,mixed>
+     */
+    private function unpaidBankStatementFinding(BankStatement $bankStatement, float $bankAmount): array
+    {
+        $context = $this->unpaidBankStatementContext($bankStatement, $bankAmount);
+        $reason = (string) $context['classification_reason'];
+
+        if ($reason === 'outside_payment_domain') {
+            return $this->finding(
+                'info',
+                'bank_transaction_outside_payment_domain',
+                $bankStatement,
+                null,
+                null,
+                null,
+                null,
+                $bankAmount,
+                false,
+                'no_action_needed_outside_member_payment_domain_or_review_in_accounting',
+                $context,
+            );
+        }
+
+        if ($reason === 'historical') {
+            return $this->finding(
+                'info',
+                'historical_bank_transaction_without_payment',
+                $bankStatement,
+                null,
+                null,
+                null,
+                null,
+                $bankAmount,
+                false,
+                'no_action_needed_historical_bank_transaction_without_payment',
+                $context,
+            );
+        }
+
+        if ($reason === 'actionable_member_payment_candidate') {
+            return $this->finding(
+                'warning',
+                'bank_transaction_without_payment_actionable',
+                $bankStatement,
+                null,
+                null,
+                null,
+                null,
+                $bankAmount,
+                true,
+                'review_create_payment_or_reconcile_bank_transaction',
+                $context,
+            );
+        }
+
+        if ($reason === 'missing_classification_strong_member_signal') {
+            return $this->finding(
+                'warning',
+                'bank_transaction_without_payment_missing_classification',
+                $bankStatement,
+                null,
+                null,
+                null,
+                null,
+                $bankAmount,
+                true,
+                'review_bank_transaction_classification_and_payment_match',
+                $context,
+            );
+        }
+
+        return $this->finding(
+            'info',
+            'bank_transaction_unclassified_import',
+            $bankStatement,
+            null,
+            null,
+            null,
+            null,
+            $bankAmount,
+            false,
+            'review_when_processing_bank_reconciliation_queue',
+            $context,
+        );
+    }
+
+    /**
+     * @return array<string,mixed>
+     */
+    private function unpaidBankStatementContext(BankStatement $bankStatement, float $bankAmount): array
+    {
+        $transactionDate = $bankStatement->data_movimento
+            ? Carbon::parse((string) $bankStatement->data_movimento)->startOfDay()
+            : null;
+        $ageDays = $transactionDate instanceof Carbon
+            ? (int) round($transactionDate->diffInDays(Carbon::now()->startOfDay(), false))
+            : null;
+        $text = $this->normalizedBankText($bankStatement);
+        $domainSignals = $this->bankDomainSignals($text);
+        $matchedInvoiceCandidates = $this->matchedOpenInvoiceCandidates($bankStatement, $bankAmount, $text);
+        $matchedUserCandidates = $this->matchedUserCandidates($text);
+        $invoiceCount = $matchedInvoiceCandidates->count();
+        $userCount = $matchedUserCandidates->count();
+        $isHistorical = $this->isHistoricalBankStatement($transactionDate, $ageDays);
+        $isRecent = $ageDays !== null && $ageDays >= 0 && $ageDays <= self::RECENT_ACTIONABLE_DAYS;
+
+        $reason = 'unclassified_import';
+        if (in_array('outside_payment_domain', $domainSignals, true)) {
+            $reason = 'outside_payment_domain';
+        } elseif ($isHistorical) {
+            $reason = 'historical';
+        } elseif ($isRecent && $invoiceCount > 0 && ($userCount > 0 || $invoiceCount === 1)) {
+            $reason = 'actionable_member_payment_candidate';
+        } elseif ($isRecent && $userCount > 0 && in_array('member_payment_signal', $domainSignals, true)) {
+            $reason = 'missing_classification_strong_member_signal';
+        }
+
+        return [
+            'transaction_date' => $transactionDate?->toDateString(),
+            'description' => Str::limit((string) ($bankStatement->descricao ?? ''), 120, ''),
+            'reference' => Str::limit((string) ($bankStatement->referencia ?? ''), 80, ''),
+            'matched_open_invoice_candidates_count' => $invoiceCount,
+            'matched_open_invoice_candidate_ids' => $matchedInvoiceCandidates->pluck('id')->take(5)->values()->all(),
+            'matched_user_candidates_count' => $userCount,
+            'matched_user_candidate_ids' => $matchedUserCandidates->pluck('id')->take(5)->values()->all(),
+            'classification_reason' => $reason,
+            'age_days' => $ageDays,
+            'domain_signals' => $domainSignals,
+        ];
+    }
+
+    private function isHistoricalBankStatement(?Carbon $transactionDate, ?int $ageDays): bool
+    {
+        if ($transactionDate instanceof Carbon && $transactionDate->lt(Carbon::parse(self::PAYMENT_ENGINE_ADOPTION_DATE)->startOfDay())) {
+            return true;
+        }
+
+        return $ageDays !== null && $ageDays > self::HISTORICAL_AFTER_DAYS;
+    }
+
+    private function normalizedBankText(BankStatement $bankStatement): string
+    {
+        return (string) Str::of(trim(implode(' ', array_filter([
+            $bankStatement->descricao,
+            $bankStatement->referencia,
+        ]))))
+            ->ascii()
+            ->lower()
+            ->replaceMatches('/\s+/', ' ')
+            ->trim();
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function bankDomainSignals(string $text): array
+    {
+        $signals = [];
+
+        if ($text !== '' && preg_match('/\b(juros|comissao|comissoes|imposto|taxa\s+bancaria|transferencia\s+interna|trf\s+interna|fornecedor|patrocinio|donativo|subsidio|terminal|tpa|pos|lote|paypal|stripe|mb\s*way\s*merchant)\b/u', $text)) {
+            $signals[] = 'outside_payment_domain';
+        }
+
+        if ($text !== '' && preg_match('/\b(socio|socia|quota|mensalidade|fatura|factura|invoice|pagamento|transferencia|trf|mbway|mb\s*way)\b/u', $text)) {
+            $signals[] = 'member_payment_signal';
+        }
+
+        if ($text === '') {
+            $signals[] = 'missing_reference_text';
+        }
+
+        return array_values(array_unique($signals));
+    }
+
+    /**
+     * @return Collection<int,Invoice>
+     */
+    private function matchedOpenInvoiceCandidates(BankStatement $bankStatement, float $bankAmount, string $text): Collection
+    {
+        if (! Schema::hasTable('invoices')) {
+            return collect();
+        }
+
+        return Invoice::query()
+            ->whereNotIn('estado_pagamento', ['pago', 'cancelado'])
+            ->where('valor_em_aberto', '>', self::TOLERANCE)
+            ->whereBetween('valor_em_aberto', [$bankAmount - self::TOLERANCE, $bankAmount + self::TOLERANCE])
+            ->orderBy('data_emissao')
+            ->orderBy('id')
+            ->get()
+            ->filter(function (Invoice $invoice) use ($bankStatement, $text): bool {
+                $invoiceTokens = array_filter([
+                    (string) ($invoice->id ?? ''),
+                    (string) ($invoice->mes ?? ''),
+                    (string) ($invoice->tipo ?? ''),
+                    (string) ($invoice->numero_recibo ?? ''),
+                ]);
+
+                foreach ($invoiceTokens as $token) {
+                    $normalized = (string) Str::of($token)->ascii()->lower()->trim();
+                    if ($normalized !== '' && str_contains($text, $normalized)) {
+                        return true;
+                    }
+                }
+
+                if ($text === '') {
+                    return false;
+                }
+
+                $user = $invoice->user()->first(['id', 'name']);
+                if (! $user instanceof User) {
+                    return false;
+                }
+
+                return $this->userMatchesBankText($user, $text)
+                    || $this->bankReferenceLooksLikeOpenInvoice($bankStatement, $invoice);
+            })
+            ->values();
+    }
+
+    /**
+     * @return Collection<int,User>
+     */
+    private function matchedUserCandidates(string $text): Collection
+    {
+        if ($text === '' || ! Schema::hasTable('users')) {
+            return collect();
+        }
+
+        return User::query()
+            ->select(['id', 'name'])
+            ->limit(500)
+            ->get()
+            ->filter(fn (User $user): bool => $this->userMatchesBankText($user, $text))
+            ->values();
+    }
+
+    private function userMatchesBankText(User $user, string $text): bool
+    {
+        foreach (['name'] as $field) {
+            $value = data_get($user, $field);
+            if (! is_string($value) && ! is_numeric($value)) {
+                continue;
+            }
+
+            $normalized = (string) Str::of((string) $value)
+                ->ascii()
+                ->lower()
+                ->replaceMatches('/\s+/', ' ')
+                ->trim();
+
+            if ($normalized !== '' && mb_strlen($normalized) >= 3 && str_contains($text, $normalized)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function bankReferenceLooksLikeOpenInvoice(BankStatement $bankStatement, Invoice $invoice): bool
+    {
+        $reference = (string) Str::of((string) ($bankStatement->referencia ?? ''))
+            ->ascii()
+            ->lower()
+            ->trim();
+
+        if ($reference === '') {
+            return false;
+        }
+
+        return str_contains($reference, (string) Str::of((string) $invoice->id)->lower());
+    }
+
     private function isActivePayment(Payment $payment): bool
     {
         return $payment->deleted_at === null && (string) $payment->status !== Payment::STATUS_CANCELLED;
@@ -995,6 +1263,11 @@ final class BankReconciliationConsistencyAuditService
             )),
             'total_allocated_amount_scanned' => $this->money($activeConfirmedAllocations->sum(fn (PaymentAllocation $allocation): float => (float) $allocation->amount)),
             'clean_reconciled_count' => count(array_filter($findings, static fn (array $finding): bool => $finding['code'] === 'clean_reconciled_payment')),
+            'unclassified_import_count' => count(array_filter($findings, static fn (array $finding): bool => $finding['code'] === 'bank_transaction_unclassified_import')),
+            'outside_payment_domain_count' => count(array_filter($findings, static fn (array $finding): bool => $finding['code'] === 'bank_transaction_outside_payment_domain')),
+            'historical_without_payment_count' => count(array_filter($findings, static fn (array $finding): bool => $finding['code'] === 'historical_bank_transaction_without_payment')),
+            'actionable_without_payment_count' => count(array_filter($findings, static fn (array $finding): bool => in_array($finding['code'], ['bank_transaction_without_payment_actionable', 'bank_transaction_without_payment_missing_classification'], true))),
+            'candidate_invoice_match_count' => count(array_filter($findings, static fn (array $finding): bool => (int) data_get($finding, 'context.matched_open_invoice_candidates_count', 0) > 0)),
             'total_findings' => count($findings),
             'critical_count' => count(array_filter($findings, static fn (array $finding): bool => $finding['severity'] === 'critical')),
             'warning_count' => count(array_filter($findings, static fn (array $finding): bool => $finding['severity'] === 'warning')),

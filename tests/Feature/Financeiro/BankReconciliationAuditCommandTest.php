@@ -43,15 +43,78 @@ final class BankReconciliationAuditCommandTest extends TestCase
         parent::tearDown();
     }
 
-    public function test_bank_transaction_without_payment_generates_warning(): void
+    public function test_old_bank_transaction_without_payment_generates_historical_info(): void
     {
-        $bank = $this->bankStatement(['valor' => 25]);
+        $bank = $this->bankStatement([
+            'valor' => 25,
+            'data_movimento' => '2026-01-10',
+        ]);
 
         $payload = $this->jsonPayload(['--bank-transaction' => $bank->id]);
 
-        $this->assertFinding($payload, 'bank_transaction_without_payment', 'warning', bankTransactionId: $bank->id);
+        $this->assertFinding($payload, 'historical_bank_transaction_without_payment', 'info', bankTransactionId: $bank->id);
+        $this->assertSame(0, $payload['summary']['warning_count']);
+        $this->assertSame(1, $payload['summary']['info_count']);
+        $this->assertSame(1, $payload['summary']['historical_without_payment_count']);
+    }
+
+    public function test_recent_bank_transaction_without_matching_signals_generates_unclassified_import_info(): void
+    {
+        $bank = $this->bankStatement([
+            'valor' => 25,
+            'descricao' => 'Entrada sem referencia operacional',
+            'data_movimento' => '2026-07-10',
+        ]);
+
+        $payload = $this->jsonPayload(['--bank-transaction' => $bank->id]);
+
+        $this->assertFinding($payload, 'bank_transaction_unclassified_import', 'info', bankTransactionId: $bank->id);
+        $this->assertSame(0, $payload['summary']['warning_count']);
+        $this->assertSame(1, $payload['summary']['unclassified_import_count']);
+    }
+
+    public function test_bank_transaction_outside_payment_domain_generates_info(): void
+    {
+        $bank = $this->bankStatement([
+            'valor' => 25,
+            'descricao' => 'Juros bancarios',
+            'data_movimento' => '2026-07-10',
+        ]);
+
+        $payload = $this->jsonPayload(['--bank-transaction' => $bank->id]);
+
+        $this->assertFinding($payload, 'bank_transaction_outside_payment_domain', 'info', bankTransactionId: $bank->id);
+        $this->assertSame(0, $payload['summary']['warning_count']);
+        $this->assertSame(1, $payload['summary']['outside_payment_domain_count']);
+    }
+
+    public function test_recent_bank_transaction_with_clear_open_invoice_match_generates_actionable_warning(): void
+    {
+        $user = User::factory()->create([
+            'name' => 'Ana Silva',
+            'nome_completo' => 'Ana Silva',
+        ]);
+        $invoice = $this->invoice([
+            'user_id' => $user->id,
+            'valor_total' => 25,
+            'valor_pago' => 0,
+            'valor_em_aberto' => 25,
+            'estado_pagamento' => 'pendente',
+        ]);
+        $bank = $this->bankStatement([
+            'valor' => 25,
+            'descricao' => 'Pagamento mensalidade Ana Silva',
+            'data_movimento' => '2026-07-10',
+        ]);
+
+        $payload = $this->jsonPayload(['--bank-transaction' => $bank->id]);
+
+        $this->assertFinding($payload, 'bank_transaction_without_payment_actionable', 'warning', bankTransactionId: $bank->id);
         $this->assertSame(1, $payload['summary']['warning_count']);
-        $this->assertSame(1, $payload['summary']['actionable_count']);
+        $this->assertSame(1, $payload['summary']['actionable_without_payment_count']);
+        $this->assertSame(1, $payload['summary']['candidate_invoice_match_count']);
+        $this->assertSame(1, $payload['findings'][0]['context']['matched_open_invoice_candidates_count']);
+        $this->assertContains($invoice->id, $payload['findings'][0]['context']['matched_open_invoice_candidate_ids']);
     }
 
     public function test_ignored_bank_transaction_without_payment_is_not_warning(): void
@@ -63,7 +126,8 @@ final class BankReconciliationAuditCommandTest extends TestCase
 
         $payload = $this->jsonPayload(['--bank-transaction' => $bank->id]);
 
-        $this->assertNoFinding($payload, 'bank_transaction_without_payment', bankTransactionId: $bank->id);
+        $this->assertNoFinding($payload, 'bank_transaction_unclassified_import', bankTransactionId: $bank->id);
+        $this->assertNoFinding($payload, 'bank_transaction_without_payment_actionable', bankTransactionId: $bank->id);
         $this->assertSame(0, $payload['summary']['warning_count']);
     }
 
@@ -270,15 +334,32 @@ final class BankReconciliationAuditCommandTest extends TestCase
 
     public function test_only_actionable_filters_info_findings(): void
     {
-        [$bank] = $this->cleanReconciledChain();
+        $bank = $this->bankStatement([
+            'valor' => 25,
+            'descricao' => 'Entrada sem referencia operacional',
+        ]);
 
         $payload = $this->jsonPayload([
             '--bank-transaction' => $bank->id,
-            '--include-clean' => true,
             '--only-actionable' => true,
         ]);
 
         $this->assertSame([], $payload['findings']);
+    }
+
+    public function test_fail_on_warning_does_not_fail_when_only_unpaid_bank_transactions_are_infos(): void
+    {
+        $bank = $this->bankStatement([
+            'valor' => 25,
+            'descricao' => 'Entrada sem referencia operacional',
+        ]);
+
+        $exitCode = Artisan::call('finance:audit-bank-reconciliation', [
+            '--bank-transaction' => $bank->id,
+            '--fail-on-warning' => true,
+        ]);
+
+        $this->assertSame(0, $exitCode);
     }
 
     public function test_json_output_includes_schema_detected(): void
@@ -323,7 +404,22 @@ final class BankReconciliationAuditCommandTest extends TestCase
 
     public function test_fail_on_warning_returns_exit_one(): void
     {
-        $bank = $this->bankStatement(['valor' => 25]);
+        $user = User::factory()->create([
+            'name' => 'Bruno Costa',
+            'nome_completo' => 'Bruno Costa',
+        ]);
+        $this->invoice([
+            'user_id' => $user->id,
+            'valor_total' => 25,
+            'valor_pago' => 0,
+            'valor_em_aberto' => 25,
+            'estado_pagamento' => 'pendente',
+        ]);
+        $bank = $this->bankStatement([
+            'valor' => 25,
+            'descricao' => 'Pagamento mensalidade Bruno Costa',
+            'data_movimento' => '2026-07-10',
+        ]);
 
         $exitCode = Artisan::call('finance:audit-bank-reconciliation', [
             '--bank-transaction' => $bank->id,
