@@ -197,6 +197,152 @@ final class FinancialTimelineAuditCommandTest extends TestCase
         $this->assertFinding($payload, 'financial_entry_before_source', 'warning', allocationId: $allocation->id, financialEntryId: $entry->id);
     }
 
+    public function test_financial_entry_economic_date_before_technical_allocation_generates_info(): void
+    {
+        [, , , $allocation, $entry] = $this->cleanTimeline(
+            bankOverrides: ['data_movimento' => '2026-01-12'],
+            paymentOverrides: ['payment_date' => '2026-01-12'],
+            invoiceOverrides: [
+                'data_fatura' => '2026-01-01',
+                'data_emissao' => '2026-01-01',
+                'data_vencimento' => '2026-01-01',
+                'data_pagamento' => '2026-01-12',
+            ],
+            allocationOverrides: ['allocated_at' => '2026-05-13 10:00:00'],
+            fiscalOverrides: ['paid_at' => '2026-01-12', 'due_at' => '2026-01-01', 'issued_at' => '2026-05-14 10:00:00'],
+            financialEntryOverrides: ['data' => '2026-01-12'],
+        );
+
+        $payload = $this->jsonPayload(['--allocation' => $allocation->id]);
+
+        $this->assertFinding($payload, 'financial_entry_economic_date_before_technical_allocation', 'info', allocationId: $allocation->id, financialEntryId: $entry->id);
+        $this->assertNoFinding($payload, 'financial_entry_before_source', allocationId: $allocation->id);
+        $this->assertSame(1, $payload['summary']['economic_date_before_technical_allocation_count']);
+        $this->assertSame(0, $payload['summary']['actionable_financial_entry_timeline_count']);
+        $finding = collect($payload['findings'])->firstWhere('code', 'financial_entry_economic_date_before_technical_allocation');
+        $this->assertSame('economic_date_before_technical_allocation', $finding['context']['classification_reason']);
+        $this->assertSame('2026-01-12', $finding['context']['financial_entry_date']);
+        $this->assertSame('2026-05-13', $finding['context']['allocation_allocated_at']);
+    }
+
+    public function test_financial_entry_before_allocation_but_before_invoice_issue_remains_warning(): void
+    {
+        [, , , $allocation, $entry] = $this->cleanTimeline(
+            bankOverrides: ['data_movimento' => '2026-02-09'],
+            paymentOverrides: ['payment_date' => '2026-02-09'],
+            invoiceOverrides: [
+                'data_fatura' => '2026-02-01',
+                'data_emissao' => '2026-02-01',
+                'data_vencimento' => '2026-02-01',
+            ],
+            allocationOverrides: ['allocated_at' => '2026-05-13 10:00:00'],
+            financialEntryOverrides: ['data' => '2026-01-12'],
+        );
+
+        $payload = $this->jsonPayload(['--allocation' => $allocation->id]);
+
+        $this->assertFinding($payload, 'financial_entry_before_source', 'warning', allocationId: $allocation->id, financialEntryId: $entry->id);
+        $this->assertNoFinding($payload, 'financial_entry_economic_date_before_technical_allocation', allocationId: $allocation->id);
+    }
+
+    public function test_financial_entry_before_allocation_with_cancelled_payment_remains_warning(): void
+    {
+        [, , , $allocation, $entry] = $this->cleanTimeline(
+            bankOverrides: ['data_movimento' => '2026-01-12'],
+            paymentOverrides: ['payment_date' => '2026-01-12', 'status' => Payment::STATUS_CANCELLED],
+            invoiceOverrides: [
+                'data_fatura' => '2026-01-01',
+                'data_emissao' => '2026-01-01',
+                'data_vencimento' => '2026-01-01',
+            ],
+            allocationOverrides: ['allocated_at' => '2026-05-13 10:00:00'],
+            financialEntryOverrides: ['data' => '2026-01-12'],
+        );
+
+        $payload = $this->jsonPayload(['--allocation' => $allocation->id]);
+
+        $this->assertFinding($payload, 'financial_entry_before_source', 'warning', allocationId: $allocation->id, financialEntryId: $entry->id);
+    }
+
+    public function test_financial_entry_before_allocation_with_incoherent_amounts_remains_warning(): void
+    {
+        [, , , $allocation, $entry] = $this->cleanTimeline(
+            bankOverrides: ['data_movimento' => '2026-01-12'],
+            paymentOverrides: ['payment_date' => '2026-01-12', 'allocated_amount' => 19],
+            invoiceOverrides: [
+                'data_fatura' => '2026-01-01',
+                'data_emissao' => '2026-01-01',
+                'data_vencimento' => '2026-01-01',
+            ],
+            allocationOverrides: ['allocated_at' => '2026-05-13 10:00:00'],
+            financialEntryOverrides: ['data' => '2026-01-12'],
+        );
+
+        $payload = $this->jsonPayload(['--allocation' => $allocation->id]);
+
+        $this->assertFinding($payload, 'financial_entry_before_source', 'warning', allocationId: $allocation->id, financialEntryId: $entry->id);
+    }
+
+    public function test_multiple_allocations_with_same_technical_date_are_classified_as_technical_batch_when_coherent(): void
+    {
+        $this->cleanTimeline(
+            bankOverrides: ['data_movimento' => '2026-05-01'],
+            paymentOverrides: ['payment_date' => '2026-05-01'],
+            invoiceOverrides: ['data_emissao' => '2026-05-01', 'data_vencimento' => '2026-05-01', 'data_pagamento' => '2026-05-01'],
+            allocationOverrides: ['allocated_at' => '2026-05-13 10:00:00'],
+            fiscalOverrides: ['paid_at' => '2026-05-01', 'due_at' => '2026-05-01', 'issued_at' => '2026-05-14 10:00:00'],
+            financialEntryOverrides: ['data' => '2026-05-01'],
+        );
+        $this->cleanTimeline(
+            bankOverrides: ['data_movimento' => '2026-05-07'],
+            paymentOverrides: ['payment_date' => '2026-05-07'],
+            invoiceOverrides: ['data_emissao' => '2026-05-01', 'data_vencimento' => '2026-05-01', 'data_pagamento' => '2026-05-07'],
+            allocationOverrides: ['allocated_at' => '2026-05-13 10:00:00'],
+            fiscalOverrides: ['paid_at' => '2026-05-07', 'due_at' => '2026-05-01', 'issued_at' => '2026-05-14 10:00:00'],
+            financialEntryOverrides: ['data' => '2026-05-07'],
+        );
+
+        $payload = $this->jsonPayload();
+
+        $this->assertSame(2, $payload['summary']['economic_date_before_technical_allocation_count']);
+        $this->assertSame(0, $payload['summary']['actionable_financial_entry_timeline_count']);
+    }
+
+    public function test_only_actionable_removes_economic_financial_entry_infos(): void
+    {
+        [, , , $allocation] = $this->cleanTimeline(
+            bankOverrides: ['data_movimento' => '2026-01-12'],
+            paymentOverrides: ['payment_date' => '2026-01-12'],
+            invoiceOverrides: ['data_emissao' => '2026-01-01', 'data_vencimento' => '2026-01-01'],
+            allocationOverrides: ['allocated_at' => '2026-05-13 10:00:00'],
+            fiscalOverrides: ['issued_at' => '2026-05-14 10:00:00'],
+            financialEntryOverrides: ['data' => '2026-01-12'],
+        );
+
+        $payload = $this->jsonPayload(['--allocation' => $allocation->id, '--only-actionable' => true]);
+
+        $this->assertSame([], $payload['findings']);
+    }
+
+    public function test_fail_on_warning_does_not_fail_when_only_economic_financial_entry_infos_exist(): void
+    {
+        [, , , $allocation] = $this->cleanTimeline(
+            bankOverrides: ['data_movimento' => '2026-01-12'],
+            paymentOverrides: ['payment_date' => '2026-01-12'],
+            invoiceOverrides: ['data_emissao' => '2026-01-01', 'data_vencimento' => '2026-01-01'],
+            allocationOverrides: ['allocated_at' => '2026-05-13 10:00:00'],
+            fiscalOverrides: ['issued_at' => '2026-05-14 10:00:00'],
+            financialEntryOverrides: ['data' => '2026-01-12'],
+        );
+
+        $exitCode = Artisan::call('finance:audit-financial-timeline', [
+            '--allocation' => $allocation->id,
+            '--fail-on-warning' => true,
+        ]);
+
+        $this->assertSame(0, $exitCode);
+    }
+
     public function test_stale_fiscal_request_archived_generates_info(): void
     {
         [, , $invoice] = $this->cleanTimeline(
