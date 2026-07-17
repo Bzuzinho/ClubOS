@@ -201,16 +201,16 @@ final class FinancialTimelineAuditCommandTest extends TestCase
     {
         [, , , $allocation, $entry] = $this->cleanTimeline(
             bankOverrides: ['data_movimento' => '2026-01-12'],
-            paymentOverrides: ['payment_date' => '2026-01-12'],
+            paymentOverrides: ['payment_date' => null],
             invoiceOverrides: [
                 'data_fatura' => '2026-01-01',
                 'data_emissao' => '2026-01-01',
                 'data_vencimento' => '2026-01-01',
                 'data_pagamento' => '2026-01-12',
             ],
-            allocationOverrides: ['allocated_at' => '2026-05-13 10:00:00'],
+            allocationOverrides: ['allocated_at' => '2026-05-13 10:00:00', 'created_at' => '2026-05-13 10:00:00', 'updated_at' => '2026-05-13 10:00:00'],
             fiscalOverrides: ['paid_at' => '2026-01-12', 'due_at' => '2026-01-01', 'issued_at' => '2026-05-14 10:00:00'],
-            financialEntryOverrides: ['data' => '2026-01-12'],
+            financialEntryOverrides: ['data' => '2026-01-12', 'bank_statement_id' => null, 'created_at' => '2026-05-13 10:00:00', 'updated_at' => '2026-05-13 10:00:00'],
         );
 
         $payload = $this->jsonPayload(['--allocation' => $allocation->id]);
@@ -221,8 +221,36 @@ final class FinancialTimelineAuditCommandTest extends TestCase
         $this->assertSame(0, $payload['summary']['actionable_financial_entry_timeline_count']);
         $finding = collect($payload['findings'])->firstWhere('code', 'financial_entry_economic_date_before_technical_allocation');
         $this->assertSame('economic_date_before_technical_allocation', $finding['context']['classification_reason']);
+        $this->assertTrue($finding['context']['technical_batch_same_day']);
         $this->assertSame('2026-01-12', $finding['context']['financial_entry_date']);
+        $this->assertSame('2026-05-13', $finding['context']['financial_entry_created_at']);
         $this->assertSame('2026-05-13', $finding['context']['allocation_allocated_at']);
+        $this->assertSame('2026-05-13', $finding['context']['allocation_created_at']);
+        $this->assertNull($finding['context']['payment_date']);
+        $this->assertNull($finding['context']['bank_date']);
+    }
+
+    public function test_financial_entry_economic_date_before_technical_allocation_with_six_day_gap_generates_info(): void
+    {
+        [, , , $allocation, $entry] = $this->cleanTimeline(
+            bankOverrides: ['data_movimento' => '2026-05-07'],
+            paymentOverrides: ['payment_date' => null],
+            invoiceOverrides: [
+                'data_fatura' => '2026-05-01',
+                'data_emissao' => '2026-05-01',
+                'data_vencimento' => '2026-05-01',
+                'data_pagamento' => '2026-05-07',
+            ],
+            allocationOverrides: ['allocated_at' => '2026-05-13 10:00:00', 'created_at' => '2026-05-13 10:00:00'],
+            fiscalOverrides: ['paid_at' => '2026-05-07', 'due_at' => '2026-05-01', 'issued_at' => '2026-05-14 10:00:00'],
+            financialEntryOverrides: ['data' => '2026-05-07', 'bank_statement_id' => null, 'created_at' => '2026-05-13 10:00:00'],
+        );
+
+        $payload = $this->jsonPayload(['--allocation' => $allocation->id]);
+
+        $this->assertFinding($payload, 'financial_entry_economic_date_before_technical_allocation', 'info', allocationId: $allocation->id, financialEntryId: $entry->id);
+        $this->assertSame(1, $payload['summary']['economic_date_before_technical_allocation_count']);
+        $this->assertSame(0, $payload['summary']['actionable_financial_entry_timeline_count']);
     }
 
     public function test_financial_entry_before_allocation_but_before_invoice_issue_remains_warning(): void
@@ -257,6 +285,64 @@ final class FinancialTimelineAuditCommandTest extends TestCase
             ],
             allocationOverrides: ['allocated_at' => '2026-05-13 10:00:00'],
             financialEntryOverrides: ['data' => '2026-01-12'],
+        );
+
+        $payload = $this->jsonPayload(['--allocation' => $allocation->id]);
+
+        $this->assertFinding($payload, 'financial_entry_before_source', 'warning', allocationId: $allocation->id, financialEntryId: $entry->id);
+    }
+
+    public function test_financial_entry_created_before_technical_allocation_batch_remains_warning(): void
+    {
+        [, , , $allocation, $entry] = $this->cleanTimeline(
+            bankOverrides: ['data_movimento' => '2026-01-12'],
+            paymentOverrides: ['payment_date' => null],
+            invoiceOverrides: [
+                'data_fatura' => '2026-01-01',
+                'data_emissao' => '2026-01-01',
+                'data_vencimento' => '2026-01-01',
+            ],
+            allocationOverrides: ['allocated_at' => '2026-05-13 10:00:00', 'created_at' => '2026-05-13 10:00:00'],
+            financialEntryOverrides: ['data' => '2026-01-12', 'created_at' => '2026-05-01 10:00:00'],
+        );
+
+        $payload = $this->jsonPayload(['--allocation' => $allocation->id]);
+
+        $this->assertFinding($payload, 'financial_entry_before_source', 'warning', allocationId: $allocation->id, financialEntryId: $entry->id);
+    }
+
+    public function test_financial_entry_before_cancelled_allocation_remains_warning(): void
+    {
+        [, , , $allocation, $entry] = $this->cleanTimeline(
+            bankOverrides: ['data_movimento' => '2026-01-12'],
+            paymentOverrides: ['payment_date' => null],
+            invoiceOverrides: [
+                'data_fatura' => '2026-01-01',
+                'data_emissao' => '2026-01-01',
+                'data_vencimento' => '2026-01-01',
+            ],
+            allocationOverrides: ['allocated_at' => '2026-05-13 10:00:00', 'created_at' => '2026-05-13 10:00:00', 'status' => PaymentAllocation::STATUS_CANCELLED],
+            financialEntryOverrides: ['data' => '2026-01-12', 'created_at' => '2026-05-13 10:00:00'],
+        );
+
+        $payload = $this->jsonPayload(['--allocation' => $allocation->id]);
+
+        $this->assertFinding($payload, 'financial_entry_before_source', 'warning', allocationId: $allocation->id, financialEntryId: $entry->id);
+    }
+
+    public function test_financial_entry_before_allocation_with_incoherent_fiscal_issue_remains_warning(): void
+    {
+        [, , , $allocation, $entry] = $this->cleanTimeline(
+            bankOverrides: ['data_movimento' => '2026-01-12'],
+            paymentOverrides: ['payment_date' => null],
+            invoiceOverrides: [
+                'data_fatura' => '2026-01-01',
+                'data_emissao' => '2026-01-01',
+                'data_vencimento' => '2026-01-01',
+            ],
+            allocationOverrides: ['allocated_at' => '2026-05-13 10:00:00', 'created_at' => '2026-05-13 10:00:00'],
+            fiscalOverrides: ['issued_at' => '2026-01-05 10:00:00', 'external_document_number' => 'RC 2026/1'],
+            financialEntryOverrides: ['data' => '2026-01-12', 'created_at' => '2026-05-13 10:00:00'],
         );
 
         $payload = $this->jsonPayload(['--allocation' => $allocation->id]);
@@ -682,14 +768,21 @@ final class FinancialTimelineAuditCommandTest extends TestCase
      */
     private function allocation(Payment $payment, array $overrides = []): PaymentAllocation
     {
-        return PaymentAllocation::query()->create(array_merge([
+        $timestampOverrides = array_intersect_key($overrides, array_flip(['created_at', 'updated_at', 'deleted_at']));
+        $allocation = PaymentAllocation::query()->create(array_merge([
             'payment_id' => $payment->id,
             'invoice_id' => null,
             'financial_entry_id' => null,
             'amount' => 20,
             'status' => PaymentAllocation::STATUS_CONFIRMED,
             'allocated_at' => '2026-07-10 12:00:00',
-        ], $overrides));
+        ], array_diff_key($overrides, $timestampOverrides)));
+
+        if ($timestampOverrides !== []) {
+            $allocation->forceFill($timestampOverrides)->save();
+        }
+
+        return $allocation->fresh();
     }
 
     /**
@@ -714,7 +807,8 @@ final class FinancialTimelineAuditCommandTest extends TestCase
      */
     private function financialEntry(Invoice $invoice, Payment $payment, PaymentAllocation $allocation, BankStatement $bank, array $overrides = []): FinancialEntry
     {
-        return FinancialEntry::query()->create(array_merge([
+        $timestampOverrides = array_intersect_key($overrides, array_flip(['created_at', 'updated_at', 'deleted_at']));
+        $entry = FinancialEntry::query()->create(array_merge([
             'data' => '2026-07-10',
             'tipo' => 'receita',
             'categoria' => 'Pagamento de Fatura',
@@ -728,7 +822,13 @@ final class FinancialTimelineAuditCommandTest extends TestCase
             'bank_statement_id' => $bank->id,
             'origem_tipo' => 'payment_allocation',
             'origem_id' => $allocation->id,
-        ], $overrides));
+        ], array_diff_key($overrides, $timestampOverrides)));
+
+        if ($timestampOverrides !== []) {
+            $entry->forceFill($timestampOverrides)->save();
+        }
+
+        return $entry->fresh();
     }
 
     /**

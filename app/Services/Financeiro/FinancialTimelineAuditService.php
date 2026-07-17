@@ -873,31 +873,36 @@ final class FinancialTimelineAuditService
      */
     private function isEconomicDateBeforeTechnicalAllocation(FinancialEntry $entry, ?Payment $payment, PaymentAllocation $allocation, ?Invoice $invoice, ?BankStatement $bank, Collection $allocations, Collection $fiscalRequests): bool
     {
-        if (! $payment instanceof Payment || ! $invoice instanceof Invoice) {
+        if (! $invoice instanceof Invoice) {
             return false;
         }
 
-        if (! $this->activePayment($payment) || ! $this->activeAllocation($allocation)) {
+        if (($payment instanceof Payment && ! $this->activePayment($payment)) || ! $this->activeAllocation($allocation)) {
             return false;
         }
 
         $entryDate = $this->dateValue($entry, 'data');
         $allocationDate = $this->dateValue($allocation, 'allocated_at') ?? $this->dateValue($allocation, 'created_at');
         $allocationCreatedAt = $this->dateValue($allocation, 'created_at');
+        $allocationAllocatedAt = $this->dateValue($allocation, 'allocated_at');
+        $entryCreatedAt = $this->dateValue($entry, 'created_at');
         $paymentDate = $this->dateValue($payment, 'payment_date');
         $invoiceIssueDate = $this->dateValue($invoice, 'data_emissao') ?? $this->dateValue($invoice, 'created_at');
         $invoiceDueDate = $this->dateValue($invoice, 'data_vencimento');
-        $bankDate = $this->dateValue($bank, 'data_movimento');
 
-        if (! $entryDate || ! $allocationDate || ! $entryDate->lt($allocationDate)) {
+        if (! $entryDate || ! $allocationDate || ! $entryDate->lt($allocationDate) || ! $entryCreatedAt || ! $allocationCreatedAt) {
             return false;
         }
 
-        $entryMatchesEconomicTimeline = ($invoiceIssueDate && $invoiceIssueDate->lte($entryDate) && (! $invoiceDueDate || $invoiceDueDate->lte($entryDate)))
-            || ($paymentDate && $entryDate->equalTo($paymentDate))
-            || ($bankDate && $entryDate->equalTo($bankDate));
+        if (! $entryCreatedAt->isSameDay($allocationCreatedAt)) {
+            return false;
+        }
 
-        if (! $entryMatchesEconomicTimeline) {
+        if ($invoiceIssueDate instanceof Carbon && $invoiceIssueDate->gt($entryDate)) {
+            return false;
+        }
+
+        if ($invoiceDueDate instanceof Carbon && $invoiceDueDate->gt($allocationDate)) {
             return false;
         }
 
@@ -905,50 +910,45 @@ final class FinancialTimelineAuditService
             return false;
         }
 
-        if (! $this->fiscalTimelineIsCoherentForEconomicEntry($invoice, $paymentDate, $invoiceIssueDate, $fiscalRequests)) {
+        if (! $this->fiscalTimelineIsCoherentForEconomicEntry($invoice, $entryDate, $invoiceIssueDate, $fiscalRequests)) {
             return false;
         }
 
-        $sameTechnicalDateCount = $allocations
-            ->filter(function (PaymentAllocation $candidate) use ($allocationDate): bool {
-                $candidateDate = $this->dateValue($candidate, 'allocated_at') ?? $this->dateValue($candidate, 'created_at');
-
-                return $candidateDate instanceof Carbon && $candidateDate->equalTo($allocationDate);
-            })
-            ->count();
-
-        $allocationMuchLaterThanEconomicDate = $this->diffDays($entryDate, $allocationDate) > 30;
-        $allocationCreatedAfterEconomicDate = $allocationCreatedAt instanceof Carbon && $allocationCreatedAt->gt($entryDate);
-        $paymentBeforeAllocation = $paymentDate instanceof Carbon && $paymentDate->lt($allocationDate);
-
-        return $sameTechnicalDateCount > 1
-            || $allocationMuchLaterThanEconomicDate
-            || ($allocationCreatedAfterEconomicDate && $paymentBeforeAllocation);
+        return $allocationCreatedAt->gte($allocationDate)
+            || ($allocationAllocatedAt instanceof Carbon && $allocationCreatedAt->equalTo($allocationAllocatedAt))
+            || $allocationCreatedAt->isSameDay($entryCreatedAt);
     }
 
     /**
      * @param Collection<int,PaymentAllocation> $allocations
      */
-    private function monetaryChainIsCoherent(Payment $payment, PaymentAllocation $allocation, Invoice $invoice, Collection $allocations): bool
+    private function monetaryChainIsCoherent(?Payment $payment, PaymentAllocation $allocation, Invoice $invoice, Collection $allocations): bool
     {
         $allocationAmount = $this->money($allocation->amount);
-        $paymentAmount = $this->money($payment->amount);
-        $paymentAllocatedAmount = $this->money($payment->allocated_amount);
         $invoicePaidAmount = $this->money($invoice->valor_pago);
         $invoiceTotal = $this->money($invoice->valor_total);
         $invoiceOpen = $this->money($invoice->valor_em_aberto);
 
-        if ($allocationAmount <= 0 || $paymentAmount <= 0 || $allocationAmount - $paymentAmount > 0.01) {
+        if ($allocationAmount <= 0) {
             return false;
         }
 
-        $paymentAllocationSum = $this->money($allocations
-            ->where('payment_id', $payment->id)
-            ->filter(fn (PaymentAllocation $candidate): bool => $this->activeAllocation($candidate))
-            ->sum(fn (PaymentAllocation $candidate): float => (float) $candidate->amount));
+        if ($payment instanceof Payment) {
+            $paymentAmount = $this->money($payment->amount);
+            $paymentAllocatedAmount = $this->money($payment->allocated_amount);
 
-        if ($paymentAllocatedAmount > 0 && abs($paymentAllocationSum - $paymentAllocatedAmount) > 0.01) {
-            return false;
+            if ($paymentAmount <= 0 || $allocationAmount - $paymentAmount > 0.01) {
+                return false;
+            }
+
+            $paymentAllocationSum = $this->money($allocations
+                ->where('payment_id', $payment->id)
+                ->filter(fn (PaymentAllocation $candidate): bool => $this->activeAllocation($candidate))
+                ->sum(fn (PaymentAllocation $candidate): float => (float) $candidate->amount));
+
+            if ($paymentAllocatedAmount > 0 && abs($paymentAllocationSum - $paymentAllocatedAmount) > 0.01) {
+                return false;
+            }
         }
 
         $invoiceAllocationSum = $this->money($allocations
@@ -970,11 +970,18 @@ final class FinancialTimelineAuditService
     /**
      * @param Collection<int,FiscalDocumentRequest> $fiscalRequests
      */
-    private function fiscalTimelineIsCoherentForEconomicEntry(Invoice $invoice, ?Carbon $paymentDate, ?Carbon $invoiceIssueDate, Collection $fiscalRequests): bool
+    private function fiscalTimelineIsCoherentForEconomicEntry(Invoice $invoice, Carbon $entryDate, ?Carbon $invoiceIssueDate, Collection $fiscalRequests): bool
     {
+        $receiptIssuedAt = $this->dateValue($invoice, 'recibo_emitido_em');
+
+        if ($receiptIssuedAt instanceof Carbon
+            && (($invoiceIssueDate instanceof Carbon && $receiptIssuedAt->lt($invoiceIssueDate)) || $receiptIssuedAt->lt($entryDate))) {
+            return false;
+        }
+
         return ! $fiscalRequests
             ->where('invoice_id', $invoice->id)
-            ->contains(function (FiscalDocumentRequest $request) use ($paymentDate, $invoiceIssueDate): bool {
+            ->contains(function (FiscalDocumentRequest $request) use ($entryDate, $invoiceIssueDate): bool {
                 $issuedAt = $this->dateValue($request, 'issued_at');
 
                 if (! $issuedAt) {
@@ -982,7 +989,7 @@ final class FinancialTimelineAuditService
                 }
 
                 return ($invoiceIssueDate instanceof Carbon && $issuedAt->lt($invoiceIssueDate))
-                    || ($paymentDate instanceof Carbon && $issuedAt->lt($paymentDate));
+                    || $issuedAt->lt($entryDate);
             });
     }
 
@@ -1163,6 +1170,9 @@ final class FinancialTimelineAuditService
             'allocation_created_at' => $this->dateValue($allocation, 'created_at')?->toDateString(),
             'allocation_allocated_at' => $this->dateValue($allocation, 'allocated_at')?->toDateString(),
             'financial_entry_created_at' => $this->dateValue($financialEntry, 'created_at')?->toDateString(),
+            'technical_batch_same_day' => ($this->dateValue($allocation, 'created_at') instanceof Carbon && $this->dateValue($financialEntry, 'created_at') instanceof Carbon)
+                ? $this->dateValue($allocation, 'created_at')->isSameDay($this->dateValue($financialEntry, 'created_at'))
+                : null,
             'cancelled_or_deleted_at' => $this->dateValue($allocation, 'deleted_at')?->toDateString() ?? $this->dateValue($payment, 'cancelled_at')?->toDateString() ?? $this->dateValue($payment, 'deleted_at')?->toDateString(),
             'date_diff_days' => $dateDiffDays,
             'classification_reason' => $reason,
