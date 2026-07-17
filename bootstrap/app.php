@@ -41,6 +41,7 @@ return Application::configure(basePath: dirname(__DIR__))
         \App\Console\Commands\Financeiro\AuditMemberMonthlyFeesCommand::class,
         \App\Console\Commands\Financeiro\AuditPendingMonthlyFeeRequirementsCommand::class,
         \App\Console\Commands\Financeiro\FinancialIntegrationAuditCommand::class,
+        \App\Console\Commands\Financeiro\FinancialTimelineAnomalyInspectionCommand::class,
         \App\Console\Commands\Financeiro\FinancialTimelineAuditCommand::class,
         \App\Console\Commands\Financeiro\FiscalRequestAnomalyInspectionCommand::class,
         \App\Console\Commands\Financeiro\InvoiceObligationAuditCommand::class,
