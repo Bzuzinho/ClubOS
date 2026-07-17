@@ -197,6 +197,111 @@ final class FinancialTimelineAuditCommandTest extends TestCase
         $this->assertFinding($payload, 'financial_entry_before_source', 'warning', allocationId: $allocation->id, financialEntryId: $entry->id);
     }
 
+    public function test_non_invoice_financial_movement_period_before_bank_payment_generates_info(): void
+    {
+        [$bank, $payment, $allocation, $entry] = $this->nonInvoiceMovementTimeline();
+
+        $payload = $this->jsonPayload(['--allocation' => $allocation->id]);
+
+        $this->assertFinding($payload, 'financial_entry_economic_period_before_bank_payment', 'info', bankTransactionId: $bank->id, paymentId: $payment->id, allocationId: $allocation->id, financialEntryId: $entry->id);
+        $this->assertNoFinding($payload, 'financial_entry_before_source', allocationId: $allocation->id);
+        $this->assertSame(1, $payload['summary']['economic_period_before_bank_payment_count']);
+        $this->assertSame(0, $payload['summary']['actionable_financial_entry_timeline_count']);
+        $this->assertSame(0, $payload['summary']['warning_count']);
+        $finding = collect($payload['findings'])->firstWhere('code', 'financial_entry_economic_period_before_bank_payment');
+        $this->assertSame('no_action_needed_financial_entry_uses_period_start_date_for_non_invoice_movement', $finding['recommendation']);
+        $this->assertSame('economic_period_before_bank_payment', $finding['context']['classification_reason']);
+        $this->assertSame('2026-05-01', $finding['context']['financial_entry_date']);
+        $this->assertSame('2026-05-08', $finding['context']['bank_date']);
+        $this->assertSame('2026-05-13', $finding['context']['payment_date']);
+        $this->assertSame('2026-05-13', $finding['context']['allocation_date']);
+    }
+
+    public function test_non_invoice_financial_movement_period_info_is_removed_by_only_actionable(): void
+    {
+        [, , $allocation] = $this->nonInvoiceMovementTimeline();
+
+        $payload = $this->jsonPayload(['--allocation' => $allocation->id, '--only-actionable' => true]);
+
+        $this->assertSame([], $payload['findings']);
+        $this->assertSame(0, $payload['summary']['actionable_financial_entry_timeline_count']);
+    }
+
+    public function test_fail_on_warning_does_not_fail_when_only_non_invoice_period_info_exists(): void
+    {
+        [, , $allocation] = $this->nonInvoiceMovementTimeline();
+
+        $exitCode = Artisan::call('finance:audit-financial-timeline', [
+            '--allocation' => $allocation->id,
+            '--fail-on-warning' => true,
+        ]);
+
+        $this->assertSame(0, $exitCode);
+    }
+
+    public function test_non_invoice_financial_movement_with_bank_amount_mismatch_remains_warning(): void
+    {
+        [, , $allocation, $entry] = $this->nonInvoiceMovementTimeline(bankOverrides: ['valor' => -1538.50]);
+
+        $payload = $this->jsonPayload(['--allocation' => $allocation->id]);
+
+        $this->assertFinding($payload, 'financial_entry_before_source', 'warning', allocationId: $allocation->id, financialEntryId: $entry->id);
+        $this->assertNoFinding($payload, 'financial_entry_economic_period_before_bank_payment', allocationId: $allocation->id);
+    }
+
+    public function test_non_invoice_financial_movement_with_unallocated_payment_remains_warning(): void
+    {
+        [, , $allocation, $entry] = $this->nonInvoiceMovementTimeline(paymentOverrides: ['allocated_amount' => 1530, 'unallocated_amount' => 7.50]);
+
+        $payload = $this->jsonPayload(['--allocation' => $allocation->id]);
+
+        $this->assertFinding($payload, 'financial_entry_before_source', 'warning', allocationId: $allocation->id, financialEntryId: $entry->id);
+    }
+
+    public function test_non_invoice_financial_movement_without_allocation_entry_link_remains_warning(): void
+    {
+        [, , $allocation, $entry] = $this->nonInvoiceMovementTimeline(linkAllocationToEntry: false);
+
+        $payload = $this->jsonPayload(['--allocation' => $allocation->id]);
+
+        $this->assertFinding($payload, 'financial_entry_before_source', 'warning', financialEntryId: $entry->id);
+    }
+
+    public function test_non_invoice_financial_entry_without_movement_origin_remains_warning(): void
+    {
+        [, , $allocation, $entry] = $this->nonInvoiceMovementTimeline(financialEntryOverrides: [
+            'origem_tipo' => 'manual_adjustment',
+            'origem_modulo' => 'tesouraria',
+            'categoria' => 'Ajuste',
+        ]);
+
+        $payload = $this->jsonPayload(['--allocation' => $allocation->id]);
+
+        $this->assertFinding($payload, 'financial_entry_before_source', 'warning', allocationId: $allocation->id, financialEntryId: $entry->id);
+    }
+
+    public function test_non_invoice_financial_movement_with_cancelled_payment_or_allocation_remains_warning(): void
+    {
+        [, , $cancelledPaymentAllocation, $cancelledPaymentEntry] = $this->nonInvoiceMovementTimeline(paymentOverrides: ['status' => Payment::STATUS_CANCELLED]);
+
+        $cancelledPaymentPayload = $this->jsonPayload(['--allocation' => $cancelledPaymentAllocation->id]);
+        $this->assertFinding($cancelledPaymentPayload, 'financial_entry_before_source', 'warning', allocationId: $cancelledPaymentAllocation->id, financialEntryId: $cancelledPaymentEntry->id);
+
+        [, , $cancelledAllocation, $cancelledAllocationEntry] = $this->nonInvoiceMovementTimeline(allocationOverrides: ['status' => PaymentAllocation::STATUS_CANCELLED]);
+
+        $cancelledAllocationPayload = $this->jsonPayload(['--allocation' => $cancelledAllocation->id]);
+        $this->assertFinding($cancelledAllocationPayload, 'financial_entry_before_source', 'warning', allocationId: $cancelledAllocation->id, financialEntryId: $cancelledAllocationEntry->id);
+    }
+
+    public function test_non_invoice_financial_movement_without_reconciliation_remains_warning(): void
+    {
+        [, , $allocation, $entry] = $this->nonInvoiceMovementTimeline(createReconciliation: false);
+
+        $payload = $this->jsonPayload(['--allocation' => $allocation->id]);
+
+        $this->assertFinding($payload, 'financial_entry_before_source', 'warning', allocationId: $allocation->id, financialEntryId: $entry->id);
+    }
+
     public function test_financial_entry_economic_date_before_technical_allocation_generates_info(): void
     {
         [, , , $allocation, $entry] = $this->cleanTimeline(
@@ -639,6 +744,86 @@ final class FinancialTimelineAuditCommandTest extends TestCase
         ], $fiscalOverrides));
 
         return [$bank, $payment, $invoice, $allocation, $entry, $fiscalRequest];
+    }
+
+    /**
+     * @param array<string,mixed> $bankOverrides
+     * @param array<string,mixed> $paymentOverrides
+     * @param array<string,mixed> $allocationOverrides
+     * @param array<string,mixed> $financialEntryOverrides
+     * @return array{0:BankStatement,1:Payment,2:PaymentAllocation,3:FinancialEntry}
+     */
+    private function nonInvoiceMovementTimeline(
+        array $bankOverrides = [],
+        array $paymentOverrides = [],
+        array $allocationOverrides = [],
+        array $financialEntryOverrides = [],
+        bool $createReconciliation = true,
+        bool $linkAllocationToEntry = true,
+    ): array {
+        $bank = $this->bankStatement(array_merge([
+            'valor' => -1537.50,
+            'data_movimento' => '2026-05-08',
+            'conciliado' => true,
+            'valor_conciliado' => 1537.50,
+            'valor_por_conciliar' => 0,
+            'conciliacao_status' => 'reconciled',
+        ], $bankOverrides));
+        $payment = $this->payment(array_merge([
+            'user_id' => null,
+            'bank_statement_id' => $bank->id,
+            'amount' => 1537.50,
+            'allocated_amount' => 1537.50,
+            'unallocated_amount' => 0,
+            'payment_date' => '2026-05-13',
+            'source' => Payment::SOURCE_RECONCILIATION,
+            'method' => 'transferencia',
+            'status' => Payment::STATUS_CONFIRMED,
+        ], $paymentOverrides));
+        $allocation = $this->allocation($payment, array_merge([
+            'invoice_id' => null,
+            'amount' => 1537.50,
+            'allocated_at' => '2026-05-13 10:00:00',
+            'status' => PaymentAllocation::STATUS_CONFIRMED,
+        ], $allocationOverrides));
+        $entry = FinancialEntry::query()->create(array_merge([
+            'data' => '2026-05-01',
+            'tipo' => 'despesa',
+            'categoria' => 'Movimento Financeiro',
+            'descricao' => 'Movimento financeiro sem fatura',
+            'valor' => 1537.50,
+            'valor_pago' => 1537.50,
+            'valor_em_aberto' => 0,
+            'estado' => 'pago',
+            'data_pagamento' => '2026-05-13',
+            'data_liquidacao' => '2026-05-13',
+            'fatura_id' => null,
+            'payment_id' => $payment->id,
+            'bank_statement_id' => $bank->id,
+            'origem_tipo' => 'movement',
+            'origem_modulo' => 'financeiro',
+            'origem_id' => (string) fake()->uuid(),
+        ], $financialEntryOverrides));
+
+        if ($linkAllocationToEntry) {
+            $allocation->forceFill(['financial_entry_id' => $entry->id])->save();
+            $allocation = $allocation->fresh();
+        }
+
+        if ($createReconciliation) {
+            MapaConciliacao::query()->create([
+                'extrato_id' => $bank->id,
+                'lancamento_id' => $entry->id,
+                'fatura_id' => null,
+                'payment_id' => $payment->id,
+                'payment_allocation_id' => $allocation->id,
+                'valor_conciliado' => 1537.50,
+                'status' => 'confirmado',
+                'regra_usada' => 'test',
+            ]);
+        }
+
+        return [$bank->fresh(), $payment->fresh(), $allocation->fresh(), $entry->fresh()];
     }
 
     /**

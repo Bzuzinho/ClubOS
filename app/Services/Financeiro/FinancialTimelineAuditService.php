@@ -58,7 +58,7 @@ final class FinancialTimelineAuditService
         }
 
         foreach ($financialEntries as $entry) {
-            array_push($findings, ...$this->financialEntryTimelineFindings($entry, $payments, $allocations, $invoices, $bankStatements, $fiscalRequests));
+            array_push($findings, ...$this->financialEntryTimelineFindings($entry, $payments, $allocations, $invoices, $bankStatements, $reconciliations, $fiscalRequests));
         }
 
         foreach ($allocations as $allocation) {
@@ -799,10 +799,11 @@ final class FinancialTimelineAuditService
      * @param Collection<int,PaymentAllocation> $allocations
      * @param Collection<int,Invoice> $invoices
      * @param Collection<int,BankStatement> $bankStatements
+     * @param Collection<int,MapaConciliacao> $reconciliations
      * @param Collection<int,FiscalDocumentRequest> $fiscalRequests
      * @return list<array<string,mixed>>
      */
-    private function financialEntryTimelineFindings(FinancialEntry $entry, Collection $payments, Collection $allocations, Collection $invoices, Collection $bankStatements, Collection $fiscalRequests): array
+    private function financialEntryTimelineFindings(FinancialEntry $entry, Collection $payments, Collection $allocations, Collection $invoices, Collection $bankStatements, Collection $reconciliations, Collection $fiscalRequests): array
     {
         $entryDate = $this->dateValue($entry, 'data') ?? $this->dateValue($entry, 'created_at');
         $sourceDate = null;
@@ -842,6 +843,26 @@ final class FinancialTimelineAuditService
                         false,
                         'no_action_needed_financial_entry_uses_economic_date_before_technical_allocation',
                         $this->context($bank instanceof BankStatement ? $bank : null, null, $payment instanceof Payment ? $payment : null, $allocation, $invoice instanceof Invoice ? $invoice : null, $request instanceof FiscalDocumentRequest ? $request : null, 'economic_date_before_technical_allocation', $this->diffDays($entryDate, $sourceDate), $entry),
+                    ),
+                ];
+            }
+
+            if ($allocation instanceof PaymentAllocation
+                && $this->isEconomicPeriodBeforeBankPaymentMovement($entry, $payment instanceof Payment ? $payment : null, $allocation, $invoice instanceof Invoice ? $invoice : null, $bank instanceof BankStatement ? $bank : null, $reconciliations, $fiscalRequests)) {
+                return [
+                    $this->finding(
+                        'info',
+                        'financial_entry_economic_period_before_bank_payment',
+                        $bank instanceof BankStatement ? $bank : null,
+                        $this->reconciliationFor($reconciliations, $payment instanceof Payment ? $payment : null, $allocation, null),
+                        $payment instanceof Payment ? $payment : null,
+                        $allocation,
+                        null,
+                        null,
+                        $entry,
+                        false,
+                        'no_action_needed_financial_entry_uses_period_start_date_for_non_invoice_movement',
+                        $this->context($bank instanceof BankStatement ? $bank : null, $this->reconciliationFor($reconciliations, $payment instanceof Payment ? $payment : null, $allocation, null), $payment instanceof Payment ? $payment : null, $allocation, null, null, 'economic_period_before_bank_payment', $this->diffDays($entryDate, $sourceDate), $entry),
                     ),
                 ];
             }
@@ -917,6 +938,133 @@ final class FinancialTimelineAuditService
         return $allocationCreatedAt->gte($allocationDate)
             || ($allocationAllocatedAt instanceof Carbon && $allocationCreatedAt->equalTo($allocationAllocatedAt))
             || $allocationCreatedAt->isSameDay($entryCreatedAt);
+    }
+
+    /**
+     * @param Collection<int,MapaConciliacao> $reconciliations
+     * @param Collection<int,FiscalDocumentRequest> $fiscalRequests
+     */
+    private function isEconomicPeriodBeforeBankPaymentMovement(FinancialEntry $entry, ?Payment $payment, PaymentAllocation $allocation, ?Invoice $invoice, ?BankStatement $bank, Collection $reconciliations, Collection $fiscalRequests): bool
+    {
+        if ($invoice instanceof Invoice || $entry->fatura_id !== null || $allocation->invoice_id !== null) {
+            return false;
+        }
+
+        if (! $payment instanceof Payment || ! $bank instanceof BankStatement) {
+            return false;
+        }
+
+        if (! $this->activePayment($payment) || ! $this->activeAllocation($allocation)) {
+            return false;
+        }
+
+        if (! ((string) $entry->origem_tipo === 'movement' || (string) $entry->origem_modulo === 'financeiro')) {
+            return false;
+        }
+
+        if (! ((string) $entry->tipo === 'despesa' || str_contains(mb_strtolower((string) $entry->categoria), 'movimento financeiro'))) {
+            return false;
+        }
+
+        if ($allocation->financial_entry_id !== $entry->id) {
+            return false;
+        }
+
+        if (! in_array((string) $payment->source, [Payment::SOURCE_RECONCILIATION, Payment::SOURCE_BANK_STATEMENT], true)
+            && (string) $payment->status !== Payment::STATUS_CONFIRMED) {
+            return false;
+        }
+
+        $entryDate = $this->dateValue($entry, 'data');
+        $bankDate = $this->dateValue($bank, 'data_movimento');
+        $paymentDate = $this->dateValue($payment, 'payment_date');
+        $allocationDate = $this->dateValue($allocation, 'allocated_at') ?? $this->dateValue($allocation, 'created_at');
+
+        if (! $entryDate || ! $bankDate || ! $paymentDate || ! $allocationDate) {
+            return false;
+        }
+
+        if (! $entryDate->lt($bankDate) || ! $entryDate->lt($paymentDate) || ! $entryDate->lt($allocationDate)) {
+            return false;
+        }
+
+        if (! $this->financialEntrySettlementDatesAreCoherent($entry, $paymentDate, $allocationDate)) {
+            return false;
+        }
+
+        if (! $this->nonInvoiceMovementAmountsAreCoherent($entry, $payment, $allocation, $bank)) {
+            return false;
+        }
+
+        if (! $this->bankStatementIsSettled($bank)) {
+            return false;
+        }
+
+        $reconciliation = $this->reconciliationFor($reconciliations, $payment, $allocation, null);
+        if (! $reconciliation instanceof MapaConciliacao || ! $this->reconciliationIsCoherentForMovement($reconciliation, $entry, $payment, $allocation, $bank)) {
+            return false;
+        }
+
+        return ! $fiscalRequests->contains(function (FiscalDocumentRequest $request) use ($entry, $payment, $bank, $reconciliation): bool {
+            return $request->financial_entry_id === $entry->id
+                || $request->bank_statement_id === $bank->id
+                || $request->mapa_conciliacao_id === $reconciliation->id
+                || ($payment->user_id !== null && $request->user_id === $payment->user_id);
+        });
+    }
+
+    private function financialEntrySettlementDatesAreCoherent(FinancialEntry $entry, Carbon $paymentDate, Carbon $allocationDate): bool
+    {
+        foreach (['data_pagamento', 'data_liquidacao'] as $field) {
+            $date = $this->dateValue($entry, $field);
+
+            if ($date instanceof Carbon && ! $date->equalTo($paymentDate) && ! $date->equalTo($allocationDate)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private function nonInvoiceMovementAmountsAreCoherent(FinancialEntry $entry, Payment $payment, PaymentAllocation $allocation, BankStatement $bank): bool
+    {
+        $entryAmount = abs($this->money($entry->valor));
+        $paymentAmount = abs($this->money($payment->amount));
+        $allocationAmount = abs($this->money($allocation->amount));
+        $bankAmount = abs($this->money($bank->valor));
+
+        if ($entryAmount <= 0 || $paymentAmount <= 0 || $allocationAmount <= 0 || $bankAmount <= 0) {
+            return false;
+        }
+
+        if (abs($paymentAmount - $allocationAmount) > 0.01 || abs($paymentAmount - $entryAmount) > 0.01 || abs($paymentAmount - $bankAmount) > 0.01) {
+            return false;
+        }
+
+        return abs($this->money($payment->allocated_amount) - $paymentAmount) <= 0.01
+            && abs($this->money($payment->unallocated_amount)) <= 0.01;
+    }
+
+    private function bankStatementIsSettled(BankStatement $bank): bool
+    {
+        return (bool) $bank->conciliado === true
+            || in_array((string) $bank->conciliacao_status, ['reconciled', 'confirmed', 'confirmado', 'conciliado'], true);
+    }
+
+    private function reconciliationIsCoherentForMovement(MapaConciliacao $reconciliation, FinancialEntry $entry, Payment $payment, PaymentAllocation $allocation, BankStatement $bank): bool
+    {
+        if (! in_array((string) $reconciliation->status, ['confirmado', 'confirmed', 'reconciled'], true)) {
+            return false;
+        }
+
+        if ($reconciliation->extrato_id !== $bank->id
+            || $reconciliation->lancamento_id !== $entry->id
+            || $reconciliation->payment_id !== $payment->id
+            || $reconciliation->payment_allocation_id !== $allocation->id) {
+            return false;
+        }
+
+        return abs(abs($this->money($reconciliation->valor_conciliado)) - abs($this->money($entry->valor))) <= 0.01;
     }
 
     /**
@@ -1256,6 +1404,7 @@ final class FinancialTimelineAuditService
             'clean_timeline_count' => count(array_filter($findings, static fn (array $finding): bool => $finding['code'] === 'clean_financial_timeline')),
             'historical_incomplete_count' => count(array_filter($findings, static fn (array $finding): bool => $finding['code'] === 'historical_timeline_incomplete')),
             'economic_date_before_technical_allocation_count' => count(array_filter($findings, static fn (array $finding): bool => $finding['code'] === 'financial_entry_economic_date_before_technical_allocation')),
+            'economic_period_before_bank_payment_count' => count(array_filter($findings, static fn (array $finding): bool => $finding['code'] === 'financial_entry_economic_period_before_bank_payment')),
             'actionable_financial_entry_timeline_count' => count(array_filter($findings, static fn (array $finding): bool => str_starts_with((string) $finding['code'], 'financial_entry_') && (bool) ($finding['actionable'] ?? false))),
             'total_findings' => count($findings),
             'critical_count' => count(array_filter($findings, static fn (array $finding): bool => $finding['severity'] === 'critical')),
