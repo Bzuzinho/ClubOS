@@ -44,13 +44,117 @@ final class FiscalDocumentAuditCommandTest extends TestCase
 
     public function test_clean_fiscal_chain_can_be_reported_as_info(): void
     {
-        [$invoice, $payment, $allocation, $request] = $this->paidFiscalChain();
+        [$invoice, $payment, $allocation, $request] = $this->paidFiscalChain(requestOverrides: [
+            'status' => FiscalDocumentRequest::STATUS_ISSUED,
+            'external_document_number' => 'EXT-CLEAN',
+            'issued_at' => '2026-07-17',
+        ]);
 
         $payload = $this->jsonPayload(['--fiscal-request' => $request->id, '--include-clean' => true]);
 
         $this->assertSame(1, $payload['summary']['total_fiscal_requests_scanned']);
         $this->assertSame(1, $payload['summary']['clean_fiscal_chain_count']);
         $this->assertFinding($payload, 'clean_fiscal_chain', 'info', $request->id, invoiceId: $invoice->id, paymentId: $payment->id, allocationId: $allocation->id);
+    }
+
+    public function test_multi_allocation_payment_does_not_create_amount_mismatch_when_request_matches_invoice_or_allocation(): void
+    {
+        $user = User::factory()->create();
+        $firstInvoice = $this->invoice([
+            'user_id' => $user->id,
+            'valor_total' => 27,
+            'valor_pago' => 27,
+            'valor_em_aberto' => 0,
+            'estado_pagamento' => 'pago',
+            'data_pagamento' => '2026-07-17',
+        ]);
+        $secondInvoice = $this->invoice([
+            'user_id' => $user->id,
+            'valor_total' => 45,
+            'valor_pago' => 45,
+            'valor_em_aberto' => 0,
+            'estado_pagamento' => 'pago',
+            'data_pagamento' => '2026-07-17',
+        ]);
+        $payment = $this->payment($firstInvoice, ['amount' => 72, 'allocated_amount' => 72]);
+        $firstAllocation = $this->allocation($payment, $firstInvoice, ['amount' => 27]);
+        $this->allocation($payment, $secondInvoice, ['amount' => 45]);
+        $request = $this->fiscalRequest(['invoice_id' => $firstInvoice->id, 'user_id' => $user->id, 'amount' => 27]);
+
+        $payload = $this->jsonPayload(['--fiscal-request' => $request->id]);
+
+        $this->assertNoFinding($payload, 'fiscal_request_amount_mismatch', $request->id);
+        $this->assertFinding($payload, 'pending_fiscal_request_ready_for_external_issue', 'warning', $request->id, invoiceId: $firstInvoice->id, paymentId: $payment->id, allocationId: $firstAllocation->id);
+        $finding = collect($payload['findings'])->firstWhere('code', 'pending_fiscal_request_ready_for_external_issue');
+        $this->assertSame('invoice', $finding['amount_basis_used']);
+        $this->assertTrue($finding['payment_is_multi_allocation']);
+        $this->assertSame(2, $finding['payment_allocation_count']);
+        $this->assertSame(72.0, (float) $finding['payment_total_amount']);
+        $this->assertSame(27.0, (float) $finding['allocation_amount']);
+        $this->assertSame(27.0, (float) $finding['invoice_amount']);
+        $this->assertSame(27.0, (float) $finding['fiscal_request_amount']);
+        $this->assertSame(1, $payload['summary']['multi_allocation_amount_match_count']);
+        $this->assertSame(0, $payload['summary']['amount_mismatch_count']);
+
+        $partialInvoice = $this->invoice([
+            'user_id' => $user->id,
+            'valor_total' => 72,
+            'valor_pago' => 72,
+            'valor_em_aberto' => 0,
+            'estado_pagamento' => 'pago',
+            'data_pagamento' => '2026-07-17',
+        ]);
+        $partialPayment = $this->payment($partialInvoice, ['amount' => 72, 'allocated_amount' => 72]);
+        $partialAllocation = $this->allocation($partialPayment, $partialInvoice, ['amount' => 27]);
+        $this->allocation($partialPayment, $secondInvoice, ['amount' => 45]);
+        $allocationBasedRequest = $this->fiscalRequest(['invoice_id' => $partialInvoice->id, 'user_id' => $user->id, 'amount' => 27]);
+
+        $allocationPayload = $this->jsonPayload(['--fiscal-request' => $allocationBasedRequest->id]);
+
+        $this->assertNoFinding($allocationPayload, 'fiscal_request_amount_mismatch', $allocationBasedRequest->id);
+        $allocationFinding = collect($allocationPayload['findings'])->first(fn (array $finding): bool => $finding['fiscal_request_id'] === $allocationBasedRequest->id);
+        $this->assertSame('allocation', $allocationFinding['amount_basis_used']);
+        $this->assertTrue($allocationFinding['payment_is_multi_allocation']);
+        $this->assertSame($partialAllocation->id, $allocationFinding['allocation_id']);
+    }
+
+    public function test_request_without_invoice_or_allocation_uses_payment_amount_when_financial_entry_links_payment(): void
+    {
+        $invoice = $this->invoice(['valor_total' => 72]);
+        $payment = $this->payment($invoice, ['amount' => 72, 'allocated_amount' => 0, 'unallocated_amount' => 72]);
+        $entry = FinancialEntry::query()->create([
+            'data' => '2026-07-17',
+            'tipo' => 'receita',
+            'categoria' => 'Teste',
+            'descricao' => 'Pagamento global',
+            'valor' => 72,
+            'valor_pago' => 72,
+            'valor_em_aberto' => 0,
+            'estado' => 'pago',
+            'payment_id' => $payment->id,
+            'user_id' => $invoice->user_id,
+        ]);
+        $matching = $this->fiscalRequest([
+            'invoice_id' => null,
+            'financial_entry_id' => $entry->id,
+            'user_id' => $invoice->user_id,
+            'amount' => 72,
+        ]);
+        $mismatch = $this->fiscalRequest([
+            'invoice_id' => null,
+            'financial_entry_id' => $entry->id,
+            'user_id' => $invoice->user_id,
+            'amount' => 70,
+        ]);
+
+        $matchingPayload = $this->jsonPayload(['--fiscal-request' => $matching->id]);
+        $mismatchPayload = $this->jsonPayload(['--fiscal-request' => $mismatch->id]);
+
+        $this->assertNoFinding($matchingPayload, 'fiscal_request_amount_mismatch', $matching->id);
+        $this->assertFinding($mismatchPayload, 'fiscal_request_amount_mismatch', 'warning', $mismatch->id, paymentId: $payment->id);
+        $finding = collect($mismatchPayload['findings'])->firstWhere('code', 'fiscal_request_amount_mismatch');
+        $this->assertSame('payment', $finding['amount_basis_used']);
+        $this->assertSame(72.0, (float) $finding['payment_total_amount']);
     }
 
     public function test_detects_missing_invoice_and_missing_confirmed_payment(): void
@@ -90,11 +194,20 @@ final class FiscalDocumentAuditCommandTest extends TestCase
             'external_document_number' => 'EXT-PENDING',
             'amount' => 40,
         ]);
+        $issuedAmountMismatch = $this->fiscalRequest([
+            'invoice_id' => $invoice->id,
+            'user_id' => $invoice->user_id,
+            'status' => FiscalDocumentRequest::STATUS_ISSUED,
+            'external_document_number' => 'EXT-MISMATCH',
+            'issued_at' => '2026-07-17',
+            'amount' => 35,
+        ]);
 
         $payload = $this->jsonPayload();
 
         $this->assertFinding($payload, 'fiscal_request_for_cancelled_invoice', 'warning', $cancelledRequest->id, invoiceId: $cancelled->id);
         $this->assertFinding($payload, 'fiscal_request_amount_mismatch', 'warning', $amountMismatch->id, invoiceId: $invoice->id);
+        $this->assertFinding($payload, 'fiscal_request_amount_mismatch', 'critical', $issuedAmountMismatch->id, invoiceId: $invoice->id);
         $this->assertFinding($payload, 'issued_document_without_external_reference', 'warning', $issuedWithoutReference->id, invoiceId: $invoice->id);
         $this->assertFinding($payload, 'external_reference_without_issued_status', 'warning', $referenceWithoutIssued->id, invoiceId: $invoice->id);
     }
@@ -207,6 +320,9 @@ final class FiscalDocumentAuditCommandTest extends TestCase
             'user_id' => $unknownProviderInvoice->user_id,
             'amount' => 15,
             'provider' => 'future_provider',
+            'status' => FiscalDocumentRequest::STATUS_ISSUED,
+            'external_document_number' => 'EXT-FUTURE',
+            'issued_at' => '2026-07-17',
         ]);
 
         $payload = $this->jsonPayload(['--include-deleted' => true]);
@@ -218,15 +334,18 @@ final class FiscalDocumentAuditCommandTest extends TestCase
         $this->assertNotNull($duplicatePending);
         $this->assertSame('warning', $duplicatePending['severity']);
         $this->assertFinding($payload, 'duplicate_issued_external_document', 'critical', $duplicateIssuedA->id, invoiceId: $invoice->id);
-        $this->assertFinding($payload, 'stale_pending_fiscal_request', 'warning', $stale->id);
-        $this->assertFinding($payload, 'historical_fiscal_request_soft_deleted', 'info', $archived->id);
-        $this->assertFinding($payload, 'stale_pending_fiscal_request', 'info', $archived->id);
+        $this->assertFinding($payload, 'stale_pending_fiscal_request_without_external_document', 'warning', $stale->id);
+        $this->assertFinding($payload, 'historical_pending_fiscal_request_no_external_document', 'info', $archived->id);
         $this->assertFinding($payload, 'fiscal_request_provider_unknown', 'info', $unknownProvider->id, invoiceId: $unknownProviderInvoice->id);
     }
 
     public function test_filters_fail_flags_report_path_and_read_only_snapshot(): void
     {
-        [$invoice, $payment, $allocation, $request] = $this->paidFiscalChain();
+        [$invoice, $payment, $allocation, $request] = $this->paidFiscalChain(requestOverrides: [
+            'status' => FiscalDocumentRequest::STATUS_ISSUED,
+            'external_document_number' => 'EXT-FILTER',
+            'issued_at' => '2026-07-17',
+        ]);
         $warningRequest = $this->fiscalRequest(['created_at' => '2026-06-01 10:00:00']);
 
         $before = $this->snapshot();
@@ -252,6 +371,7 @@ final class FiscalDocumentAuditCommandTest extends TestCase
 
         $onlyActionable = $this->jsonPayload(['--only-actionable' => true]);
         $this->assertNotContains('clean_fiscal_chain', collect($onlyActionable['findings'])->pluck('code')->all());
+        $this->assertNotContains('historical_pending_fiscal_request_no_external_document', collect($onlyActionable['findings'])->pluck('code')->all());
 
         $this->assertSame(0, Artisan::call('finance:audit-fiscal-documents', [
             '--fiscal-request' => $request->id,
@@ -272,7 +392,7 @@ final class FiscalDocumentAuditCommandTest extends TestCase
      * @param array<string,mixed> $invoiceOverrides
      * @return array{0:Invoice,1:Payment,2:PaymentAllocation,3:FiscalDocumentRequest}
      */
-    private function paidFiscalChain(array $invoiceOverrides = [], float $amount = 20): array
+    private function paidFiscalChain(array $invoiceOverrides = [], float $amount = 20, array $requestOverrides = []): array
     {
         $invoice = $this->invoice(array_merge([
             'valor_total' => $amount,
@@ -283,7 +403,7 @@ final class FiscalDocumentAuditCommandTest extends TestCase
         ], $invoiceOverrides));
         $payment = $this->payment($invoice, ['amount' => $amount, 'payment_date' => '2026-07-17']);
         $allocation = $this->allocation($payment, $invoice, ['amount' => $amount, 'allocated_at' => '2026-07-17']);
-        $request = $this->fiscalRequest(['invoice_id' => $invoice->id, 'user_id' => $invoice->user_id, 'amount' => $amount]);
+        $request = $this->fiscalRequest(array_merge(['invoice_id' => $invoice->id, 'user_id' => $invoice->user_id, 'amount' => $amount], $requestOverrides));
 
         return [$invoice, $payment, $allocation, $request];
     }
@@ -425,5 +545,12 @@ final class FiscalDocumentAuditCommandTest extends TestCase
         if ($allocationId !== null) {
             $this->assertSame($allocationId, $finding['allocation_id']);
         }
+    }
+
+    private function assertNoFinding(array $payload, string $code, string $requestId): void
+    {
+        $finding = collect($payload['findings'])->first(fn (array $finding): bool => $finding['code'] === $code && $finding['fiscal_request_id'] === $requestId);
+
+        $this->assertNull($finding, sprintf('Unexpected finding %s for request %s.', $code, $requestId));
     }
 }

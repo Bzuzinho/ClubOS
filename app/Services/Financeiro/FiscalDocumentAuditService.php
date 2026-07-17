@@ -30,16 +30,16 @@ final class FiscalDocumentAuditService
         $requests = $this->fiscalRequests($filters);
         $invoices = $this->invoices($filters, $requests);
         $allocations = $this->allocations($filters, $requests, $invoices);
-        $payments = $this->payments($filters, $allocations, $requests);
         $financialEntries = $this->financialEntries($requests);
+        $payments = $this->payments($filters, $allocations, $requests, $financialEntries);
 
         $findings = [];
 
         foreach ($requests as $request) {
             $invoice = $request->invoice_id ? $invoices->firstWhere('id', $request->invoice_id) : null;
             $requestAllocations = $this->requestAllocations($request, $invoice instanceof Invoice ? $invoice : null, $allocations);
-            $requestPayments = $this->requestPayments($request, $requestAllocations, $payments);
             $entry = $request->financial_entry_id ? $financialEntries->firstWhere('id', $request->financial_entry_id) : null;
+            $requestPayments = $this->requestPayments($request, $requestAllocations, $payments, $entry instanceof FinancialEntry ? $entry : null);
 
             array_push($findings, ...$this->requestFindings(
                 $request,
@@ -57,7 +57,8 @@ final class FiscalDocumentAuditService
                 if (! collect($findings)->contains(fn (array $finding): bool => ($finding['fiscal_request_id'] ?? null) === (string) $request->id)) {
                     $invoice = $request->invoice_id ? $invoices->firstWhere('id', $request->invoice_id) : null;
                     $requestAllocations = $this->requestAllocations($request, $invoice instanceof Invoice ? $invoice : null, $allocations);
-                    $requestPayments = $this->requestPayments($request, $requestAllocations, $payments);
+                    $entry = $request->financial_entry_id ? $financialEntries->firstWhere('id', $request->financial_entry_id) : null;
+                    $requestPayments = $this->requestPayments($request, $requestAllocations, $payments, $entry instanceof FinancialEntry ? $entry : null);
                     $findings[] = $this->finding(
                         'info',
                         'clean_fiscal_chain',
@@ -65,7 +66,7 @@ final class FiscalDocumentAuditService
                         $invoice instanceof Invoice ? $invoice : null,
                         $requestPayments->first(),
                         $requestAllocations->first(),
-                        $request->financial_entry_id ? $financialEntries->firstWhere('id', $request->financial_entry_id) : null,
+                        $entry instanceof FinancialEntry ? $entry : null,
                         false,
                         'no_action_needed_clean_fiscal_chain',
                         'clean',
@@ -235,7 +236,7 @@ final class FiscalDocumentAuditService
      * @param Collection<int,FiscalDocumentRequest> $requests
      * @return Collection<int,Payment>
      */
-    private function payments(array $filters, Collection $allocations, Collection $requests): Collection
+    private function payments(array $filters, Collection $allocations, Collection $requests, Collection $financialEntries): Collection
     {
         if (! Schema::hasTable('payments')) {
             return collect();
@@ -249,8 +250,20 @@ final class FiscalDocumentAuditService
 
         if ($filters['payment']) {
             $query->whereKey($filters['payment']);
-        } elseif ($allocations->isNotEmpty()) {
-            $query->whereIn('id', $allocations->pluck('payment_id')->filter()->unique()->values()->all());
+        } elseif ($allocations->isNotEmpty() || $financialEntries->isNotEmpty()) {
+            $ids = $allocations
+                ->pluck('payment_id')
+                ->merge($financialEntries->pluck('payment_id'))
+                ->filter()
+                ->unique()
+                ->values()
+                ->all();
+
+            if ($ids === []) {
+                return collect();
+            }
+
+            $query->whereIn('id', $ids);
         } elseif ($requests->isNotEmpty()) {
             return collect();
         }
@@ -294,9 +307,13 @@ final class FiscalDocumentAuditService
      * @param Collection<int,Payment> $payments
      * @return Collection<int,Payment>
      */
-    private function requestPayments(FiscalDocumentRequest $request, Collection $allocations, Collection $payments): Collection
+    private function requestPayments(FiscalDocumentRequest $request, Collection $allocations, Collection $payments, ?FinancialEntry $entry): Collection
     {
         $ids = $allocations->pluck('payment_id')->filter()->unique()->values()->all();
+
+        if ($ids === [] && $entry instanceof FinancialEntry && $entry->payment_id) {
+            $ids = [(string) $entry->payment_id];
+        }
 
         return $payments->whereIn('id', $ids)->values();
     }
@@ -314,13 +331,16 @@ final class FiscalDocumentAuditService
         $hasExternalReference = $this->hasExternalReference($request);
         $confirmedAllocations = $allocations->filter(fn (PaymentAllocation $allocation): bool => $this->activeAllocation($allocation));
         $confirmedPayments = $payments->filter(fn (Payment $payment): bool => $this->activePayment($payment));
+        $amountAnalysis = $this->amountAnalysis($request, $invoice, $confirmedPayments, $confirmedAllocations);
 
         if ($request->trashed() && ! $hasExternalDocument) {
-            $findings[] = $this->finding('info', 'historical_fiscal_request_soft_deleted', $request, $invoice, $confirmedPayments->first(), $confirmedAllocations->first(), $entry, false, 'no_action_needed_historical_soft_deleted_fiscal_request', 'soft_deleted_without_external_document');
+            $findings[] = $this->finding('info', 'historical_pending_fiscal_request_no_external_document', $request, $invoice, $confirmedPayments->first(), $confirmedAllocations->first(), $entry, false, 'no_action_needed_historical_pending_fiscal_request_without_external_document', 'soft_deleted_pending_without_external_document', $amountAnalysis);
 
-            if ($this->isArchivedStaleFiscalRequest($request)) {
-                $findings[] = $this->finding('info', 'stale_pending_fiscal_request', $request, $invoice, $confirmedPayments->first(), $confirmedAllocations->first(), $entry, false, 'no_action_needed_stale_pending_fiscal_request_archived', 'archived_stale_pending_request');
-            }
+            return $findings;
+        }
+
+        if ($active && ! $hasExternalDocument && $this->isArchivedStaleFiscalRequest($request)) {
+            $findings[] = $this->finding('info', 'historical_pending_fiscal_request_no_external_document', $request, $invoice, $confirmedPayments->first(), $confirmedAllocations->first(), $entry, false, 'no_action_needed_historical_pending_fiscal_request_without_external_document', 'archived_stale_pending_request', $amountAnalysis);
 
             return $findings;
         }
@@ -337,8 +357,8 @@ final class FiscalDocumentAuditService
             $findings[] = $this->finding('warning', 'fiscal_request_without_confirmed_payment', $request, $invoice, $payments->first(), $allocations->first(), $entry, true, 'review_fiscal_request_without_confirmed_payment', 'missing_confirmed_payment_or_allocation');
         }
 
-        if ($invoice instanceof Invoice && $this->amountMismatch($request, $invoice, $confirmedPayments, $confirmedAllocations)) {
-            $findings[] = $this->finding($hasExternalDocument ? 'critical' : 'warning', 'fiscal_request_amount_mismatch', $request, $invoice, $confirmedPayments->first(), $confirmedAllocations->first(), $entry, true, 'review_fiscal_request_amount_mismatch', 'amount_differs_from_invoice_payment_or_allocation');
+        if ((bool) $amountAnalysis['amount_mismatch']) {
+            $findings[] = $this->finding($hasExternalDocument ? 'critical' : 'warning', 'fiscal_request_amount_mismatch', $request, $invoice, $confirmedPayments->first(), $confirmedAllocations->first(), $entry, true, 'review_fiscal_request_amount_mismatch', 'amount_differs_from_' . (string) $amountAnalysis['amount_basis_used'], $amountAnalysis);
         }
 
         if ((string) $request->status === FiscalDocumentRequest::STATUS_ISSUED && ! $hasExternalReference) {
@@ -366,8 +386,14 @@ final class FiscalDocumentAuditService
             $findings[] = $this->finding('critical', 'issued_document_after_reversal', $request, $invoice, $payments->first(), $allocations->first(), $entry, true, 'review_issued_document_after_reversal', 'document_issued_after_reversal');
         }
 
-        if ($this->isStalePending($request) && ! $hasExternalDocument) {
-            $findings[] = $this->finding('warning', 'stale_pending_fiscal_request', $request, $invoice, $confirmedPayments->first(), $confirmedAllocations->first(), $entry, true, 'review_stale_pending_fiscal_request', 'active_old_pending_request_without_external_document');
+        if ($active && (string) $request->status === FiscalDocumentRequest::STATUS_PENDING && ! $hasExternalDocument && ! (bool) $amountAnalysis['amount_mismatch']) {
+            $pendingReady = $this->pendingRequestReadyForExternalIssue($invoice, $confirmedPayments, $confirmedAllocations);
+
+            if ($pendingReady && $this->isStalePending($request)) {
+                $findings[] = $this->finding('warning', 'stale_pending_fiscal_request_without_external_document', $request, $invoice, $confirmedPayments->first(), $confirmedAllocations->first(), $entry, true, 'review_or_process_stale_pending_fiscal_request', 'active_old_pending_request_without_external_document', $amountAnalysis);
+            } elseif ($pendingReady) {
+                $findings[] = $this->finding('warning', 'pending_fiscal_request_ready_for_external_issue', $request, $invoice, $confirmedPayments->first(), $confirmedAllocations->first(), $entry, true, 'issue_or_process_pending_fiscal_request', 'active_paid_pending_request_ready_for_external_issue', $amountAnalysis);
+            }
         }
 
         if ($this->providerUnknown($request) && count($findings) === 0) {
@@ -454,23 +480,104 @@ final class FiscalDocumentAuditService
     /**
      * @param Collection<int,Payment> $payments
      * @param Collection<int,PaymentAllocation> $allocations
+     * @return array<string,mixed>
      */
-    private function amountMismatch(FiscalDocumentRequest $request, Invoice $invoice, Collection $payments, Collection $allocations): bool
+    private function amountAnalysis(FiscalDocumentRequest $request, ?Invoice $invoice, Collection $payments, Collection $allocations): array
     {
         $amount = $this->money($request->amount);
-        $invoiceAmount = $this->money($invoice->valor_total);
-        $allocationSum = $this->money($allocations->filter(fn (PaymentAllocation $allocation): bool => $this->activeAllocation($allocation))->sum(fn (PaymentAllocation $allocation): float => (float) $allocation->amount));
-        $paymentSum = $this->money($payments->filter(fn (Payment $payment): bool => $this->activePayment($payment))->sum(fn (Payment $payment): float => (float) $payment->amount));
+        $invoiceAmount = $invoice instanceof Invoice ? $this->money($invoice->valor_total) : null;
+        $allocationAmount = $allocations->isNotEmpty()
+            ? $this->money($allocations->sum(fn (PaymentAllocation $allocation): float => (float) $allocation->amount))
+            : null;
+        $paymentTotalAmount = $payments->isNotEmpty()
+            ? $this->money($payments->sum(fn (Payment $payment): float => (float) $payment->amount))
+            : null;
+        $paymentAllocationCount = $this->paymentAllocationCount($payments);
+        $paymentIsMultiAllocation = $paymentAllocationCount > 1;
 
-        if (abs($amount - $invoiceAmount) > self::TOLERANCE) {
-            return true;
+        $basis = 'unknown';
+        $matches = false;
+        $mismatch = false;
+
+        if ($this->usesPaymentAmountBasis($request) && $paymentTotalAmount !== null) {
+            $basis = 'payment';
+            $matches = abs($amount - $paymentTotalAmount) <= self::TOLERANCE;
+            $mismatch = ! $matches;
+        } elseif ($invoiceAmount !== null && abs($amount - $invoiceAmount) <= self::TOLERANCE) {
+            $basis = 'invoice';
+            $matches = true;
+        } elseif ($allocationAmount !== null && abs($amount - $allocationAmount) <= self::TOLERANCE) {
+            $basis = 'allocation';
+            $matches = true;
+        } elseif ($allocationAmount !== null) {
+            $basis = 'allocation';
+            $mismatch = true;
+        } elseif ($invoiceAmount !== null) {
+            $basis = 'invoice';
+            $mismatch = true;
+        } elseif ($paymentTotalAmount !== null) {
+            $basis = 'payment';
+            $matches = abs($amount - $paymentTotalAmount) <= self::TOLERANCE;
+            $mismatch = ! $matches;
         }
 
-        if ($allocationSum > 0 && abs($amount - $allocationSum) > self::TOLERANCE) {
-            return true;
+        return [
+            'amount_basis_used' => $basis,
+            'amount_matches_basis' => $matches,
+            'amount_mismatch' => $mismatch,
+            'payment_is_multi_allocation' => $paymentIsMultiAllocation,
+            'payment_allocation_count' => $paymentAllocationCount,
+            'payment_total_amount' => $paymentTotalAmount,
+            'allocation_amount' => $allocationAmount,
+            'invoice_amount' => $invoiceAmount,
+            'fiscal_request_amount' => $amount,
+            'multi_allocation_amount_match' => $paymentIsMultiAllocation && $matches && in_array($basis, ['invoice', 'allocation'], true),
+        ];
+    }
+
+    /**
+     * @param Collection<int,Payment> $payments
+     */
+    private function paymentAllocationCount(Collection $payments): int
+    {
+        $paymentIds = $payments->pluck('id')->filter()->unique()->values()->all();
+        if ($paymentIds === []) {
+            return 0;
         }
 
-        return $paymentSum > 0 && abs($amount - $paymentSum) > self::TOLERANCE;
+        return PaymentAllocation::query()
+            ->whereIn('payment_id', $paymentIds)
+            ->where('status', PaymentAllocation::STATUS_CONFIRMED)
+            ->whereNull('deleted_at')
+            ->count();
+    }
+
+    private function usesPaymentAmountBasis(FiscalDocumentRequest $request): bool
+    {
+        $basis = $this->normalizeNullableString(data_get($request->metadata, 'amount_basis'))
+            ?? $this->normalizeNullableString(data_get($request->metadata, 'fiscal_amount_basis'));
+
+        return in_array($basis, ['payment', 'payment_total', 'global_payment'], true)
+            || (bool) data_get($request->metadata, 'global_payment_receipt') === true;
+    }
+
+    /**
+     * @param Collection<int,Payment> $payments
+     * @param Collection<int,PaymentAllocation> $allocations
+     */
+    private function pendingRequestReadyForExternalIssue(?Invoice $invoice, Collection $payments, Collection $allocations): bool
+    {
+        if (! $invoice instanceof Invoice) {
+            return false;
+        }
+
+        $paidInvoice = (string) $invoice->estado_pagamento === 'pago'
+            && $this->money($invoice->valor_pago) >= $this->money($invoice->valor_total)
+            && abs($this->money($invoice->valor_em_aberto)) <= self::TOLERANCE;
+
+        return $paidInvoice
+            && $payments->isNotEmpty()
+            && $allocations->isNotEmpty();
     }
 
     /**
@@ -671,7 +778,12 @@ final class FiscalDocumentAuditService
             'clean_fiscal_chain_count' => count(array_filter($findings, static fn (array $finding): bool => $finding['code'] === 'clean_fiscal_chain')),
             'pending_request_count' => $requests->where('status', FiscalDocumentRequest::STATUS_PENDING)->count(),
             'issued_document_count' => $requests->where('status', FiscalDocumentRequest::STATUS_ISSUED)->count(),
-            'stale_pending_count' => count(array_filter($findings, static fn (array $finding): bool => $finding['code'] === 'stale_pending_fiscal_request')),
+            'amount_mismatch_count' => count(array_filter($findings, static fn (array $finding): bool => $finding['code'] === 'fiscal_request_amount_mismatch')),
+            'multi_allocation_amount_match_count' => count(array_filter($findings, static fn (array $finding): bool => (bool) ($finding['multi_allocation_amount_match'] ?? false))),
+            'pending_ready_for_external_issue_count' => count(array_filter($findings, static fn (array $finding): bool => $finding['code'] === 'pending_fiscal_request_ready_for_external_issue')),
+            'stale_pending_without_external_document_count' => count(array_filter($findings, static fn (array $finding): bool => $finding['code'] === 'stale_pending_fiscal_request_without_external_document')),
+            'historical_pending_without_external_document_count' => count(array_filter($findings, static fn (array $finding): bool => $finding['code'] === 'historical_pending_fiscal_request_no_external_document')),
+            'stale_pending_count' => count(array_filter($findings, static fn (array $finding): bool => in_array($finding['code'], ['stale_pending_fiscal_request', 'stale_pending_fiscal_request_without_external_document'], true))),
             'duplicate_request_count' => count(array_filter($findings, static fn (array $finding): bool => $finding['code'] === 'duplicate_pending_fiscal_request')),
             'duplicate_external_document_count' => count(array_filter($findings, static fn (array $finding): bool => $finding['code'] === 'duplicate_issued_external_document')),
             'total_findings' => count($findings),
