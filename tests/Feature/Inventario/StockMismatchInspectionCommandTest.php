@@ -42,7 +42,7 @@ final class StockMismatchInspectionCommandTest extends TestCase
 
         $this->assertSame(1, $payload['summary']['clean_count']);
         $this->assertSame(0, $payload['summary']['mismatch_count']);
-        $this->assertSame('no_action_needed', $payload['items'][0]['recommended_next_action']);
+        $this->assertSame('no_action_needed_physical_stock_matches', $payload['items'][0]['recommended_next_action']);
     }
 
     public function test_stored_stock_above_calculated_recommends_initial_or_correction_movement(): void
@@ -55,7 +55,7 @@ final class StockMismatchInspectionCommandTest extends TestCase
         $this->assertContains($payload['items'][0]['recommended_next_action'], ['create_initial_stock_adjustment', 'create_stock_correction_movement']);
     }
 
-    public function test_calculated_stock_above_stored_recommends_recalculate(): void
+    public function test_calculated_physical_stock_above_stored_recommends_recalculate(): void
     {
         $product = $this->product(['stock' => 1]);
         $this->movement($product, 'entry', 3);
@@ -131,15 +131,51 @@ final class StockMismatchInspectionCommandTest extends TestCase
         $this->assertContains('movement_cancelled_or_deleted', $payload['items'][0]['movements'][0]['suspicion_flags']);
     }
 
-    public function test_running_stock_is_calculated_chronologically(): void
+    public function test_physical_reserved_and_available_running_stock_are_calculated_chronologically(): void
     {
-        $product = $this->product(['stock' => 3]);
+        $product = $this->product(['stock' => 3, 'stock_reservado' => 1]);
         $this->movement($product, 'entry', 5);
         $this->movement($product, 'exit', 2);
+        $this->movement($product, 'reservation', 2);
+        $this->movement($product, 'reservation', -1);
 
         $payload = $this->jsonPayload(['--material' => [$product->id]]);
 
-        $this->assertSame([5, 3], collect($payload['items'][0]['movements'])->pluck('running_stock')->all());
+        $this->assertSame([5, 3, 3, 3], collect($payload['items'][0]['movements'])->pluck('physical_running_stock')->all());
+        $this->assertSame([0, 0, 2, 1], collect($payload['items'][0]['movements'])->pluck('reserved_running_stock')->all());
+        $this->assertSame([5, 3, 1, 2], collect($payload['items'][0]['movements'])->pluck('available_running_stock')->all());
+        $this->assertSame(3, $payload['items'][0]['calculated_physical_stock']);
+        $this->assertSame(1, $payload['items'][0]['calculated_reserved_stock']);
+        $this->assertSame(2, $payload['items'][0]['calculated_available_stock']);
+        $this->assertSame('physical', $payload['schema_detected']['stock_field_semantics']);
+        $this->assertNotContains('quantity_sign_incoherent', $payload['items'][0]['movements'][3]['suspicion_flags']);
+    }
+
+    public function test_reservation_movements_do_not_create_physical_mismatch(): void
+    {
+        $product = $this->product(['stock' => 5, 'stock_reservado' => 1]);
+        $this->movement($product, 'entry', 5);
+        $this->movement($product, 'reservation', 2);
+        $this->movement($product, 'reservation', -1);
+
+        $payload = $this->jsonPayload(['--material' => [$product->id]]);
+
+        $this->assertSame(0, $payload['items'][0]['physical_difference']);
+        $this->assertSame(0, $payload['summary']['mismatch_count']);
+        $this->assertSame('no_action_needed_physical_stock_matches', $payload['items'][0]['recommended_next_action']);
+    }
+
+    public function test_orphan_physical_and_reservation_movements_are_flagged_separately(): void
+    {
+        $product = $this->product(['stock' => 0]);
+        $this->movement($product, 'exit', 1, ['reference_type' => null, 'reference_id' => null]);
+        $this->movement($product, 'reservation', 1, ['reference_type' => null, 'reference_id' => null]);
+
+        $payload = $this->jsonPayload(['--material' => [$product->id]]);
+
+        $this->assertContains('orphan_physical_stock_movement', $payload['items'][0]['movements'][0]['suspicion_flags']);
+        $this->assertContains('orphan_reservation_movement', $payload['items'][0]['movements'][1]['suspicion_flags']);
+        $this->assertSame('inspect_orphan_physical_stock_movement', $payload['items'][0]['recommended_next_action']);
     }
 
     public function test_material_and_sku_filters_work(): void
@@ -262,6 +298,8 @@ final class StockMismatchInspectionCommandTest extends TestCase
             'article_id' => $product->id,
             'movement_type' => $type,
             'quantity' => $quantity,
+            'reference_type' => 'test_source',
+            'reference_id' => (string) str()->uuid(),
         ], $overrides));
     }
 

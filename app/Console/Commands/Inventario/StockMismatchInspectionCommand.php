@@ -64,13 +64,16 @@ final class StockMismatchInspectionCommand extends Command
         );
 
         $this->table(
-            ['Material', 'Stored', 'Calculated', 'Difference', 'Movements', 'Suspicious', 'Recommendation'],
+            ['Material', 'Stored', 'Physical', 'Reserved', 'Available', 'Physical Diff', 'Available Diff', 'Movements', 'Suspicious', 'Recommendation'],
             collect($payload['items'] ?? [])
                 ->map(static fn (array $item): array => [
                     (string) data_get($item, 'material.name', data_get($item, 'material.id', '')),
                     (string) ($item['stored_stock'] ?? ''),
-                    (string) ($item['calculated_stock'] ?? ''),
-                    (string) ($item['difference'] ?? ''),
+                    (string) ($item['calculated_physical_stock'] ?? ''),
+                    (string) ($item['calculated_reserved_stock'] ?? ''),
+                    (string) ($item['calculated_available_stock'] ?? ''),
+                    (string) ($item['physical_difference'] ?? ''),
+                    (string) ($item['available_difference'] ?? ''),
                     (string) count($item['movements'] ?? []),
                     (string) count(data_get($item, 'analysis.suspicion_flags', [])),
                     (string) ($item['recommended_next_action'] ?? ''),
@@ -82,14 +85,17 @@ final class StockMismatchInspectionCommand extends Command
             $this->line('');
             $this->line(sprintf('Material: %s', (string) data_get($item, 'material.name', data_get($item, 'material.id', ''))));
             $this->table(
-                ['Date', 'Type', 'Qty', 'Signed', 'Running', 'Source', 'Flags'],
+                ['Date', 'Type', 'Raw Qty', 'Physical Delta', 'Reserved Delta', 'Physical Running', 'Reserved Running', 'Available Running', 'Source', 'Flags'],
                 collect($item['movements'] ?? [])
                     ->map(static fn (array $movement): array => [
                         (string) ($movement['date'] ?? ''),
                         (string) ($movement['type'] ?? ''),
                         (string) ($movement['raw_quantity'] ?? ''),
-                        (string) ($movement['signed_quantity'] ?? ''),
-                        (string) ($movement['running_stock'] ?? ''),
+                        (string) ($movement['physical_delta'] ?? ''),
+                        (string) ($movement['reserved_delta'] ?? ''),
+                        (string) ($movement['physical_running_stock'] ?? ''),
+                        (string) ($movement['reserved_running_stock'] ?? ''),
+                        (string) ($movement['available_running_stock'] ?? ''),
                         trim((string) (($movement['source_type'] ?? '') . ':' . ($movement['source_id'] ?? '')), ':'),
                         implode(',', $movement['suspicion_flags'] ?? []),
                     ])

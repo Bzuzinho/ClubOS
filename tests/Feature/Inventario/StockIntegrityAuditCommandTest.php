@@ -84,7 +84,7 @@ final class StockIntegrityAuditCommandTest extends TestCase
 
         $payload = $this->jsonPayload(['--material' => $product->id]);
 
-        $this->assertFinding($payload, 'stock_quantity_mismatch', 'warning', $product->id);
+        $this->assertFinding($payload, 'physical_stock_mismatch', 'warning', $product->id);
     }
 
     public function test_stock_movement_without_material_generates_warning(): void
@@ -191,7 +191,39 @@ final class StockIntegrityAuditCommandTest extends TestCase
 
         $payload = $this->jsonPayload(['--material' => $product->id]);
 
-        $this->assertFinding($payload, 'sale_or_invoice_item_without_stock_decrease', 'warning', $product->id);
+        $this->assertFinding($payload, 'missing_sale_stock_decrease', 'warning', $product->id);
+    }
+
+    public function test_stock_semantics_separate_physical_reserved_and_available_stock(): void
+    {
+        $product = $this->product(['stock' => 4, 'stock_reservado' => 1]);
+        $this->movement($product, 'entry', 5);
+        $this->movement($product, 'exit', 1);
+        $this->movement($product, 'reservation', 2);
+        $this->movement($product, 'reservation', -1);
+
+        $payload = $this->jsonPayload(['--material' => $product->id, '--include-clean' => true]);
+        $finding = collect($payload['findings'])->firstWhere('material_id', $product->id);
+
+        $this->assertSame('physical', $payload['schema_detected']['stock_field_semantics']);
+        $this->assertSame(4, $finding['calculated_physical_stock']);
+        $this->assertSame(1, $finding['calculated_reserved_stock']);
+        $this->assertSame(3, $finding['calculated_available_stock']);
+        $this->assertSame(0, $finding['physical_difference']);
+        $this->assertSame(0, $finding['available_difference']);
+        $this->assertNotContains('physical_stock_mismatch', collect($payload['findings'])->pluck('code')->all());
+    }
+
+    public function test_orphan_physical_and_reservation_movements_are_classified_separately(): void
+    {
+        $product = $this->product(['stock' => 1]);
+        $this->movement($product, 'exit', 1, ['reference_type' => null, 'reference_id' => null]);
+        $this->movement($product, 'reservation', 1, ['reference_type' => null, 'reference_id' => null]);
+
+        $payload = $this->jsonPayload(['--material' => $product->id]);
+
+        $this->assertFinding($payload, 'orphan_physical_stock_movement', 'warning', $product->id);
+        $this->assertFinding($payload, 'orphan_reservation_movement', 'info', $product->id);
     }
 
     public function test_only_actionable_removes_infos(): void
@@ -301,6 +333,7 @@ final class StockIntegrityAuditCommandTest extends TestCase
     private function product(array $overrides = []): Product
     {
         return Product::factory()->create(array_merge([
+            'nome' => 'Produto ' . (string) str()->uuid(),
             'categoria' => 'Material',
             'area_armazenamento' => 'Armazem',
             'allow_sale' => true,
@@ -311,13 +344,18 @@ final class StockIntegrityAuditCommandTest extends TestCase
         ], $overrides));
     }
 
-    private function movement(Product $product, string $type, int $quantity): StockMovement
+    /**
+     * @param array<string,mixed> $overrides
+     */
+    private function movement(Product $product, string $type, int $quantity, array $overrides = []): StockMovement
     {
-        return StockMovement::query()->create([
+        return StockMovement::query()->create(array_merge([
             'article_id' => $product->id,
             'movement_type' => $type,
             'quantity' => $quantity,
-        ]);
+            'reference_type' => 'test_source',
+            'reference_id' => (string) str()->uuid(),
+        ], $overrides));
     }
 
     private function requestItem(Product $product, string $status, int $quantity): LogisticsRequestItem

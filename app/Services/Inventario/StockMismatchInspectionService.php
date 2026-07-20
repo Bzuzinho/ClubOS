@@ -14,6 +14,11 @@ final class StockMismatchInspectionService
 {
     private const VERSION = 'b1-1-stock-mismatch-inspection-v1';
 
+    public function __construct(
+        private readonly StockMovementSemantics $stockSemantics = new StockMovementSemantics(),
+    ) {
+    }
+
     /**
      * @param array<string,mixed> $options
      * @return array<string,mixed>
@@ -26,7 +31,7 @@ final class StockMismatchInspectionService
 
         foreach ($materials as $material) {
             $item = $this->inspectMaterial($material);
-            if ($filters['only_mismatch'] && (int) $item['difference'] === 0) {
+            if ($filters['only_mismatch'] && (int) $item['physical_difference'] === 0 && (int) $item['available_difference'] === 0) {
                 continue;
             }
 
@@ -37,9 +42,25 @@ final class StockMismatchInspectionService
             'version' => self::VERSION,
             'generated_at' => Carbon::now()->toIso8601String(),
             'filters' => $filters,
+            'schema_detected' => $this->schemaDetected(),
             'summary' => $this->summary($items),
             'items' => $items,
             'read_only' => true,
+        ];
+    }
+
+    /**
+     * @return array<string,mixed>
+     */
+    private function schemaDetected(): array
+    {
+        return [
+            'stock_fields' => [
+                'stock' => Schema::hasTable('products') && Schema::hasColumn('products', 'stock'),
+                'stock_reservado' => Schema::hasTable('products') && Schema::hasColumn('products', 'stock_reservado'),
+                'available_stock_accessor' => true,
+            ],
+            'stock_field_semantics' => $this->stockSemantics->stockFieldSemantics(),
         ];
     }
 
@@ -106,18 +127,20 @@ final class StockMismatchInspectionService
         $movements = $this->movementsForMaterial((string) $material->id);
         $relatedItems = $this->relatedSalesOrInvoiceItems((string) $material->id);
         $movementRows = [];
-        $runningStock = 0;
+        $physicalRunning = 0;
+        $reservedRunning = 0;
         $previousSignature = null;
         $suspectedDuplicateCount = 0;
         $unknownTypeCount = 0;
 
         foreach ($movements as $movement) {
             $flags = $this->movementFlags($movement, $material, $previousSignature);
-            $signedQuantity = $this->signedQuantity($movement);
+            $deltas = $this->stockSemantics->deltas($movement);
             $counted = ! in_array('movement_cancelled_or_deleted', $flags, true);
 
             if ($counted) {
-                $runningStock += $signedQuantity;
+                $physicalRunning += $deltas['physical'];
+                $reservedRunning += $deltas['reserved'];
             }
 
             if (in_array('suspected_duplicate_movement', $flags, true)) {
@@ -134,8 +157,14 @@ final class StockMismatchInspectionService
                 'type' => $movement->movement_type,
                 'type_category' => $this->movementTypeCategory((string) $movement->movement_type),
                 'raw_quantity' => $this->int($movement->quantity ?? 0),
-                'signed_quantity' => $signedQuantity,
-                'running_stock' => $runningStock,
+                'signed_quantity' => $deltas['physical'],
+                'running_stock' => $physicalRunning,
+                'physical_delta' => $deltas['physical'],
+                'reserved_delta' => $deltas['reserved'],
+                'available_delta' => $deltas['available'],
+                'physical_running_stock' => $physicalRunning,
+                'reserved_running_stock' => $reservedRunning,
+                'available_running_stock' => $physicalRunning - $reservedRunning,
                 'source_type' => $movement->reference_type ?? null,
                 'source_id' => $movement->reference_id ?? null,
                 'sale_id' => $this->saleIdForMovement($movement),
@@ -153,16 +182,29 @@ final class StockMismatchInspectionService
         }
 
         $relatedItems = $this->withMissingStockDecreaseFlags($relatedItems, $movements);
-        $calculatedStock = (int) collect($movementRows)->where('counted_in_calculation', true)->sum('signed_quantity');
+        $calculatedPhysicalStock = (int) collect($movementRows)->where('counted_in_calculation', true)->sum('physical_delta');
+        $calculatedReservedStock = (int) collect($movementRows)->where('counted_in_calculation', true)->sum('reserved_delta');
+        $calculatedAvailableStock = $calculatedPhysicalStock - $calculatedReservedStock;
         $storedStock = $this->int($material->stock ?? 0);
-        $difference = $storedStock - $calculatedStock;
-        $analysis = $this->analysis($material, $difference, $movementRows, $relatedItems, $suspectedDuplicateCount, $unknownTypeCount);
+        $storedReservedStock = $this->int($material->stock_reservado ?? 0);
+        $storedAvailableStock = $storedStock - $storedReservedStock;
+        $physicalDifference = $storedStock - $calculatedPhysicalStock;
+        $availableDifference = $storedAvailableStock - $calculatedAvailableStock;
+        $analysis = $this->analysis($material, $physicalDifference, $availableDifference, $movementRows, $relatedItems, $suspectedDuplicateCount, $unknownTypeCount);
 
         return [
             'material' => $this->materialPayload($material),
             'stored_stock' => $storedStock,
-            'calculated_stock' => $calculatedStock,
-            'difference' => $difference,
+            'stored_reserved_stock' => $storedReservedStock,
+            'stored_available_stock' => $storedAvailableStock,
+            'calculated_stock' => $calculatedPhysicalStock,
+            'difference' => $physicalDifference,
+            'calculated_physical_stock' => $calculatedPhysicalStock,
+            'calculated_reserved_stock' => $calculatedReservedStock,
+            'calculated_available_stock' => $calculatedAvailableStock,
+            'physical_difference' => $physicalDifference,
+            'available_difference' => $availableDifference,
+            'stock_field_semantics' => $this->stockSemantics->stockFieldSemantics(),
             'movements' => $movementRows,
             'related_sales_or_invoice_items' => $relatedItems,
             'analysis' => $analysis,
@@ -269,7 +311,7 @@ final class StockMismatchInspectionService
             $quantity = $this->int($item['quantity'] ?? 0);
             $hasDecrease = $movements->contains(function (object $movement) use ($item, $quantity): bool {
                 $type = (string) ($movement->movement_type ?? '');
-                if (! in_array($type, ['exit', 'reservation', 'deliver_reservation'], true)) {
+                if (! $this->stockSemantics->isPhysicalDecrease($movement)) {
                     return false;
                 }
 
@@ -316,7 +358,7 @@ final class StockMismatchInspectionService
             $flags[] = 'quantity_sign_incoherent';
         }
 
-        if ($quantity <= 0 && in_array($type, ['exit', 'reservation', 'deliver_reservation'], true)) {
+        if ($quantity <= 0 && in_array($type, ['exit', 'deliver_reservation'], true)) {
             $flags[] = 'quantity_sign_incoherent';
         }
 
@@ -332,8 +374,12 @@ final class StockMismatchInspectionService
             $flags[] = 'movement_cancelled_or_deleted';
         }
 
-        if (in_array($type, ['exit', 'reservation', 'deliver_reservation', 'sale', 'venda'], true) && $this->blank($movement->reference_type ?? null) && $this->blank($movement->reference_id ?? null)) {
-            $flags[] = 'orphan_business_stock_movement';
+        if ($this->blank($movement->reference_type ?? null) && $this->blank($movement->reference_id ?? null)) {
+            if ($this->stockSemantics->isPhysicalMovement($movement)) {
+                $flags[] = 'orphan_physical_stock_movement';
+            } elseif ($this->stockSemantics->isReservationMovement($movement)) {
+                $flags[] = 'orphan_reservation_movement';
+            }
         }
 
         if (($movement->created_at ?? null) && ($material->created_at ?? null) && Carbon::parse((string) $movement->created_at)->lt(Carbon::parse((string) $material->created_at)->subMinute())) {
@@ -343,23 +389,12 @@ final class StockMismatchInspectionService
         return array_values(array_unique($flags));
     }
 
-    private function signedQuantity(object $movement): int
-    {
-        $quantity = $this->int($movement->quantity ?? 0);
-
-        return match ((string) ($movement->movement_type ?? '')) {
-            'entry', 'return', 'cancel_reservation', 'adjustment', 'ajuste', 'correction', 'correcao', 'import', 'importacao' => $quantity,
-            'exit', 'reservation', 'sale', 'venda' => -abs($quantity),
-            'deliver_reservation' => 0,
-            default => 0,
-        };
-    }
-
     private function movementTypeCategory(string $type): string
     {
         return match ($type) {
             'entry' => 'entrada',
-            'exit', 'reservation' => 'saida',
+            'exit' => 'saida',
+            'reservation' => 'reserva',
             'adjustment', 'ajuste' => 'ajuste',
             'sale', 'venda', 'deliver_reservation' => 'venda',
             'return', 'cancel_reservation' => 'devolucao',
@@ -374,50 +409,56 @@ final class StockMismatchInspectionService
      * @param list<array<string,mixed>> $relatedItems
      * @return array<string,mixed>
      */
-    private function analysis(object $material, int $difference, array $movements, array $relatedItems, int $duplicateCount, int $unknownTypeCount): array
+    private function analysis(object $material, int $physicalDifference, int $availableDifference, array $movements, array $relatedItems, int $duplicateCount, int $unknownTypeCount): array
     {
         $flags = collect($movements)->pluck('suspicion_flags')->flatten()->merge(
             collect($relatedItems)->pluck('suspicion_flags')->flatten()
         )->unique()->values()->all();
 
         $missingSaleCount = collect($relatedItems)->filter(fn (array $item): bool => in_array('missing_sale_stock_decrease', $item['suspicion_flags'] ?? [], true))->count();
+        $orphanPhysicalCount = collect($movements)->filter(fn (array $movement): bool => in_array('orphan_physical_stock_movement', $movement['suspicion_flags'] ?? [], true))->count();
         $hasInitialOrEntry = collect($movements)->contains(fn (array $movement): bool => in_array($movement['type'], ['entry', 'import', 'importacao', 'adjustment', 'ajuste', 'correction', 'correcao'], true));
-        $actionable = $difference !== 0 || $duplicateCount > 0 || $unknownTypeCount > 0 || $missingSaleCount > 0;
+        $actionable = $physicalDifference !== 0 || $duplicateCount > 0 || $unknownTypeCount > 0 || $missingSaleCount > 0 || $orphanPhysicalCount > 0;
 
-        $recommendation = 'no_action_needed';
+        $recommendation = 'no_action_needed_physical_stock_matches';
         if ($missingSaleCount > 0) {
-            $recommendation = 'manual_review_required';
+            $recommendation = 'create_missing_sale_stock_decrease_after_review';
+        } elseif ($orphanPhysicalCount > 0) {
+            $recommendation = 'inspect_orphan_physical_stock_movement';
         } elseif ($duplicateCount > 0) {
             $recommendation = 'mark_movement_as_ignored_or_cancelled';
         } elseif ($unknownTypeCount > 0) {
             $recommendation = 'manual_review_required';
-        } elseif ($difference > 0) {
+        } elseif ($physicalDifference > 0) {
             $recommendation = $hasInitialOrEntry ? 'create_stock_correction_movement' : 'create_initial_stock_adjustment';
-        } elseif ($difference < 0) {
+        } elseif ($physicalDifference < 0) {
             $recommendation = 'recalculate_stored_stock_from_movements';
         }
 
         return [
-            'mismatch' => $difference !== 0,
+            'mismatch' => $physicalDifference !== 0,
+            'physical_stock_mismatch' => $physicalDifference !== 0,
+            'available_stock_mismatch' => $availableDifference !== 0,
             'suspicion_flags' => $flags,
             'suspected_duplicate_movement_count' => $duplicateCount,
             'unknown_type_movement_count' => $unknownTypeCount,
-            'possible_missing_initial_stock' => $difference > 0 && ! $hasInitialOrEntry,
+            'orphan_physical_stock_movement_count' => $orphanPhysicalCount,
+            'possible_missing_initial_stock' => $physicalDifference > 0 && ! $hasInitialOrEntry,
             'possible_missing_sale_movement_count' => $missingSaleCount,
             'actionable' => $actionable,
             'recommended_next_action' => $recommendation,
-            'explanation' => $this->explanation($material, $difference, $recommendation),
+            'explanation' => $this->explanation($material, $physicalDifference, $recommendation),
         ];
     }
 
     private function explanation(object $material, int $difference, string $recommendation): string
     {
         if ($difference === 0) {
-            return 'stored_stock_matches_calculated_stock_from_counted_movements';
+            return 'stored_stock_matches_calculated_physical_stock_from_counted_movements';
         }
 
         return sprintf(
-            'stored_stock_differs_from_counted_movements_by_%d_for_material_%s_recommendation_%s',
+            'stored_stock_differs_from_physical_stock_movements_by_%d_for_material_%s_recommendation_%s',
             $difference,
             (string) ($material->id ?? ''),
             $recommendation,
@@ -434,11 +475,14 @@ final class StockMismatchInspectionService
 
         return [
             'total_materials_inspected' => count($items),
-            'mismatch_count' => collect($items)->filter(fn (array $item): bool => (int) $item['difference'] !== 0)->count(),
-            'clean_count' => collect($items)->filter(fn (array $item): bool => (int) $item['difference'] === 0)->count(),
+            'mismatch_count' => collect($items)->filter(fn (array $item): bool => (int) $item['physical_difference'] !== 0)->count(),
+            'physical_stock_mismatch_count' => collect($items)->filter(fn (array $item): bool => (int) $item['physical_difference'] !== 0)->count(),
+            'available_stock_mismatch_count' => collect($items)->filter(fn (array $item): bool => (int) $item['available_difference'] !== 0)->count(),
+            'clean_count' => collect($items)->filter(fn (array $item): bool => (int) $item['physical_difference'] === 0)->count(),
             'total_movements_inspected' => collect($items)->sum(fn (array $item): int => count($item['movements'])),
             'suspected_duplicate_movement_count' => $analyses->sum('suspected_duplicate_movement_count'),
             'unknown_type_movement_count' => $analyses->sum('unknown_type_movement_count'),
+            'orphan_physical_stock_movement_count' => $analyses->sum('orphan_physical_stock_movement_count'),
             'possible_missing_initial_stock_count' => $analyses->filter(fn (array $analysis): bool => (bool) $analysis['possible_missing_initial_stock'])->count(),
             'possible_missing_sale_movement_count' => $analyses->sum('possible_missing_sale_movement_count'),
             'actionable_count' => $analyses->filter(fn (array $analysis): bool => (bool) $analysis['actionable'])->count(),

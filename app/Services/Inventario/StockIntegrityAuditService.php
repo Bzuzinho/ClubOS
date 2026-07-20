@@ -15,6 +15,11 @@ final class StockIntegrityAuditService
     private const VERSION = 'b1-stock-integrity-audit-v1';
     private const STOCK_MISMATCH_CRITICAL_THRESHOLD = 10;
 
+    public function __construct(
+        private readonly StockMovementSemantics $stockSemantics = new StockMovementSemantics(),
+    ) {
+    }
+
     /**
      * @param array<string,mixed> $options
      * @return array<string,mixed>
@@ -89,6 +94,12 @@ final class StockIntegrityAuditService
             'category_tables' => array_values(array_filter(['item_categories'], static fn (string $table): bool => Schema::hasTable($table))),
             'location_tables' => Schema::hasTable('products') && Schema::hasColumn('products', 'area_armazenamento') ? ['products.area_armazenamento'] : [],
             'stock_movement_tables' => array_values(array_filter(['stock_movements'], static fn (string $table): bool => Schema::hasTable($table))),
+            'stock_fields' => [
+                'stock' => Schema::hasTable('products') && Schema::hasColumn('products', 'stock'),
+                'stock_reservado' => Schema::hasTable('products') && Schema::hasColumn('products', 'stock_reservado'),
+                'available_stock_accessor' => true,
+            ],
+            'stock_field_semantics' => $this->stockSemantics->stockFieldSemantics(),
             'loan_tables' => array_values(array_filter(['equipment_loans'], static fn (string $table): bool => Schema::hasTable($table))),
             'request_tables' => array_values(array_filter(['logistics_requests', 'logistics_request_items'], static fn (string $table): bool => Schema::hasTable($table))),
             'sales_tables' => array_values(array_filter(['sales', 'loja_encomendas', 'loja_encomenda_itens'], static fn (string $table): bool => Schema::hasTable($table))),
@@ -310,8 +321,10 @@ final class StockIntegrityAuditService
     {
         $findings = [];
         $stock = $this->int($material->stock ?? 0);
-        $calculated = $this->calculatedStock($movements->where('article_id', $material->id));
-        $difference = $stock - $calculated;
+        $materialMovements = $movements->where('article_id', $material->id);
+        $stockFields = $this->stockSnapshot($material, $materialMovements);
+        $calculated = $stockFields['calculated_physical_stock'];
+        $difference = $stockFields['physical_difference'];
         $activeLoansQuantity = $loans
             ->where('article_id', $material->id)
             ->filter(fn (object $loan): bool => in_array((string) ($loan->status ?? ''), ['active', 'overdue'], true))
@@ -322,31 +335,57 @@ final class StockIntegrityAuditService
         }
 
         if ($stock > 0 && property_exists($material, 'area_armazenamento') && $this->blank($material->area_armazenamento ?? null)) {
-            $findings[] = $this->finding('warning', 'material_without_location', true, 'review_material_location', 'material_has_stock_without_storage_area', material: $material, stockCurrent: $stock, stockCalculated: $calculated, stockDifference: $difference);
+            $findings[] = $this->finding('warning', 'material_without_location', true, 'review_material_location', 'material_has_stock_without_storage_area', material: $material, stockCurrent: $stock, stockCalculated: $calculated, stockDifference: $difference, stockFields: $stockFields);
         }
 
         if ($stock < 0) {
-            $findings[] = $this->finding('critical', 'negative_stock', true, 'fix_negative_stock_after_manual_review', 'stored_stock_is_negative', material: $material, stockCurrent: $stock, stockCalculated: $calculated, stockDifference: $difference);
+            $findings[] = $this->finding('critical', 'negative_stock', true, 'fix_negative_stock_after_manual_review', 'stored_stock_is_negative', material: $material, stockCurrent: $stock, stockCalculated: $calculated, stockDifference: $difference, stockFields: $stockFields);
         }
 
-        if ($movements->where('article_id', $material->id)->isNotEmpty() && $difference !== 0) {
-            $findings[] = $this->finding(abs($difference) >= self::STOCK_MISMATCH_CRITICAL_THRESHOLD ? 'critical' : 'warning', 'stock_quantity_mismatch', true, 'reconcile_stock_quantity', 'stored_stock_differs_from_stock_movements', material: $material, stockCurrent: $stock, stockCalculated: $calculated, stockDifference: $difference);
+        if ($materialMovements->isNotEmpty() && $difference !== 0) {
+            $findings[] = $this->finding(abs($difference) >= self::STOCK_MISMATCH_CRITICAL_THRESHOLD ? 'critical' : 'warning', 'physical_stock_mismatch', true, 'reconcile_physical_stock_quantity', 'stored_stock_differs_from_physical_stock_movements', material: $material, stockCurrent: $stock, stockCalculated: $calculated, stockDifference: $difference, stockFields: $stockFields);
+        }
+
+        if ($stockFields['stock_field_semantics'] === 'available' && $stockFields['available_difference'] !== 0) {
+            $findings[] = $this->finding('warning', 'available_stock_mismatch', true, 'reconcile_available_stock_quantity', 'stored_stock_differs_from_available_stock_movements', material: $material, stockCurrent: $stock, stockCalculated: $stockFields['calculated_available_stock'], stockDifference: $stockFields['available_difference'], stockFields: $stockFields);
+        }
+
+        foreach ($materialMovements as $movement) {
+            if (! $this->blank($movement->reference_type ?? null) || ! $this->blank($movement->reference_id ?? null)) {
+                continue;
+            }
+
+            if ($this->stockSemantics->isPhysicalMovement($movement)) {
+                $findings[] = $this->finding('warning', 'orphan_physical_stock_movement', true, 'inspect_orphan_physical_stock_movement', 'physical_stock_movement_has_no_source_reference', material: $material, movement: $movement, stockCurrent: $stock, stockCalculated: $calculated, stockDifference: $difference, quantity: $this->int($movement->quantity ?? 0), status: $movement->movement_type ?? null, stockFields: $stockFields);
+            } elseif ($this->stockSemantics->isReservationMovement($movement)) {
+                $findings[] = $this->finding('info', 'orphan_reservation_movement', false, 'review_orphan_reservation_movement_if_reservation_balance_is_unexpected', 'reservation_movement_has_no_source_reference', material: $material, movement: $movement, stockCurrent: $stock, stockCalculated: $calculated, stockDifference: $difference, quantity: $this->int($movement->quantity ?? 0), status: $movement->movement_type ?? null, stockFields: $stockFields);
+            }
         }
 
         if ($activeLoansQuantity > max(0, $stock)) {
-            $findings[] = $this->finding($activeLoansQuantity > max(0, $stock) + self::STOCK_MISMATCH_CRITICAL_THRESHOLD ? 'critical' : 'warning', 'active_loan_exceeds_available_stock', true, 'review_active_loans_against_available_stock', 'active_loan_quantity_exceeds_available_stock', material: $material, stockCurrent: $stock, quantity: $activeLoansQuantity);
+            $findings[] = $this->finding($activeLoansQuantity > max(0, $stock) + self::STOCK_MISMATCH_CRITICAL_THRESHOLD ? 'critical' : 'warning', 'active_loan_exceeds_available_stock', true, 'review_active_loans_against_available_stock', 'active_loan_quantity_exceeds_available_stock', material: $material, stockCurrent: $stock, quantity: $activeLoansQuantity, stockFields: $stockFields);
         }
 
         if (! (bool) ($material->ativo ?? true) && $stock > 0) {
-            $findings[] = $this->finding('warning', 'inactive_material_with_stock', true, 'review_inactive_material_with_stock', 'inactive_material_still_has_stock', material: $material, stockCurrent: $stock);
+            $findings[] = $this->finding('warning', 'inactive_material_with_stock', true, 'review_inactive_material_with_stock', 'inactive_material_still_has_stock', material: $material, stockCurrent: $stock, stockFields: $stockFields);
         }
 
         if ((bool) ($material->ativo ?? true) && $stock === 0 && $filters['include_zero']) {
-            $findings[] = $this->finding('info', 'zero_stock_active_material', false, 'no_action_needed_zero_stock_active_material', 'active_material_has_zero_stock', material: $material, stockCurrent: $stock);
+            $findings[] = $this->finding('info', 'zero_stock_active_material', false, 'no_action_needed_zero_stock_active_material', 'active_material_has_zero_stock', material: $material, stockCurrent: $stock, stockFields: $stockFields);
         }
 
         if ($filters['include_clean'] && $findings === []) {
-            $findings[] = $this->finding('info', 'clean_stock_item', false, 'no_action_needed_clean_stock_item', 'stock_item_has_no_detected_findings', material: $material, stockCurrent: $stock, stockCalculated: $calculated, stockDifference: $difference);
+            $cleanCode = $materialMovements->contains(fn (object $movement): bool => (string) ($movement->movement_type ?? '') === 'reservation' && $this->int($movement->quantity ?? 0) < 0)
+                ? 'reservation_release_sign_fixed_by_semantics'
+                : 'clean_stock_item';
+            $reason = $cleanCode === 'reservation_release_sign_fixed_by_semantics'
+                ? 'negative_reservation_quantity_interpreted_as_reservation_release'
+                : 'stock_item_has_no_detected_findings';
+            $recommendation = $cleanCode === 'reservation_release_sign_fixed_by_semantics'
+                ? 'no_action_needed_reservation_release_does_not_change_physical_stock'
+                : 'no_action_needed_clean_stock_item';
+
+            $findings[] = $this->finding('info', $cleanCode, false, $recommendation, $reason, material: $material, stockCurrent: $stock, stockCalculated: $calculated, stockDifference: $difference, stockFields: $stockFields);
         }
 
         return $findings;
@@ -442,11 +481,11 @@ final class StockIntegrityAuditService
 
             $quantity = $this->int($item->quantity ?? 0);
             $hasDecrease = $movements->contains(fn (object $movement): bool => (string) ($movement->article_id ?? '') === (string) $item->article_id
-                && in_array((string) ($movement->movement_type ?? ''), ['exit', 'reservation', 'deliver_reservation'], true)
+                && $this->stockSemantics->isPhysicalDecrease($movement)
                 && $this->int($movement->quantity ?? 0) >= $quantity);
 
             if (! $hasDecrease) {
-                $findings[] = $this->finding('warning', 'sale_or_invoice_item_without_stock_decrease', true, 'review_sale_or_invoice_stock_decrease', 'sale_or_invoice_item_has_no_stock_decrease_trace', material: $material, saleOrInvoice: $item, quantity: $quantity, status: $item->status ?? $item->invoice_type ?? null);
+                $findings[] = $this->finding('warning', 'missing_sale_stock_decrease', true, 'create_missing_sale_stock_decrease_after_review', 'sale_or_invoice_item_has_no_physical_stock_decrease_trace', material: $material, saleOrInvoice: $item, quantity: $quantity, status: $item->status ?? $item->invoice_type ?? null);
             }
         }
 
@@ -455,19 +494,34 @@ final class StockIntegrityAuditService
 
     /**
      * @param Collection<int,object> $movements
+     * @return array<string,int|string>
      */
-    private function calculatedStock(Collection $movements): int
+    private function stockSnapshot(object $material, Collection $movements): array
     {
-        return (int) $movements->sum(function (object $movement): int {
-            $quantity = $this->int($movement->quantity ?? 0);
+        $physical = 0;
+        $reserved = 0;
 
-            return match ((string) ($movement->movement_type ?? '')) {
-                'entry', 'return', 'cancel_reservation' => $quantity,
-                'exit', 'reservation' => -$quantity,
-                'deliver_reservation' => 0,
-                default => 0,
-            };
-        });
+        foreach ($movements as $movement) {
+            $deltas = $this->stockSemantics->deltas($movement);
+            $physical += $deltas['physical'];
+            $reserved += $deltas['reserved'];
+        }
+
+        $available = $physical - $reserved;
+        $stored = $this->int($material->stock ?? 0);
+        $storedReserved = $this->int($material->stock_reservado ?? 0);
+
+        return [
+            'stored_stock' => $stored,
+            'stored_reserved_stock' => $storedReserved,
+            'stored_available_stock' => $stored - $storedReserved,
+            'calculated_physical_stock' => $physical,
+            'calculated_reserved_stock' => $reserved,
+            'calculated_available_stock' => $available,
+            'physical_difference' => $stored - $physical,
+            'available_difference' => ($stored - $storedReserved) - $available,
+            'stock_field_semantics' => $this->stockSemantics->stockFieldSemantics(),
+        ];
     }
 
     private function applyArticleFilter(Builder $query, array $filters, Collection $materials, string $column = 'article_id'): void
@@ -546,12 +600,14 @@ final class StockIntegrityAuditService
             'total_sales_or_invoice_items_scanned' => $salesOrInvoiceItems->count(),
             'materials_without_stock_count' => $materials->filter(fn (object $material): bool => $this->int($material->stock ?? 0) === 0)->count(),
             'negative_stock_count' => count(array_filter($findings, static fn (array $finding): bool => $finding['code'] === 'negative_stock')),
-            'stock_mismatch_count' => count(array_filter($findings, static fn (array $finding): bool => $finding['code'] === 'stock_quantity_mismatch')),
+            'stock_mismatch_count' => count(array_filter($findings, static fn (array $finding): bool => in_array($finding['code'], ['physical_stock_mismatch', 'available_stock_mismatch'], true))),
+            'physical_stock_mismatch_count' => count(array_filter($findings, static fn (array $finding): bool => $finding['code'] === 'physical_stock_mismatch')),
+            'available_stock_mismatch_count' => count(array_filter($findings, static fn (array $finding): bool => $finding['code'] === 'available_stock_mismatch')),
             'active_loans_count' => $loans->filter(fn (object $loan): bool => in_array((string) ($loan->status ?? ''), ['active', 'overdue'], true))->count(),
             'overdue_loans_count' => count(array_filter($findings, static fn (array $finding): bool => $finding['code'] === 'overdue_loan')),
             'pending_requests_count' => $requests->filter(fn (object $request): bool => in_array((string) ($request->status ?? ''), ['draft', 'pending', 'pendente', 'approved', 'aprovado'], true))->pluck('request_id')->unique()->count(),
-            'orphan_stock_movement_count' => count(array_filter($findings, static fn (array $finding): bool => $finding['code'] === 'stock_movement_without_material')),
-            'financial_stock_link_warning_count' => count(array_filter($findings, static fn (array $finding): bool => in_array($finding['code'], ['sale_or_invoice_item_without_stock_decrease', 'stock_decrease_without_financial_trace'], true))),
+            'orphan_stock_movement_count' => count(array_filter($findings, static fn (array $finding): bool => in_array($finding['code'], ['stock_movement_without_material', 'orphan_physical_stock_movement', 'orphan_reservation_movement'], true))),
+            'financial_stock_link_warning_count' => count(array_filter($findings, static fn (array $finding): bool => in_array($finding['code'], ['missing_sale_stock_decrease', 'stock_decrease_without_financial_trace'], true))),
             'total_findings' => count($findings),
             'critical_count' => count(array_filter($findings, static fn (array $finding): bool => $finding['severity'] === 'critical')),
             'warning_count' => count(array_filter($findings, static fn (array $finding): bool => $finding['severity'] === 'warning')),
@@ -563,8 +619,10 @@ final class StockIntegrityAuditService
     /**
      * @return array<string,mixed>
      */
-    private function finding(string $severity, string $code, bool $actionable, string $recommendation, string $reason, ?object $material = null, ?object $movement = null, ?object $loan = null, ?object $request = null, ?object $saleOrInvoice = null, ?int $stockCurrent = null, ?int $stockCalculated = null, ?int $stockDifference = null, ?int $quantity = null, ?string $status = null, mixed $dueDate = null): array
+    private function finding(string $severity, string $code, bool $actionable, string $recommendation, string $reason, ?object $material = null, ?object $movement = null, ?object $loan = null, ?object $request = null, ?object $saleOrInvoice = null, ?int $stockCurrent = null, ?int $stockCalculated = null, ?int $stockDifference = null, ?int $quantity = null, ?string $status = null, mixed $dueDate = null, ?array $stockFields = null): array
     {
+        $stockFields ??= [];
+
         return [
             'severity' => $severity,
             'code' => $code,
@@ -575,6 +633,15 @@ final class StockIntegrityAuditService
             'stock_current' => $stockCurrent,
             'stock_calculated' => $stockCalculated,
             'stock_difference' => $stockDifference,
+            'stored_stock' => $stockFields['stored_stock'] ?? $stockCurrent,
+            'stored_reserved_stock' => $stockFields['stored_reserved_stock'] ?? null,
+            'stored_available_stock' => $stockFields['stored_available_stock'] ?? null,
+            'calculated_physical_stock' => $stockFields['calculated_physical_stock'] ?? $stockCalculated,
+            'calculated_reserved_stock' => $stockFields['calculated_reserved_stock'] ?? null,
+            'calculated_available_stock' => $stockFields['calculated_available_stock'] ?? null,
+            'physical_difference' => $stockFields['physical_difference'] ?? $stockDifference,
+            'available_difference' => $stockFields['available_difference'] ?? null,
+            'stock_field_semantics' => $stockFields['stock_field_semantics'] ?? $this->stockSemantics->stockFieldSemantics(),
             'movement_id' => $this->prop($movement, 'id') ? (string) $this->prop($movement, 'id') : null,
             'loan_id' => $this->prop($loan, 'id') ? (string) $this->prop($loan, 'id') : null,
             'request_id' => $this->prop($request, 'request_id') ? (string) $this->prop($request, 'request_id') : null,

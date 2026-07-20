@@ -79,15 +79,17 @@ final class StockIntegrityAuditCommand extends Command
         );
 
         $this->table(
-            ['Severity', 'Code', 'Material', 'Stock', 'Calculated', 'Difference', 'Related', 'Actionable', 'Recommendation'],
+            ['Severity', 'Code', 'Material', 'Stored', 'Physical', 'Reserved', 'Available', 'Physical Diff', 'Related', 'Actionable', 'Recommendation'],
             collect($payload['findings'] ?? [])
                 ->map(static fn (array $finding): array => [
                     (string) ($finding['severity'] ?? ''),
                     (string) ($finding['code'] ?? ''),
                     (string) (($finding['material_name'] ?? null) ?: ($finding['material_id'] ?? '')),
-                    (string) ($finding['stock_current'] ?? ''),
-                    (string) ($finding['stock_calculated'] ?? ''),
-                    (string) ($finding['stock_difference'] ?? ''),
+                    (string) ($finding['stored_stock'] ?? $finding['stock_current'] ?? ''),
+                    (string) ($finding['calculated_physical_stock'] ?? $finding['stock_calculated'] ?? ''),
+                    (string) ($finding['calculated_reserved_stock'] ?? ''),
+                    (string) ($finding['calculated_available_stock'] ?? ''),
+                    (string) ($finding['physical_difference'] ?? $finding['stock_difference'] ?? ''),
                     (string) (($finding['movement_id'] ?? null) ?: ($finding['loan_id'] ?? null) ?: ($finding['request_id'] ?? null) ?: ($finding['sale_id'] ?? null) ?: ($finding['invoice_item_id'] ?? '')),
                     (bool) ($finding['actionable'] ?? false) ? 'yes' : 'no',
                     (string) ($finding['recommendation'] ?? ''),
