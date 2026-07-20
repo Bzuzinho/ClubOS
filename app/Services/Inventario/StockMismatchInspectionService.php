@@ -326,7 +326,7 @@ final class StockMismatchInspectionService
                     return true;
                 }
 
-                return in_array($referenceType, ['invoice', 'invoice_item', 'sale', 'legacy_sale', 'store_order', 'loja_encomenda', 'loja_encomenda_item'], true)
+                return in_array($referenceType, ['invoice', 'invoice_item', 'sale', 'legacy_sale', 'store_order', 'store_order_item', 'loja_encomenda', 'loja_encomenda_item'], true)
                     && in_array($referenceId, array_filter([
                         $item['invoice_id'] ?? null,
                         $item['invoice_item_id'] ?? null,
@@ -566,7 +566,7 @@ final class StockMismatchInspectionService
 
     private function saleIdForMovement(object $movement): ?string
     {
-        return in_array((string) ($movement->reference_type ?? ''), ['sale', 'legacy_sale', 'store_order', 'loja_encomenda', 'loja_encomenda_item'], true)
+        return in_array((string) ($movement->reference_type ?? ''), ['sale', 'legacy_sale', 'store_order', 'store_order_item', 'loja_encomenda', 'loja_encomenda_item'], true)
             ? $this->stringOrNull($movement->reference_id ?? null)
             : null;
     }

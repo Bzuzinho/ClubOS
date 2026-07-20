@@ -31,6 +31,7 @@ return Application::configure(basePath: dirname(__DIR__))
         \App\Console\Commands\Inventario\StockIntegrityAuditCommand::class,
         \App\Console\Commands\Inventario\StockMismatchInspectionCommand::class,
         \App\Console\Commands\Inventario\StockCorrectionPreflightCommand::class,
+        \App\Console\Commands\Inventario\StockCorrectionApplicationCommand::class,
         \App\Console\Commands\ReleaseVisibleInvoiceCommunications::class,
         \App\Console\Commands\SyncPermissionNodes::class,
         \App\Console\Commands\GenerateMonthlyFeesCommand::class,

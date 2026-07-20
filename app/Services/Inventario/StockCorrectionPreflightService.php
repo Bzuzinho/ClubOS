@@ -192,6 +192,7 @@ final class StockCorrectionPreflightService
         $safe = $single
             && $quantity > 0
             && (string) data_get($inspectionItem, 'material.id', '') !== ''
+            && (string) ($saleItem['status'] ?? '') === 'entregue'
             && $physicalDifference === -$quantity;
 
         return [
