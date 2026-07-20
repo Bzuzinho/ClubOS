@@ -40,6 +40,7 @@ return Application::configure(basePath: dirname(__DIR__))
         \App\Console\Commands\Financeiro\BankReconciliationAuditCommand::class,
         \App\Console\Commands\Financeiro\AuditMemberMonthlyFeesCommand::class,
         \App\Console\Commands\Financeiro\AuditPendingMonthlyFeeRequirementsCommand::class,
+        \App\Console\Commands\Financeiro\ExternalFiscalReceiptRecordingCommand::class,
         \App\Console\Commands\Financeiro\FinancialIntegrationAuditCommand::class,
         \App\Console\Commands\Financeiro\FinancialTimelineAnomalyInspectionCommand::class,
         \App\Console\Commands\Financeiro\FinancialTimelineAuditCommand::class,
