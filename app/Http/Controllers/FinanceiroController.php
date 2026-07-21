@@ -39,6 +39,7 @@ use App\Services\Financeiro\MemberCostCenterResolver;
 use App\Services\Financeiro\PaymentAllocationService;
 use App\Services\Financeiro\ReconciliationAliasService;
 use App\Services\Financeiro\MemberMonthlyFeeResolver;
+use App\Services\Inventario\StockLedgerService;
 use App\Services\Members\MemberFiscalDataResolver;
 use Illuminate\Support\Carbon;
 use Illuminate\Http\Request;
@@ -71,6 +72,7 @@ class FinanceiroController extends Controller
         private readonly MemberMonthlyFeeResolver $memberMonthlyFeeResolver,
         private readonly ManualInvoiceService $manualInvoiceService,
         private readonly InvoiceFinancialGuardService $invoiceFinancialGuardService,
+        private readonly StockLedgerService $stockLedgerService,
     ) {
     }
 
@@ -2051,8 +2053,15 @@ class FinanceiroController extends Controller
             ]);
 
             if (!empty($item['produto_id']) && ($data['origem_tipo'] ?? null) === 'stock') {
-                $delta = $data['classificacao'] === 'despesa' ? (int) $item['quantidade'] : -((int) $item['quantidade']);
-                Product::where('id', $item['produto_id'])->increment('stock', $delta);
+                $this->registerManualMovementStockImpact(
+                    productId: (string) $item['produto_id'],
+                    quantityDelta: $data['classificacao'] === 'despesa' ? (int) $item['quantidade'] : -((int) $item['quantidade']),
+                    movementItemId: (string) $createdItems[array_key_last($createdItems)]->id,
+                    sourceType: 'manual_movement_stock_create',
+                    notes: 'Movimento de stock por criação de movimento financeiro manual',
+                    actorId: $request->user()?->id,
+                    occurredAt: $data['data_emissao'] ?? now(),
+                );
             }
         }
 
@@ -2230,10 +2239,28 @@ class FinanceiroController extends Controller
                 $delta = $next - $previous;
                 if ($delta > 0) {
                     $adjust = $data['classificacao'] === 'despesa' ? $delta : -$delta;
-                    Product::where('id', $productId)->increment('stock', $adjust);
+                    $this->registerManualMovementStockImpact(
+                        productId: (string) $productId,
+                        quantityDelta: $adjust,
+                        movementItemId: (string) $movimento->id,
+                        sourceType: 'manual_movement_stock_update',
+                        notes: 'Ajuste de stock por atualização de movimento financeiro manual',
+                        actorId: $request->user()?->id,
+                        occurredAt: $data['data_emissao'] ?? now(),
+                        idempotencySuffix: (string) $productId.'-'.$previous.'-'.$next,
+                    );
                 } elseif ($delta < 0) {
                     $adjust = $data['classificacao'] === 'despesa' ? abs($delta) : -abs($delta);
-                    Product::where('id', $productId)->increment('stock', $adjust);
+                    $this->registerManualMovementStockImpact(
+                        productId: (string) $productId,
+                        quantityDelta: $adjust,
+                        movementItemId: (string) $movimento->id,
+                        sourceType: 'manual_movement_stock_update',
+                        notes: 'Ajuste de stock por atualização de movimento financeiro manual',
+                        actorId: $request->user()?->id,
+                        occurredAt: $data['data_emissao'] ?? now(),
+                        idempotencySuffix: (string) $productId.'-'.$previous.'-'.$next,
+                    );
                 }
             }
         }
@@ -2645,6 +2672,39 @@ class FinanceiroController extends Controller
 
                 return $extrato;
             });
+    }
+
+    private function registerManualMovementStockImpact(
+        string $productId,
+        int $quantityDelta,
+        string $movementItemId,
+        string $sourceType,
+        string $notes,
+        ?string $actorId,
+        mixed $occurredAt,
+        ?string $idempotencySuffix = null,
+    ): void {
+        if ($quantityDelta === 0) {
+            return;
+        }
+
+        $product = Product::query()->whereKey($productId)->lockForUpdate()->firstOrFail();
+        $context = [
+            'source_type' => $sourceType,
+            'source_id' => $movementItemId,
+            'notes' => $notes,
+            'created_by' => $actorId,
+            'occurred_at' => $occurredAt,
+            'idempotency_key' => $sourceType.'-'.$movementItemId.($idempotencySuffix ? '-'.$idempotencySuffix : ''),
+        ];
+
+        if ($quantityDelta > 0) {
+            $this->stockLedgerService->registerEntry($product, $quantityDelta, $context);
+
+            return;
+        }
+
+        $this->stockLedgerService->registerExit($product, abs($quantityDelta), $context);
     }
 
     public function conciliarExtrato(Request $request, BankStatement $extrato)

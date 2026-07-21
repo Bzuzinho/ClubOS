@@ -6,6 +6,7 @@ use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\Product;
 use App\Models\User;
+use App\Services\Inventario\StockLedgerService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -13,6 +14,7 @@ class ManualInvoiceService
 {
     public function __construct(
         private readonly InvoiceFinancialGuardService $financialGuard,
+        private readonly StockLedgerService $stockLedger,
     ) {
     }
 
@@ -25,7 +27,7 @@ class ManualInvoiceService
         $items = $this->normalizeAndValidateItems($data);
         $total = $this->validateInvoiceTotal($data, $items);
 
-        return DB::transaction(function () use ($data, $items, $total, $requestedStatus): Invoice {
+        return DB::transaction(function () use ($data, $items, $total, $requestedStatus, $actor): Invoice {
             $invoice = Invoice::query()->create([
                 'user_id' => $data['user_id'],
                 'data_fatura' => $data['data_fatura'] ?? $data['data_emissao'],
@@ -45,8 +47,8 @@ class ManualInvoiceService
                 'observacoes' => $data['observacoes'] ?? null,
             ]);
 
-            $this->createItems($invoice, $items);
-            $this->applyProductDeltas($this->productQuantities([]), $this->productQuantities($items));
+            $createdItems = $this->createItems($invoice, $items);
+            $this->registerInvoiceItemExits($createdItems, $actor, 'manual_invoice_create', 'Saída de stock por criação de fatura manual');
 
             return $invoice->fresh(['items']);
         });
@@ -63,7 +65,7 @@ class ManualInvoiceService
         $items = $this->normalizeAndValidateItems($data);
         $total = $this->validateInvoiceTotal($data, $items);
 
-        return DB::transaction(function () use ($invoice, $data, $items, $total, $requestedStatus): Invoice {
+        return DB::transaction(function () use ($invoice, $data, $items, $total, $requestedStatus, $actor): Invoice {
             $lockedInvoice = Invoice::query()
                 ->whereKey($invoice->id)
                 ->lockForUpdate()
@@ -73,7 +75,7 @@ class ManualInvoiceService
             $this->ensureEditable($lockedInvoice);
 
             $existingItems = $lockedInvoice->items()->lockForUpdate()->get();
-            $existingQuantities = $this->productQuantities($existingItems->all());
+            $this->registerInvoiceItemReturns($existingItems->all(), $actor, 'manual_invoice_update_reversal', 'Reposição de stock por atualização de fatura manual');
 
             $lockedInvoice->update([
                 'user_id' => $data['user_id'],
@@ -95,8 +97,8 @@ class ManualInvoiceService
             ]);
 
             $lockedInvoice->items()->delete();
-            $this->createItems($lockedInvoice, $items);
-            $this->applyProductDeltas($existingQuantities, $this->productQuantities($items));
+            $createdItems = $this->createItems($lockedInvoice, $items);
+            $this->registerInvoiceItemExits($createdItems, $actor, 'manual_invoice_update_exit', 'Saída de stock por atualização de fatura manual');
 
             return $lockedInvoice->fresh(['items']);
         });
@@ -104,7 +106,7 @@ class ManualInvoiceService
 
     public function delete(Invoice $invoice, ?User $actor = null): void
     {
-        DB::transaction(function () use ($invoice): void {
+        DB::transaction(function () use ($invoice, $actor): void {
             $lockedInvoice = Invoice::query()
                 ->whereKey($invoice->id)
                 ->lockForUpdate()
@@ -114,7 +116,7 @@ class ManualInvoiceService
             $this->ensureEditable($lockedInvoice);
 
             $existingItems = $lockedInvoice->items()->lockForUpdate()->get();
-            $this->applyProductDeltas($this->productQuantities($existingItems->all()), []);
+            $this->registerInvoiceItemReturns($existingItems->all(), $actor, 'manual_invoice_delete', 'Reposição de stock por eliminação de fatura manual');
 
             $lockedInvoice->items()->delete();
             $lockedInvoice->delete();
@@ -242,10 +244,12 @@ class ManualInvoiceService
     /**
      * @param list<array<string, mixed>> $items
      */
-    private function createItems(Invoice $invoice, array $items): void
+    private function createItems(Invoice $invoice, array $items): array
     {
+        $createdItems = [];
+
         foreach ($items as $item) {
-            InvoiceItem::query()->create([
+            $createdItems[] = InvoiceItem::query()->create([
                 'fatura_id' => $invoice->id,
                 'descricao' => $item['descricao'],
                 'quantidade' => $item['quantidade'],
@@ -256,52 +260,51 @@ class ManualInvoiceService
                 'centro_custo_id' => $item['centro_custo_id'],
             ]);
         }
+
+        return $createdItems;
     }
 
     /**
-     * @param array<int|string, int> $previous
-     * @param array<int|string, int> $next
+     * @param array<int, InvoiceItem|array<string, mixed>> $items
      */
-    private function applyProductDeltas(array $previous, array $next): void
+    private function registerInvoiceItemExits(array $items, ?User $actor, string $sourceType, string $notes): void
     {
-        $productIds = array_unique(array_merge(array_keys($previous), array_keys($next)));
-
-        foreach ($productIds as $productId) {
-            $delta = ((int) ($next[$productId] ?? 0)) - ((int) ($previous[$productId] ?? 0));
-
-            if ($delta === 0) {
+        foreach ($items as $item) {
+            if (!$item instanceof InvoiceItem || empty($item->produto_id)) {
                 continue;
             }
 
-            $product = Product::query()->whereKey($productId)->lockForUpdate()->firstOrFail();
-
-            if ($delta > 0) {
-                $product->decrement('stock', $delta);
-            } else {
-                $product->increment('stock', abs($delta));
-            }
+            $product = Product::query()->whereKey($item->produto_id)->lockForUpdate()->firstOrFail();
+            $this->stockLedger->registerExit($product, (int) $item->quantidade, [
+                'source_type' => $sourceType,
+                'source_id' => $item->id,
+                'notes' => $notes,
+                'created_by' => $actor?->id,
+                'occurred_at' => $item->created_at ?? now(),
+                'idempotency_key' => $sourceType.'-'.$item->id,
+            ]);
         }
     }
 
     /**
      * @param array<int, InvoiceItem|array<string, mixed>> $items
-     * @return array<string, int>
      */
-    private function productQuantities(array $items): array
+    private function registerInvoiceItemReturns(array $items, ?User $actor, string $sourceType, string $notes): void
     {
-        $quantities = [];
-
         foreach ($items as $item) {
-            $productId = $item instanceof InvoiceItem ? $item->produto_id : ($item['produto_id'] ?? null);
-
-            if (empty($productId)) {
+            if (!$item instanceof InvoiceItem || empty($item->produto_id)) {
                 continue;
             }
 
-            $quantity = $item instanceof InvoiceItem ? (int) $item->quantidade : (int) $item['quantidade'];
-            $quantities[(string) $productId] = ($quantities[(string) $productId] ?? 0) + $quantity;
+            $product = Product::query()->whereKey($item->produto_id)->lockForUpdate()->firstOrFail();
+            $this->stockLedger->registerReturn($product, (int) $item->quantidade, [
+                'source_type' => $sourceType,
+                'source_id' => $item->id,
+                'notes' => $notes,
+                'created_by' => $actor?->id,
+                'occurred_at' => now(),
+                'idempotency_key' => $sourceType.'-'.$item->id,
+            ]);
         }
-
-        return $quantities;
     }
 }

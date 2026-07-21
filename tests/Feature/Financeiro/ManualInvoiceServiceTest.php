@@ -10,6 +10,7 @@ use App\Models\InvoiceType;
 use App\Models\Payment;
 use App\Models\PaymentAllocation;
 use App\Models\Product;
+use App\Models\StockMovement;
 use App\Models\User;
 use App\Services\Financeiro\CurrentAccountService;
 use App\Services\Financeiro\ManualInvoiceService;
@@ -46,6 +47,11 @@ class ManualInvoiceServiceTest extends TestCase
         $invoice = Invoice::query()->findOrFail($response->json('invoice.id'));
         $this->assertSame(1, $invoice->items()->count());
         $this->assertSame(8, $product->fresh()->stock);
+        $this->assertSame(1, StockMovement::query()
+            ->where('article_id', $product->id)
+            ->where('movement_type', 'exit')
+            ->where('reference_type', 'manual_invoice_create')
+            ->count());
     }
 
     public function test_store_rolls_back_when_item_or_stock_write_fails(): void
@@ -157,6 +163,8 @@ class ManualInvoiceServiceTest extends TestCase
 
         $this->assertSame(7, $product->fresh()->stock);
         $this->assertSame(1, $invoice->fresh()->items()->count());
+        $this->assertSame(1, StockMovement::query()->where('reference_type', 'manual_invoice_update_reversal')->count());
+        $this->assertSame(1, StockMovement::query()->where('reference_type', 'manual_invoice_update_exit')->count());
     }
 
     public function test_update_rolls_back_previous_invoice_items_and_stock_on_failure(): void
@@ -282,6 +290,7 @@ class ManualInvoiceServiceTest extends TestCase
         $this->assertDatabaseMissing('invoices', ['id' => $invoice->id]);
         $this->assertDatabaseMissing('invoice_items', ['fatura_id' => $invoice->id]);
         $this->assertSame(10, $product->fresh()->stock);
+        $this->assertSame(1, StockMovement::query()->where('reference_type', 'manual_invoice_delete')->count());
     }
 
     public function test_destroy_with_financial_trail_is_blocked_without_stock_change(): void

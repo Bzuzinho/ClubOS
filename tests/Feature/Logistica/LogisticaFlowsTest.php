@@ -233,6 +233,100 @@ class LogisticaFlowsTest extends TestCase
         ]);
     }
 
+    public function test_updating_equipment_loan_adjusts_stock_through_ledger(): void
+    {
+        $admin = User::factory()->create();
+        $borrower = User::factory()->create();
+
+        $product = Product::create([
+            'codigo' => 'ART-EMP-UPD-01',
+            'nome' => 'Cinto de treino',
+            'categoria' => 'Treino Seco',
+            'preco' => 9.99,
+            'stock' => 6,
+            'stock_reservado' => 0,
+            'stock_minimo' => 1,
+            'ativo' => true,
+        ]);
+
+        $this->actingAs($admin)
+            ->post(route('logistica.emprestimos.store'), [
+                'borrower_user_id' => $borrower->id,
+                'borrower_name_snapshot' => $borrower->nome_completo,
+                'article_id' => $product->id,
+                'quantity' => 2,
+                'loan_date' => now()->toDateString(),
+                'due_date' => now()->addDays(7)->toDateString(),
+            ])
+            ->assertRedirect(route('logistica.index'));
+
+        $loan = EquipmentLoan::query()->latest()->firstOrFail();
+
+        $this->actingAs($admin)
+            ->put(route('logistica.emprestimos.update', $loan), [
+                'borrower_user_id' => $borrower->id,
+                'borrower_name_snapshot' => $borrower->nome_completo,
+                'article_id' => $product->id,
+                'quantity' => 3,
+                'loan_date' => now()->toDateString(),
+                'due_date' => now()->addDays(7)->toDateString(),
+            ])
+            ->assertRedirect(route('logistica.index'));
+
+        $this->assertSame(3, (int) $product->fresh()->stock);
+        $this->assertDatabaseHas('stock_movements', [
+            'article_id' => $product->id,
+            'movement_type' => 'exit',
+            'quantity' => 1,
+            'reference_type' => 'equipment_loan_update',
+            'reference_id' => $loan->id,
+        ]);
+    }
+
+    public function test_deleting_equipment_loan_returns_stock_through_ledger(): void
+    {
+        $admin = User::factory()->create();
+        $borrower = User::factory()->create();
+
+        $product = Product::create([
+            'codigo' => 'ART-EMP-DEL-01',
+            'nome' => 'Elástico',
+            'categoria' => 'Treino Seco',
+            'preco' => 9.99,
+            'stock' => 6,
+            'stock_reservado' => 0,
+            'stock_minimo' => 1,
+            'ativo' => true,
+        ]);
+
+        $this->actingAs($admin)
+            ->post(route('logistica.emprestimos.store'), [
+                'borrower_user_id' => $borrower->id,
+                'borrower_name_snapshot' => $borrower->nome_completo,
+                'article_id' => $product->id,
+                'quantity' => 2,
+                'loan_date' => now()->toDateString(),
+                'due_date' => now()->addDays(7)->toDateString(),
+            ])
+            ->assertRedirect(route('logistica.index'));
+
+        $loan = EquipmentLoan::query()->latest()->firstOrFail();
+
+        $this->actingAs($admin)
+            ->delete(route('logistica.emprestimos.destroy', $loan))
+            ->assertRedirect(route('logistica.index'));
+
+        $this->assertDatabaseMissing('equipment_loans', ['id' => $loan->id]);
+        $this->assertSame(6, (int) $product->fresh()->stock);
+        $this->assertDatabaseHas('stock_movements', [
+            'article_id' => $product->id,
+            'movement_type' => 'return',
+            'quantity' => 2,
+            'reference_type' => 'equipment_loan_delete',
+            'reference_id' => $loan->id,
+        ]);
+    }
+
     public function test_updating_invoiced_request_updates_invoice_and_stock_delta(): void
     {
         $admin = User::factory()->create();

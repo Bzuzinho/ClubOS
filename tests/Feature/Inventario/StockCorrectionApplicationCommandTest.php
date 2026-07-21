@@ -80,13 +80,18 @@ final class StockCorrectionApplicationCommandTest extends TestCase
         $this->assertSame(1, $payload['summary']['stock_movements_created_count']);
         $this->assertSame(0, $payload['summary']['products_updated_count']);
         $this->assertSame('applied', $payload['items'][0]['status']);
-        $this->assertDatabaseHas('stock_movements', [
-            'article_id' => $product->id,
-            'movement_type' => 'exit',
-            'quantity' => 1,
-            'reference_type' => 'store_order_item',
-            'notes' => 'Baixa de stock por venda/encomenda entregue registada retroativamente',
-        ]);
+        $movement = StockMovement::query()
+            ->where('article_id', $product->id)
+            ->where('movement_type', 'exit')
+            ->where('quantity', 1)
+            ->where('reference_type', 'store_order_item')
+            ->first();
+
+        $this->assertNotNull($movement);
+        $this->assertStringStartsWith(
+            'Baixa de stock por venda/encomenda entregue registada retroativamente',
+            (string) $movement->notes,
+        );
         $this->assertSame(9, (int) $product->fresh()->stock);
     }
 

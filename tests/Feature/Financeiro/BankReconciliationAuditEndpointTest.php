@@ -20,6 +20,8 @@ class BankReconciliationAuditEndpointTest extends TestCase
 {
     use RefreshDatabase;
 
+    private static int $financeUserNumber = 900000;
+
     public function test_audit_endpoint_lists_paginated_bank_statements(): void
     {
         $admin = User::factory()->admin()->create();
@@ -612,7 +614,7 @@ class BankReconciliationAuditEndpointTest extends TestCase
     {
         $user = User::factory()->create(array_merge([
             'nome_completo' => 'Finance User Audit',
-            'numero_socio' => fake()->unique()->numerify('8###'),
+            'numero_socio' => ++self::$financeUserNumber,
             'nif' => '123456780',
             'morada' => 'Rua Auditoria 1',
             'codigo_postal' => '1000-120',

@@ -12,6 +12,7 @@ use App\Models\SponsorshipIntegration;
 use App\Models\SponsorshipMoneyItem;
 use App\Models\StockMovement;
 use App\Models\User;
+use App\Services\Inventario\StockLedgerService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -19,7 +20,8 @@ class SponsorshipService
 {
     public function __construct(
         private SponsorshipIntegrationService $integrationService,
-        private SponsorshipFinancialGuardService $financialGuardService
+        private SponsorshipFinancialGuardService $financialGuardService,
+        private StockLedgerService $stockLedger,
     ) {
     }
 
@@ -137,19 +139,20 @@ class SponsorshipService
                 }
 
                 if ($stockMovement->movement_type === 'entry') {
-                    $newStock = (int) $product->stock - (int) $stockMovement->quantity;
-
-                    if ($newStock < 0) {
+                    try {
+                        $this->stockLedger->registerExit($product, (int) $stockMovement->quantity, [
+                            'source_type' => 'sponsorship_goods_item_delete',
+                            'source_id' => $item->id,
+                            'notes' => 'Reversão de entrada de stock por eliminação de patrocínio',
+                            'occurred_at' => now(),
+                            'idempotency_key' => 'sponsorship-goods-delete-'.$sponsorship->id.'-'.$item->id,
+                        ]);
+                    } catch (\App\Exceptions\Inventario\InsufficientStockException) {
                         throw ValidationException::withMessages([
                             'sponsorship' => 'Não é possível apagar: o stock atual ficaria negativo ao reverter a integração logística.',
                         ]);
                     }
-
-                    $product->stock = $newStock;
-                    $product->save();
                 }
-
-                $stockMovement->delete();
             }
 
             foreach ($sponsorship->moneyItems as $item) {

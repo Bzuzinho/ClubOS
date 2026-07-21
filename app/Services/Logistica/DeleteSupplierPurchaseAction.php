@@ -5,8 +5,8 @@ namespace App\Services\Logistica;
 use App\Models\Movement;
 use App\Models\MovementItem;
 use App\Models\Product;
-use App\Models\StockMovement;
 use App\Models\SupplierPurchase;
+use App\Services\Inventario\StockLedgerService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -14,6 +14,7 @@ class DeleteSupplierPurchaseAction
 {
     public function __construct(
         private readonly SupplierPurchaseFinancialGuardService $financialGuardService,
+        private readonly StockLedgerService $stockLedger,
     ) {
     }
 
@@ -48,21 +49,20 @@ class DeleteSupplierPurchaseAction
                     continue;
                 }
 
-                $newStock = (int) $product->stock - (int) $item->quantity;
-                if ($newStock < 0) {
+                try {
+                    $this->stockLedger->registerExit($product, (int) $item->quantity, [
+                        'source_type' => 'supplier_purchase_delete',
+                        'source_id' => $item->id,
+                        'notes' => 'Reversão de entrada de stock por eliminação de compra a fornecedor',
+                        'occurred_at' => now(),
+                        'idempotency_key' => 'supplier-purchase-delete-'.$purchase->id.'-'.$item->id,
+                    ]);
+                } catch (\App\Exceptions\Inventario\InsufficientStockException) {
                     throw ValidationException::withMessages([
                         'purchase' => 'Não é possível apagar: o stock atual ficaria negativo.',
                     ]);
                 }
-
-                $product->stock = $newStock;
-                $product->save();
             }
-
-            StockMovement::query()
-                ->where('reference_type', 'supplier_purchase')
-                ->where('reference_id', $purchase->id)
-                ->delete();
 
             if ($purchase->financial_movement_id) {
                 MovementItem::query()->where('movimento_id', $purchase->financial_movement_id)->delete();

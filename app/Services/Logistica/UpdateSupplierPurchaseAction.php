@@ -6,12 +6,12 @@ use App\Models\Movement;
 use App\Models\MovementDocument;
 use App\Models\MovementItem;
 use App\Models\Product;
-use App\Models\StockMovement;
 use App\Models\Supplier;
 use App\Models\SupplierPurchase;
 use App\Models\SupplierPurchaseItem;
 use App\Models\User;
 use App\Services\Financeiro\MovementDocumentControlService;
+use App\Services\Inventario\StockLedgerService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -21,6 +21,7 @@ class UpdateSupplierPurchaseAction
         private readonly RegisterStockMovementAction $registerStockMovementAction,
         private readonly MovementDocumentControlService $movementDocumentControlService,
         private readonly SupplierPurchaseFinancialGuardService $financialGuardService,
+        private readonly StockLedgerService $stockLedger,
     ) {
     }
 
@@ -50,7 +51,6 @@ class UpdateSupplierPurchaseAction
                 ]);
             }
 
-            // Reverter impacto de stock da versão atual da compra
             foreach ($purchase->items as $existingItem) {
                 if (empty($existingItem->article_id)) {
                     continue;
@@ -61,22 +61,23 @@ class UpdateSupplierPurchaseAction
                     continue;
                 }
 
-                $newStock = (int) $product->stock - (int) $existingItem->quantity;
-                if ($newStock < 0) {
+                try {
+                    $this->stockLedger->registerExit($product, (int) $existingItem->quantity, [
+                        'source_type' => 'supplier_purchase_update_reversal',
+                        'source_id' => $existingItem->id,
+                        'notes' => 'Reversão de entrada anterior por atualização de compra a fornecedor',
+                        'created_by' => $actor?->id,
+                        'occurred_at' => now(),
+                        'idempotency_key' => 'supplier-purchase-update-reversal-'.$purchase->id.'-'.$existingItem->id,
+                    ]);
+                } catch (\App\Exceptions\Inventario\InsufficientStockException) {
                     throw ValidationException::withMessages([
                         'items' => 'Não foi possível reverter o stock anterior da compra.',
                     ]);
                 }
-
-                $product->stock = $newStock;
-                $product->save();
             }
 
             SupplierPurchaseItem::query()->where('supplier_purchase_id', $purchase->id)->delete();
-            StockMovement::query()
-                ->where('reference_type', 'supplier_purchase')
-                ->where('reference_id', $purchase->id)
-                ->delete();
 
             $supplier = Supplier::query()->findOrFail($data['supplier_id']);
             $total = 0.0;
@@ -87,7 +88,7 @@ class UpdateSupplierPurchaseAction
                 $unitCost = (float) $item['unit_cost'];
                 $lineTotal = $quantity * $unitCost;
 
-                SupplierPurchaseItem::create([
+                $purchaseItem = SupplierPurchaseItem::create([
                     'supplier_purchase_id' => $purchase->id,
                     'article_id' => $product->id,
                     'article_name_snapshot' => $product->nome,
@@ -101,9 +102,10 @@ class UpdateSupplierPurchaseAction
                     'movement_type' => 'entry',
                     'quantity' => $quantity,
                     'unit_cost' => $unitCost,
-                    'reference_type' => 'supplier_purchase',
-                    'reference_id' => $purchase->id,
+                    'reference_type' => 'supplier_purchase_update_entry',
+                    'reference_id' => $purchaseItem->id,
                     'notes' => 'Entrada de stock por atualização de compra a fornecedor',
+                    'idempotency_key' => 'supplier-purchase-update-entry-'.$purchase->id.'-'.$purchaseItem->id,
                 ], $actor);
 
                 $total += $lineTotal;

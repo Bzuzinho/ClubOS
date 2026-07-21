@@ -232,7 +232,7 @@ final class StockLedgerService
             $query->whereNull('reference_id');
         }
 
-        if ($idempotencyKey !== null && $sourceId === null) {
+        if ($idempotencyKey !== null) {
             $query->where('notes', 'like', '%idempotency_key:'.$idempotencyKey.'%');
         }
 
@@ -391,7 +391,7 @@ final class StockLedgerService
         $notes = $this->stringOrNull($context['notes'] ?? null);
         $idempotencyKey = $this->stringOrNull($context['idempotency_key'] ?? null);
 
-        if ($idempotencyKey === null || $this->sourceId($context) !== null) {
+        if ($idempotencyKey === null) {
             return $notes;
         }
 

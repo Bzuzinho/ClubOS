@@ -100,6 +100,16 @@ class SupplierPurchaseFinancialLifecycleTest extends TestCase
         $this->assertSame(1, Movement::query()->where('origem_tipo', 'supplier_purchase')->where('origem_id', $purchase->id)->count());
         $this->assertSame(1, MovementItem::query()->where('movimento_id', $movement->id)->count());
         $this->assertSame(14, (int) $product->fresh()->stock);
+        $this->assertDatabaseHas('stock_movements', [
+            'article_id' => $product->id,
+            'movement_type' => 'exit',
+            'reference_type' => 'supplier_purchase_update_reversal',
+        ]);
+        $this->assertDatabaseHas('stock_movements', [
+            'article_id' => $product->id,
+            'movement_type' => 'entry',
+            'reference_type' => 'supplier_purchase_update_entry',
+        ]);
 
         $this->assertSame(0, FinancialEntry::query()
             ->whereIn('origem_tipo', ['stock', 'supplier_purchase'])
@@ -118,9 +128,14 @@ class SupplierPurchaseFinancialLifecycleTest extends TestCase
         $this->assertDatabaseMissing('supplier_purchases', ['id' => $purchase->id]);
         $this->assertDatabaseMissing('movements', ['id' => $movementId]);
         $this->assertDatabaseMissing('movement_items', ['movimento_id' => $movementId]);
-        $this->assertDatabaseMissing('stock_movements', [
+        $this->assertDatabaseHas('stock_movements', [
             'reference_type' => 'supplier_purchase',
             'reference_id' => $purchase->id,
+        ]);
+        $this->assertDatabaseHas('stock_movements', [
+            'article_id' => $product->id,
+            'movement_type' => 'exit',
+            'reference_type' => 'supplier_purchase_delete',
         ]);
         $this->assertSame(10, (int) $product->fresh()->stock);
     }
