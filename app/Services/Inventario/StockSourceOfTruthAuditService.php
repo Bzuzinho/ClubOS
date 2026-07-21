@@ -417,10 +417,24 @@ final class StockSourceOfTruthAuditService
                         continue;
                     }
 
+                    $relativePath = str_replace(base_path().DIRECTORY_SEPARATOR, '', $path);
+                    $snippet = trim($line);
+
+                    if ($this->isDocumentedVariantStockWrite($relativePath, $snippet)) {
+                        $findings[] = $this->finding('info', 'variant_stock_write_candidate', false, 'documented_variant_stock_outside_product_ledger_boundary', null, [
+                            'file' => $relativePath,
+                            'line' => $index + 1,
+                            'snippet' => $snippet,
+                            'boundary' => 'product_variants.stock is independent from products.stock and has no stock_movements ledger in B2.3',
+                        ]);
+
+                        break;
+                    }
+
                     $findings[] = $this->finding('warning', 'direct_stock_write_candidate', true, 'route_stock_writes_through_stock_ledger_service', null, [
-                        'file' => str_replace(base_path().DIRECTORY_SEPARATOR, '', $path),
+                        'file' => $relativePath,
                         'line' => $index + 1,
-                        'snippet' => trim($line),
+                        'snippet' => $snippet,
                     ]);
                     break;
                 }
@@ -428,6 +442,13 @@ final class StockSourceOfTruthAuditService
         }
 
         return $findings;
+    }
+
+    private function isDocumentedVariantStockWrite(string $relativePath, string $snippet): bool
+    {
+        return str_replace('/', DIRECTORY_SEPARATOR, $relativePath) === 'app'.DIRECTORY_SEPARATOR.'Services'.DIRECTORY_SEPARATOR.'Catalog'.DIRECTORY_SEPARATOR.'CanonicalProductStockService.php'
+            && str_contains($snippet, '$variant->decrement')
+            && str_contains($snippet, "'stock'");
     }
 
     /**
@@ -496,6 +517,7 @@ final class StockSourceOfTruthAuditService
             'non_idempotent_source_candidate_count' => $findingsCollection->where('code', 'non_idempotent_source_candidate')->count(),
             'negative_available_count' => $findingsCollection->where('code', 'negative_available_stock')->count(),
             'direct_stock_write_candidate_count' => $findingsCollection->where('code', 'direct_stock_write_candidate')->count(),
+            'variant_stock_write_candidate_count' => $findingsCollection->where('code', 'variant_stock_write_candidate')->count(),
             'total_findings' => $findingsCollection->count(),
             'critical_count' => $findingsCollection->where('severity', 'critical')->count(),
             'warning_count' => $findingsCollection->where('severity', 'warning')->count(),

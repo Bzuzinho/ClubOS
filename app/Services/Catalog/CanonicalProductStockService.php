@@ -4,10 +4,18 @@ namespace App\Services\Catalog;
 
 use App\Models\Product;
 use App\Models\ProductVariant;
+use App\Models\StockMovement;
+use App\Services\Inventario\StockLedgerService;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 class CanonicalProductStockService
 {
+    public function __construct(
+        private readonly StockLedgerService $stockLedger,
+    ) {
+    }
+
     public function ensureAvailable(Product $product, int $quantity, string $errorKey = 'quantity', ?string $message = null): void
     {
         if ($quantity < 1) {
@@ -87,18 +95,75 @@ class CanonicalProductStockService
         return (float) ($product->preco ?? $product->sale_price);
     }
 
-    public function decrementOnSale(Product $product, ?ProductVariant $variant, int $quantity): void
+    /**
+     * @param array<string,mixed> $context
+     */
+    public function decrementOnSale(Product $product, ?ProductVariant $variant, int $quantity, array $context = []): void
     {
-        if (! $product->tracks_stock) {
-            return;
+        DB::transaction(function () use ($product, $variant, $quantity, $context): void {
+            if (! $product->tracks_stock) {
+                return;
+            }
+
+            $ledgerContext = [
+                'source_type' => $context['source_type'] ?? 'store_order_item',
+                'source_id' => $context['source_id'] ?? null,
+                'idempotency_key' => $context['idempotency_key'] ?? null,
+                'notes' => $context['notes'] ?? 'Saída de stock por encomenda da loja',
+                'created_by' => $context['created_by'] ?? null,
+                'occurred_at' => $context['occurred_at'] ?? now(),
+            ];
+            $alreadyApplied = $this->hasExistingProductLedgerExit($product, $quantity, $ledgerContext);
+
+            if ($alreadyApplied) {
+                return;
+            }
+
+            $this->ensureAvailableForStore($product, $variant, $quantity);
+            $this->stockLedger->registerExit($product, $quantity, $ledgerContext);
+
+            if ($variant) {
+                $variant->decrement('stock', $quantity);
+            }
+        });
+    }
+
+    /**
+     * @param array<string,mixed> $context
+     */
+    private function hasExistingProductLedgerExit(Product $product, int $quantity, array $context): bool
+    {
+        $sourceType = is_string($context['source_type'] ?? null) && trim((string) $context['source_type']) !== ''
+            ? trim((string) $context['source_type'])
+            : null;
+        $sourceId = is_string($context['source_id'] ?? null) && trim((string) $context['source_id']) !== ''
+            ? trim((string) $context['source_id'])
+            : null;
+        $idempotencyKey = is_string($context['idempotency_key'] ?? null) && trim((string) $context['idempotency_key']) !== ''
+            ? trim((string) $context['idempotency_key'])
+            : null;
+
+        if ($sourceType === null && $sourceId === null && $idempotencyKey === null) {
+            return false;
         }
 
-        $this->ensureAvailableForStore($product, $variant, $quantity);
+        $query = StockMovement::query()
+            ->where('article_id', $product->id)
+            ->where('movement_type', 'exit')
+            ->where('quantity', $quantity);
 
-        if ($variant) {
-            $variant->decrement('stock', $quantity);
+        $sourceType === null
+            ? $query->whereNull('reference_type')
+            : $query->where('reference_type', $sourceType);
+
+        $sourceId === null
+            ? $query->whereNull('reference_id')
+            : $query->where('reference_id', $sourceId);
+
+        if ($idempotencyKey !== null) {
+            $query->where('notes', 'like', '%idempotency_key:'.$idempotencyKey.'%');
         }
 
-        $product->decrement('stock', $quantity);
+        return $query->exists();
     }
 }

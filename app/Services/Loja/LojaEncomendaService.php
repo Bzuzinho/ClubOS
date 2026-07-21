@@ -73,7 +73,7 @@ class LojaEncomendaService
                 $unitPrice = $this->stockService->saleUnitPrice($produto, $variante);
                 $lineTotal = $unitPrice * (int) $cartItem->quantidade;
 
-                LojaEncomendaItem::create([
+                $orderItem = LojaEncomendaItem::create([
                     'loja_encomenda_id' => $order->id,
                     'article_id' => $produto->id,
                     'product_variant_id' => $variante?->id,
@@ -83,7 +83,14 @@ class LojaEncomendaService
                     'total_linha' => $lineTotal,
                 ]);
 
-                $this->stockService->decrementOnSale($produto, $variante, (int) $cartItem->quantidade);
+                $this->stockService->decrementOnSale($produto, $variante, (int) $cartItem->quantidade, [
+                    'source_type' => 'store_order_item',
+                    'source_id' => $orderItem->id,
+                    'idempotency_key' => 'store-order-item-'.$orderItem->id,
+                    'notes' => 'Saída de stock por encomenda da loja',
+                    'created_by' => $user->id,
+                    'occurred_at' => now(),
+                ]);
                 $subtotal += $lineTotal;
             }
 

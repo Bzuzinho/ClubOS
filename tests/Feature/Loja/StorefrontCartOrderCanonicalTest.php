@@ -5,6 +5,7 @@ namespace Tests\Feature\Loja;
 use App\Models\LojaEncomenda;
 use App\Models\Product;
 use App\Models\ProductVariant;
+use App\Models\StockMovement;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -102,6 +103,12 @@ class StorefrontCartOrderCanonicalTest extends TestCase
 
         $product->refresh();
         $this->assertSame(6, (int) $product->stock);
+        $this->assertDatabaseHas('stock_movements', [
+            'article_id' => $product->id,
+            'movement_type' => 'exit',
+            'quantity' => 3,
+            'reference_type' => 'store_order_item',
+        ]);
         $this->assertDatabaseHas('in_app_alerts', [
             'user_id' => $admin->id,
             'title' => 'Nova encomenda na Loja',
@@ -116,5 +123,58 @@ class StorefrontCartOrderCanonicalTest extends TestCase
             ->assertJsonPath('items.0.produto.id', $product->id)
             ->assertJsonPath('items.0.produto.slug', 'casaco-clube')
             ->assertJsonPath('items.0.total_linha', 126);
+    }
+
+    public function test_submit_order_with_variant_keeps_variant_snapshot_outside_product_ledger(): void
+    {
+        $user = User::factory()->create();
+        $product = Product::query()->create([
+            'codigo' => 'CAN-ORDER-002',
+            'slug' => 'camisola-clube',
+            'nome' => 'Camisola Clube',
+            'preco' => 30,
+            'preco_venda' => 35,
+            'stock' => 10,
+            'stock_reservado' => 0,
+            'stock_minimo' => 1,
+            'ativo' => true,
+            'visible_in_store' => true,
+            'track_stock' => true,
+        ]);
+        $variant = ProductVariant::query()->create([
+            'product_id' => $product->id,
+            'nome' => 'Senior',
+            'cor' => 'Azul',
+            'sku' => 'CAN-ORDER-002-SR',
+            'preco_extra' => 5,
+            'stock' => 4,
+            'stock_reservado' => 0,
+            'ativo' => true,
+        ]);
+
+        $this->actingAs($user)
+            ->postJson('/api/loja/carrinho/itens', [
+                'article_id' => $product->id,
+                'product_variant_id' => $variant->id,
+                'quantidade' => 2,
+            ])
+            ->assertCreated();
+
+        $this->actingAs($user)
+            ->postJson('/api/loja/carrinho/submeter', [])
+            ->assertCreated();
+
+        $order = LojaEncomenda::query()->latest()->firstOrFail();
+        $orderItem = $order->itens()->firstOrFail();
+
+        $this->assertSame(8, (int) $product->fresh()->stock);
+        $this->assertSame(2, (int) $variant->fresh()->stock);
+        $this->assertSame(1, StockMovement::query()
+            ->where('article_id', $product->id)
+            ->where('movement_type', 'exit')
+            ->where('quantity', 2)
+            ->where('reference_type', 'store_order_item')
+            ->where('reference_id', $orderItem->id)
+            ->count());
     }
 }
