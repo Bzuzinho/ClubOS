@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Inventario;
 
+use App\Services\Inventario\EquipmentLoanStockResolutionService;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
@@ -395,7 +396,11 @@ final class EquipmentLoanStockAuditService
 
         foreach ($groups as $group) {
             $metrics = $this->movementMetrics($group->values());
-            if ($metrics['physical_net'] !== 0) {
+            if ($this->hasReviewedLegacyExit($group->values())) {
+                $findings[] = $this->finding('info', 'equipment_loan_legacy_exit_reviewed', false, 'no_action_needed_equipment_loan_legacy_reviewed', product: $products->get((string) ($group->first()->article_id ?? '')), metrics: $metrics, extra: [
+                    'loan_id' => (string) ($group->first()->reference_id ?? ''),
+                ]);
+            } elseif ($metrics['physical_net'] !== 0) {
                 $findings[] = $this->finding('warning', 'equipment_loan_closed_with_physical_out', true, 'inspect_closed_loan_with_physical_out', product: $products->get((string) ($group->first()->article_id ?? '')), metrics: $metrics, extra: [
                     'loan_id' => (string) ($group->first()->reference_id ?? ''),
                 ]);
@@ -448,6 +453,7 @@ final class EquipmentLoanStockAuditService
             'invalid_quantity_count' => $findingsCollection->where('code', 'equipment_loan_invalid_quantity')->count(),
             'invalid_source_reference_count' => $findingsCollection->where('code', 'equipment_loan_invalid_source_reference')->count(),
             'closed_with_physical_out_count' => $findingsCollection->where('code', 'equipment_loan_closed_with_physical_out')->count(),
+            'legacy_exit_reviewed_count' => $findingsCollection->where('code', 'equipment_loan_legacy_exit_reviewed')->count(),
             'legacy_unlinked_movement_count' => $findingsCollection->where('code', 'equipment_loan_legacy_unlinked_movement')->count(),
             'total_findings' => $findingsCollection->count(),
             'critical_count' => $findingsCollection->where('severity', 'critical')->count(),
@@ -557,6 +563,12 @@ final class EquipmentLoanStockAuditService
         return str_contains($notes, 'empr')
             || str_contains($notes, 'loan')
             || str_contains($notes, 'devolu');
+    }
+
+    private function hasReviewedLegacyExit(Collection $movements): bool
+    {
+        return $movements->contains(fn (object $movement): bool => (string) ($movement->movement_type ?? '') === 'exit'
+            && str_contains((string) ($movement->notes ?? ''), EquipmentLoanStockResolutionService::REVIEW_NOTE_MARKER));
     }
 
     private function blank(mixed $value): bool
