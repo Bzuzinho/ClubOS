@@ -76,13 +76,10 @@ final class OrphanStockMovementInspectionService
             return collect();
         }
 
+        $referenceColumns = $this->referenceColumns();
         $query = DB::table('stock_movements')
-            ->where(function (Builder $query): void {
-                $query->whereNull('reference_type')->orWhere('reference_type', '');
-            })
-            ->where(function (Builder $query): void {
-                $query->whereNull('reference_id')->orWhere('reference_id', '');
-            })
+            ->where(fn (Builder $query): Builder => $this->applyNullOrEmptyTextFilter($query, $referenceColumns['type']))
+            ->where(fn (Builder $query): Builder => $this->applyNullIdentifierFilter($query, $referenceColumns['id']))
             ->orderBy('created_at')
             ->orderBy('id');
 
@@ -135,14 +132,16 @@ final class OrphanStockMovementInspectionService
      */
     private function movementPayload(object $movement): array
     {
+        $reference = $this->movementReference($movement);
+
         return [
             'id' => (string) $movement->id,
             'article_id' => (string) $movement->article_id,
             'type' => (string) $movement->movement_type,
             'quantity' => $this->int($movement->quantity ?? 0),
             'unit_cost' => $movement->unit_cost ?? null,
-            'source_type' => $movement->reference_type ?? null,
-            'source_id' => $movement->reference_id ?? null,
+            'source_type' => $reference['type'],
+            'source_id' => $reference['id'],
             'notes' => $movement->notes ?? null,
             'created_by' => $movement->created_by ?? null,
             'created_at' => $movement->created_at ?? null,
@@ -212,7 +211,8 @@ final class OrphanStockMovementInspectionService
             $physical += $deltas['physical'];
             $reserved += $deltas['reserved'];
 
-            $isOrphan = $this->blank($movement->reference_type ?? null) && $this->blank($movement->reference_id ?? null);
+            $reference = $this->movementReference($movement);
+            $isOrphan = $this->blank($reference['type']) && $this->blank($reference['id']);
             if ($isOrphan && $this->stockSemantics->isPhysicalMovement($movement)) {
                 $orphanPhysical += $deltas['physical'];
             }
@@ -544,5 +544,51 @@ final class OrphanStockMovementInspectionService
     private function blank(mixed $value): bool
     {
         return $value === null || trim((string) $value) === '';
+    }
+
+    /**
+     * @return array{type:string,id:string}
+     */
+    private function referenceColumns(): array
+    {
+        return [
+            'type' => Schema::hasColumn('stock_movements', 'reference_type') ? 'reference_type' : 'source_type',
+            'id' => Schema::hasColumn('stock_movements', 'reference_id') ? 'reference_id' : 'source_id',
+        ];
+    }
+
+    private function applyNullOrEmptyTextFilter(Builder $query, string $column): Builder
+    {
+        return $query->whereNull($column)->orWhere($column, '');
+    }
+
+    private function applyNullIdentifierFilter(Builder $query, string $column): Builder
+    {
+        if ($this->isUuidColumn('stock_movements', $column)) {
+            return $query->whereNull($column);
+        }
+
+        return $query->whereNull($column)->orWhere($column, '');
+    }
+
+    private function isUuidColumn(string $table, string $column): bool
+    {
+        try {
+            return Schema::getColumnType($table, $column) === 'uuid'
+                || in_array($column, ['reference_id', 'source_id'], true);
+        } catch (\Throwable) {
+            return str_ends_with($column, '_id');
+        }
+    }
+
+    /**
+     * @return array{type:mixed,id:mixed}
+     */
+    private function movementReference(object $movement): array
+    {
+        return [
+            'type' => $movement->reference_type ?? $movement->source_type ?? null,
+            'id' => $movement->reference_id ?? $movement->source_id ?? null,
+        ];
     }
 }

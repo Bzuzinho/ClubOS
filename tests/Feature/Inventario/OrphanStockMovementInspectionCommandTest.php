@@ -16,6 +16,7 @@ use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
 final class OrphanStockMovementInspectionCommandTest extends TestCase
@@ -79,6 +80,45 @@ final class OrphanStockMovementInspectionCommandTest extends TestCase
         $this->assertSame('orphan_requires_manual_review', $payload['items'][0]['classification']);
         $this->assertSame('manual_review_required', $payload['items'][0]['recommended_next_action']);
         $this->assertSame(1, $payload['summary']['requires_manual_review_count']);
+    }
+
+    public function test_movement_with_empty_reference_type_and_null_reference_id_is_orphan_without_sql_uuid_empty_string_comparison(): void
+    {
+        $queries = [];
+        DB::listen(static function ($query) use (&$queries): void {
+            $queries[] = $query->sql;
+        });
+
+        $product = $this->product();
+        $movement = $this->orphanMovement($product, 'entry', 1, [
+            'reference_type' => '',
+            'reference_id' => null,
+        ]);
+
+        $payload = $this->jsonPayload(['--material' => [$product->id]]);
+
+        $this->assertSame([$movement->id], collect($payload['items'])->pluck('movement.id')->all());
+        $this->assertSame('', $payload['items'][0]['movement']['source_type']);
+        $this->assertNull($payload['items'][0]['movement']['source_id']);
+        $this->assertFalse(collect($queries)->contains(
+            fn (string $sql): bool => str_contains($sql, '"reference_id" =')
+                || str_contains($sql, '`reference_id` =')
+                || str_contains($sql, '[reference_id] =')
+        ));
+    }
+
+    public function test_command_without_material_filter_handles_null_reference_id_orphans(): void
+    {
+        $product = $this->product();
+        $movement = $this->orphanMovement($product, 'entry', 1, [
+            'reference_type' => null,
+            'reference_id' => null,
+        ]);
+
+        $payload = $this->jsonPayload();
+
+        $this->assertSame([$movement->id], collect($payload['items'])->pluck('movement.id')->all());
+        $this->assertSame(1, $payload['summary']['total_orphan_movements']);
     }
 
     public function test_impact_if_excluded_is_calculated_correctly(): void

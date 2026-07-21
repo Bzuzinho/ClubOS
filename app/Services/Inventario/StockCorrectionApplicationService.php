@@ -277,6 +277,10 @@ final class StockCorrectionApplicationService
 
     private function existingSourceExit(string $materialId, string $sourceId): ?StockMovement
     {
+        if (trim($sourceId) === '') {
+            return null;
+        }
+
         return StockMovement::query()
             ->where('article_id', $materialId)
             ->whereIn('movement_type', ['exit', 'sale', 'venda'])
