@@ -40,6 +40,7 @@ return Application::configure(basePath: dirname(__DIR__))
         \App\Console\Commands\Inventario\EquipmentLoanStockAuditCommand::class,
         \App\Console\Commands\Inventario\EquipmentLoanStockInspectionCommand::class,
         \App\Console\Commands\Inventario\EquipmentLoanStockResolutionCommand::class,
+        \App\Console\Commands\Inventario\StoreLogisticsStockAuditCommand::class,
         \App\Console\Commands\ReleaseVisibleInvoiceCommunications::class,
         \App\Console\Commands\SyncPermissionNodes::class,
         \App\Console\Commands\GenerateMonthlyFeesCommand::class,

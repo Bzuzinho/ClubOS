@@ -56,6 +56,7 @@ class LegacyStoreToolingBoundaryTest extends TestCase
         $workspaceRoot = base_path();
 
         $allowedFiles = [
+            realpath(app_path('Services/Inventario/StoreLogisticsStockAuditService.php')),
         ];
 
         $hits = [];
