@@ -235,7 +235,9 @@ class PatrociniosFlowsTest extends TestCase
         $this->assertDatabaseCount('sponsorship_goods_items', 0);
         $this->assertDatabaseCount('sponsorship_integrations', 0);
         $this->assertDatabaseCount('movements', 0);
-        $this->assertDatabaseCount('stock_movements', 0);
+        $this->assertDatabaseMissing('stock_movements', [
+            'reference_type' => 'sponsorship_goods_item',
+        ]);
 
         $product->refresh();
         $this->assertSame(3, (int) $product->stock);

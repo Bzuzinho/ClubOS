@@ -19,6 +19,7 @@ final class StockCorrectionApplicationService
 
     public function __construct(
         private readonly StockCorrectionPreflightService $preflightService,
+        private readonly StockLedgerService $stockLedger,
     ) {
     }
 
@@ -248,21 +249,13 @@ final class StockCorrectionApplicationService
                 ];
             }
 
-            $movement = new StockMovement();
-            $movement->article_id = $product->id;
-            $movement->movement_type = 'exit';
-            $movement->quantity = $quantity;
-            $movement->reference_type = 'store_order_item';
-            $movement->reference_id = $orderItem->id;
-            $movement->notes = self::NOTES_MISSING_SALE_EXIT;
-            $movement->created_at = $this->businessDateForOrderItem($order, $orderItem);
-            $movement->updated_at = Carbon::now();
-            $movement->save();
-
-            if ($stockBefore !== $expectedPhysicalAfter) {
-                $product->stock = $expectedPhysicalAfter;
-                $product->save();
-            }
+            $movement = $this->stockLedger->registerExit($product, $quantity, [
+                'source_type' => 'store_order_item',
+                'source_id' => $orderItem->id,
+                'notes' => self::NOTES_MISSING_SALE_EXIT,
+                'occurred_at' => $this->businessDateForOrderItem($order, $orderItem),
+                'idempotency_key' => 'b1-4-missing-sale-stock-decrease-'.$orderItem->id,
+            ]);
 
             return [
                 'status' => 'applied',

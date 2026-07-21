@@ -23,6 +23,7 @@ final class OrphanStockMovementResolutionService
     public function __construct(
         private readonly OrphanStockMovementInspectionService $inspectionService,
         private readonly StockMovementSemantics $stockSemantics = new StockMovementSemantics(),
+        private readonly StockLedgerService $stockLedger = new StockLedgerService(),
     ) {
     }
 
@@ -577,11 +578,11 @@ final class OrphanStockMovementResolutionService
             return [...$action, 'applied' => false, 'skipped' => true];
         }
 
-        $movement = $this->createResolutionMovement($product, 'reservation', (int) $action['quantity'], self::RELEASE_NOTE);
-        if (Schema::hasColumn('products', 'stock_reservado')) {
-            $product->stock_reservado = max(0, (int) $product->stock_reservado + (int) $action['quantity']);
-            $product->save();
-        }
+        $movement = $this->stockLedger->releaseReservation($product, abs((int) $action['quantity']), [
+            'source_type' => self::RESOLUTION_REFERENCE_TYPE,
+            'source_id' => null,
+            'notes' => self::RELEASE_NOTE,
+        ]);
 
         return [
             ...$action,
@@ -604,25 +605,19 @@ final class OrphanStockMovementResolutionService
 
         $quantity = (int) $action['quantity'];
         $movementType = (string) $action['movement_type'];
-        $movement = $this->createResolutionMovement($product, $movementType, abs($quantity), self::PHYSICAL_ADJUSTMENT_NOTE);
+        $context = [
+            'source_type' => self::RESOLUTION_REFERENCE_TYPE,
+            'source_id' => null,
+            'notes' => self::PHYSICAL_ADJUSTMENT_NOTE,
+            'allow_negative_stock' => true,
+            'allow_negative_available' => true,
+            'reason' => 'b1_6_orphan_stock_movement_resolution',
+        ];
+        $movement = $movementType === 'entry'
+            ? $this->stockLedger->registerEntry($product, abs($quantity), $context)
+            : $this->stockLedger->registerExit($product, abs($quantity), $context);
 
         return [...$action, 'quantity' => $movementType === 'entry' ? abs($quantity) : -abs($quantity), 'applied' => true, 'skipped' => false, 'stock_movement_id' => (string) $movement->id];
-    }
-
-    private function createResolutionMovement(Product $product, string $movementType, int $quantity, string $notes): StockMovement
-    {
-        $movement = new StockMovement();
-        $movement->article_id = $product->id;
-        $movement->movement_type = $movementType;
-        $movement->quantity = $quantity;
-        $movement->reference_type = self::RESOLUTION_REFERENCE_TYPE;
-        $movement->reference_id = null;
-        $movement->notes = $notes;
-        $movement->created_at = Carbon::now();
-        $movement->updated_at = Carbon::now();
-        $movement->save();
-
-        return $movement;
     }
 
     /**

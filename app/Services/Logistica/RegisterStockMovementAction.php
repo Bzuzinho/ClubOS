@@ -2,109 +2,48 @@
 
 namespace App\Services\Logistica;
 
+use App\Exceptions\Inventario\InsufficientStockException;
+use App\Exceptions\Inventario\InvalidStockMovementException;
 use App\Models\Product;
 use App\Models\StockMovement;
 use App\Models\User;
-use Illuminate\Support\Facades\DB;
+use App\Services\Inventario\StockLedgerService;
 use Illuminate\Validation\ValidationException;
 
 class RegisterStockMovementAction
 {
-    public function execute(array $data, ?User $actor = null): StockMovement
-    {
-        return DB::transaction(function () use ($data, $actor) {
-            $product = Product::query()->lockForUpdate()->findOrFail($data['article_id']);
-            $movementType = (string) $data['movement_type'];
-            $quantity = (int) $data['quantity'];
-
-            if ($quantity === 0) {
-                throw ValidationException::withMessages([
-                    'quantity' => 'A quantidade não pode ser zero.',
-                ]);
-            }
-
-            $this->applyMovement($product, $movementType, $quantity);
-
-            $product->save();
-
-            return StockMovement::create([
-                'article_id' => $product->id,
-                'movement_type' => $movementType,
-                'quantity' => $quantity,
-                'unit_cost' => $data['unit_cost'] ?? null,
-                'reference_type' => $data['reference_type'] ?? null,
-                'reference_id' => $data['reference_id'] ?? null,
-                'notes' => $data['notes'] ?? null,
-                'created_by' => $actor?->id ?? ($data['created_by'] ?? null),
-            ]);
-        });
+    public function __construct(
+        private readonly StockLedgerService $stockLedger,
+    ) {
     }
 
-    private function applyMovement(Product $product, string $movementType, int $quantity): void
+    public function execute(array $data, ?User $actor = null): StockMovement
     {
-        $stock = (int) $product->stock;
-        $reserved = (int) ($product->stock_reservado ?? 0);
+        $product = Product::query()->findOrFail($data['article_id']);
+        $movementType = (string) $data['movement_type'];
+        $quantity = (int) $data['quantity'];
+        $context = [
+            'source_type' => $data['reference_type'] ?? null,
+            'source_id' => $data['reference_id'] ?? null,
+            'notes' => $data['notes'] ?? null,
+            'unit_cost' => $data['unit_cost'] ?? null,
+            'created_by' => $actor?->id ?? ($data['created_by'] ?? null),
+            'occurred_at' => $data['occurred_at'] ?? null,
+            'idempotency_key' => $data['idempotency_key'] ?? null,
+        ];
 
-        switch ($movementType) {
-            case 'entry':
-            case 'return':
-                $product->stock = $stock + $quantity;
-                break;
-
-            case 'exit':
-                if ($quantity < 0) {
-                    throw ValidationException::withMessages(['quantity' => 'Saída de stock requer quantidade positiva.']);
-                }
-
-                if ($stock < $quantity) {
-                    throw ValidationException::withMessages(['quantity' => 'Stock disponível insuficiente para saída.']);
-                }
-
-                $product->stock = $stock - $quantity;
-                break;
-
-            case 'reservation':
-                if ($quantity < 0) {
-                    throw ValidationException::withMessages(['quantity' => 'Reserva requer quantidade positiva.']);
-                }
-
-                if ($stock < $quantity) {
-                    throw ValidationException::withMessages(['quantity' => 'Stock disponível insuficiente para reservar.']);
-                }
-
-                $product->stock = $stock - $quantity;
-                $product->stock_reservado = $reserved + $quantity;
-                break;
-
-            case 'cancel_reservation':
-                if ($quantity < 0) {
-                    throw ValidationException::withMessages(['quantity' => 'Anular reserva requer quantidade positiva.']);
-                }
-
-                if ($reserved < $quantity) {
-                    throw ValidationException::withMessages(['quantity' => 'Quantidade reservada insuficiente para anular.']);
-                }
-
-                $product->stock = $stock + $quantity;
-                $product->stock_reservado = $reserved - $quantity;
-                break;
-
-            case 'deliver_reservation':
-                if ($quantity < 0) {
-                    throw ValidationException::withMessages(['quantity' => 'Entrega de reserva requer quantidade positiva.']);
-                }
-
-                if ($reserved < $quantity) {
-                    throw ValidationException::withMessages(['quantity' => 'Quantidade reservada insuficiente para entrega.']);
-                }
-
-                $product->stock_reservado = $reserved - $quantity;
-                break;
-
-            default:
-                throw ValidationException::withMessages([
-                    'movement_type' => 'Tipo de movimento inválido.',
-                ]);
+        try {
+            return match ($movementType) {
+                'entry' => $this->stockLedger->registerEntry($product, $quantity, $context),
+                'return' => $this->stockLedger->registerReturn($product, $quantity, $context),
+                'exit' => $this->stockLedger->registerExit($product, $quantity, $context),
+                'reservation' => $this->stockLedger->reserve($product, $quantity, $context),
+                'cancel_reservation' => $this->stockLedger->releaseReservation($product, $quantity, $context),
+                'deliver_reservation' => $this->stockLedger->convertReservationToExit($product, $quantity, $context)['exit'],
+                default => throw ValidationException::withMessages(['movement_type' => 'Tipo de movimento inválido.']),
+            };
+        } catch (InsufficientStockException|InvalidStockMovementException $exception) {
+            throw ValidationException::withMessages(['quantity' => $exception->getMessage()]);
         }
     }
 }

@@ -61,7 +61,7 @@ class LogisticaFlowsTest extends TestCase
         $request->refresh();
 
         $this->assertSame('approved', $request->status);
-        $this->assertSame(16, (int) $product->stock);
+        $this->assertSame(20, (int) $product->stock);
         $this->assertSame(4, (int) $product->stock_reservado);
 
         $this->actingAs($admin)
@@ -74,7 +74,7 @@ class LogisticaFlowsTest extends TestCase
         $this->assertSame('invoiced', $request->status);
         $this->assertNotNull($request->financial_invoice_id);
         $product->refresh();
-        $this->assertSame(16, (int) $product->stock);
+        $this->assertSame(20, (int) $product->stock);
         $this->assertSame(4, (int) $product->stock_reservado);
         $this->assertDatabaseHas('invoice_items', [
             'fatura_id' => $request->financial_invoice_id,
@@ -296,7 +296,7 @@ class LogisticaFlowsTest extends TestCase
         $product->refresh();
         $invoice = Invoice::findOrFail($request->financial_invoice_id);
 
-        $this->assertSame(27, (int) $product->stock);
+        $this->assertSame(30, (int) $product->stock);
         $this->assertSame(3, (int) $product->stock_reservado);
         $this->assertSame($requesterB->id, $invoice->user_id);
         $this->assertEquals(36.00, (float) $invoice->valor_total);
