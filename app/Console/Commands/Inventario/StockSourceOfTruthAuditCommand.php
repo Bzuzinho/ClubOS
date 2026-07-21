@@ -14,6 +14,7 @@ final class StockSourceOfTruthAuditCommand extends Command
         {--json : Devolve relatorio em JSON}
         {--report-path= : Caminho para guardar payload JSON}
         {--only-actionable : Mostra apenas findings acionaveis}
+        {--include-info : Inclui findings informativos nao acionaveis no output principal}
         {--fail-on-warning : Exit code 1 se houver warning ou critical}
         {--fail-on-critical : Exit code 1 se houver critical}';
 
@@ -29,6 +30,7 @@ final class StockSourceOfTruthAuditCommand extends Command
     {
         $payload = $this->auditService->audit([
             'only_actionable' => (bool) $this->option('only-actionable'),
+            'include_info' => (bool) $this->option('include-info'),
         ]);
 
         $this->writeReportIfRequested($payload);

@@ -37,6 +37,10 @@ final class StockSourceOfTruthAuditService
         'ledger_opening_snapshot',
     ];
 
+    private const DUPLICATE_EXEMPT_SOURCE_TYPES = [
+        'audit_orphan_resolution',
+    ];
+
     public function __construct(
         private readonly StockMovementSemantics $semantics = new StockMovementSemantics(),
     ) {
@@ -50,6 +54,7 @@ final class StockSourceOfTruthAuditService
     {
         $filters = [
             'only_actionable' => (bool) ($options['only_actionable'] ?? false),
+            'include_info' => (bool) ($options['include_info'] ?? false),
         ];
 
         $products = $this->products();
@@ -65,6 +70,7 @@ final class StockSourceOfTruthAuditService
         array_push($findings, ...$this->directStockWriteFindings());
 
         $findings = $this->uniqueFindings($findings);
+        $summary = $this->summary($products, $movements, $findings);
 
         if ($findings === []) {
             $findings[] = $this->finding('info', 'stock_source_of_truth_clean', false, 'no_action_needed_stock_source_of_truth_clean');
@@ -72,6 +78,8 @@ final class StockSourceOfTruthAuditService
 
         if ($filters['only_actionable']) {
             $findings = array_values(array_filter($findings, static fn (array $finding): bool => (bool) ($finding['actionable'] ?? false)));
+        } elseif (! $filters['include_info']) {
+            $findings = array_values(array_filter($findings, static fn (array $finding): bool => ($finding['code'] ?? null) !== 'stock_source_cycle_detected'));
         }
 
         return [
@@ -84,7 +92,7 @@ final class StockSourceOfTruthAuditService
                 'reserved_snapshot' => 'products.stock_reservado',
                 'available_stock_formula' => 'products.stock - products.stock_reservado',
             ],
-            'summary' => $this->summary($products, $movements, $findings),
+            'summary' => $summary,
             'findings' => $findings,
         ];
     }
@@ -120,14 +128,23 @@ final class StockSourceOfTruthAuditService
     {
         $findings = [];
         $type = (string) ($movement->movement_type ?? '');
+        $quantity = (int) ($movement->quantity ?? 0);
+        $actionSemantics = $this->actionSemantics($movement);
         $deltas = $this->semantics->deltas($movement);
 
-        if (! in_array($type, self::KNOWN_MOVEMENT_TYPES, true)) {
-            $findings[] = $this->finding('warning', 'unknown_stock_movement_type', true, 'review_stock_movement_type_mapping', $movement);
+        if ($type === 'reservation' && $quantity === 0) {
+            $findings[] = $this->finding('warning', 'invalid_zero_quantity_movement', true, 'review_zero_quantity_stock_movement', $movement, [
+                'action_semantics' => $actionSemantics,
+                'quantity' => $quantity,
+            ]);
         }
 
-        if ($deltas['physical'] === 0 && $deltas['reserved'] === 0) {
-            $findings[] = $this->finding('warning', 'unknown_stock_movement_type', true, 'review_stock_movement_type_mapping', $movement);
+        $isZeroReservation = $type === 'reservation' && $quantity === 0;
+        if (! $isZeroReservation && ($actionSemantics === 'unknown' || (! in_array($type, self::KNOWN_MOVEMENT_TYPES, true) && $deltas['physical'] === 0 && $deltas['reserved'] === 0))) {
+            $findings[] = $this->finding('warning', 'unknown_stock_movement_type', true, 'review_stock_movement_type_mapping', $movement, [
+                'action_semantics' => $actionSemantics,
+                'quantity' => $quantity,
+            ]);
         }
 
         $referenceId = $movement->reference_id ?? null;
@@ -200,23 +217,162 @@ final class StockSourceOfTruthAuditService
      */
     private function duplicateFindings(Collection $movements): array
     {
-        return $movements
+        $findings = [];
+        $sourceGroups = $movements
             ->filter(fn (object $movement): bool => filled($movement->reference_type ?? null)
                 && filled($movement->reference_id ?? null)
                 && Str::isUuid((string) $movement->reference_id))
             ->groupBy(fn (object $movement): string => implode('|', [
                 (string) $movement->article_id,
-                (string) $movement->movement_type,
                 (string) $movement->reference_type,
                 (string) $movement->reference_id,
-            ]))
-            ->filter(fn (Collection $group): bool => $group->count() > 1)
-            ->map(fn (Collection $group): array => $this->finding('warning', 'duplicate_source_stock_movement', true, 'deduplicate_stock_source_or_add_idempotency_key', $group->first(), [
-                'duplicate_count' => $group->count(),
-                'movement_ids' => $group->pluck('id')->map(fn (mixed $id): string => (string) $id)->values()->all(),
-            ]))
-            ->values()
-            ->all();
+            ]));
+
+        foreach ($sourceGroups as $group) {
+            if ($group->count() < 2) {
+                continue;
+            }
+
+            $referenceType = (string) ($group->first()->reference_type ?? '');
+            if (in_array($referenceType, self::DUPLICATE_EXEMPT_SOURCE_TYPES, true)) {
+                continue;
+            }
+
+            array_push($findings, ...$this->stockSourceCycleFindings($group));
+
+            $duplicateGroups = $group->groupBy(fn (object $movement): string => implode('|', [
+                $this->actionSemantics($movement),
+                (string) abs((int) ($movement->quantity ?? 0)),
+            ]));
+
+            foreach ($duplicateGroups as $duplicateGroup) {
+                if ($duplicateGroup->count() < 2) {
+                    continue;
+                }
+
+                $first = $duplicateGroup->first();
+                if ($this->actionSemantics($first) === 'unknown') {
+                    continue;
+                }
+
+                if ($this->hasDifferentiatingActionKeys($duplicateGroup)) {
+                    continue;
+                }
+
+                $findings[] = $this->finding('warning', 'duplicate_source_stock_movement', true, 'deduplicate_stock_source_or_add_idempotency_key', $first, [
+                    'action_semantics' => $this->actionSemantics($first),
+                    'quantity' => (int) ($first->quantity ?? 0),
+                    'duplicate_count' => $duplicateGroup->count(),
+                    'movement_ids' => $duplicateGroup->pluck('id')->map(fn (mixed $id): string => (string) $id)->values()->all(),
+                    'opposite_or_compensating_movement_ids' => [],
+                    'cycle_classification_reason' => null,
+                ]);
+            }
+
+            if ($this->sourceHasMultipleLegitimateActionsWithoutActionKey($group)) {
+                $findings[] = $this->finding('info', 'non_idempotent_source_candidate', false, 'consider_action_key_for_multi_action_stock_source', $group->first(), [
+                    'action_semantics' => 'multiple',
+                    'quantity' => null,
+                    'movement_ids' => $group->pluck('id')->map(fn (mixed $id): string => (string) $id)->values()->all(),
+                    'opposite_or_compensating_movement_ids' => [],
+                    'cycle_classification_reason' => 'same_source_has_multiple_legitimate_actions_without_explicit_action_key',
+                ]);
+            }
+        }
+
+        return $findings;
+    }
+
+    /**
+     * @param Collection<int,object> $group
+     * @return list<array<string,mixed>>
+     */
+    private function stockSourceCycleFindings(Collection $group): array
+    {
+        $findings = [];
+        $reserves = $group->filter(fn (object $movement): bool => $this->actionSemantics($movement) === 'reserve');
+        $releases = $group->filter(fn (object $movement): bool => $this->actionSemantics($movement) === 'release_reservation');
+
+        foreach ($reserves as $reserve) {
+            $matchingReleases = $releases
+                ->filter(fn (object $release): bool => abs((int) ($release->quantity ?? 0)) === abs((int) ($reserve->quantity ?? 0)))
+                ->values();
+
+            if ($matchingReleases->isEmpty()) {
+                continue;
+            }
+
+            $findings[] = $this->finding('info', 'stock_source_cycle_detected', false, 'no_action_needed_valid_reservation_release_cycle', $reserve, [
+                'action_semantics' => 'reserve',
+                'quantity' => (int) ($reserve->quantity ?? 0),
+                'movement_ids' => [(string) ($reserve->id ?? '')],
+                'opposite_or_compensating_movement_ids' => $matchingReleases->pluck('id')->map(fn (mixed $id): string => (string) $id)->values()->all(),
+                'cycle_classification_reason' => 'reservation_and_release_reservation_same_source_same_absolute_quantity',
+            ]);
+        }
+
+        return $findings;
+    }
+
+    /**
+     * @param Collection<int,object> $movements
+     */
+    private function hasDifferentiatingActionKeys(Collection $movements): bool
+    {
+        $keys = $movements
+            ->map(fn (object $movement): ?string => $this->actionKey($movement))
+            ->filter()
+            ->values();
+
+        return $keys->count() === $movements->count() && $keys->unique()->count() === $movements->count();
+    }
+
+    /**
+     * @param Collection<int,object> $group
+     */
+    private function sourceHasMultipleLegitimateActionsWithoutActionKey(Collection $group): bool
+    {
+        $knownActions = $group
+            ->map(fn (object $movement): string => $this->actionSemantics($movement))
+            ->reject(fn (string $action): bool => $action === 'unknown')
+            ->unique()
+            ->values();
+
+        if ($knownActions->count() < 2) {
+            return false;
+        }
+
+        if ($group->contains(fn (object $movement): bool => $this->actionKey($movement) !== null)) {
+            return false;
+        }
+
+        return true;
+    }
+
+    private function actionSemantics(object $movement): string
+    {
+        $type = (string) ($movement->movement_type ?? '');
+        $quantity = (int) ($movement->quantity ?? 0);
+
+        return match ($type) {
+            'entry' => 'entry',
+            'exit', 'sale', 'venda' => 'exit',
+            'return' => 'return',
+            'reservation' => $quantity > 0 ? 'reserve' : ($quantity < 0 ? 'release_reservation' : 'unknown'),
+            'deliver_reservation' => 'release_reservation',
+            'adjustment', 'ajuste', 'correction', 'correcao', 'import', 'importacao', 'cancel_reservation' => 'adjustment',
+            default => 'unknown',
+        };
+    }
+
+    private function actionKey(object $movement): ?string
+    {
+        $notes = (string) ($movement->notes ?? '');
+        if (preg_match('/\b(?:idempotency_key|action_key):([^\s;]+)/', $notes, $matches) !== 1) {
+            return null;
+        }
+
+        return trim($matches[1]) !== '' ? trim($matches[1]) : null;
     }
 
     /**
@@ -290,6 +446,10 @@ final class StockSourceOfTruthAuditService
             'movement_type' => $movement ? (string) ($movement->movement_type ?? '') : null,
             'source_type' => $movement ? ($movement->reference_type ?? null) : null,
             'source_id' => $movement ? ($movement->reference_id ?? null) : null,
+            'action_semantics' => $movement ? $this->actionSemantics($movement) : ($extra['action_semantics'] ?? null),
+            'quantity' => $movement ? (int) ($movement->quantity ?? 0) : ($extra['quantity'] ?? null),
+            'opposite_or_compensating_movement_ids' => $extra['opposite_or_compensating_movement_ids'] ?? [],
+            'cycle_classification_reason' => $extra['cycle_classification_reason'] ?? null,
             ...$extra,
         ];
     }
@@ -308,6 +468,7 @@ final class StockSourceOfTruthAuditService
                 (string) ($finding['file'] ?? ''),
                 (string) ($finding['line'] ?? ''),
                 implode(',', array_map('strval', $finding['movement_ids'] ?? [])),
+                implode(',', array_map('strval', $finding['opposite_or_compensating_movement_ids'] ?? [])),
             ]))
             ->values()
             ->all();
@@ -329,6 +490,10 @@ final class StockSourceOfTruthAuditService
             'snapshot_mismatch_count' => $findingsCollection->where('code', 'stock_snapshot_mismatch')->count(),
             'invalid_source_reference_count' => $findingsCollection->where('code', 'invalid_uuid_source_reference')->count(),
             'duplicate_source_movement_count' => $findingsCollection->where('code', 'duplicate_source_stock_movement')->count(),
+            'stock_source_cycle_count' => $findingsCollection->where('code', 'stock_source_cycle_detected')->count(),
+            'invalid_zero_quantity_movement_count' => $findingsCollection->where('code', 'invalid_zero_quantity_movement')->count(),
+            'unknown_stock_movement_type_count' => $findingsCollection->where('code', 'unknown_stock_movement_type')->count(),
+            'non_idempotent_source_candidate_count' => $findingsCollection->where('code', 'non_idempotent_source_candidate')->count(),
             'negative_available_count' => $findingsCollection->where('code', 'negative_available_stock')->count(),
             'direct_stock_write_candidate_count' => $findingsCollection->where('code', 'direct_stock_write_candidate')->count(),
             'total_findings' => $findingsCollection->count(),

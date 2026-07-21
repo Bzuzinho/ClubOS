@@ -62,6 +62,75 @@ final class StockSourceOfTruthAuditCommandTest extends TestCase
         $this->assertFinding($payload, 'non_idempotent_source_candidate', 'info', $product->id);
     }
 
+    public function test_reservation_and_release_same_source_are_cycle_info_not_duplicate_warning(): void
+    {
+        $product = $this->product(['stock' => 5, 'stock_reservado' => 0]);
+        $sourceId = (string) str()->uuid();
+
+        $this->movement($product, 'entry', 5);
+        $this->movement($product, 'reservation', 1, ['reference_type' => 'logistics_request', 'reference_id' => $sourceId]);
+        $this->movement($product, 'reservation', -1, ['reference_type' => 'logistics_request', 'reference_id' => $sourceId]);
+
+        $payload = $this->jsonPayload(['--include-info' => true]);
+        $codes = collect($payload['findings'])->pluck('code')->all();
+
+        $this->assertNotContains('duplicate_source_stock_movement', $codes);
+        $this->assertFinding($payload, 'stock_source_cycle_detected', 'info', $product->id);
+        $this->assertSame(1, $payload['summary']['stock_source_cycle_count']);
+
+        $actionablePayload = $this->jsonPayload(['--only-actionable' => true]);
+        $this->assertNotContains('stock_source_cycle_detected', collect($actionablePayload['findings'])->pluck('code')->all());
+    }
+
+    public function test_duplicate_reservations_and_duplicate_entries_same_action_are_reported(): void
+    {
+        $reservationProduct = $this->product(['stock' => 5, 'stock_reservado' => 2]);
+        $reservationSourceId = (string) str()->uuid();
+        $this->movement($reservationProduct, 'entry', 5);
+        $this->movement($reservationProduct, 'reservation', 1, ['reference_type' => 'logistics_request', 'reference_id' => $reservationSourceId]);
+        $this->movement($reservationProduct, 'reservation', 1, ['reference_type' => 'logistics_request', 'reference_id' => $reservationSourceId]);
+
+        $entryProduct = $this->product(['stock' => 2]);
+        $entrySourceId = (string) str()->uuid();
+        $this->movement($entryProduct, 'entry', 1, ['reference_type' => 'supplier_purchase', 'reference_id' => $entrySourceId]);
+        $this->movement($entryProduct, 'entry', 1, ['reference_type' => 'supplier_purchase', 'reference_id' => $entrySourceId]);
+
+        $payload = $this->jsonPayload();
+        $duplicateFindings = collect($payload['findings'])->where('code', 'duplicate_source_stock_movement')->values();
+
+        $this->assertCount(2, $duplicateFindings);
+        $this->assertTrue($duplicateFindings->contains(fn (array $finding): bool => $finding['action_semantics'] === 'reserve'));
+        $this->assertTrue($duplicateFindings->contains(fn (array $finding): bool => $finding['action_semantics'] === 'entry'));
+    }
+
+    public function test_exit_and_return_same_source_are_not_duplicate_warning(): void
+    {
+        $product = $this->product(['stock' => 5]);
+        $sourceId = (string) str()->uuid();
+
+        $this->movement($product, 'entry', 5);
+        $this->movement($product, 'exit', 1, ['reference_type' => 'equipment_loan', 'reference_id' => $sourceId]);
+        $this->movement($product, 'return', 1, ['reference_type' => 'equipment_loan', 'reference_id' => $sourceId]);
+
+        $payload = $this->jsonPayload();
+
+        $this->assertNotContains('duplicate_source_stock_movement', collect($payload['findings'])->pluck('code')->all());
+    }
+
+    public function test_zero_quantity_reservation_and_unknown_type_have_specific_warnings(): void
+    {
+        $product = $this->product();
+        $this->movement($product, 'reservation', 0);
+        $this->movement($product, 'manual_note', 1);
+
+        $payload = $this->jsonPayload();
+
+        $this->assertFinding($payload, 'invalid_zero_quantity_movement', 'warning', $product->id);
+        $this->assertFinding($payload, 'unknown_stock_movement_type', 'warning', $product->id);
+        $this->assertSame(1, $payload['summary']['invalid_zero_quantity_movement_count']);
+        $this->assertSame(1, $payload['summary']['unknown_stock_movement_type_count']);
+    }
+
     public function test_audit_accepts_b1_resolution_and_store_order_item_sources(): void
     {
         $product = $this->product(['stock' => 9, 'stock_reservado' => 0]);
@@ -74,6 +143,21 @@ final class StockSourceOfTruthAuditCommandTest extends TestCase
 
         $this->assertNotContains('invalid_uuid_source_reference', $codes);
         $this->assertNotContains('non_idempotent_source_candidate', $codes);
+    }
+
+    public function test_audit_orphan_resolution_and_store_order_item_do_not_create_false_duplicate_warning(): void
+    {
+        $product = $this->product(['stock' => 0]);
+        $orderItemId = (string) str()->uuid();
+        $resolutionSource = 'audit_orphan_resolution';
+
+        $this->movement($product, 'exit', 1, ['reference_type' => 'store_order_item', 'reference_id' => $orderItemId]);
+        $this->movement($product, 'entry', 1, ['reference_type' => $resolutionSource, 'reference_id' => null]);
+        $this->movement($product, 'entry', 1, ['reference_type' => $resolutionSource, 'reference_id' => null]);
+
+        $payload = $this->jsonPayload();
+
+        $this->assertNotContains('duplicate_source_stock_movement', collect($payload['findings'])->pluck('code')->all());
     }
 
     public function test_direct_stock_write_candidate_is_reported_by_code_scan(): void
