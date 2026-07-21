@@ -37,6 +37,7 @@ return Application::configure(basePath: dirname(__DIR__))
         \App\Console\Commands\Inventario\StockSourceOfTruthAuditCommand::class,
         \App\Console\Commands\Inventario\SupplierPurchaseStockAuditCommand::class,
         \App\Console\Commands\Inventario\LogisticsRequestStockAuditCommand::class,
+        \App\Console\Commands\Inventario\EquipmentLoanStockAuditCommand::class,
         \App\Console\Commands\ReleaseVisibleInvoiceCommunications::class,
         \App\Console\Commands\SyncPermissionNodes::class,
         \App\Console\Commands\GenerateMonthlyFeesCommand::class,
