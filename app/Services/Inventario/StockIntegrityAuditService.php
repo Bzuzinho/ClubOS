@@ -355,6 +355,12 @@ final class StockIntegrityAuditService
                 continue;
             }
 
+            if ($this->isReviewedOrphanMovement($movement)) {
+                $findings[] = $this->finding('info', 'reviewed_orphan_stock_movement', false, 'no_action_needed_orphan_stock_movement_reviewed', 'orphan_stock_movement_was_reviewed_and_accepted_as_historical_manual_movement', material: $material, movement: $movement, stockCurrent: $stock, stockCalculated: $calculated, stockDifference: $difference, quantity: $this->int($movement->quantity ?? 0), status: $movement->movement_type ?? null, stockFields: $stockFields);
+
+                continue;
+            }
+
             if ($this->stockSemantics->isPhysicalMovement($movement)) {
                 $findings[] = $this->finding('warning', 'orphan_physical_stock_movement', true, 'inspect_orphan_physical_stock_movement', 'physical_stock_movement_has_no_source_reference', material: $material, movement: $movement, stockCurrent: $stock, stockCalculated: $calculated, stockDifference: $difference, quantity: $this->int($movement->quantity ?? 0), status: $movement->movement_type ?? null, stockFields: $stockFields);
             } elseif ($this->stockSemantics->isReservationMovement($movement)) {
@@ -668,6 +674,11 @@ final class StockIntegrityAuditService
     private function blank(mixed $value): bool
     {
         return $value === null || trim((string) $value) === '';
+    }
+
+    private function isReviewedOrphanMovement(object $movement): bool
+    {
+        return str_contains((string) ($movement->notes ?? ''), OrphanStockMovementResolutionService::REVIEW_NOTE_MARKER);
     }
 
     private function prop(?object $object, string $property): mixed
