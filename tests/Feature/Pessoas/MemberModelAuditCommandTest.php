@@ -112,10 +112,11 @@ final class MemberModelAuditCommandTest extends TestCase
         $this->assertFalse($finding['actionable']);
     }
 
-    public function test_active_athlete_without_sports_profile_is_reported(): void
+    public function test_active_athlete_with_access_without_sports_profile_is_reported(): void
     {
         $athleteType = $this->userType('atleta', 'Atleta');
         $athlete = $this->validMember([
+            'email_utilizador' => 'atleta.login@example.test',
             'perfil' => 'atleta',
             'tipo_membro' => ['Atleta'],
             'ativo_desportivo' => true,
@@ -126,13 +127,95 @@ final class MemberModelAuditCommandTest extends TestCase
         $this->assertContains('active_athlete_without_sports_profile', collect($payload['findings'])->pluck('code')->all());
     }
 
-    public function test_member_without_type_is_reported(): void
+    public function test_active_athlete_with_sports_profile_does_not_generate_sports_warning(): void
     {
-        $user = $this->validMember(['tipo_membro' => null], role: false);
+        $athleteType = $this->userType('atleta', 'Atleta');
+        $athlete = $this->validMember([
+            'email_utilizador' => 'sports-ok@example.test',
+            'perfil' => 'atleta',
+            'tipo_membro' => ['Atleta'],
+            'ativo_desportivo' => true,
+        ], role: $athleteType);
+        AthleteSportsData::query()->create([
+            'user_id' => $athlete->id,
+            'ativo' => true,
+        ]);
+
+        $payload = $this->audit(['--json' => true, '--user' => $athlete->id]);
+
+        $this->assertNotContains('active_athlete_without_sports_profile', collect($payload['findings'])->pluck('code')->all());
+        $this->assertTrue(collect($payload['findings'])->every(fn (array $finding): bool => ($finding['context']['has_athlete_sports_data'] ?? false) === true));
+    }
+
+    public function test_active_legacy_athlete_without_sports_profile_is_pending_info_not_warning(): void
+    {
+        $athlete = $this->validMember([
+            'perfil' => 'atleta',
+            'tipo_membro' => ['Atleta'],
+            'ativo_desportivo' => true,
+            'email_utilizador' => null,
+        ], role: false);
+
+        $payload = $this->audit(['--json' => true, '--user' => $athlete->id]);
+        $finding = collect($payload['findings'])->firstWhere('code', 'athlete_sports_profile_pending_setup');
+
+        $this->assertNotNull($finding);
+        $this->assertSame('info', $finding['severity']);
+        $this->assertFalse($finding['actionable']);
+        $this->assertNotContains('active_athlete_without_sports_profile', collect($payload['findings'])->pluck('code')->all());
+    }
+
+    public function test_active_athlete_without_clear_financial_obligation_is_info_not_warning(): void
+    {
+        $athlete = $this->validMember([
+            'perfil' => 'atleta',
+            'tipo_membro' => ['Atleta'],
+            'ativo_desportivo' => true,
+            'email_utilizador' => null,
+        ], role: false);
+
+        $payload = $this->audit(['--json' => true, '--user' => $athlete->id]);
+        $finding = collect($payload['findings'])->firstWhere('code', 'athlete_financial_setup_not_required_or_unknown');
+
+        $this->assertNotNull($finding);
+        $this->assertSame('info', $finding['severity']);
+        $this->assertFalse($finding['actionable']);
+        $this->assertNotContains('active_athlete_without_financial_setup', collect($payload['findings'])->pluck('code')->all());
+    }
+
+    public function test_active_athlete_with_clear_financial_obligation_without_setup_is_warning(): void
+    {
+        $athleteType = $this->userType('atleta', 'Atleta');
+        $athlete = $this->validMember([
+            'perfil' => 'atleta',
+            'tipo_membro' => ['Atleta'],
+            'ativo_desportivo' => true,
+        ], role: $athleteType);
+
+        $payload = $this->audit(['--json' => true, '--user' => $athlete->id]);
+        $finding = collect($payload['findings'])->firstWhere('code', 'active_athlete_without_financial_setup');
+
+        $this->assertNotNull($finding);
+        $this->assertSame('warning', $finding['severity']);
+        $this->assertTrue($finding['actionable']);
+    }
+
+    public function test_member_athlete_without_login_and_without_user_type_is_reclassified_as_expected_info(): void
+    {
+        $user = $this->validMember([
+            'perfil' => 'atleta',
+            'tipo_membro' => ['Atleta'],
+            'ativo_desportivo' => true,
+            'email_utilizador' => null,
+        ], role: false);
 
         $payload = $this->audit(['--json' => true, '--user' => $user->id]);
+        $finding = collect($payload['findings'])->firstWhere('code', 'member_without_login_role_expected');
 
-        $this->assertContains('member_missing_type', collect($payload['findings'])->pluck('code')->all());
+        $this->assertNotNull($finding);
+        $this->assertSame('info', $finding['severity']);
+        $this->assertFalse($finding['actionable']);
+        $this->assertNotContains('user_missing_role', collect($payload['findings'])->pluck('code')->all());
     }
 
     public function test_member_with_unknown_status_is_reported(): void
@@ -144,9 +227,9 @@ final class MemberModelAuditCommandTest extends TestCase
         $this->assertContains('member_unknown_status', collect($payload['findings'])->pluck('code')->all());
     }
 
-    public function test_user_without_role_is_reported(): void
+    public function test_login_user_without_role_is_reported(): void
     {
-        $user = $this->validMember(role: false);
+        $user = $this->validMember(['email_utilizador' => 'login@example.test'], role: false);
 
         $payload = $this->audit(['--json' => true, '--user' => $user->id]);
 
@@ -197,7 +280,7 @@ final class MemberModelAuditCommandTest extends TestCase
         $this->assertGreaterThanOrEqual(1, $payload['summary']['permission_issue_count']);
     }
 
-    public function test_administrative_user_is_excluded_as_info_not_warning(): void
+    public function test_admin_without_user_type_is_warning_with_functional_context(): void
     {
         $admin = User::factory()->create([
             'perfil' => 'admin',
@@ -207,23 +290,19 @@ final class MemberModelAuditCommandTest extends TestCase
         ]);
 
         $payload = $this->audit(['--json' => true, '--user' => $admin->id]);
-        $finding = collect($payload['findings'])->firstWhere('code', 'administrative_user_excluded_from_member_audit');
+        $finding = collect($payload['findings'])->firstWhere('code', 'user_missing_role');
 
         $this->assertNotNull($finding);
-        $this->assertSame('info', $finding['severity']);
-        $this->assertSame(0, $payload['summary']['warning_count']);
+        $this->assertSame('warning', $finding['severity']);
+        $this->assertContains('admin_user', $finding['context']['functional_classification']);
+        $this->assertSame(1, $payload['summary']['warning_count']);
     }
 
-    public function test_only_actionable_removes_info_findings(): void
+    public function test_only_actionable_removes_reclassified_info_findings(): void
     {
-        $admin = User::factory()->create([
-            'perfil' => 'admin',
-            'tipo_membro' => ['Admin'],
-            'ativo_desportivo' => false,
-            'estado' => 'ativo',
-        ]);
+        $member = $this->validMember(['email_utilizador' => null], role: false);
 
-        $payload = $this->audit(['--json' => true, '--only-actionable' => true, '--user' => $admin->id]);
+        $payload = $this->audit(['--json' => true, '--only-actionable' => true, '--user' => $member->id]);
 
         $this->assertSame([], $payload['findings']);
         $this->assertSame(0, $payload['summary']['info_count']);
@@ -231,7 +310,7 @@ final class MemberModelAuditCommandTest extends TestCase
 
     public function test_fail_on_warning_returns_exit_one_when_warning_exists(): void
     {
-        $user = $this->validMember(role: false);
+        $user = $this->validMember(['email_utilizador' => 'login-warning@example.test'], role: false);
 
         $exitCode = Artisan::call('people:audit-member-model', [
             '--user' => $user->id,
@@ -367,6 +446,24 @@ final class MemberModelAuditCommandTest extends TestCase
         $this->assertSame('c1-member-model-audit-v1', $payload['version']);
         $this->assertArrayHasKey('schema_detected', $payload);
         $this->assertSame('dados_pessoais', $payload['schema_detected']['member_profile_table']);
+        $this->assertArrayHasKey('total_login_users_detected', $payload['summary']);
+        $this->assertArrayHasKey('member_without_login_role_expected_count', $payload['summary']);
+        $this->assertArrayHasKey('suspected_false_positive_reclassified_count', $payload['summary']);
+    }
+
+    public function test_json_findings_include_functional_classification_context(): void
+    {
+        $user = $this->validMember(['email_utilizador' => null], role: false);
+
+        $payload = $this->audit(['--json' => true, '--user' => $user->id]);
+        $finding = collect($payload['findings'])->firstWhere('code', 'member_without_login_role_expected');
+
+        $this->assertNotNull($finding);
+        $this->assertArrayHasKey('functional_classification', $finding['context']);
+        $this->assertContains('person_record', $finding['context']['functional_classification']);
+        $this->assertContains('member_profile', $finding['context']['functional_classification']);
+        $this->assertFalse($finding['context']['has_login']);
+        $this->assertFalse($finding['context']['has_user_type']);
     }
 
     public function test_report_path_writes_json_file(): void
