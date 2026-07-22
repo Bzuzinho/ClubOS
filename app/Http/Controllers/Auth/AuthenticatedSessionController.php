@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Auth;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Auth\LoginRequest;
 use App\Services\AccessControl\UserTypeAccessControlService;
+use App\Services\Pessoas\PlatformAccessService;
 use App\Services\Performance\AuthenticatedModuleWarmupService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -33,9 +34,10 @@ class AuthenticatedSessionController extends Controller
         LoginRequest $request,
         UserTypeAccessControlService $accessControlService,
         AuthenticatedModuleWarmupService $moduleWarmupService,
+        PlatformAccessService $platformAccessService,
     ): RedirectResponse
     {
-        $request->authenticate();
+        $request->authenticate($platformAccessService);
 
         $request->session()->regenerate();
 

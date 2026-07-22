@@ -11,6 +11,7 @@ use App\Models\DadosPessoais;
 use App\Models\Familia;
 use App\Models\User;
 use App\Models\UserType;
+use App\Services\Pessoas\PlatformAccessService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
@@ -323,23 +324,23 @@ final class MemberModelAuditCommandTest extends TestCase
         $this->assertSame(4, collect($payload['findings'])->where('code', 'portal_eligible_without_platform_access')->count());
     }
 
-    public function test_portal_invite_without_role_is_granted_access_missing_role(): void
+    public function test_portal_invite_without_enabled_flag_is_not_granted_access(): void
     {
         $user = $this->validMember(role: false);
         $this->enablePortalEligibility($user, lastAccessEmailSent: true);
 
         $payload = $this->audit(['--json' => true, '--user' => $user->id]);
-        $finding = collect($payload['findings'])->firstWhere('code', 'platform_access_granted_missing_role');
+        $finding = collect($payload['findings'])->firstWhere('code', 'portal_eligible_without_platform_access');
 
         $this->assertNotNull($finding);
-        $this->assertSame('warning', $finding['severity']);
-        $this->assertTrue($finding['actionable']);
+        $this->assertSame('info', $finding['severity']);
+        $this->assertFalse($finding['actionable']);
         $this->assertTrue($finding['context']['portal_eligible']);
-        $this->assertTrue($finding['context']['platform_access_granted']);
-        $this->assertSame('access_invitation_or_acceptance_recorded', $finding['context']['platform_access_granted_reason']);
-        $this->assertSame(1, $payload['summary']['platform_access_granted_count']);
-        $this->assertSame(1, $payload['summary']['platform_access_granted_missing_role_count']);
-        $this->assertSame(1, $payload['summary']['permission_issue_count']);
+        $this->assertFalse($finding['context']['platform_access_granted']);
+        $this->assertSame('no_explicit_platform_access_enabled', $finding['context']['platform_access_granted_reason']);
+        $this->assertSame(0, $payload['summary']['platform_access_granted_count']);
+        $this->assertSame(0, $payload['summary']['platform_access_granted_missing_role_count']);
+        $this->assertSame(0, $payload['summary']['permission_issue_count']);
     }
 
     public function test_contact_email_without_credentials_or_access_role_is_not_permission_warning(): void
@@ -384,6 +385,7 @@ final class MemberModelAuditCommandTest extends TestCase
             'tipo_membro' => ['Socio'],
             'password' => '',
         ], role: $role);
+        app(PlatformAccessService::class)->grantPlatformAccess($user);
 
         $payload = $this->audit(['--json' => true, '--user' => $user->id]);
         $finding = collect($payload['findings'])->firstWhere('code', 'member_model_clean');
@@ -599,7 +601,7 @@ final class MemberModelAuditCommandTest extends TestCase
         DadosConfiguracao::query()->create([
             'user_id' => $user->id,
             'acesso_portal_ativo' => true,
-            'ultimo_envio_acessos_at' => now(),
+            'platform_access_enabled' => true,
         ]);
 
         $exitCode = Artisan::call('people:audit-member-model', [
@@ -610,7 +612,7 @@ final class MemberModelAuditCommandTest extends TestCase
         $this->assertSame(1, $exitCode);
     }
 
-    public function test_current_known_access_users_are_explicit_audit_grants(): void
+    public function test_current_known_access_users_are_context_until_explicit_grant(): void
     {
         $admin = $this->validMember([
             'name' => 'Administrador',
@@ -627,32 +629,35 @@ final class MemberModelAuditCommandTest extends TestCase
 
         $payload = $this->audit(['--json' => true]);
         $findings = collect($payload['findings']);
-        $adminFinding = $findings->first(fn (array $finding): bool => $finding['user_id'] === $admin->id && $finding['code'] === 'admin_or_operational_access_missing_role');
-        $ricardoFinding = $findings->first(fn (array $finding): bool => $finding['user_id'] === $ricardo->id && $finding['code'] === 'platform_access_granted_missing_role');
+        $adminFinding = $findings->first(fn (array $finding): bool => $finding['user_id'] === $admin->id && $finding['code'] === 'functional_admin_or_operational_without_platform_access');
+        $ricardoFinding = $findings->first(fn (array $finding): bool => $finding['user_id'] === $ricardo->id && $finding['code'] === 'member_without_platform_access_expected');
 
         $this->assertNotNull($adminFinding);
         $this->assertNotNull($ricardoFinding);
-        $this->assertSame('current_known_platform_access_users_audit_only', $adminFinding['context']['platform_access_granted_reason']);
-        $this->assertSame('current_known_platform_access_users_audit_only', $ricardoFinding['context']['platform_access_granted_reason']);
+        $this->assertSame('no_explicit_platform_access_enabled', $adminFinding['context']['platform_access_granted_reason']);
+        $this->assertSame('no_explicit_platform_access_enabled', $ricardoFinding['context']['platform_access_granted_reason']);
         $this->assertTrue($adminFinding['context']['known_current_access_user']);
         $this->assertTrue($ricardoFinding['context']['known_current_access_user']);
+        $this->assertFalse($adminFinding['context']['platform_access_granted']);
+        $this->assertFalse($ricardoFinding['context']['platform_access_granted']);
         $this->assertSame(2, $payload['summary']['known_current_access_user_count']);
         $this->assertCount(2, $payload['schema_detected']['platform_access_schema']['known_current_access_users_detected']);
     }
 
-    public function test_platform_login_gate_without_grant_filter_is_reported_as_security_finding(): void
+    public function test_platform_login_gate_with_grant_filter_is_reported_as_restricted_info(): void
     {
         $this->validMember(role: false);
 
         $payload = $this->audit(['--json' => true]);
-        $finding = collect($payload['findings'])->firstWhere('code', 'platform_login_gate_too_permissive');
+        $finding = collect($payload['findings'])->firstWhere('code', 'platform_login_gate_restricted_to_explicit_access');
 
         $this->assertNotNull($finding);
-        $this->assertSame('warning', $finding['severity']);
-        $this->assertTrue($finding['actionable']);
-        $this->assertSame('restrict_login_to_granted_platform_access_users', $finding['recommendation']);
-        $this->assertSame(1, $payload['summary']['platform_login_gate_issue_count']);
-        $this->assertSame(1, $payload['summary']['security_issue_count']);
+        $this->assertSame('info', $finding['severity']);
+        $this->assertFalse($finding['actionable']);
+        $this->assertSame('no_action_needed_login_gate_restricted', $finding['recommendation']);
+        $this->assertSame(0, $payload['summary']['platform_login_gate_issue_count']);
+        $this->assertSame(0, $payload['summary']['security_issue_count']);
+        $this->assertSame(1, $payload['summary']['platform_login_gate_restricted_count']);
     }
 
     public function test_invoices_without_estado_column_do_not_crash_and_open_monthly_obligation_is_detected(): void
