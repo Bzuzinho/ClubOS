@@ -30,6 +30,8 @@ final class MemberPlatformAccessInspectionCommandTest extends TestCase
         $this->assertFalse($row['actionable']);
         $this->assertSame('no_access_expected', $row['platform_access_status']);
         $this->assertSame('no_action_needed_member_without_platform_access', $row['recommendation']);
+        $this->assertFalse($row['known_current_access_user']);
+        $this->assertFalse($row['has_technical_role']);
         $this->assertSame(1, $payload['summary']['total_no_platform_access_expected']);
         $this->assertSame(0, $payload['summary']['platform_access_issue_count']);
     }
@@ -101,16 +103,56 @@ final class MemberPlatformAccessInspectionCommandTest extends TestCase
     public function test_only_actionable_keeps_only_missing_access_roles(): void
     {
         $this->validMember(role: false);
+        $granted = $this->validMember(role: false);
+        DadosConfiguracao::query()->create([
+            'user_id' => $granted->id,
+            'acesso_portal_ativo' => true,
+            'ultimo_envio_acessos_at' => now(),
+        ]);
+
+        $payload = $this->inspect(['--json' => true, '--only-actionable' => true]);
+
+        $this->assertCount(1, $payload['rows']);
+        $this->assertSame($granted->id, $payload['rows'][0]['user_id']);
+        $this->assertSame(1, $payload['summary']['actionable_count']);
+    }
+
+    public function test_functional_admin_without_grant_is_not_actionable(): void
+    {
         $admin = $this->validMember([
             'perfil' => 'admin',
             'tipo_membro' => ['Admin'],
         ], role: false);
 
-        $payload = $this->inspect(['--json' => true, '--only-actionable' => true]);
+        $payload = $this->inspect(['--json' => true, '--user' => $admin->id]);
+        $row = $payload['rows'][0];
 
-        $this->assertCount(1, $payload['rows']);
-        $this->assertSame($admin->id, $payload['rows'][0]['user_id']);
-        $this->assertSame(1, $payload['summary']['actionable_count']);
+        $this->assertFalse($row['platform_access_granted']);
+        $this->assertFalse($row['access_expected']);
+        $this->assertFalse($row['actionable']);
+        $this->assertSame('no_explicit_platform_access_configured', $row['access_expected_reason']);
+        $this->assertSame('no_action_needed_functional_profile_without_platform_access', $row['recommendation']);
+        $this->assertSame(1, $payload['summary']['functional_admin_without_access_count']);
+        $this->assertSame(0, $payload['summary']['platform_access_issue_count']);
+    }
+
+    public function test_known_current_access_user_is_actionable_without_technical_role(): void
+    {
+        $current = $this->validMember([
+            'name' => 'Ricardo Jorge Guerra Vitorino Ferreira',
+            'nome_completo' => 'Ricardo Jorge Guerra Vitorino Ferreira',
+        ], role: false);
+
+        $payload = $this->inspect(['--json' => true, '--user' => $current->id]);
+        $row = $payload['rows'][0];
+
+        $this->assertTrue($row['known_current_access_user']);
+        $this->assertTrue($row['platform_access_granted']);
+        $this->assertSame('current_known_platform_access_users_audit_only', $row['platform_access_granted_reason']);
+        $this->assertTrue($row['access_expected']);
+        $this->assertTrue($row['actionable']);
+        $this->assertSame(1, $payload['summary']['known_current_access_user_count']);
+        $this->assertSame(1, $payload['summary']['platform_access_issue_count']);
     }
 
     public function test_report_path_writes_json_file(): void

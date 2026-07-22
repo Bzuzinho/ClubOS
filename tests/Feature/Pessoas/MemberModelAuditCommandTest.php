@@ -25,7 +25,7 @@ final class MemberModelAuditCommandTest extends TestCase
 
     public function test_valid_user_member_is_clean(): void
     {
-        $user = $this->validMember();
+        $user = $this->validMember(role: false);
 
         $payload = $this->audit(['--json' => true, '--user' => $user->id]);
 
@@ -522,7 +522,7 @@ final class MemberModelAuditCommandTest extends TestCase
         $this->assertGreaterThanOrEqual(1, $payload['summary']['permission_issue_count']);
     }
 
-    public function test_admin_without_user_type_is_warning_with_functional_context(): void
+    public function test_functional_admin_without_explicit_grant_is_info_not_warning(): void
     {
         $admin = User::factory()->create([
             'perfil' => 'admin',
@@ -534,17 +534,21 @@ final class MemberModelAuditCommandTest extends TestCase
         DB::table('users')->where('id', $admin->id)->update(['password' => '']);
 
         $payload = $this->audit(['--json' => true, '--user' => $admin->id]);
-        $finding = collect($payload['findings'])->firstWhere('code', 'admin_or_operational_access_missing_role');
+        $finding = collect($payload['findings'])->firstWhere('code', 'functional_admin_or_operational_without_platform_access');
 
         $this->assertNotNull($finding);
-        $this->assertSame('warning', $finding['severity']);
+        $this->assertSame('info', $finding['severity']);
+        $this->assertFalse($finding['actionable']);
         $this->assertContains('admin_user', $finding['context']['functional_classification']);
-        $this->assertSame(1, $payload['summary']['admin_access_role_issue_count']);
-        $this->assertSame(1, $payload['summary']['admin_or_operational_access_missing_role_count']);
-        $this->assertSame(1, $payload['summary']['warning_count']);
+        $this->assertFalse($finding['context']['access_expected']);
+        $this->assertSame('no_explicit_platform_access_configured', $finding['context']['access_expected_reason']);
+        $this->assertSame(0, $payload['summary']['admin_access_role_issue_count']);
+        $this->assertSame(0, $payload['summary']['admin_or_operational_access_missing_role_count']);
+        $this->assertSame(0, $payload['summary']['permission_issue_count']);
+        $this->assertSame(0, $payload['summary']['warning_count']);
     }
 
-    public function test_active_operational_without_user_type_is_warning(): void
+    public function test_active_operational_without_explicit_grant_is_info_not_warning(): void
     {
         $operator = $this->validMember([
             'perfil' => 'financeiro',
@@ -553,11 +557,14 @@ final class MemberModelAuditCommandTest extends TestCase
         ], role: false);
 
         $payload = $this->audit(['--json' => true, '--user' => $operator->id]);
-        $finding = collect($payload['findings'])->firstWhere('code', 'admin_or_operational_access_missing_role');
+        $finding = collect($payload['findings'])->firstWhere('code', 'functional_admin_or_operational_without_platform_access');
 
         $this->assertNotNull($finding);
-        $this->assertSame('warning', $finding['severity']);
-        $this->assertSame('active_operational_profile_requires_platform_access', $finding['context']['access_expected_reason']);
+        $this->assertSame('info', $finding['severity']);
+        $this->assertFalse($finding['actionable']);
+        $this->assertFalse($finding['context']['access_expected']);
+        $this->assertSame('no_explicit_platform_access_configured', $finding['context']['access_expected_reason']);
+        $this->assertSame(0, $payload['summary']['permission_issue_count']);
     }
 
     public function test_inactive_admin_without_user_type_is_not_warning(): void
@@ -588,7 +595,12 @@ final class MemberModelAuditCommandTest extends TestCase
 
     public function test_fail_on_warning_returns_exit_one_when_warning_exists(): void
     {
-        $user = $this->validMember(['perfil' => 'admin', 'tipo_membro' => ['Admin']], role: false);
+        $user = $this->validMember(role: false);
+        DadosConfiguracao::query()->create([
+            'user_id' => $user->id,
+            'acesso_portal_ativo' => true,
+            'ultimo_envio_acessos_at' => now(),
+        ]);
 
         $exitCode = Artisan::call('people:audit-member-model', [
             '--user' => $user->id,
@@ -596,6 +608,51 @@ final class MemberModelAuditCommandTest extends TestCase
         ]);
 
         $this->assertSame(1, $exitCode);
+    }
+
+    public function test_current_known_access_users_are_explicit_audit_grants(): void
+    {
+        $admin = $this->validMember([
+            'name' => 'Administrador',
+            'nome_completo' => 'Administrador',
+            'perfil' => 'admin',
+            'tipo_membro' => ['Admin'],
+        ], role: false);
+        $ricardo = $this->validMember([
+            'name' => 'Ricardo Jorge Guerra Vitorino Ferreira',
+            'nome_completo' => 'Ricardo Jorge Guerra Vitorino Ferreira',
+            'perfil' => 'socio',
+            'tipo_membro' => ['Socio'],
+        ], role: false);
+
+        $payload = $this->audit(['--json' => true]);
+        $findings = collect($payload['findings']);
+        $adminFinding = $findings->first(fn (array $finding): bool => $finding['user_id'] === $admin->id && $finding['code'] === 'admin_or_operational_access_missing_role');
+        $ricardoFinding = $findings->first(fn (array $finding): bool => $finding['user_id'] === $ricardo->id && $finding['code'] === 'platform_access_granted_missing_role');
+
+        $this->assertNotNull($adminFinding);
+        $this->assertNotNull($ricardoFinding);
+        $this->assertSame('current_known_platform_access_users_audit_only', $adminFinding['context']['platform_access_granted_reason']);
+        $this->assertSame('current_known_platform_access_users_audit_only', $ricardoFinding['context']['platform_access_granted_reason']);
+        $this->assertTrue($adminFinding['context']['known_current_access_user']);
+        $this->assertTrue($ricardoFinding['context']['known_current_access_user']);
+        $this->assertSame(2, $payload['summary']['known_current_access_user_count']);
+        $this->assertCount(2, $payload['schema_detected']['platform_access_schema']['known_current_access_users_detected']);
+    }
+
+    public function test_platform_login_gate_without_grant_filter_is_reported_as_security_finding(): void
+    {
+        $this->validMember(role: false);
+
+        $payload = $this->audit(['--json' => true]);
+        $finding = collect($payload['findings'])->firstWhere('code', 'platform_login_gate_too_permissive');
+
+        $this->assertNotNull($finding);
+        $this->assertSame('warning', $finding['severity']);
+        $this->assertTrue($finding['actionable']);
+        $this->assertSame('restrict_login_to_granted_platform_access_users', $finding['recommendation']);
+        $this->assertSame(1, $payload['summary']['platform_login_gate_issue_count']);
+        $this->assertSame(1, $payload['summary']['security_issue_count']);
     }
 
     public function test_invoices_without_estado_column_do_not_crash_and_open_monthly_obligation_is_detected(): void
@@ -735,6 +792,11 @@ final class MemberModelAuditCommandTest extends TestCase
         $this->assertArrayHasKey('platform_access_expected_count', $payload['summary']);
         $this->assertArrayHasKey('platform_access_expected_without_role_count', $payload['summary']);
         $this->assertArrayHasKey('platform_access_issue_count', $payload['summary']);
+        $this->assertArrayHasKey('known_current_access_user_count', $payload['summary']);
+        $this->assertArrayHasKey('functional_admin_without_access_count', $payload['summary']);
+        $this->assertArrayHasKey('functional_operational_without_access_count', $payload['summary']);
+        $this->assertArrayHasKey('security_issue_count', $payload['summary']);
+        $this->assertArrayHasKey('platform_login_gate_issue_count', $payload['summary']);
         $this->assertArrayHasKey('login_credentials_detected_count', $payload['summary']);
         $this->assertArrayHasKey('login_identifier_only_count', $payload['summary']);
         $this->assertArrayHasKey('access_role_missing_count', $payload['summary']);
@@ -747,6 +809,11 @@ final class MemberModelAuditCommandTest extends TestCase
         $this->assertArrayHasKey('suspected_false_positive_reclassified_count', $payload['summary']);
         $this->assertArrayHasKey('platform_access_schema', $payload['schema_detected']);
         $this->assertArrayHasKey('portal_access_active_true_count', $payload['schema_detected']['platform_access_schema']);
+        $this->assertArrayHasKey('access_grant_columns_detected', $payload['schema_detected']['platform_access_schema']);
+        $this->assertArrayHasKey('invite_columns_detected', $payload['schema_detected']['platform_access_schema']);
+        $this->assertArrayHasKey('login_activity_columns_detected', $payload['schema_detected']['platform_access_schema']);
+        $this->assertArrayHasKey('role_tables_detected', $payload['schema_detected']['platform_access_schema']);
+        $this->assertArrayHasKey('known_current_access_users_detected', $payload['schema_detected']['platform_access_schema']);
     }
 
     public function test_json_findings_include_functional_classification_context(): void
