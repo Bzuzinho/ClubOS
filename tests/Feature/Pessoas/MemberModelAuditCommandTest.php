@@ -277,19 +277,69 @@ final class MemberModelAuditCommandTest extends TestCase
         $this->assertSame(0, $payload['summary']['permission_issue_count']);
     }
 
-    public function test_explicit_portal_access_without_role_is_reported(): void
+    public function test_portal_eligible_without_granted_access_is_not_permission_warning(): void
     {
         $user = $this->validMember(role: false);
-        $this->enablePortalAccess($user);
+        $this->enablePortalEligibility($user);
 
         $payload = $this->audit(['--json' => true, '--user' => $user->id]);
-        $finding = collect($payload['findings'])->firstWhere('code', 'user_missing_role');
+        $finding = collect($payload['findings'])->firstWhere('code', 'portal_eligible_without_platform_access');
+
+        $this->assertNotNull($finding);
+        $this->assertSame('info', $finding['severity']);
+        $this->assertFalse($finding['actionable']);
+        $this->assertTrue($finding['context']['portal_eligible']);
+        $this->assertFalse($finding['context']['platform_access_granted']);
+        $this->assertFalse($finding['context']['access_expected']);
+        $this->assertSame('portal_eligible_without_granted_access', $finding['context']['access_expected_reason']);
+        $this->assertNotContains('user_missing_role', collect($payload['findings'])->pluck('code')->all());
+        $this->assertSame(0, $payload['summary']['permission_issue_count']);
+        $this->assertSame(1, $payload['summary']['portal_eligible_count']);
+        $this->assertSame(1, $payload['summary']['portal_eligible_without_access_count']);
+        $this->assertSame(0, $payload['summary']['platform_access_granted_count']);
+    }
+
+    public function test_portal_eligibility_for_common_member_types_does_not_require_access_role(): void
+    {
+        $users = [
+            $this->validMember(['perfil' => 'atleta', 'tipo_membro' => ['Atleta'], 'ativo_desportivo' => true], role: false),
+            $this->validMember(['perfil' => 'atleta', 'tipo_membro' => ['Atleta'], 'ativo_desportivo' => true, 'menor' => true, 'data_nascimento' => now()->subYears(12)->toDateString()], [
+                'data_nascimento' => now()->subYears(12)->toDateString(),
+            ], role: false),
+            $this->validMember(['perfil' => 'encarregado', 'tipo_membro' => ['Encarregado de Educacao']], role: false),
+            $this->validMember(role: false),
+        ];
+        foreach ($users as $user) {
+            $this->enablePortalEligibility($user);
+        }
+
+        $payload = $this->audit(['--json' => true]);
+
+        $this->assertSame(4, $payload['summary']['portal_eligible_count']);
+        $this->assertSame(4, $payload['summary']['portal_eligible_without_access_count']);
+        $this->assertSame(0, $payload['summary']['platform_access_granted_count']);
+        $this->assertSame(0, $payload['summary']['permission_issue_count']);
+        $this->assertNotContains('user_missing_role', collect($payload['findings'])->pluck('code')->all());
+        $this->assertSame(4, collect($payload['findings'])->where('code', 'portal_eligible_without_platform_access')->count());
+    }
+
+    public function test_portal_invite_without_role_is_granted_access_missing_role(): void
+    {
+        $user = $this->validMember(role: false);
+        $this->enablePortalEligibility($user, lastAccessEmailSent: true);
+
+        $payload = $this->audit(['--json' => true, '--user' => $user->id]);
+        $finding = collect($payload['findings'])->firstWhere('code', 'platform_access_granted_missing_role');
 
         $this->assertNotNull($finding);
         $this->assertSame('warning', $finding['severity']);
         $this->assertTrue($finding['actionable']);
-        $this->assertTrue($finding['context']['access_expected']);
-        $this->assertSame('dados_configuracao_acesso_portal_ativo', $finding['context']['access_expected_reason']);
+        $this->assertTrue($finding['context']['portal_eligible']);
+        $this->assertTrue($finding['context']['platform_access_granted']);
+        $this->assertSame('access_invitation_or_acceptance_recorded', $finding['context']['platform_access_granted_reason']);
+        $this->assertSame(1, $payload['summary']['platform_access_granted_count']);
+        $this->assertSame(1, $payload['summary']['platform_access_granted_missing_role_count']);
+        $this->assertSame(1, $payload['summary']['permission_issue_count']);
     }
 
     public function test_contact_email_without_credentials_or_access_role_is_not_permission_warning(): void
@@ -678,6 +728,12 @@ final class MemberModelAuditCommandTest extends TestCase
         $this->assertArrayHasKey('total_platform_access_expected', $payload['summary']);
         $this->assertArrayHasKey('total_platform_access_configured', $payload['summary']);
         $this->assertArrayHasKey('total_no_platform_access_expected', $payload['summary']);
+        $this->assertArrayHasKey('portal_eligible_count', $payload['summary']);
+        $this->assertArrayHasKey('portal_eligible_without_access_count', $payload['summary']);
+        $this->assertArrayHasKey('platform_access_granted_count', $payload['summary']);
+        $this->assertArrayHasKey('platform_access_granted_missing_role_count', $payload['summary']);
+        $this->assertArrayHasKey('platform_access_expected_count', $payload['summary']);
+        $this->assertArrayHasKey('platform_access_expected_without_role_count', $payload['summary']);
         $this->assertArrayHasKey('platform_access_issue_count', $payload['summary']);
         $this->assertArrayHasKey('login_credentials_detected_count', $payload['summary']);
         $this->assertArrayHasKey('login_identifier_only_count', $payload['summary']);
@@ -689,6 +745,8 @@ final class MemberModelAuditCommandTest extends TestCase
         $this->assertArrayHasKey('guardian_without_platform_access_expected_count', $payload['summary']);
         $this->assertArrayHasKey('member_without_access_role_expected_count', $payload['summary']);
         $this->assertArrayHasKey('suspected_false_positive_reclassified_count', $payload['summary']);
+        $this->assertArrayHasKey('platform_access_schema', $payload['schema_detected']);
+        $this->assertArrayHasKey('portal_access_active_true_count', $payload['schema_detected']['platform_access_schema']);
     }
 
     public function test_json_findings_include_functional_classification_context(): void
@@ -708,6 +766,8 @@ final class MemberModelAuditCommandTest extends TestCase
         $this->assertFalse($finding['context']['has_login_credentials']);
         $this->assertTrue($finding['context']['has_login_identifier']);
         $this->assertFalse($finding['context']['access_expected']);
+        $this->assertFalse($finding['context']['platform_access_granted']);
+        $this->assertFalse($finding['context']['access_role_missing_is_problem']);
         $this->assertSame('no_access_expected', $finding['context']['platform_access_status']);
         $this->assertContains('Socio', $finding['context']['member_functional_types']);
         $this->assertSame([], $finding['context']['access_roles']);
@@ -916,12 +976,12 @@ final class MemberModelAuditCommandTest extends TestCase
         ];
     }
 
-    private function enablePortalAccess(User $user): void
+    private function enablePortalEligibility(User $user, bool $lastAccessEmailSent = false): void
     {
         DadosConfiguracao::query()->create([
             'user_id' => $user->id,
             'acesso_portal_ativo' => true,
-            'ultimo_envio_acessos_at' => now(),
+            'ultimo_envio_acessos_at' => $lastAccessEmailSent ? now() : null,
         ]);
     }
 }

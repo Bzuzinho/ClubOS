@@ -53,17 +53,18 @@ final class MemberPlatformAccessInspectionCommand extends Command
             collect($payload['summary'] ?? [])->map(static fn (mixed $value, string $key): array => [$key, (string) $value])->values()->all(),
         );
         $this->table(
-            ['User', 'Name', 'Perfil', 'Tipos', 'Estado', 'Access Expected', 'Reason', 'Has Access Role', 'Platform Access Status', 'Recommendation'],
+            ['User', 'Name', 'Perfil', 'Estado', 'Portal Eligible', 'Access Granted', 'Access Granted Reason', 'Access Expected', 'Has Access Role', 'Issue', 'Recommendation'],
             collect($payload['rows'] ?? [])->map(static fn (array $row): array => [
                 (string) ($row['user_id'] ?? ''),
                 (string) ($row['name'] ?? ''),
                 (string) ($row['perfil'] ?? ''),
-                implode(', ', array_map('strval', $row['member_functional_types'] ?? [])),
                 (string) ($row['estado'] ?? ''),
+                (bool) ($row['portal_eligible'] ?? false) ? 'yes' : 'no',
+                (bool) ($row['platform_access_granted'] ?? false) ? 'yes' : 'no',
+                (string) ($row['platform_access_granted_reason'] ?? ''),
                 (bool) ($row['access_expected'] ?? false) ? 'yes' : 'no',
-                (string) ($row['access_expected_reason'] ?? ''),
                 (bool) ($row['has_access_role'] ?? false) ? 'yes' : 'no',
-                (string) ($row['platform_access_status'] ?? ''),
+                (string) ($row['issue'] ?? ''),
                 (string) ($row['recommendation'] ?? ''),
             ])->all(),
         );

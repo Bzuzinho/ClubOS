@@ -50,7 +50,31 @@ final class MemberPlatformAccessInspectionCommandTest extends TestCase
         $this->assertSame(1, $payload['summary']['total_platform_access_configured']);
     }
 
-    public function test_explicit_portal_access_without_role_is_actionable(): void
+    public function test_portal_eligible_without_granted_access_is_not_actionable(): void
+    {
+        $user = $this->validMember(role: false);
+        DadosConfiguracao::query()->create([
+            'user_id' => $user->id,
+            'acesso_portal_ativo' => true,
+            'ultimo_envio_acessos_at' => null,
+        ]);
+
+        $payload = $this->inspect(['--json' => true, '--user' => $user->id]);
+        $row = $payload['rows'][0];
+
+        $this->assertTrue($row['portal_eligible']);
+        $this->assertFalse($row['platform_access_granted']);
+        $this->assertFalse($row['access_expected']);
+        $this->assertFalse($row['has_access_role']);
+        $this->assertFalse($row['actionable']);
+        $this->assertSame('portal_eligible_without_access', $row['platform_access_status']);
+        $this->assertSame('no_action_needed_portal_eligible_without_access', $row['recommendation']);
+        $this->assertSame(1, $payload['summary']['portal_eligible_count']);
+        $this->assertSame(1, $payload['summary']['portal_eligible_without_access_count']);
+        $this->assertSame(0, $payload['summary']['platform_access_issue_count']);
+    }
+
+    public function test_access_invite_without_role_is_actionable(): void
     {
         $user = $this->validMember(role: false);
         DadosConfiguracao::query()->create([
@@ -62,11 +86,15 @@ final class MemberPlatformAccessInspectionCommandTest extends TestCase
         $payload = $this->inspect(['--json' => true, '--user' => $user->id]);
         $row = $payload['rows'][0];
 
+        $this->assertTrue($row['portal_eligible']);
+        $this->assertTrue($row['platform_access_granted']);
+        $this->assertSame('access_invitation_or_acceptance_recorded', $row['platform_access_granted_reason']);
         $this->assertTrue($row['access_expected']);
         $this->assertFalse($row['has_access_role']);
         $this->assertTrue($row['actionable']);
-        $this->assertSame('access_expected_missing_role', $row['platform_access_status']);
+        $this->assertSame('access_granted_missing_role', $row['platform_access_status']);
         $this->assertSame('assign_access_role_after_review', $row['recommendation']);
+        $this->assertSame(1, $payload['summary']['platform_access_granted_count']);
         $this->assertSame(1, $payload['summary']['platform_access_issue_count']);
     }
 

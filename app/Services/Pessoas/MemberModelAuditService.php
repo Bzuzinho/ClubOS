@@ -32,6 +32,15 @@ final class MemberModelAuditService
     /** @var array<int,string> */
     private const OPERATIONAL_PROFILES = ['staff', 'colaborador', 'treinador', 'coach', 'gestor', 'manager', 'logistica', 'financeiro', 'secretaria', 'direcao', 'direcao_tecnica'];
 
+    /** @var array<int,string> */
+    private const ACCESS_GRANTED_COLUMNS = ['access_enabled', 'portal_user_enabled', 'can_login', 'login_enabled', 'app_access_enabled', 'portal_access_granted', 'user_access_enabled'];
+
+    /** @var array<int,string> */
+    private const INVITE_COLUMNS = ['ultimo_envio_acessos_at', 'invite_sent_at', 'invited_at', 'access_invited_at', 'accepted_invite_at', 'password_changed_at'];
+
+    /** @var array<int,string> */
+    private const LOGIN_ACTIVITY_COLUMNS = ['last_login_at', 'last_seen_at', 'login_at', 'email_verified_at'];
+
     /**
      * @param array<string,mixed> $filters
      * @return array<string,mixed>
@@ -52,6 +61,7 @@ final class MemberModelAuditService
         $configurationProfiles = $this->configurationProfiles($filters, $schema);
         $rolesByUser = $this->rolesByUser($schema);
         $contexts = $this->functionalContexts($users, $profiles, $sportsProfiles, $financialProfiles, $configurationProfiles, $rolesByUser, $schema);
+        $schema['platform_access_schema'] = $this->platformAccessSchema($schema, $contexts);
 
         $findings = [];
 
@@ -99,10 +109,11 @@ final class MemberModelAuditService
         $configurationProfiles = $this->configurationProfiles($filters + ['member' => null], $schema);
         $rolesByUser = $this->rolesByUser($schema);
         $contexts = $this->functionalContexts($users, $profiles, $sportsProfiles, $financialProfiles, $configurationProfiles, $rolesByUser, $schema);
+        $schema['platform_access_schema'] = $this->platformAccessSchema($schema, $contexts);
 
         $rows = $users->map(function (object $user) use ($contexts): array {
             $context = $this->contextFor($contexts, $user);
-            $actionable = (bool) ($context['access_role_required'] ?? false) && ! (bool) ($context['has_access_role'] ?? false);
+            $actionable = (bool) ($context['access_role_missing_is_problem'] ?? false);
 
             return [
                 'user_id' => (string) $user->id,
@@ -110,12 +121,17 @@ final class MemberModelAuditService
                 'perfil' => (string) ($context['perfil'] ?? ''),
                 'member_functional_types' => $context['member_functional_types'] ?? [],
                 'estado' => (string) ($context['estado'] ?? ''),
+                'portal_eligible' => (bool) ($context['portal_eligible'] ?? false),
+                'portal_profile_enabled' => (bool) ($context['portal_profile_enabled'] ?? false),
+                'platform_access_granted' => (bool) ($context['platform_access_granted'] ?? false),
+                'platform_access_granted_reason' => (string) ($context['platform_access_granted_reason'] ?? ''),
                 'access_expected' => (bool) ($context['access_expected'] ?? false),
                 'access_expected_reason' => (string) ($context['access_expected_reason'] ?? ''),
                 'has_access_role' => (bool) ($context['has_access_role'] ?? false),
                 'access_roles' => $context['access_roles'] ?? [],
+                'issue' => (string) ($context['access_role_missing_reason'] ?? ''),
                 'platform_access_status' => (string) ($context['platform_access_status'] ?? ''),
-                'recommendation' => $actionable ? 'assign_access_role_after_review' : $this->platformAccessInspectionRecommendation($context),
+                'recommendation' => $this->platformAccessInspectionRecommendation($context),
                 'actionable' => $actionable,
                 'context' => $context,
             ];
@@ -136,7 +152,13 @@ final class MemberModelAuditService
                 'total_platform_access_expected' => collect($contexts)->where('access_expected', true)->count(),
                 'total_platform_access_configured' => collect($contexts)->where('has_access_role', true)->count(),
                 'total_no_platform_access_expected' => collect($contexts)->filter(fn (array $context): bool => ! (bool) ($context['access_expected'] ?? false))->count(),
-                'platform_access_issue_count' => collect($contexts)->filter(fn (array $context): bool => (bool) ($context['access_role_required'] ?? false) && ! (bool) ($context['has_access_role'] ?? false))->count(),
+                'portal_eligible_count' => collect($contexts)->where('portal_eligible', true)->count(),
+                'portal_eligible_without_access_count' => collect($contexts)->filter(fn (array $context): bool => (bool) ($context['portal_eligible'] ?? false) && ! (bool) ($context['platform_access_granted'] ?? false))->count(),
+                'platform_access_granted_count' => collect($contexts)->where('platform_access_granted', true)->count(),
+                'platform_access_granted_missing_role_count' => collect($contexts)->filter(fn (array $context): bool => (bool) ($context['platform_access_granted'] ?? false) && ! (bool) ($context['has_access_role'] ?? false))->count(),
+                'platform_access_expected_count' => collect($contexts)->where('access_expected', true)->count(),
+                'platform_access_expected_without_role_count' => collect($contexts)->filter(fn (array $context): bool => (bool) ($context['access_expected'] ?? false) && ! (bool) ($context['has_access_role'] ?? false))->count(),
+                'platform_access_issue_count' => collect($contexts)->where('access_role_missing_is_problem', true)->count(),
                 'actionable_count' => collect($rows)->where('actionable', true)->count(),
             ],
             'rows' => $rows,
@@ -177,9 +199,28 @@ final class MemberModelAuditService
         return [
             'tables' => $tables,
             'member_profile_table' => $tables['members'] ? 'members' : ($tables['dados_pessoais'] ? 'dados_pessoais' : 'users'),
-            'users_columns' => $this->columns('users', ['id', 'name', 'email', 'email_utilizador', 'password', 'email_verified_at', 'last_login_at', 'perfil', 'estado', 'tipo_membro', 'menor', 'ativo_desportivo', 'data_nascimento', 'numero_socio']),
+            'users_columns' => $this->columns('users', array_values(array_unique(array_merge(['id', 'name', 'email', 'email_utilizador', 'password', 'email_verified_at', 'last_login_at', 'perfil', 'estado', 'tipo_membro', 'menor', 'ativo_desportivo', 'data_nascimento', 'numero_socio'], self::ACCESS_GRANTED_COLUMNS, self::INVITE_COLUMNS, self::LOGIN_ACTIVITY_COLUMNS)))),
             'dados_pessoais_columns' => $this->columns('dados_pessoais', ['id', 'user_id', 'nome_completo', 'data_nascimento', 'nif', 'documento_identificacao', 'contacto', 'contacto_alternativo', 'tipo_utilizador']),
-            'dados_configuracao_columns' => $this->columns('dados_configuracao', ['id', 'user_id', 'acesso_portal_ativo', 'ultimo_envio_acessos_at']),
+            'dados_configuracao_columns' => $this->columns('dados_configuracao', array_values(array_unique(array_merge(['id', 'user_id', 'acesso_portal_ativo', 'ultimo_envio_acessos_at'], self::ACCESS_GRANTED_COLUMNS, self::INVITE_COLUMNS, self::LOGIN_ACTIVITY_COLUMNS)))),
+            'platform_access_schema' => [
+                'dados_configuracao_exists' => $tables['dados_configuracao'],
+                'portal_access_active_column' => Schema::hasColumn('dados_configuracao', 'acesso_portal_ativo'),
+                'access_granted_columns_detected' => $this->existingColumns('dados_configuracao', self::ACCESS_GRANTED_COLUMNS),
+                'invite_columns_detected' => array_values(array_unique(array_merge(
+                    $this->existingColumns('dados_configuracao', self::INVITE_COLUMNS),
+                    $this->existingColumns('users', self::INVITE_COLUMNS),
+                ))),
+                'login_activity_columns_detected' => $this->existingColumns('users', self::LOGIN_ACTIVITY_COLUMNS),
+                'role_tables_detected' => array_values(array_filter([
+                    $tables['user_user_type'] ? 'user_user_type' : null,
+                    $tables['user_types'] ? 'user_types' : null,
+                    $tables['user_type_permissions'] ? 'user_type_permissions' : null,
+                    $tables['permission_nodes'] ? 'permission_nodes' : null,
+                ])),
+                'portal_access_active_true_count' => 0,
+                'platform_access_granted_count' => 0,
+                'portal_eligible_without_access_count' => 0,
+            ],
             'family_sources' => [
                 'user_guardian' => $tables['user_guardian'],
                 'familia_user' => $tables['familia_user'],
@@ -221,6 +262,38 @@ final class MemberModelAuditService
         }
 
         return $columns;
+    }
+
+    /**
+     * @param array<int,string> $wanted
+     * @return array<int,string>
+     */
+    private function existingColumns(string $table, array $wanted): array
+    {
+        if (! Schema::hasTable($table)) {
+            return [];
+        }
+
+        return array_values(array_filter($wanted, static fn (string $column): bool => Schema::hasColumn($table, $column)));
+    }
+
+    /**
+     * @param array<string,mixed> $schema
+     * @param array<string,array<string,mixed>> $contexts
+     * @return array<string,mixed>
+     */
+    private function platformAccessSchema(array $schema, array $contexts): array
+    {
+        $base = data_get($schema, 'platform_access_schema', []);
+        $contextCollection = collect($contexts);
+
+        return array_merge($base, [
+            'portal_access_active_true_count' => $contextCollection->where('portal_eligible', true)->count(),
+            'platform_access_granted_count' => $contextCollection->where('platform_access_granted', true)->count(),
+            'portal_eligible_without_access_count' => $contextCollection
+                ->filter(fn (array $context): bool => (bool) ($context['portal_eligible'] ?? false) && ! (bool) ($context['platform_access_granted'] ?? false))
+                ->count(),
+        ]);
     }
 
     /**
@@ -624,11 +697,17 @@ final class MemberModelAuditService
                 if ($this->expectsAccessRole($context)) {
                     if (in_array('admin_user', $context['functional_classification'] ?? [], true) || in_array('operational_user', $context['functional_classification'] ?? [], true)) {
                         $findings[] = $this->finding('warning', 'admin_or_operational_access_missing_role', $user, null, 'Utilizador administrativo/operacional com acesso esperado sem role técnica associada.', 'assign_access_role_after_review', true, $context);
+                    } elseif ((bool) ($context['platform_access_granted'] ?? false)) {
+                        $findings[] = $this->finding('warning', 'platform_access_granted_missing_role', $user, null, 'Pessoa com acesso à plataforma efetivamente concedido sem role técnica associada.', 'assign_access_role_after_review', true, $context);
                     } else {
                         $findings[] = $this->finding('warning', 'user_missing_role', $user, null, 'Pessoa com acesso à plataforma explicitamente configurado sem role técnica associada.', 'review_user_permissions', true, $context);
                     }
                 } else {
-                    $findings[] = $this->finding('info', $this->noPlatformAccessFindingCode($context), $user, null, 'Pessoa/membro sem acesso à plataforma esperado; ausência de role é normal.', $this->noPlatformAccessRecommendation($context), false, $context);
+                    if ((bool) ($context['portal_eligible'] ?? false)) {
+                        $findings[] = $this->finding('info', 'portal_eligible_without_platform_access', $user, null, 'Pessoa/membro elegível para portal sem acesso à plataforma concedido; ausência de role é normal.', 'no_action_needed_portal_eligible_without_access', false, $context);
+                    } else {
+                        $findings[] = $this->finding('info', $this->noPlatformAccessFindingCode($context), $user, null, 'Pessoa/membro sem acesso à plataforma esperado; ausência de role é normal.', $this->noPlatformAccessRecommendation($context), false, $context);
+                    }
                 }
             } elseif (data_get($schema, 'tables.user_user_type') && ! empty($rolesByUser[(string) $user->id])) {
                 $findings[] = $this->finding('info', 'platform_access_configured_clean', $user, null, 'Acesso à plataforma configurado por role técnica.', 'no_action_needed_access_clean', false, $context);
@@ -726,6 +805,12 @@ final class MemberModelAuditService
             'total_platform_access_expected' => $contextCollection->filter(fn (array $context): bool => (bool) ($context['access_expected'] ?? false))->count(),
             'total_platform_access_configured' => $contextCollection->filter(fn (array $context): bool => (bool) ($context['has_access_role'] ?? false))->count(),
             'total_no_platform_access_expected' => $contextCollection->filter(fn (array $context): bool => ! (bool) ($context['access_expected'] ?? false))->count(),
+            'portal_eligible_count' => $contextCollection->where('portal_eligible', true)->count(),
+            'portal_eligible_without_access_count' => $contextCollection->filter(fn (array $context): bool => (bool) ($context['portal_eligible'] ?? false) && ! (bool) ($context['platform_access_granted'] ?? false))->count(),
+            'platform_access_granted_count' => $contextCollection->where('platform_access_granted', true)->count(),
+            'platform_access_granted_missing_role_count' => (int) ($byCode['platform_access_granted_missing_role'] ?? 0),
+            'platform_access_expected_count' => $contextCollection->filter(fn (array $context): bool => (bool) ($context['access_expected'] ?? false))->count(),
+            'platform_access_expected_without_role_count' => $contextCollection->filter(fn (array $context): bool => (bool) ($context['access_expected'] ?? false) && ! (bool) ($context['has_access_role'] ?? false))->count(),
             'total_admin_users_detected' => $contextCollection->filter(fn (array $context): bool => in_array('admin_user', $context['functional_classification'] ?? [], true))->count(),
             'total_guardian_profiles_detected' => $contextCollection->filter(fn (array $context): bool => in_array('guardian_profile', $context['functional_classification'] ?? [], true))->count(),
             'total_athlete_profiles_detected' => $contextCollection->filter(fn (array $context): bool => in_array('athlete_profile', $context['functional_classification'] ?? [], true))->count(),
@@ -739,13 +824,17 @@ final class MemberModelAuditService
             'member_status_issue_count' => (int) (($byCode['member_missing_status'] ?? 0) + ($byCode['member_unknown_status'] ?? 0)),
             'sports_profile_issue_count' => (int) (($byCode['active_athlete_without_sports_profile'] ?? 0) + ($byCode['athlete_missing_birthdate'] ?? 0)),
             'financial_profile_issue_count' => (int) (($byCode['active_athlete_without_financial_setup'] ?? 0) + ($byCode['inactive_member_with_active_financial_obligation'] ?? 0) + ($byCode['financial_profile_check_limited'] ?? 0)),
-            'permission_issue_count' => (int) (($byCode['user_missing_role'] ?? 0) + ($byCode['admin_or_operational_access_missing_role'] ?? 0) + ($byCode['user_unknown_role'] ?? 0) + ($byCode['permission_orphan_user'] ?? 0)),
+            'permission_issue_count' => (int) (($byCode['platform_access_granted_missing_role'] ?? 0) + ($byCode['admin_or_operational_access_missing_role'] ?? 0) + ($byCode['user_missing_role'] ?? 0) + ($byCode['user_unknown_role'] ?? 0) + ($byCode['permission_orphan_user'] ?? 0)),
             'login_credentials_detected_count' => $contextCollection->where('has_login_credentials', true)->count(),
             'login_identifier_only_count' => $contextCollection->filter(fn (array $context): bool => (bool) ($context['has_login_identifier'] ?? false) && ! (bool) ($context['has_login_credentials'] ?? false) && ! (bool) ($context['has_access_role'] ?? false))->count(),
-            'access_role_missing_count' => (int) (($byCode['user_missing_role'] ?? 0) + ($byCode['admin_or_operational_access_missing_role'] ?? 0)),
+            'access_role_missing_count' => (int) (($byCode['platform_access_granted_missing_role'] ?? 0) + ($byCode['user_missing_role'] ?? 0) + ($byCode['admin_or_operational_access_missing_role'] ?? 0)),
             'admin_access_role_issue_count' => (int) ($byCode['admin_or_operational_access_missing_role'] ?? 0),
             'admin_or_operational_access_missing_role_count' => (int) ($byCode['admin_or_operational_access_missing_role'] ?? 0),
-            'platform_access_issue_count' => (int) (($byCode['user_missing_role'] ?? 0) + ($byCode['admin_or_operational_access_missing_role'] ?? 0) + ($byCode['user_unknown_role'] ?? 0) + ($byCode['permission_orphan_user'] ?? 0)),
+            'platform_access_issue_count' => (int) (($byCode['platform_access_granted_missing_role'] ?? 0) + ($byCode['user_missing_role'] ?? 0) + ($byCode['admin_or_operational_access_missing_role'] ?? 0) + ($byCode['user_unknown_role'] ?? 0) + ($byCode['permission_orphan_user'] ?? 0)),
+            'member_no_access_expected_count' => $contextCollection->filter(fn (array $context): bool => in_array('member_profile', $context['functional_classification'] ?? [], true) && ! (bool) ($context['access_expected'] ?? false))->count(),
+            'athlete_no_access_expected_count' => $contextCollection->filter(fn (array $context): bool => in_array('athlete_profile', $context['functional_classification'] ?? [], true) && ! (bool) ($context['access_expected'] ?? false))->count(),
+            'guardian_no_access_expected_count' => $contextCollection->filter(fn (array $context): bool => in_array('guardian_profile', $context['functional_classification'] ?? [], true) && ! (bool) ($context['access_expected'] ?? false))->count(),
+            'portal_eligible_without_platform_access_count' => (int) ($byCode['portal_eligible_without_platform_access'] ?? 0),
             'member_without_platform_access_expected_count' => (int) ($byCode['member_without_platform_access_expected'] ?? 0),
             'athlete_without_platform_access_expected_count' => (int) ($byCode['athlete_without_platform_access_expected'] ?? 0),
             'guardian_without_platform_access_expected_count' => (int) ($byCode['guardian_without_platform_access_expected'] ?? 0),
@@ -894,6 +983,14 @@ final class MemberModelAuditService
             return 'no_action_needed_access_clean';
         }
 
+        if ((bool) ($context['access_role_missing_is_problem'] ?? false)) {
+            return 'assign_access_role_after_review';
+        }
+
+        if ((bool) ($context['portal_eligible'] ?? false)) {
+            return 'no_action_needed_portal_eligible_without_access';
+        }
+
         return $this->noPlatformAccessRecommendation($context);
     }
 
@@ -952,7 +1049,7 @@ final class MemberModelAuditService
             $hasLoginIdentifier = $this->hasLoginIdentifier($user);
             $hasLoginCredentials = $this->hasLoginCredentials($user, $schema, $hasAccessRole);
             $accessExpectation = $this->platformAccessExpectation($user, $configuration, $schema, $hasAccessRole, $isAdmin, $isOperational);
-            $hasLogin = $hasAccessRole || (bool) $accessExpectation['access_expected'];
+            $hasLogin = (bool) $accessExpectation['platform_access_granted'] || (bool) $accessExpectation['access_expected'];
             $hasGuardianRelation = $this->hasGuardianRelation($userId, $schema);
             $hasDependents = $this->hasAnyDependent($userId, $schema);
             $hasAthlete = $this->isActiveAthlete($user) || collect($normalizedFunctionalTypes)->contains(fn (string $type): bool => in_array($type, self::ATHLETE_MARKERS, true));
@@ -1002,10 +1099,18 @@ final class MemberModelAuditService
                 'login_reason' => $accessExpectation['access_expected_reason'],
                 'permission_required' => (bool) $accessExpectation['access_role_required'],
                 'permission_reason' => $accessExpectation['access_role_required_reason'],
+                'portal_eligible' => (bool) $accessExpectation['portal_eligible'],
+                'portal_profile_enabled' => (bool) $accessExpectation['portal_profile_enabled'],
+                'platform_access_granted' => (bool) $accessExpectation['platform_access_granted'],
+                'platform_access_granted_reason' => $accessExpectation['platform_access_granted_reason'],
+                'platform_access_expected' => (bool) $accessExpectation['access_expected'],
+                'platform_access_expected_reason' => $accessExpectation['access_expected_reason'],
                 'access_expected' => (bool) $accessExpectation['access_expected'],
                 'access_expected_reason' => $accessExpectation['access_expected_reason'],
                 'access_role_required' => (bool) $accessExpectation['access_role_required'],
                 'access_role_required_reason' => $accessExpectation['access_role_required_reason'],
+                'access_role_missing_is_problem' => (bool) $accessExpectation['access_role_missing_is_problem'],
+                'access_role_missing_reason' => $accessExpectation['access_role_missing_reason'],
                 'platform_access_status' => $accessExpectation['platform_access_status'],
                 'portal_access_active' => $accessExpectation['portal_access_active'],
                 'last_access_email_sent_at' => $accessExpectation['last_access_email_sent_at'],
@@ -1050,10 +1155,18 @@ final class MemberModelAuditService
             'has_login_credentials' => false,
             'has_login_identifier' => false,
             'permission_required' => false,
+            'portal_eligible' => false,
+            'portal_profile_enabled' => false,
+            'platform_access_granted' => false,
+            'platform_access_granted_reason' => 'unknown_context',
+            'platform_access_expected' => false,
+            'platform_access_expected_reason' => 'unknown_context',
             'access_expected' => false,
             'access_expected_reason' => 'unknown_context',
             'access_role_required' => false,
             'access_role_required_reason' => 'unknown_context',
+            'access_role_missing_is_problem' => false,
+            'access_role_missing_reason' => 'unknown_context',
             'platform_access_status' => 'unknown',
         ];
     }
@@ -1073,7 +1186,7 @@ final class MemberModelAuditService
     }
 
     /**
-     * @return array{access_expected:bool,access_expected_reason:string,access_role_required:bool,access_role_required_reason:string,platform_access_status:string,portal_access_active:?bool,last_access_email_sent_at:?string}
+     * @return array{portal_eligible:bool,portal_profile_enabled:bool,platform_access_granted:bool,platform_access_granted_reason:string,access_expected:bool,access_expected_reason:string,access_role_required:bool,access_role_required_reason:string,access_role_missing_is_problem:bool,access_role_missing_reason:string,platform_access_status:string,portal_access_active:?bool,last_access_email_sent_at:?string}
      */
     private function platformAccessExpectation(object $user, ?object $configuration, array $schema, bool $hasAccessRole, bool $isAdmin, bool $isOperational): array
     {
@@ -1081,16 +1194,36 @@ final class MemberModelAuditService
         $portalAccessActive = data_get($schema, 'dados_configuracao_columns.acesso_portal_ativo')
             ? $this->nullableBoolean($configuration->acesso_portal_ativo ?? null)
             : null;
-        $lastAccessEmailSentAt = data_get($schema, 'dados_configuracao_columns.ultimo_envio_acessos_at') && ! $this->isBlank($configuration->ultimo_envio_acessos_at ?? null)
-            ? (string) $configuration->ultimo_envio_acessos_at
-            : null;
+        $portalEligible = $portalAccessActive === true;
+        $lastAccessEmailSentAt = $this->firstFilledColumnValue($configuration, self::INVITE_COLUMNS, data_get($schema, 'dados_configuracao_columns', []))
+            ?? $this->firstFilledColumnValue($user, self::INVITE_COLUMNS, data_get($schema, 'users_columns', []));
+        $explicitGrantedColumn = $this->firstTrueColumn($configuration, self::ACCESS_GRANTED_COLUMNS, data_get($schema, 'dados_configuracao_columns', []))
+            ?? $this->firstTrueColumn($user, self::ACCESS_GRANTED_COLUMNS, data_get($schema, 'users_columns', []));
+        $loginActivityColumn = $this->firstFilledColumnName($user, ['last_login_at', 'last_seen_at', 'login_at'], data_get($schema, 'users_columns', []));
+        $platformAccessGranted = $hasAccessRole || $lastAccessEmailSentAt !== null || $explicitGrantedColumn !== null || $loginActivityColumn !== null;
+        $platformAccessGrantedReason = 'no_granted_access_evidence';
+        if ($hasAccessRole) {
+            $platformAccessGrantedReason = 'technical_access_role_configured';
+        } elseif ($explicitGrantedColumn !== null) {
+            $platformAccessGrantedReason = 'explicit_access_granted_column_'.$explicitGrantedColumn;
+        } elseif ($lastAccessEmailSentAt !== null) {
+            $platformAccessGrantedReason = 'access_invitation_or_acceptance_recorded';
+        } elseif ($loginActivityColumn !== null) {
+            $platformAccessGrantedReason = 'login_activity_recorded_'.$loginActivityColumn;
+        }
 
         if ($hasAccessRole) {
             return [
+                'portal_eligible' => $portalEligible,
+                'portal_profile_enabled' => $portalEligible,
+                'platform_access_granted' => true,
+                'platform_access_granted_reason' => $platformAccessGrantedReason,
                 'access_expected' => true,
                 'access_expected_reason' => 'technical_access_role_configured',
                 'access_role_required' => false,
                 'access_role_required_reason' => 'technical_access_role_present',
+                'access_role_missing_is_problem' => false,
+                'access_role_missing_reason' => 'technical_access_role_present',
                 'platform_access_status' => 'access_configured',
                 'portal_access_active' => $portalAccessActive,
                 'last_access_email_sent_at' => $lastAccessEmailSentAt,
@@ -1099,34 +1232,52 @@ final class MemberModelAuditService
 
         if ($isActive && ($isAdmin || $isOperational)) {
             return [
+                'portal_eligible' => $portalEligible,
+                'portal_profile_enabled' => $portalEligible,
+                'platform_access_granted' => $platformAccessGranted,
+                'platform_access_granted_reason' => $platformAccessGrantedReason,
                 'access_expected' => true,
                 'access_expected_reason' => $isAdmin ? 'active_admin_profile_requires_platform_access' : 'active_operational_profile_requires_platform_access',
                 'access_role_required' => true,
                 'access_role_required_reason' => $isAdmin ? 'active_admin_profile_missing_access_role' : 'active_operational_profile_missing_access_role',
+                'access_role_missing_is_problem' => true,
+                'access_role_missing_reason' => $isAdmin ? 'active_admin_profile_missing_access_role' : 'active_operational_profile_missing_access_role',
                 'platform_access_status' => 'admin_access_expected',
                 'portal_access_active' => $portalAccessActive,
                 'last_access_email_sent_at' => $lastAccessEmailSentAt,
             ];
         }
 
-        if ($isActive && $portalAccessActive === true) {
+        if ($platformAccessGranted) {
             return [
+                'portal_eligible' => $portalEligible,
+                'portal_profile_enabled' => $portalEligible,
+                'platform_access_granted' => true,
+                'platform_access_granted_reason' => $platformAccessGrantedReason,
                 'access_expected' => true,
-                'access_expected_reason' => 'dados_configuracao_acesso_portal_ativo',
+                'access_expected_reason' => $platformAccessGrantedReason,
                 'access_role_required' => true,
-                'access_role_required_reason' => 'portal_access_active_without_access_role',
-                'platform_access_status' => 'access_expected_missing_role',
+                'access_role_required_reason' => 'platform_access_granted_without_access_role',
+                'access_role_missing_is_problem' => true,
+                'access_role_missing_reason' => 'platform_access_granted_without_access_role',
+                'platform_access_status' => 'access_granted_missing_role',
                 'portal_access_active' => $portalAccessActive,
                 'last_access_email_sent_at' => $lastAccessEmailSentAt,
             ];
         }
 
         return [
+            'portal_eligible' => $portalEligible,
+            'portal_profile_enabled' => $portalEligible,
+            'platform_access_granted' => false,
+            'platform_access_granted_reason' => $platformAccessGrantedReason,
             'access_expected' => false,
-            'access_expected_reason' => $isActive ? 'no_explicit_platform_access_configured' : 'inactive_record_without_explicit_platform_access',
+            'access_expected_reason' => $portalEligible ? 'portal_eligible_without_granted_access' : ($isActive ? 'no_explicit_platform_access_configured' : 'inactive_record_without_explicit_platform_access'),
             'access_role_required' => false,
             'access_role_required_reason' => 'no_access_role_required_without_explicit_platform_access',
-            'platform_access_status' => 'no_access_expected',
+            'access_role_missing_is_problem' => false,
+            'access_role_missing_reason' => $portalEligible ? 'portal_eligible_is_not_granted_access' : 'no_access_role_required_without_explicit_platform_access',
+            'platform_access_status' => $portalEligible ? 'portal_eligible_without_access' : 'no_access_expected',
             'portal_access_active' => $portalAccessActive,
             'last_access_email_sent_at' => $lastAccessEmailSentAt,
         ];
@@ -1592,6 +1743,63 @@ final class MemberModelAuditService
 
         if (in_array($normalized, ['0', 'false', 'nao', 'no', 'inativo', 'inactive'], true)) {
             return false;
+        }
+
+        return null;
+    }
+
+    /**
+     * @param array<int,string> $columns
+     * @param array<string,bool> $availableColumns
+     */
+    private function firstFilledColumnValue(?object $record, array $columns, array $availableColumns): ?string
+    {
+        if ($record === null) {
+            return null;
+        }
+
+        foreach ($columns as $column) {
+            if (($availableColumns[$column] ?? false) && ! $this->isBlank($record->{$column} ?? null)) {
+                return (string) $record->{$column};
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param array<int,string> $columns
+     * @param array<string,bool> $availableColumns
+     */
+    private function firstFilledColumnName(?object $record, array $columns, array $availableColumns): ?string
+    {
+        if ($record === null) {
+            return null;
+        }
+
+        foreach ($columns as $column) {
+            if (($availableColumns[$column] ?? false) && ! $this->isBlank($record->{$column} ?? null)) {
+                return $column;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param array<int,string> $columns
+     * @param array<string,bool> $availableColumns
+     */
+    private function firstTrueColumn(?object $record, array $columns, array $availableColumns): ?string
+    {
+        if ($record === null) {
+            return null;
+        }
+
+        foreach ($columns as $column) {
+            if (($availableColumns[$column] ?? false) && $this->nullableBoolean($record->{$column} ?? null) === true) {
+                return $column;
+            }
         }
 
         return null;
