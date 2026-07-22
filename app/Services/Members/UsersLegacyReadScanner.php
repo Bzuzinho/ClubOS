@@ -136,6 +136,7 @@ final class UsersLegacyReadScanner
         'app/Console/Commands/Members/BackfillUsersLegacyOnlyFieldsCommand.php' => 'Comando de backfill controlado M4.17 com guardas de commit.',
         'app/Services/Members/UsersLegacyWriteGuardScanner.php' => 'Scanner de auditoria de escrita legado.',
         'app/Services/Members/UsersLegacyReadScanner.php' => 'Scanner de auditoria de leitura legado.',
+        'app/Services/Pessoas/MemberModelAuditService.php' => 'Auditoria read-only C1 do modelo real de membro/utilizador.',
     ];
 
     /**
