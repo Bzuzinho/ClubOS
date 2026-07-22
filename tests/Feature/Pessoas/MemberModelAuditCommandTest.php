@@ -241,6 +241,123 @@ final class MemberModelAuditCommandTest extends TestCase
         $this->assertSame(1, $exitCode);
     }
 
+    public function test_invoices_without_estado_column_do_not_crash_and_open_monthly_obligation_is_detected(): void
+    {
+        $user = $this->validMember(['estado' => 'inativo']);
+        $this->insertInvoice([
+            'user_id' => $user->id,
+            'tipo' => 'mensalidade',
+            'estado_pagamento' => 'pendente',
+            'valor_em_aberto' => 25,
+        ]);
+
+        $payload = $this->audit(['--json' => true, '--user' => $user->id]);
+
+        $this->assertFalse($payload['schema_detected']['invoice_columns']['estado']);
+        $this->assertContains('inactive_member_with_active_financial_obligation', collect($payload['findings'])->pluck('code')->all());
+    }
+
+    public function test_invoice_payment_status_and_open_amount_columns_are_used_when_present(): void
+    {
+        $user = $this->validMember(['estado' => 'inativo']);
+        $this->insertInvoice([
+            'user_id' => $user->id,
+            'tipo' => 'mensalidade',
+            'estado_pagamento' => 'pago',
+            'valor_em_aberto' => 12,
+        ]);
+
+        $payload = $this->audit(['--json' => true, '--user' => $user->id]);
+
+        $this->assertContains('inactive_member_with_active_financial_obligation', collect($payload['findings'])->pluck('code')->all());
+    }
+
+    public function test_invoice_estado_column_filters_cancelled_invoices_when_present(): void
+    {
+        $user = $this->validMember(['estado' => 'inativo']);
+        $this->recreateInvoicesTable(['user_id', 'tipo', 'estado', 'estado_pagamento', 'valor_em_aberto']);
+        $this->insertInvoice([
+            'user_id' => $user->id,
+            'tipo' => 'mensalidade',
+            'estado' => 'cancelada',
+            'estado_pagamento' => 'pendente',
+            'valor_em_aberto' => 50,
+        ]);
+
+        $payload = $this->audit(['--json' => true, '--user' => $user->id]);
+
+        $this->assertTrue($payload['schema_detected']['invoice_columns']['estado']);
+        $this->assertNotContains('inactive_member_with_active_financial_obligation', collect($payload['findings'])->pluck('code')->all());
+    }
+
+    public function test_invoices_without_type_or_origin_do_not_crash_and_generate_limited_info(): void
+    {
+        $user = $this->validMember(['estado' => 'inativo']);
+        $this->recreateInvoicesTable(['user_id', 'estado_pagamento', 'valor_em_aberto']);
+        $this->insertInvoice([
+            'user_id' => $user->id,
+            'estado_pagamento' => 'pendente',
+            'valor_em_aberto' => 50,
+        ]);
+
+        $payload = $this->audit(['--json' => true, '--user' => $user->id]);
+        $finding = collect($payload['findings'])->firstWhere('code', 'financial_profile_check_limited');
+
+        $this->assertNotNull($finding);
+        $this->assertSame('info', $finding['severity']);
+        $this->assertFalse($finding['actionable']);
+    }
+
+    public function test_invoices_without_payment_state_or_open_amount_do_not_crash_and_generate_limited_info(): void
+    {
+        $user = $this->validMember(['estado' => 'inativo']);
+        $this->recreateInvoicesTable(['user_id', 'tipo']);
+        $this->insertInvoice([
+            'user_id' => $user->id,
+            'tipo' => 'mensalidade',
+        ]);
+
+        $payload = $this->audit(['--json' => true, '--user' => $user->id]);
+
+        $this->assertContains('financial_profile_check_limited', collect($payload['findings'])->pluck('code')->all());
+    }
+
+    public function test_missing_invoices_table_does_not_crash(): void
+    {
+        $user = $this->validMember(['estado' => 'inativo']);
+        Schema::disableForeignKeyConstraints();
+        Schema::dropIfExists('invoices');
+        Schema::enableForeignKeyConstraints();
+
+        $payload = $this->audit(['--json' => true, '--user' => $user->id]);
+
+        $this->assertFalse($payload['schema_detected']['financial_tables']['invoices']);
+        $this->assertNotContains('financial_profile_check_limited', collect($payload['findings'])->pluck('code')->all());
+    }
+
+    public function test_schema_detected_includes_real_invoice_columns(): void
+    {
+        $this->validMember();
+
+        $payload = $this->audit(['--json' => true]);
+
+        $this->assertArrayHasKey('financial_tables', $payload['schema_detected']);
+        $this->assertArrayHasKey('invoice_columns', $payload['schema_detected']);
+        foreach (['user_id', 'tipo', 'origem_tipo', 'estado', 'status', 'estado_pagamento', 'valor_em_aberto'] as $column) {
+            $this->assertArrayHasKey($column, $payload['schema_detected']['invoice_columns']);
+        }
+    }
+
+    public function test_only_actionable_hides_schema_limited_financial_info(): void
+    {
+        $user = $this->validMember(['estado' => 'inativo']);
+        $this->recreateInvoicesTable(['user_id', 'tipo']);
+
+        $payload = $this->audit(['--json' => true, '--only-actionable' => true, '--user' => $user->id]);
+
+        $this->assertNotContains('financial_profile_check_limited', collect($payload['findings'])->pluck('code')->all());
+    }
+
     public function test_json_output_is_valid_and_contains_schema_contract(): void
     {
         $this->validMember();
@@ -322,6 +439,72 @@ final class MemberModelAuditCommandTest extends TestCase
             ['codigo' => $codigo],
             ['nome' => $nome, 'descricao' => $nome, 'ativo' => true],
         );
+    }
+
+    /**
+     * @param array<int,string> $columns
+     */
+    private function recreateInvoicesTable(array $columns): void
+    {
+        Schema::disableForeignKeyConstraints();
+        Schema::dropIfExists('invoices');
+        Schema::create('invoices', function ($table) use ($columns): void {
+            $table->uuid('id')->primary();
+            if (in_array('user_id', $columns, true)) {
+                $table->uuid('user_id')->nullable();
+            }
+            if (in_array('tipo', $columns, true)) {
+                $table->string('tipo')->nullable();
+            }
+            if (in_array('origem_tipo', $columns, true)) {
+                $table->string('origem_tipo')->nullable();
+            }
+            if (in_array('estado', $columns, true)) {
+                $table->string('estado')->nullable();
+            }
+            if (in_array('status', $columns, true)) {
+                $table->string('status')->nullable();
+            }
+            if (in_array('estado_pagamento', $columns, true)) {
+                $table->string('estado_pagamento')->nullable();
+            }
+            if (in_array('valor_em_aberto', $columns, true)) {
+                $table->decimal('valor_em_aberto', 10, 2)->nullable();
+            }
+            $table->timestamps();
+        });
+        Schema::enableForeignKeyConstraints();
+    }
+
+    /**
+     * @param array<string,mixed> $overrides
+     */
+    private function insertInvoice(array $overrides): void
+    {
+        $row = [
+            'id' => (string) Str::uuid(),
+            'created_at' => now(),
+            'updated_at' => now(),
+        ];
+
+        foreach (['user_id', 'tipo', 'origem_tipo', 'estado', 'status', 'estado_pagamento', 'valor_em_aberto'] as $column) {
+            if (Schema::hasColumn('invoices', $column) && array_key_exists($column, $overrides)) {
+                $row[$column] = $overrides[$column];
+            }
+        }
+
+        foreach ([
+            'data_fatura' => now()->toDateString(),
+            'data_emissao' => now()->toDateString(),
+            'data_vencimento' => now()->addMonth()->toDateString(),
+            'valor_total' => 50,
+        ] as $column => $value) {
+            if (Schema::hasColumn('invoices', $column)) {
+                $row[$column] = $value;
+            }
+        }
+
+        DB::table('invoices')->insert($row);
     }
 
     /**

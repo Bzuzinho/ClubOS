@@ -130,6 +130,10 @@ final class MemberModelAuditService
                 'centro_custo_user' => $tables['centro_custo_user'],
                 'users_centro_custo_legacy' => Schema::hasColumn('users', 'centro_custo'),
             ],
+            'financial_tables' => [
+                'invoices' => $tables['invoices'],
+            ],
+            'invoice_columns' => $this->columns('invoices', ['user_id', 'tipo', 'origem_tipo', 'estado', 'status', 'estado_pagamento', 'valor_em_aberto']),
         ];
     }
 
@@ -476,8 +480,15 @@ final class MemberModelAuditService
                 }
             }
 
-            if (! $this->isActiveStatus((string) ($user->estado ?? '')) && data_get($schema, 'tables.invoices') && $this->hasActiveMonthlyObligation((string) $user->id)) {
-                $findings[] = $this->finding('warning', 'inactive_member_with_active_financial_obligation', $user, null, 'Membro inativo/eliminado com obrigação financeira mensal ativa.', 'review_financial_setup', true);
+            if (! $this->isActiveStatus((string) ($user->estado ?? '')) && data_get($schema, 'tables.invoices')) {
+                $activeMonthlyObligation = $this->hasActiveMonthlyObligation((string) $user->id, $schema);
+                if ($activeMonthlyObligation === true) {
+                    $findings[] = $this->finding('warning', 'inactive_member_with_active_financial_obligation', $user, null, 'Membro inativo/eliminado com obrigação financeira mensal ativa.', 'review_financial_setup', true);
+                } elseif ($activeMonthlyObligation === null) {
+                    $findings[] = $this->finding('info', 'financial_profile_check_limited', $user, null, 'Verificação financeira limitada pelo schema real de invoices.', 'no_action_needed_schema_limited_financial_check', false, [
+                        'invoice_columns' => data_get($schema, 'invoice_columns', []),
+                    ]);
+                }
             }
         }
 
@@ -597,7 +608,7 @@ final class MemberModelAuditService
             'member_type_issue_count' => (int) (($byCode['member_missing_type'] ?? 0) + ($byCode['member_unknown_type'] ?? 0)),
             'member_status_issue_count' => (int) (($byCode['member_missing_status'] ?? 0) + ($byCode['member_unknown_status'] ?? 0)),
             'sports_profile_issue_count' => (int) (($byCode['active_athlete_without_sports_profile'] ?? 0) + ($byCode['athlete_missing_birthdate'] ?? 0)),
-            'financial_profile_issue_count' => (int) (($byCode['active_athlete_without_financial_setup'] ?? 0) + ($byCode['inactive_member_with_active_financial_obligation'] ?? 0)),
+            'financial_profile_issue_count' => (int) (($byCode['active_athlete_without_financial_setup'] ?? 0) + ($byCode['inactive_member_with_active_financial_obligation'] ?? 0) + ($byCode['financial_profile_check_limited'] ?? 0)),
             'permission_issue_count' => (int) (($byCode['user_missing_role'] ?? 0) + ($byCode['user_unknown_role'] ?? 0) + ($byCode['permission_orphan_user'] ?? 0)),
             'total_findings' => count($findings),
             'critical_count' => collect($findings)->where('severity', 'critical')->count(),
@@ -884,21 +895,50 @@ final class MemberModelAuditService
             ->exists();
     }
 
-    private function hasActiveMonthlyObligation(string $userId): bool
+    /**
+     * @param array<string,mixed> $schema
+     */
+    private function hasActiveMonthlyObligation(string $userId, array $schema): ?bool
     {
-        return DB::table('invoices')
-            ->where('user_id', $userId)
-            ->where(function ($query): void {
-                $query->where('tipo', 'mensalidade')
-                    ->orWhere('origem_tipo', 'monthly_fee')
-                    ->orWhere('origem_tipo', 'monthly_fee_legacy');
-            })
-            ->whereNotIn('estado', ['cancelada', 'cancelado', 'anulada', 'anulado'])
-            ->where(function ($query): void {
-                $query->whereIn('estado_pagamento', ['pendente', 'parcial'])
-                    ->orWhere('valor_em_aberto', '>', 0);
-            })
-            ->exists();
+        $columns = data_get($schema, 'invoice_columns', []);
+        if (! data_get($schema, 'tables.invoices') || ! ($columns['user_id'] ?? false)) {
+            return null;
+        }
+
+        $hasMonthlyTypeFilter = (bool) (($columns['tipo'] ?? false) || ($columns['origem_tipo'] ?? false));
+        $hasPaymentStateFilter = (bool) (($columns['estado_pagamento'] ?? false) || ($columns['valor_em_aberto'] ?? false));
+
+        if (! $hasMonthlyTypeFilter || ! $hasPaymentStateFilter) {
+            return null;
+        }
+
+        $query = DB::table('invoices')->where('user_id', $userId);
+
+        $query->where(function ($subQuery) use ($columns): void {
+            if ($columns['tipo'] ?? false) {
+                $subQuery->orWhere('tipo', 'mensalidade');
+            }
+            if ($columns['origem_tipo'] ?? false) {
+                $subQuery->orWhereIn('origem_tipo', ['monthly_fee', 'monthly_fee_legacy']);
+            }
+        });
+
+        if ($columns['estado'] ?? false) {
+            $query->whereNotIn('estado', ['cancelada', 'cancelado', 'anulada', 'anulado']);
+        } elseif ($columns['status'] ?? false) {
+            $query->whereNotIn('status', ['cancelada', 'cancelado', 'anulada', 'anulado']);
+        }
+
+        $query->where(function ($subQuery) use ($columns): void {
+            if ($columns['estado_pagamento'] ?? false) {
+                $subQuery->orWhereIn('estado_pagamento', ['pendente', 'parcial']);
+            }
+            if ($columns['valor_em_aberto'] ?? false) {
+                $subQuery->orWhere('valor_em_aberto', '>', 0);
+            }
+        });
+
+        return $query->exists();
     }
 
     private function isActiveStatus(string $status): bool
