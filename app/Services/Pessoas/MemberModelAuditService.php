@@ -113,7 +113,7 @@ final class MemberModelAuditService
         return [
             'tables' => $tables,
             'member_profile_table' => $tables['members'] ? 'members' : ($tables['dados_pessoais'] ? 'dados_pessoais' : 'users'),
-            'users_columns' => $this->columns('users', ['id', 'name', 'email', 'email_utilizador', 'password', 'perfil', 'estado', 'tipo_membro', 'menor', 'ativo_desportivo', 'data_nascimento', 'numero_socio']),
+            'users_columns' => $this->columns('users', ['id', 'name', 'email', 'email_utilizador', 'password', 'email_verified_at', 'last_login_at', 'perfil', 'estado', 'tipo_membro', 'menor', 'ativo_desportivo', 'data_nascimento', 'numero_socio']),
             'dados_pessoais_columns' => $this->columns('dados_pessoais', ['id', 'user_id', 'nome_completo', 'data_nascimento', 'nif', 'documento_identificacao', 'contacto', 'contacto_alternativo', 'tipo_utilizador']),
             'family_sources' => [
                 'user_guardian' => $tables['user_guardian'],
@@ -277,9 +277,17 @@ final class MemberModelAuditService
                 $findings[] = $this->finding('critical', 'user_missing_required_identity', $user, null, 'Email de login em falta para utilizador com sinais de acesso.', 'review_user_permissions', true, $context);
             }
 
-            $birthdate = $this->birthdate($user, $profiles);
-            if ($birthdate !== null && $birthdate->isFuture()) {
-                $findings[] = $this->finding('warning', 'user_missing_required_identity', $user, null, 'Data de nascimento futura ou inválida.', 'create_missing_member_profile', true, $this->contextFor($contexts, $user));
+            $birthdateInfo = $context['birthdate'] ?? ['status' => 'missing'];
+            if (($birthdateInfo['status'] ?? 'missing') === 'invalid_format') {
+                $findings[] = $this->finding('warning', 'birthdate_invalid_format', $user, null, 'Data de nascimento com formato inválido.', 'review_member_birthdate', true, $context);
+            } elseif (($birthdateInfo['status'] ?? 'missing') === 'year_out_of_range') {
+                $findings[] = $this->finding('warning', 'birthdate_year_out_of_range', $user, null, 'Data de nascimento com ano fora do intervalo válido.', 'review_member_birthdate', true, $context);
+            } elseif (($birthdateInfo['status'] ?? 'missing') === 'future') {
+                $findings[] = $this->finding('warning', 'birthdate_future', $user, null, 'Data de nascimento futura.', 'review_member_birthdate', true, $context);
+            } elseif (($birthdateInfo['status'] ?? 'missing') === 'age_unrealistic') {
+                $findings[] = $this->finding('warning', 'birthdate_age_unrealistic', $user, null, 'Data de nascimento implica idade pouco plausível.', 'review_member_birthdate', true, $context);
+            } elseif (($birthdateInfo['status'] ?? 'missing') === 'administrative_placeholder') {
+                $findings[] = $this->finding('info', 'administrative_placeholder_birthdate', $user, null, 'Data de nascimento placeholder em utilizador administrativo/sistema.', 'no_action_needed_administrative_placeholder_birthdate', false, $context);
             }
 
             $phone = $this->firstFilled($this->profileForUser($profiles, (string) $user->id)?->contacto ?? null, $user->contacto ?? null, $user->contacto_telefonico ?? null);
@@ -419,7 +427,7 @@ final class MemberModelAuditService
 
         foreach ($users as $user) {
             $context = $this->contextFor($contexts, $user);
-            $types = $this->memberTypes($user, $rolesByUser[(string) $user->id] ?? collect());
+            $types = $context['access_roles'] ?? [];
             if ($types === []) {
                 // A ausência de user_type é classificada em permissionFindings, onde há contexto de login/acesso.
             } elseif ($knownTypes !== []) {
@@ -529,9 +537,13 @@ final class MemberModelAuditService
             $context = $this->contextFor($contexts, $user);
             if (data_get($schema, 'tables.user_user_type') && empty($rolesByUser[(string) $user->id])) {
                 if ($this->expectsAccessRole($context)) {
-                    $findings[] = $this->finding('warning', 'user_missing_role', $user, null, 'Utilizador com sinais de login/acesso sem user_type associado.', 'review_user_permissions', true, $context);
+                    if (in_array('admin_user', $context['functional_classification'] ?? [], true)) {
+                        $findings[] = $this->finding('warning', 'admin_profile_without_access_role', $user, null, 'Utilizador administrativo sem role técnica de acesso associada.', 'assign_admin_access_role_after_review', true, $context);
+                    } else {
+                        $findings[] = $this->finding('warning', 'user_missing_role', $user, null, 'Utilizador com credenciais/login esperado sem user_type associado.', 'review_user_permissions', true, $context);
+                    }
                 } else {
-                    $findings[] = $this->finding('info', 'member_without_login_role_expected', $user, null, 'Pessoa/membro sem login/acesso esperado não precisa de user_type operacional.', 'no_action_needed_member_without_login', false, $context);
+                    $findings[] = $this->finding('info', 'member_without_access_role_expected', $user, null, 'Pessoa/membro sem credenciais ou acesso técnico esperado não precisa de user_type operacional.', 'no_action_needed_member_without_access_role', false, $context);
                 }
             }
 
@@ -622,24 +634,31 @@ final class MemberModelAuditService
             'total_members_scanned' => data_get($schema, 'tables.dados_pessoais') ? $profiles->count() : $users->count(),
             'total_athletes_scanned' => $users->filter(fn (object $user): bool => $this->isActiveAthlete($user))->count(),
             'total_guardians_scanned' => data_get($schema, 'tables.user_guardian') ? DB::table('user_guardian')->distinct()->count('guardian_id') : 0,
-            'total_login_users_detected' => $contextCollection->where('has_login', true)->count(),
-            'total_member_only_users_detected' => $contextCollection->filter(fn (array $context): bool => in_array('member_profile', $context['functional_classification'] ?? [], true) && ! ($context['has_login'] ?? false))->count(),
+            'total_login_users_detected' => $contextCollection->filter(fn (array $context): bool => (bool) ($context['has_login_credentials'] ?? false) || (bool) ($context['has_access_role'] ?? false))->count(),
+            'total_member_only_users_detected' => $contextCollection->filter(fn (array $context): bool => in_array('member_profile', $context['functional_classification'] ?? [], true) && ! ($context['has_login_credentials'] ?? false) && ! ($context['has_access_role'] ?? false))->count(),
             'total_admin_users_detected' => $contextCollection->filter(fn (array $context): bool => in_array('admin_user', $context['functional_classification'] ?? [], true))->count(),
             'total_guardian_profiles_detected' => $contextCollection->filter(fn (array $context): bool => in_array('guardian_profile', $context['functional_classification'] ?? [], true))->count(),
             'total_athlete_profiles_detected' => $contextCollection->filter(fn (array $context): bool => in_array('athlete_profile', $context['functional_classification'] ?? [], true))->count(),
             'duplicate_identity_count' => (int) (($byCode['duplicate_user_email'] ?? 0) + ($byCode['duplicate_member_identifier'] ?? 0)),
             'invalid_relation_count' => (int) (($byCode['member_user_link_invalid'] ?? 0) + ($byCode['invalid_guardian_relation'] ?? 0)),
             'missing_required_identity_count' => (int) ($byCode['user_missing_required_identity'] ?? 0),
+            'invalid_birthdate_count' => (int) (($byCode['birthdate_invalid_format'] ?? 0) + ($byCode['birthdate_year_out_of_range'] ?? 0) + ($byCode['birthdate_future'] ?? 0) + ($byCode['birthdate_age_unrealistic'] ?? 0)),
+            'placeholder_birthdate_count' => (int) ($byCode['administrative_placeholder_birthdate'] ?? 0),
             'minor_without_guardian_count' => (int) ($byCode['minor_without_guardian'] ?? 0),
             'member_type_issue_count' => (int) (($byCode['member_missing_type'] ?? 0) + ($byCode['member_unknown_type'] ?? 0)),
             'member_status_issue_count' => (int) (($byCode['member_missing_status'] ?? 0) + ($byCode['member_unknown_status'] ?? 0)),
             'sports_profile_issue_count' => (int) (($byCode['active_athlete_without_sports_profile'] ?? 0) + ($byCode['athlete_missing_birthdate'] ?? 0)),
             'financial_profile_issue_count' => (int) (($byCode['active_athlete_without_financial_setup'] ?? 0) + ($byCode['inactive_member_with_active_financial_obligation'] ?? 0) + ($byCode['financial_profile_check_limited'] ?? 0)),
-            'permission_issue_count' => (int) (($byCode['user_missing_role'] ?? 0) + ($byCode['user_unknown_role'] ?? 0) + ($byCode['permission_orphan_user'] ?? 0)),
-            'member_without_login_role_expected_count' => (int) ($byCode['member_without_login_role_expected'] ?? 0),
+            'permission_issue_count' => (int) (($byCode['user_missing_role'] ?? 0) + ($byCode['admin_profile_without_access_role'] ?? 0) + ($byCode['user_unknown_role'] ?? 0) + ($byCode['permission_orphan_user'] ?? 0)),
+            'login_credentials_detected_count' => $contextCollection->where('has_login_credentials', true)->count(),
+            'login_identifier_only_count' => $contextCollection->filter(fn (array $context): bool => (bool) ($context['has_login_identifier'] ?? false) && ! (bool) ($context['has_login_credentials'] ?? false) && ! (bool) ($context['has_access_role'] ?? false))->count(),
+            'access_role_missing_count' => (int) (($byCode['user_missing_role'] ?? 0) + ($byCode['admin_profile_without_access_role'] ?? 0)),
+            'admin_access_role_issue_count' => (int) ($byCode['admin_profile_without_access_role'] ?? 0),
+            'member_without_access_role_expected_count' => (int) ($byCode['member_without_access_role_expected'] ?? 0),
+            'member_without_login_role_expected_count' => (int) (($byCode['member_without_login_role_expected'] ?? 0) + ($byCode['member_without_access_role_expected'] ?? 0)),
             'sports_profile_pending_setup_count' => (int) ($byCode['athlete_sports_profile_pending_setup'] ?? 0),
             'financial_setup_not_required_or_unknown_count' => (int) ($byCode['athlete_financial_setup_not_required_or_unknown'] ?? 0),
-            'suspected_false_positive_reclassified_count' => (int) (($byCode['member_without_login_role_expected'] ?? 0) + ($byCode['athlete_sports_profile_pending_setup'] ?? 0) + ($byCode['athlete_financial_setup_not_required_or_unknown'] ?? 0)),
+            'suspected_false_positive_reclassified_count' => (int) (($byCode['member_without_login_role_expected'] ?? 0) + ($byCode['member_without_access_role_expected'] ?? 0) + ($byCode['athlete_sports_profile_pending_setup'] ?? 0) + ($byCode['athlete_financial_setup_not_required_or_unknown'] ?? 0)),
             'total_findings' => count($findings),
             'critical_count' => collect($findings)->where('severity', 'critical')->count(),
             'warning_count' => collect($findings)->where('severity', 'warning')->count(),
@@ -721,21 +740,28 @@ final class MemberModelAuditService
     }
 
     /**
+     * @return array<int,string>
+     */
+    private function memberFunctionalTypes(object $user, ?object $profile): array
+    {
+        $types = array_merge(
+            $this->rawMemberTypes($user),
+            array_filter([
+                (string) ($profile->tipo_utilizador ?? ''),
+                (string) ($user->perfil ?? ''),
+            ], fn (string $type): bool => ! $this->isBlank($type)),
+        );
+
+        return array_values(array_unique(array_filter($types, fn (string $type): bool => ! $this->isBlank($type))));
+    }
+
+    /**
      * @param Collection<int,object> $roles
      * @return array<int,string>
      */
-    private function memberTypes(object $user, Collection $roles): array
+    private function accessRoles(Collection $roles): array
     {
         $types = [];
-        $raw = $user->tipo_membro ?? null;
-        if (is_string($raw)) {
-            $decoded = json_decode($raw, true);
-            $raw = is_array($decoded) ? $decoded : [$raw];
-        }
-        if (is_array($raw)) {
-            $types = array_merge($types, array_filter(array_map('strval', $raw)));
-        }
-
         foreach ($roles as $role) {
             $types[] = (string) (($role->codigo ?? null) ?: ($role->nome ?? ''));
         }
@@ -783,20 +809,26 @@ final class MemberModelAuditService
             $roles = $rolesByUser[$userId] ?? collect();
             $profile = $profilesByUser->get($userId);
             $financial = $financialByUser->get($userId);
-            $types = $this->memberTypes($user, $roles);
-            $normalizedTypes = array_values(array_unique(array_filter(array_map(fn (string $type): string => $this->normalize($type), $types))));
+            $memberFunctionalTypes = $this->memberFunctionalTypes($user, $profile);
+            $accessRoles = $this->accessRoles($roles);
+            $normalizedFunctionalTypes = array_values(array_unique(array_filter(array_map(fn (string $type): string => $this->normalize($type), $memberFunctionalTypes))));
+            $normalizedAccessRoles = array_values(array_unique(array_filter(array_map(fn (string $type): string => $this->normalize($type), $accessRoles))));
             $perfil = $this->normalize((string) ($user->perfil ?? ''));
-            $birthdate = $this->birthdate($user, $profiles);
-            $hasRole = $roles->isNotEmpty();
+            $birthdate = $this->birthdateInfo($user, $profiles);
+            $hasAccessRole = $roles->isNotEmpty();
             $isAdmin = $this->isAdministrativeUser($user);
-            $isOperational = in_array($perfil, self::OPERATIONAL_PROFILES, true) || collect($normalizedTypes)->contains(fn (string $type): bool => in_array($type, self::OPERATIONAL_PROFILES, true));
-            $hasLogin = $this->hasLoginSignal($user, $hasRole, $isAdmin, $isOperational);
+            $isOperational = in_array($perfil, self::OPERATIONAL_PROFILES, true) || collect($normalizedFunctionalTypes)->contains(fn (string $type): bool => in_array($type, self::OPERATIONAL_PROFILES, true)) || collect($normalizedAccessRoles)->contains(fn (string $type): bool => in_array($type, self::OPERATIONAL_PROFILES, true));
+            $hasLoginIdentifier = $this->hasLoginIdentifier($user);
+            $hasLoginCredentials = $this->hasLoginCredentials($user, $schema, $hasAccessRole);
+            $hasLogin = $hasLoginCredentials || $hasAccessRole;
             $hasGuardianRelation = $this->hasGuardianRelation($userId, $schema);
             $hasDependents = $this->hasAnyDependent($userId, $schema);
-            $hasAthlete = $this->isActiveAthlete($user) || collect($normalizedTypes)->contains(fn (string $type): bool => in_array($type, self::ATHLETE_MARKERS, true));
+            $hasAthlete = $this->isActiveAthlete($user) || collect($normalizedFunctionalTypes)->contains(fn (string $type): bool => in_array($type, self::ATHLETE_MARKERS, true));
             $isGuardian = $this->looksLikeGuardian($user, $schema) || $hasDependents;
-            $isLegacy = ! $hasLogin && ! $hasRole && ($profile !== null || ! $this->isBlank($user->numero_socio ?? null));
+            $isLegacy = ! $hasLogin && ! $hasAccessRole && ($profile !== null || ! $this->isBlank($user->numero_socio ?? null));
             $hasMonthlyInvoice = $this->hasActiveMonthlyObligation($userId, $schema) === true;
+            $permissionRequirement = $this->permissionRequirement($hasLoginCredentials, $hasAccessRole, $hasLoginIdentifier, $isAdmin, $isOperational);
+            $sportsRequirement = $this->sportsProfileRequirement($user, $hasAccessRole, $hasLoginCredentials, $isAdmin, $isOperational, $isLegacy);
 
             $classification = ['person_record'];
             if ($profile !== null) {
@@ -827,15 +859,28 @@ final class MemberModelAuditService
             $contexts[$userId] = [
                 'functional_classification' => array_values(array_unique($classification)),
                 'has_login' => $hasLogin,
-                'has_user_type' => $hasRole,
-                'user_types' => $types,
+                'has_user_type' => $hasAccessRole,
+                'user_types' => $accessRoles,
+                'member_functional_types' => $memberFunctionalTypes,
+                'access_roles' => $accessRoles,
+                'has_member_functional_type' => $memberFunctionalTypes !== [],
+                'has_access_role' => $hasAccessRole,
+                'has_login_credentials' => $hasLoginCredentials,
+                'has_login_identifier' => $hasLoginIdentifier,
+                'login_expected' => (bool) $permissionRequirement['required'],
+                'login_reason' => $permissionRequirement['login_reason'],
+                'permission_required' => (bool) $permissionRequirement['required'],
+                'permission_reason' => $permissionRequirement['permission_reason'],
                 'perfil' => (string) ($user->perfil ?? ''),
                 'tipo_membro' => $this->rawMemberTypes($user),
                 'estado' => (string) ($user->estado ?? ''),
                 'menor' => $this->isMinor($user),
-                'idade' => $birthdate?->age,
-                'data_nascimento' => $birthdate?->toDateString(),
+                'idade' => $birthdate['age'],
+                'data_nascimento' => $birthdate['date'],
+                'birthdate' => $birthdate,
                 'ativo_desportivo' => (bool) ($user->ativo_desportivo ?? false),
+                'sports_profile_required' => (bool) $sportsRequirement['required'],
+                'sports_profile_reason' => $sportsRequirement['reason'],
                 'has_dados_pessoais' => $profile !== null,
                 'has_dados_financeiros' => $financial !== null,
                 'has_athlete_sports_data' => $sportsByUser->has($userId),
@@ -860,33 +905,94 @@ final class MemberModelAuditService
             'has_login' => false,
             'has_user_type' => false,
             'user_types' => [],
+            'member_functional_types' => [],
+            'access_roles' => [],
+            'has_member_functional_type' => false,
+            'has_access_role' => false,
+            'has_login_credentials' => false,
+            'has_login_identifier' => false,
+            'permission_required' => false,
         ];
     }
 
-    private function hasLoginSignal(object $user, bool $hasRole, bool $isAdmin, bool $isOperational): bool
+    private function hasLoginIdentifier(object $user): bool
     {
-        if (! $this->isBlank($user->email_utilizador ?? null)) {
+        return ! $this->isBlank($user->email_utilizador ?? null) || ! $this->isBlank($user->email ?? null);
+    }
+
+    private function hasLoginCredentials(object $user, array $schema, bool $hasAccessRole): bool
+    {
+        if ($hasAccessRole) {
             return true;
         }
 
-        return $hasRole || $isAdmin || $isOperational;
+        if (data_get($schema, 'users_columns.password') && ! $this->isBlank($user->password ?? null)) {
+            return true;
+        }
+
+        return data_get($schema, 'users_columns.last_login_at') && ! $this->isBlank($user->last_login_at ?? null);
+    }
+
+    /**
+     * @return array{required:bool,login_reason:string,permission_reason:string}
+     */
+    private function permissionRequirement(bool $hasLoginCredentials, bool $hasAccessRole, bool $hasLoginIdentifier, bool $isAdmin, bool $isOperational): array
+    {
+        if ($hasAccessRole) {
+            return ['required' => false, 'login_reason' => 'technical_access_role_present', 'permission_reason' => 'technical_access_role_present'];
+        }
+
+        if ($isAdmin) {
+            return ['required' => true, 'login_reason' => $hasLoginCredentials ? 'admin_profile_with_login_credentials' : 'admin_profile_without_confirmed_credentials', 'permission_reason' => 'admin_profile_requires_access_role'];
+        }
+
+        if ($isOperational && $hasLoginCredentials) {
+            return ['required' => true, 'login_reason' => 'operational_profile_with_login_credentials', 'permission_reason' => 'operational_profile_with_login_credentials'];
+        }
+
+        if ($hasLoginCredentials) {
+            return ['required' => true, 'login_reason' => 'login_credentials_present', 'permission_reason' => 'login_credentials_present'];
+        }
+
+        if ($hasLoginIdentifier) {
+            return ['required' => false, 'login_reason' => 'login_identifier_without_credentials', 'permission_reason' => 'contact_identifier_only'];
+        }
+
+        return ['required' => false, 'login_reason' => 'no_login_evidence', 'permission_reason' => 'member_without_login_credentials'];
     }
 
     private function expectsAccessRole(array $context): bool
     {
-        $classifications = $context['functional_classification'] ?? [];
-
-        return (bool) ($context['has_login'] ?? false)
-            || in_array('admin_user', $classifications, true)
-            || in_array('operational_user', $classifications, true)
-            || (in_array('guardian_profile', $classifications, true) && ! in_array('legacy_imported_member', $classifications, true));
+        return (bool) ($context['permission_required'] ?? false);
     }
 
     private function requiresSportsProfile(array $context): bool
     {
-        return (bool) ($context['ativo_desportivo'] ?? false)
-            && ! in_array('legacy_imported_member', $context['functional_classification'] ?? [], true)
-            && ((bool) ($context['has_login'] ?? false) || (bool) ($context['has_user_type'] ?? false));
+        return (bool) ($context['sports_profile_required'] ?? false);
+    }
+
+    /**
+     * @return array{required:bool,reason:string}
+     */
+    private function sportsProfileRequirement(object $user, bool $hasAccessRole, bool $hasLoginCredentials, bool $isAdmin, bool $isOperational, bool $isLegacy): array
+    {
+        if (! (bool) ($user->ativo_desportivo ?? false)) {
+            return ['required' => false, 'reason' => 'not_sport_active'];
+        }
+
+        if ($isAdmin || $isOperational) {
+            return ['required' => false, 'reason' => 'administrative_or_operational_profile'];
+        }
+
+        if ($isLegacy) {
+            return ['required' => false, 'reason' => 'legacy_imported_member_without_confirmed_operational_access'];
+        }
+
+        if ($hasAccessRole || $hasLoginCredentials) {
+            return ['required' => true, 'reason' => 'sport_active_with_operational_access'];
+        }
+
+        return ['required' => false, 'reason' => 'sport_active_without_confirmed_operational_access'];
     }
 
     private function requiresFinancialSetup(array $context): bool
@@ -895,7 +1001,7 @@ final class MemberModelAuditService
             return false;
         }
 
-        $types = collect($context['user_types'] ?? $context['tipo_membro'] ?? [])
+        $types = collect($context['member_functional_types'] ?? $context['tipo_membro'] ?? [])
             ->map(fn (mixed $type): string => $this->normalize((string) $type));
         if ($types->contains(fn (string $type): bool => str_contains($type, 'isento') || str_contains($type, 'experimental') || str_contains($type, 'master') || str_contains($type, 'admin'))) {
             return false;
@@ -996,17 +1102,51 @@ final class MemberModelAuditService
      */
     private function birthdate(object $user, Collection $profiles): ?CarbonImmutable
     {
-        $profile = $this->profileForUser($profiles, (string) $user->id);
-        $value = $this->firstFilled($profile->data_nascimento ?? null, $user->data_nascimento ?? null);
-        if ($value === null) {
+        $info = $this->birthdateInfo($user, $profiles);
+
+        if ($info['status'] !== 'valid' && $info['status'] !== 'administrative_placeholder') {
             return null;
         }
 
-        try {
-            return CarbonImmutable::parse((string) $value)->startOfDay();
-        } catch (\Throwable) {
-            return CarbonImmutable::tomorrow();
+        return $info['parsed'];
+    }
+
+    /**
+     * @param Collection<int,object> $profiles
+     * @return array{raw:?string,date:?string,parsed:?CarbonImmutable,status:string,age:?int,reason:string}
+     */
+    private function birthdateInfo(object $user, Collection $profiles): array
+    {
+        $profile = $this->profileForUser($profiles, (string) $user->id);
+        $value = $this->firstFilled($profile->data_nascimento ?? null, $user->data_nascimento ?? null);
+        if ($value === null) {
+            return ['raw' => null, 'date' => null, 'parsed' => null, 'status' => 'missing', 'age' => null, 'reason' => 'birthdate_missing'];
         }
+
+        $raw = trim((string) $value);
+        try {
+            $birthdate = CarbonImmutable::parse($raw)->startOfDay();
+        } catch (\Throwable) {
+            return ['raw' => $raw, 'date' => null, 'parsed' => null, 'status' => 'invalid_format', 'age' => null, 'reason' => 'unparseable_birthdate'];
+        }
+
+        if ($birthdate->toDateString() === '1900-01-01' && $this->isAdministrativeUser($user)) {
+            return ['raw' => $raw, 'date' => $birthdate->toDateString(), 'parsed' => $birthdate, 'status' => 'administrative_placeholder', 'age' => $birthdate->age, 'reason' => 'administrative_placeholder_birthdate'];
+        }
+
+        if ($birthdate->year < 1900) {
+            return ['raw' => $raw, 'date' => $birthdate->toDateString(), 'parsed' => $birthdate, 'status' => 'year_out_of_range', 'age' => $birthdate->age, 'reason' => 'birthdate_year_before_1900'];
+        }
+
+        if ($birthdate->isFuture()) {
+            return ['raw' => $raw, 'date' => $birthdate->toDateString(), 'parsed' => $birthdate, 'status' => 'future', 'age' => null, 'reason' => 'birthdate_in_future'];
+        }
+
+        if ($birthdate->age > 110) {
+            return ['raw' => $raw, 'date' => $birthdate->toDateString(), 'parsed' => $birthdate, 'status' => 'age_unrealistic', 'age' => $birthdate->age, 'reason' => 'birthdate_age_over_110'];
+        }
+
+        return ['raw' => $raw, 'date' => $birthdate->toDateString(), 'parsed' => $birthdate, 'status' => 'valid', 'age' => $birthdate->age, 'reason' => 'valid_birthdate'];
     }
 
     /**
