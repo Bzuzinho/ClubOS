@@ -153,6 +153,8 @@ final class MemberPlatformAccessInspectionCommandTest extends TestCase
         $this->assertSame('no_explicit_platform_access_enabled', $row['platform_access_granted_reason']);
         $this->assertFalse($row['access_expected']);
         $this->assertFalse($row['actionable']);
+        $this->assertSame(0, $payload['summary']['total_platform_access_configured']);
+        $this->assertSame(0, $payload['summary']['platform_access_granted_count']);
         $this->assertSame(1, $payload['summary']['known_current_access_user_count']);
         $this->assertSame(0, $payload['summary']['platform_access_issue_count']);
     }

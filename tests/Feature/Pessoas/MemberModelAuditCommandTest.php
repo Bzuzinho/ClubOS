@@ -640,6 +640,8 @@ final class MemberModelAuditCommandTest extends TestCase
         $this->assertTrue($ricardoFinding['context']['known_current_access_user']);
         $this->assertFalse($adminFinding['context']['platform_access_granted']);
         $this->assertFalse($ricardoFinding['context']['platform_access_granted']);
+        $this->assertSame(0, $payload['summary']['total_platform_access_configured']);
+        $this->assertSame(0, $payload['summary']['platform_access_granted_count']);
         $this->assertSame(2, $payload['summary']['known_current_access_user_count']);
         $this->assertCount(2, $payload['schema_detected']['platform_access_schema']['known_current_access_users_detected']);
     }
