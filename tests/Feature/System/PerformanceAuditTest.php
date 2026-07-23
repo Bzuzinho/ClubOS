@@ -13,6 +13,7 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
@@ -146,5 +147,21 @@ class PerformanceAuditTest extends TestCase
         $this->assertStringContainsString('PlatformAccessService', file_get_contents(app_path('Http/Requests/Auth/LoginRequest.php')));
         $this->assertStringContainsString('hasPlatformAccess', file_get_contents(app_path('Http/Requests/Auth/LoginRequest.php')));
         $this->assertTrue(class_exists(LoginRequest::class));
+    }
+
+    public function test_performance_audit_guards_against_missing_dados_pessoais_telemovel_column(): void
+    {
+        $this->assertFalse(Schema::hasColumn('dados_pessoais', 'telemovel'));
+
+        $exitCode = Artisan::call('system:audit-performance', [
+            '--json' => true,
+        ]);
+
+        $this->assertSame(0, $exitCode);
+        $payload = json_decode(Artisan::output(), true, flags: JSON_THROW_ON_ERROR);
+        $codes = collect($payload['findings'])->pluck('code');
+
+        $this->assertTrue($codes->contains('personal_data_schema_drift_telemovel_guarded'));
+        $this->assertFalse($codes->contains('personal_data_schema_drift_telemovel_reference'));
     }
 }

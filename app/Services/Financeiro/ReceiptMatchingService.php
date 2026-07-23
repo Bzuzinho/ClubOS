@@ -6,6 +6,7 @@ use App\Models\Invoice;
 use App\Models\ReceiptImportItem;
 use App\Models\User;
 use App\Services\Members\MemberFiscalDataResolver;
+use App\Services\Members\MemberPersonalDataColumnService;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
@@ -79,10 +80,11 @@ class ReceiptMatchingService
     private function findUserCandidates(ReceiptImportItem $item): Collection
     {
         $candidates = collect();
+        $personalDataRelation = app(MemberPersonalDataColumnService::class)->relationSelectForFiscalData();
 
         if ($item->extracted_nif) {
             User::query()
-                ->with('dadosPessoais:id,user_id,nome_completo,nif,morada,codigo_postal,localidade,contacto,email_secundario,telemovel,contacto_telefonico')
+                ->with($personalDataRelation)
                 ->where('nif', $item->extracted_nif)
                 ->get()
                 ->each(function (User $user) use ($candidates): void {
@@ -92,7 +94,7 @@ class ReceiptMatchingService
 
         if ($item->extracted_member_number) {
             User::query()
-                ->with('dadosPessoais:id,user_id,nome_completo,nif,morada,codigo_postal,localidade,contacto,email_secundario,telemovel,contacto_telefonico')
+                ->with($personalDataRelation)
                 ->where('numero_socio', $item->extracted_member_number)
                 ->get()
                 ->each(function (User $user) use ($candidates): void {
@@ -102,7 +104,7 @@ class ReceiptMatchingService
 
         if ($item->extracted_email) {
             User::query()
-                ->with('dadosPessoais:id,user_id,nome_completo,nif,morada,codigo_postal,localidade,contacto,email_secundario,telemovel,contacto_telefonico')
+                ->with($personalDataRelation)
                 ->where(function ($query) use ($item): void {
                     $query
                         ->where('email', $item->extracted_email)
@@ -117,7 +119,7 @@ class ReceiptMatchingService
         $normalizedName = $this->normalizeName($item->extracted_name);
         if ($normalizedName !== '') {
             User::query()
-                ->with('dadosPessoais:id,user_id,nome_completo,nif,morada,codigo_postal,localidade,contacto,email_secundario,telemovel,contacto_telefonico')
+                ->with($personalDataRelation)
                 ->get()
                 ->each(function (User $user) use ($normalizedName, $candidates): void {
                     $candidateName = $this->normalizeName($this->memberFiscalDataResolver->displayName($user));

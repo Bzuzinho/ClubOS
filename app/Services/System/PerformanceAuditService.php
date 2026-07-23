@@ -3,6 +3,7 @@
 namespace App\Services\System;
 
 use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\Schema;
 
 class PerformanceAuditService
 {
@@ -16,6 +17,7 @@ class PerformanceAuditService
 
         $this->inspectInertiaSharedProps($findings);
         $this->inspectMembersController($findings);
+        $this->inspectPersonalDataSchemaDrift($findings);
         $this->inspectAccessControl($findings);
         $this->inspectSlowRequestLogging($findings);
 
@@ -200,6 +202,59 @@ class PerformanceAuditService
                 'actionable' => false,
             ];
         }
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $findings
+     */
+    private function inspectPersonalDataSchemaDrift(array &$findings): void
+    {
+        if (! Schema::hasTable('dados_pessoais')) {
+            $findings[] = [
+                'severity' => 'info',
+                'code' => 'personal_data_schema_check_limited',
+                'message' => 'dados_pessoais table is unavailable in the current schema, so personal data column drift checks are limited.',
+                'recommendation' => 'no_action_needed_schema_limited_static_check',
+                'actionable' => false,
+            ];
+
+            return;
+        }
+
+        if (Schema::hasColumn('dados_pessoais', 'telemovel')) {
+            return;
+        }
+
+        $offenders = collect(File::allFiles(app_path()))
+            ->filter(function (\SplFileInfo $file): bool {
+                $contents = File::get($file->getPathname());
+
+                return preg_match('/dadosPessoais:[^\'"]*telemovel/', $contents) === 1;
+            })
+            ->map(fn (\SplFileInfo $file): string => $file->getPathname())
+            ->values()
+            ->all();
+
+        if ($offenders === []) {
+            $findings[] = [
+                'severity' => 'info',
+                'code' => 'personal_data_schema_drift_telemovel_guarded',
+                'message' => 'No direct dados_pessoais.telemovel eager-load reference was detected while the column is absent.',
+                'recommendation' => 'keep_personal_data_relation_selects_schema_aware',
+                'actionable' => false,
+            ];
+
+            return;
+        }
+
+        $findings[] = [
+            'severity' => 'warning',
+            'code' => 'personal_data_schema_drift_telemovel_reference',
+            'message' => 'Code references dados_pessoais.telemovel even though the current schema does not expose that column.',
+            'files' => $offenders,
+            'recommendation' => 'use_schema_aware_personal_data_relation_selects',
+            'actionable' => true,
+        ];
     }
 
     private function read(string $path): string

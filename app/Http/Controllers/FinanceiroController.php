@@ -41,6 +41,7 @@ use App\Services\Financeiro\ReconciliationAliasService;
 use App\Services\Financeiro\MemberMonthlyFeeResolver;
 use App\Services\Inventario\StockLedgerService;
 use App\Services\Members\MemberFiscalDataResolver;
+use App\Services\Members\MemberPersonalDataColumnService;
 use Illuminate\Support\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -288,6 +289,8 @@ class FinanceiroController extends Controller
             }),
             'users' => Cache::remember('financeiro:users', 60, function () {
                 try {
+                    $personalDataRelation = app(MemberPersonalDataColumnService::class)->relationSelectForFiscalData();
+
                     return User::select(
                         'id',
                         'numero_socio',
@@ -296,7 +299,7 @@ class FinanceiroController extends Controller
                         'escalao'
                     )
                         ->with([
-                            'dadosPessoais:id,user_id,nome_completo,nif,morada,codigo_postal,localidade,contacto,email_secundario,telemovel,contacto_telefonico',
+                            $personalDataRelation,
                             'dadosFinanceiros',
                             'centrosCusto',
                         ])

@@ -5,6 +5,7 @@ namespace App\Services\Financeiro;
 use App\Models\AgeGroup;
 use App\Models\User;
 use App\Services\Members\MemberFiscalDataResolver;
+use App\Services\Members\MemberPersonalDataColumnService;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 
@@ -308,7 +309,7 @@ class FinanceReportService
 
         return User::query()
             ->whereIn('id', $userIds)
-            ->with('dadosPessoais:id,user_id,nome_completo,nif,morada,codigo_postal,localidade,contacto,email_secundario,telemovel,contacto_telefonico')
+            ->with(app(MemberPersonalDataColumnService::class)->relationSelectForFiscalData())
             ->get(['id', 'name', 'numero_socio', 'tipo_membro', 'escalao']);
     }
 

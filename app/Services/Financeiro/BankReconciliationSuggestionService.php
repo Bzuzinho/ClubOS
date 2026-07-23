@@ -11,6 +11,7 @@ use App\Models\Payment;
 use App\Models\PaymentAllocation;
 use App\Models\User;
 use App\Services\Members\MemberFiscalDataResolver;
+use App\Services\Members\MemberPersonalDataColumnService;
 use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
@@ -1495,9 +1496,11 @@ class BankReconciliationSuggestionService
             ->take(6)
             ->values();
 
+        $personalDataRelation = app(MemberPersonalDataColumnService::class)->relationSelectForFiscalData();
+
         $users = User::query()
             ->with([
-                'dadosPessoais:id,user_id,nome_completo,nif,morada,codigo_postal,localidade,contacto,email_secundario,telemovel,contacto_telefonico',
+                $personalDataRelation,
                 'families:id,nome,responsavel_user_id',
                 'responsibleFamilies:id,nome,responsavel_user_id',
                 'educandos:id,nome_completo,name',

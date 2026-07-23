@@ -4,7 +4,9 @@ namespace App\Services\Club;
 
 use App\Models\ClubSetting;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
+use Throwable;
 
 class ClubSettingsService
 {
@@ -15,20 +17,19 @@ class ClubSettingsService
      */
     public function get(): array
     {
-        $settings = $this->model();
+        try {
+            return Cache::remember(self::CACHE_KEY, now()->addMinutes(30), function (): array {
+                return $this->buildPayload($this->model());
+            });
+        } catch (Throwable $exception) {
+            Log::warning('club_settings.fallback_used', [
+                'exception' => $exception::class,
+                'message' => $this->safeExceptionMessage($exception),
+                'source' => 'ClubSettingsService::get',
+            ]);
 
-        if (! $settings) {
             return $this->buildPayload(null);
         }
-
-        $cacheKey = sprintf(
-            '%s:%s:%s',
-            self::CACHE_KEY,
-            (string) $settings->getKey(),
-            (string) optional($settings->updated_at)->timestamp
-        );
-
-        return Cache::remember($cacheKey, now()->addMinutes(30), fn (): array => $this->buildPayload($settings));
     }
 
     public function model(): ?ClubSetting
@@ -38,17 +39,17 @@ class ClubSettingsService
 
     public function name(): string
     {
-        return $this->normalizeText($this->model()?->nome_clube);
+        return (string) ($this->get()['nome_clube'] ?? 'Clube');
     }
 
     public function shortName(): string
     {
-        return $this->normalizeShortName($this->model()?->sigla);
+        return (string) ($this->get()['sigla'] ?? 'CLUBE');
     }
 
     public function logoUrl(): ?string
     {
-        return $this->normalizeLogoUrl($this->model()?->logo_url);
+        return $this->get()['logo_url'] ?? null;
     }
 
     public function institutionalName(): string
@@ -69,23 +70,12 @@ class ClubSettingsService
 
     public function defaultMeetingPoint(): string
     {
-        return $this->resolveMeetingPoint($this->model());
+        return (string) ($this->get()['default_meeting_point'] ?? 'Sede do Clube');
     }
 
     public function clearCache(): void
     {
         Cache::forget(self::CACHE_KEY);
-
-        $settings = $this->model();
-
-        if ($settings) {
-            Cache::forget(sprintf(
-                '%s:%s:%s',
-                self::CACHE_KEY,
-                (string) $settings->getKey(),
-                (string) optional($settings->updated_at)->timestamp
-            ));
-        }
     }
 
     /**
@@ -168,5 +158,14 @@ class ClubSettingsService
         }
 
         return 'Sede do Clube';
+    }
+
+    private function safeExceptionMessage(Throwable $exception): string
+    {
+        return str($exception->getMessage())
+            ->replaceMatches('/password=[^\\s;]+/i', 'password=[masked]')
+            ->replaceMatches('/user(name)?=[^\\s;]+/i', 'user=[masked]')
+            ->limit(300)
+            ->toString();
     }
 }
