@@ -39,6 +39,7 @@ interface EscalaoStat {
 
 interface Props {
     members: User[];
+    membersPagination?: MembersPagination;
     userTypes: any[];
     ageGroups: any[];
     stats: Stats;
@@ -49,6 +50,20 @@ interface Props {
     };
 }
 
+interface MembersPagination {
+    current_page: number;
+    per_page: number;
+    total: number;
+    last_page: number;
+    from: number | null;
+    to: number | null;
+    links: Array<{
+        url: string | null;
+        label: string;
+        active: boolean;
+    }>;
+}
+
 const MembrosDashboard = lazy(() => import('./Dashboard'));
 const MembrosListTab = lazy(() => import('./ListTab'));
 
@@ -56,7 +71,7 @@ function TabLoadingState() {
     return <div className="min-h-[240px] rounded-lg border border-dashed border-border bg-background" />;
 }
 
-export default function MembrosIndex({ members, userTypes, ageGroups, stats, tipoMembrosStats, escaloesStats, communicationState }: Props) {
+export default function MembrosIndex({ members, membersPagination, userTypes, ageGroups, stats, tipoMembrosStats, escaloesStats, communicationState }: Props) {
     const [activeTab, setActiveTab] = useState(() => {
         if (typeof window !== 'undefined') {
             const queryTab = new URLSearchParams(window.location.search).get('tab');
@@ -107,7 +122,7 @@ export default function MembrosIndex({ members, userTypes, ageGroups, stats, tip
 
                 <TabsContent value="list" className={moduleTabbedContentClass}>
                     <Suspense fallback={<TabLoadingState />}>
-                        <MembrosListTab members={members} userTypes={userTypes} />
+                        <MembrosListTab members={members} membersPagination={membersPagination} userTypes={userTypes} />
                     </Suspense>
                 </TabsContent>
 

@@ -45,6 +45,7 @@ return Application::configure(basePath: dirname(__DIR__))
         \App\Console\Commands\Pessoas\MemberModelAuditCommand::class,
         \App\Console\Commands\Pessoas\MemberPlatformAccessInspectionCommand::class,
         \App\Console\Commands\Pessoas\RevokePlatformAccessCommand::class,
+        \App\Console\Commands\System\PerformanceAuditCommand::class,
         \App\Console\Commands\ReleaseVisibleInvoiceCommunications::class,
         \App\Console\Commands\SyncPermissionNodes::class,
         \App\Console\Commands\GenerateMonthlyFeesCommand::class,
@@ -108,6 +109,7 @@ return Application::configure(basePath: dirname(__DIR__))
         
         $middleware->web(append: [
             \App\Http\Middleware\ForceAppUrl::class,
+            \App\Http\Middleware\LogSlowRequests::class,
             \App\Http\Middleware\HandleInertiaRequests::class,
         ]);
 

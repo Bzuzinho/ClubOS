@@ -60,7 +60,9 @@ class HandleInertiaRequests extends Middleware
                 : app(UserTypeAccessControlService::class)->getCurrentUserAccess(null),
             'clubSettings' => app(ClubSettingsService::class)->get(),
             'communicationAlerts' => $this->sharedCommunicationAlerts($user),
-            'communicationMembers' => $this->sharedCommunicationMembers($user),
+            'communicationMembers' => $this->shouldShareCommunicationMembers($request)
+                ? $this->sharedCommunicationMembers($user)
+                : [],
         ];
     }
 
@@ -155,5 +157,13 @@ class HandleInertiaRequests extends Middleware
                 ->values()
                 ->all(),
         );
+    }
+
+    private function shouldShareCommunicationMembers(Request $request): bool
+    {
+        return $request->routeIs('portal.communications')
+            || in_array('communicationMembers', $request->header('X-Inertia-Partial-Data')
+                ? array_map('trim', explode(',', (string) $request->header('X-Inertia-Partial-Data')))
+                : [], true);
     }
 }

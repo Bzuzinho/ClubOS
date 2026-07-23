@@ -11,4 +11,9 @@ return [
             explode(',', (string) env('CLUBOS_MONTHLY_FEE_ELIGIBLE_MEMBER_TYPES', 'atleta')),
         ), static fn (string $type): bool => $type !== '')),
     ],
+    'performance' => [
+        'log_enabled' => env('CLUBOS_PERFORMANCE_LOG', false),
+        'slow_request_threshold_ms' => (int) env('CLUBOS_SLOW_REQUEST_THRESHOLD_MS', 1000),
+        'slow_query_threshold_ms' => (int) env('CLUBOS_SLOW_QUERY_THRESHOLD_MS', 200),
+    ],
 ];

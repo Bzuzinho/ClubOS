@@ -64,34 +64,49 @@ class MembrosController extends Controller
 
     public function index(Request $request): Response
     {
-        // members list — 60s TTL, invalidated on store/update/destroy
-        $members = Cache::remember('membros:list', 60, fn () =>
-            User::query()
-                ->with(['dadosPessoais:id,user_id,nome_completo', 'userTypes:id,codigo,nome'])
-                ->select([
-                    'id',
-                    'numero_socio',
-                    'name',
-                    'email_utilizador',
-                    'foto_perfil',
-                    'estado',
-                    'tipo_membro',
-                    'ativo_desportivo',
-                    'escalao',
-                    'created_at',
-                ])
-                ->get()
-                ->map(function (User $member): User {
-                    $member->setAttribute('nome_completo', $this->memberIdentityDisplayResolver->displayName($member));
-                    $member->setAttribute('tipo_membro', $this->memberTypeResolver->typesFor($member));
+        $perPage = min(max((int) $request->integer('per_page', 50), 10), 100);
+        $search = trim((string) $request->string('search')->value());
+        $status = trim((string) $request->string('status')->value());
 
-                    unset($member->dadosPessoais, $member->userTypes, $member->name);
+        $membersPaginator = User::query()
+            ->with(['dadosPessoais:id,user_id,nome_completo', 'userTypes:id,codigo,nome'])
+            ->select([
+                'id',
+                'numero_socio',
+                'name',
+                'email_utilizador',
+                'foto_perfil',
+                'estado',
+                'tipo_membro',
+                'ativo_desportivo',
+                'escalao',
+                'created_at',
+            ])
+            ->when($search !== '', function ($query) use ($search) {
+                $query->where(function ($searchQuery) use ($search) {
+                    $searchQuery
+                        ->where('name', 'like', '%'.$search.'%')
+                        ->orWhere('nome_completo', 'like', '%'.$search.'%')
+                        ->orWhere('numero_socio', 'like', '%'.$search.'%')
+                        ->orWhere('email_utilizador', 'like', '%'.$search.'%')
+                        ->orWhereHas('dadosPessoais', fn ($personalQuery) => $personalQuery->where('nome_completo', 'like', '%'.$search.'%'));
+                });
+            })
+            ->when(in_array($status, ['ativo', 'inativo', 'suspenso'], true), fn ($query) => $query->where('estado', $status))
+            ->orderByRaw('COALESCE(nome_completo, name)')
+            ->paginate($perPage)
+            ->withQueryString();
 
-                    return $member;
-                })
-                ->sortBy(fn (User $member): string => mb_strtolower($this->memberIdentityDisplayResolver->displayName($member)))
-                ->values()
-        );
+        $membersPaginator->getCollection()->transform(function (User $member): User {
+            $member->setAttribute('nome_completo', $this->memberIdentityDisplayResolver->displayName($member));
+            $member->setAttribute('tipo_membro', $this->memberTypeResolver->typesFor($member));
+
+            unset($member->dadosPessoais, $member->userTypes, $member->name);
+
+            return $member;
+        });
+
+        $members = $membersPaginator->getCollection()->values();
 
         $userTypes = Cache::remember('membros:user_types', 300, fn () =>
             UserType::where('ativo', true)->select('id', 'nome')->get()
@@ -104,7 +119,10 @@ class MembrosController extends Controller
         $currentUser = $request->user();
 
         // All stats in a single cache entry — avoids 8+ separate roundtrips
-        $stats = Cache::remember('membros:stats', 60, function () use ($members, $userTypes, $ageGroups) {
+        $stats = Cache::remember('membros:stats', 60, function () use ($userTypes, $ageGroups) {
+            $statsMembers = User::query()
+                ->select(['id', 'estado', 'tipo_membro', 'ativo_desportivo', 'escalao', 'created_at'])
+                ->get();
             $membersByUserType = [];
             $athletesByAgeGroup = [];
             $canonicalTypeLabels = $userTypes
@@ -118,7 +136,7 @@ class MembrosController extends Controller
                 })
                 ->all();
 
-            foreach ($members as $member) {
+            foreach ($statsMembers as $member) {
                 $memberTypes = collect($member->tipo_membro ?? [])->map(static fn ($type) => (string) $type);
 
                 foreach ($memberTypes as $typeId) {
@@ -149,18 +167,18 @@ class MembrosController extends Controller
             }
 
             $createdThreshold = now()->subDays(30);
-            $athletes = $members->filter(fn (User $member) => $this->memberTypeResolver->isAthlete($member));
+            $athletes = $statsMembers->filter(fn (User $member) => $this->memberTypeResolver->isAthlete($member));
 
             return [
                 'counts' => [
-                    'totalMembros'      => $members->count(),
-                    'membrosAtivos'     => $members->where('estado', 'ativo')->count(),
-                    'membrosInativos'   => $members->where('estado', 'inativo')->count(),
+                    'totalMembros'      => $statsMembers->count(),
+                    'membrosAtivos'     => $statsMembers->where('estado', 'ativo')->count(),
+                    'membrosInativos'   => $statsMembers->where('estado', 'inativo')->count(),
                     'totalAtletas'      => $athletes->count(),
                     'atletasAtivos'     => $athletes->where('ativo_desportivo', true)->count(),
-                    'encarregados'      => $members->filter(fn (User $member) => $this->memberTypeResolver->isGuardian($member))->count(),
-                    'treinadores'       => $members->filter(fn (User $member) => $this->memberTypeResolver->isTrainer($member))->count(),
-                    'novosUltimos30Dias' => $members->filter(static fn ($member) => optional($member->created_at)?->greaterThanOrEqualTo($createdThreshold))->count(),
+                    'encarregados'      => $statsMembers->filter(fn (User $member) => $this->memberTypeResolver->isGuardian($member))->count(),
+                    'treinadores'       => $statsMembers->filter(fn (User $member) => $this->memberTypeResolver->isTrainer($member))->count(),
+                    'novosUltimos30Dias' => $statsMembers->filter(static fn ($member) => optional($member->created_at)?->greaterThanOrEqualTo($createdThreshold))->count(),
                 ],
                 'tipoMembrosStats' => $tipoMembrosStats,
                 'escaloesStats'    => $escaloesStats,
@@ -181,6 +199,15 @@ class MembrosController extends Controller
 
         return Inertia::render('Membros/Index', [
             'members' => $members,
+            'membersPagination' => [
+                'current_page' => $membersPaginator->currentPage(),
+                'per_page' => $membersPaginator->perPage(),
+                'total' => $membersPaginator->total(),
+                'last_page' => $membersPaginator->lastPage(),
+                'from' => $membersPaginator->firstItem(),
+                'to' => $membersPaginator->lastItem(),
+                'links' => $membersPaginator->linkCollection()->toArray(),
+            ],
             'userTypes' => $userTypes,
             'ageGroups' => $ageGroups,
             'internalCommunications' => $internalCommunications,

@@ -25,10 +25,25 @@ interface User {
 
 interface Props {
     members: User[];
+    membersPagination?: MembersPagination;
     userTypes: any[];
 }
 
-export default function MembrosListTab({ members, userTypes }: Props) {
+interface MembersPagination {
+    current_page: number;
+    per_page: number;
+    total: number;
+    last_page: number;
+    from: number | null;
+    to: number | null;
+    links: Array<{
+        url: string | null;
+        label: string;
+        active: boolean;
+    }>;
+}
+
+export default function MembrosListTab({ members, membersPagination, userTypes }: Props) {
     const [searchTerm, setSearchTerm] = useState('');
     const [statusFilter, setStatusFilter] = useState<string>('all');
     const [typeFilter, setTypeFilter] = useState<string>('all');
@@ -88,7 +103,9 @@ export default function MembrosListTab({ members, userTypes }: Props) {
         <div className="space-y-2.5">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <p className="text-xs text-muted-foreground">
-                    {filteredUsers.length} de {members.length} membros
+                    {membersPagination
+                        ? `${membersPagination.from ?? 0}-${membersPagination.to ?? 0} de ${membersPagination.total} membros`
+                        : `${filteredUsers.length} de ${members.length} membros`}
                 </p>
 
                 <div className="flex items-center gap-1.5">
@@ -339,6 +356,28 @@ export default function MembrosListTab({ members, userTypes }: Props) {
                     </AlertDialogFooter>
                 </AlertDialogContent>
             </AlertDialog>
+
+            {membersPagination && membersPagination.last_page > 1 ? (
+                <div className="flex flex-wrap items-center justify-end gap-1.5">
+                    {membersPagination.links.map((link, index) => (
+                        <Button
+                            key={`${link.label}-${index}`}
+                            type="button"
+                            variant={link.active ? 'default' : 'outline'}
+                            size="sm"
+                            className="h-8 min-w-8 px-2 text-xs"
+                            disabled={!link.url}
+                            onClick={() => {
+                                if (link.url) {
+                                    router.visit(link.url, { preserveScroll: true, preserveState: true });
+                                }
+                            }}
+                        >
+                            {link.label.replace('&laquo;', '‹').replace('&raquo;', '›')}
+                        </Button>
+                    ))}
+                </div>
+            ) : null}
         </div>
     );
 }
