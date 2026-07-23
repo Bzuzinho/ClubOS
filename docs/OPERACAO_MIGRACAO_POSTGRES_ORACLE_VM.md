@@ -65,6 +65,7 @@ DB_CONNECT_TIMEOUT=5
 
 Os scripts vivem em `scripts/ops/database/` e assumem execução na Oracle VM Ubuntu, a partir da raiz do repositório:
 
+- `migrate-neon-to-local-postgres.sh`;
 - `install-local-postgres.sh`;
 - `backup-neon-production.sh`;
 - `restore-local-postgres.sh`;
@@ -74,6 +75,8 @@ Os scripts vivem em `scripts/ops/database/` e assumem execução na Oracle VM Ub
 - `backup-local-postgres.sh`.
 
 Todos usam `set -euo pipefail`, validam variáveis obrigatórias e não imprimem passwords.
+
+O script `migrate-neon-to-local-postgres.sh` é o orquestrador recomendado para a fase final. Ele lê a ligação Neon do `.env` atual da aplicação, valida Neon e PostgreSQL local, compara tabelas/contagens, verifica drift conhecido (`dados_pessoais.telemovel`, `contacto`, `contacto_telefonico`, `estado_civil` e `dados_configuracao.platform_access_enabled`), gera log/relatório em `/var/backups/clubmanager` e bloqueia o switch se houver divergências. Por desenho, não altera `.env` automaticamente.
 
 ## Instalação PostgreSQL Local
 
@@ -125,6 +128,19 @@ O script cria:
 - permissões restritas via `umask 077`.
 
 Guardar o caminho do ficheiro `.dump` gerado para o restore.
+
+Dump produtivo já criado para a operação DB1 final:
+
+```txt
+/var/backups/clubmanager/neon-prod-20260723-163106.dump
+sha256: 7837a9cc61c1b4639de204a3cd3dc64b7da14eb6c7eb66095193a970f5861b46
+```
+
+Antes de usar este dump, confirmar checksum na VM:
+
+```bash
+sha256sum /var/backups/clubmanager/neon-prod-20260723-163106.dump
+```
 
 ## Restore Local
 
@@ -188,6 +204,41 @@ php artisan test --filter=DatabaseHealth
 ```
 
 Não continuar se houver erro de schema, contagens inesperadas ou falhas de login/gravação.
+
+Para a validação final Neon vs local, preferir o orquestrador:
+
+```bash
+cd /var/www/clubmanager
+export LOCAL_DB_PASSWORD='********'
+export DUMP_PATH=/var/backups/clubmanager/neon-prod-20260723-163106.dump
+bash scripts/ops/database/migrate-neon-to-local-postgres.sh
+```
+
+Se o relatório mostrar divergências entre Neon e local e for necessário refazer o restore da BD local descartável:
+
+```bash
+export LOCAL_DB_PASSWORD='********'
+export DUMP_PATH=/var/backups/clubmanager/neon-prod-20260723-163106.dump
+export DB1_ALLOW_RESTORE_ON_DIVERGENCE=true
+export DB1_CONFIRM_RECREATE_LOCAL_DB=RECREATE_LOCAL_DB
+bash scripts/ops/database/migrate-neon-to-local-postgres.sh
+```
+
+Este modo dropa apenas a base local `clubmanager_prod`, recria-a, restaura o dump indicado e volta a comparar. A BD Neon nunca é alterada.
+
+As contagens suspeitas observadas no primeiro restore local foram:
+
+```txt
+users = 79
+migrations = 181
+club_settings = 1
+dados_pessoais = 0
+dados_configuracao = 0
+dados_financeiros = 78
+dados_desportivos = tabela ausente
+```
+
+Estas contagens não devem ser tratadas como erro até comparar com Neon real. Se Neon também tiver `dados_pessoais=0` e `dados_configuracao=0`, documentar como estado produtivo atual. Se Neon tiver dados nessas tabelas e local não, o restore local está incorreto e o switch fica bloqueado.
 
 ## Troca do `.env` de Produção
 
@@ -334,10 +385,15 @@ Usar ficheiro de ambiente root-only para secrets do cron, nunca Git.
 - [ ] Database `clubmanager_prod` criada.
 - [ ] Porta 5432 não exposta publicamente.
 - [ ] Dump Neon custom criado.
+- [ ] Checksum do dump produtivo validado.
 - [ ] Schema-only dump criado.
 - [ ] Checksum criado.
 - [ ] Restore local concluído.
+- [ ] `migrate-neon-to-local-postgres.sh` executado na VM.
+- [ ] Log `migration-YYYYMMDD-HHMMSS.log` guardado em `/var/backups/clubmanager`.
+- [ ] Relatório `migration-YYYYMMDD-HHMMSS.report.tsv` revisto.
 - [ ] Contagens Neon vs local comparadas.
+- [ ] `dados_pessoais`/`dados_configuracao` a zero justificado por comparação real contra Neon ou restore refeito.
 - [ ] `migrate:status` OK.
 - [ ] `migrate --pretend` OK.
 - [ ] `system:database-health` OK contra local.
