@@ -32,6 +32,8 @@ final class MemberDataWriteService
         'contacto',
         'contacto_alternativo',
         'email_secundario',
+        'estado_civil',
+        'numero_irmaos',
         'tipo_utilizador',
         'observacoes',
     ];
@@ -80,6 +82,8 @@ final class MemberDataWriteService
         'contacto' => ['contacto', 'telefone', 'telemovel'],
         'contacto_alternativo' => ['contacto_alternativo', 'contacto_telefonico'],
         'email_secundario' => ['email_secundario'],
+        'estado_civil' => ['estado_civil'],
+        'numero_irmaos' => ['numero_irmaos'],
         'tipo_utilizador' => ['tipo_utilizador', 'perfil'],
         'observacoes' => ['observacoes', 'notas'],
     ];

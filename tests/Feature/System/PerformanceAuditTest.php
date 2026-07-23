@@ -115,6 +115,30 @@ class PerformanceAuditTest extends TestCase
         $this->assertCount(50, $response->json('props.members'));
         $this->assertSame(126, $response->json('props.membersPagination.total'));
         $this->assertSame(50, $response->json('props.membersPagination.per_page'));
+        $this->assertNull($response->json('props.internalCommunications'));
+    }
+
+    public function test_member_show_does_not_load_internal_communications_until_requested(): void
+    {
+        $this->withoutMiddleware([EnsureModuleAccess::class, EnsurePermissionAccess::class]);
+
+        $admin = User::factory()->admin()->create();
+        $member = User::factory()->create([
+            'nome_completo' => 'Member Show Performance',
+            'name' => 'Member Show Performance',
+            'sexo' => 'masculino',
+            'estado' => 'ativo',
+        ]);
+
+        $response = $this
+            ->actingAs($admin)
+            ->withHeader('X-Inertia', 'true')
+            ->withHeader('X-Inertia-Version', (string) app(HandleInertiaRequests::class)->version(request()))
+            ->get(route('membros.show', ['member' => $member->id]));
+
+        $response->assertOk();
+        $this->assertSame([], $response->json('props.internalCommunications.received'));
+        $this->assertSame([], $response->json('props.internalCommunications.sent'));
     }
 
     public function test_login_request_still_uses_platform_access_gate(): void

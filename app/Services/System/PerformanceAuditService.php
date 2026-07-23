@@ -121,6 +121,38 @@ class PerformanceAuditService
                 'actionable' => false,
             ];
         }
+
+        if (str_contains($contents, 'shouldLoadMemberCommunications')) {
+            $findings[] = [
+                'severity' => 'info',
+                'code' => 'member_show_communications_loaded_lazily',
+                'message' => 'Member show loads internal communication feeds only when the communications tab or partial prop is requested.',
+                'file' => $path,
+                'recommendation' => 'no_action_needed_member_show_communications_lazy',
+                'actionable' => false,
+            ];
+        } else {
+            $findings[] = [
+                'severity' => 'warning',
+                'code' => 'member_show_payload_too_heavy',
+                'message' => 'Member show may load internal communication feeds during the initial profile request.',
+                'file' => $path,
+                'recommendation' => 'load_member_communications_only_when_requested',
+                'actionable' => true,
+            ];
+        }
+
+        $legacyPayloadSection = $this->section($contents, 'private function legacyUserPayloadForMemberWrite', 'private function hasFinancialDataPayload');
+        if (str_contains($legacyPayloadSection, "'estado_civil'")) {
+            $findings[] = [
+                'severity' => 'warning',
+                'code' => 'member_update_estado_civil_mapping_issue',
+                'message' => 'Member update still attempts to include civil status in the legacy users payload.',
+                'file' => $path,
+                'recommendation' => 'persist_estado_civil_only_in_dados_pessoais',
+                'actionable' => true,
+            ];
+        }
     }
 
     /**
@@ -173,5 +205,20 @@ class PerformanceAuditService
     private function read(string $path): string
     {
         return File::exists($path) ? File::get($path) : '';
+    }
+
+    private function section(string $contents, string $start, string $end): string
+    {
+        $startPosition = strpos($contents, $start);
+        if ($startPosition === false) {
+            return '';
+        }
+
+        $endPosition = strpos($contents, $end, $startPosition);
+        if ($endPosition === false) {
+            return substr($contents, $startPosition);
+        }
+
+        return substr($contents, $startPosition, $endPosition - $startPosition);
     }
 }

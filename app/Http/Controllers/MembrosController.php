@@ -36,7 +36,6 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Password;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
@@ -116,8 +115,6 @@ class MembrosController extends Controller
             AgeGroup::select('id', 'nome')->get()
         );
 
-        $currentUser = $request->user();
-
         // All stats in a single cache entry — avoids 8+ separate roundtrips
         $stats = Cache::remember('membros:stats', 60, function () use ($userTypes, $ageGroups) {
             $statsMembers = User::query()
@@ -185,18 +182,6 @@ class MembrosController extends Controller
             ];
         });
 
-        $internalCommunications = ['received' => [], 'sent' => []];
-        if ($currentUser) {
-            $internalCommunications = Cache::remember(
-                'membros:communications:' . $currentUser->id,
-                30,
-                fn () => [
-                    'received' => $this->internalCommunicationService->receivedFeed($currentUser->id),
-                    'sent' => $this->internalCommunicationService->sentFeed($currentUser->id),
-                ]
-            );
-        }
-
         return Inertia::render('Membros/Index', [
             'members' => $members,
             'membersPagination' => [
@@ -210,7 +195,6 @@ class MembrosController extends Controller
             ],
             'userTypes' => $userTypes,
             'ageGroups' => $ageGroups,
-            'internalCommunications' => $internalCommunications,
             'communicationState' => [
                 'initialTab' => $request->string('tab')->value() ?: 'dashboard',
                 'initialFolder' => $request->string('folder')->value() ?: 'received',
@@ -531,20 +515,16 @@ class MembrosController extends Controller
         $memberData['centro_custo'] = collect($resolvedCostCenters['centro_custo'] ?? [])->values();
         $memberData['centro_custo_pesos'] = collect($resolvedCostCenters['centro_custo_pesos'] ?? [])->values();
 
-        Log::info('membros.show relation snapshot', [
-            'member_key' => $memberKey,
-            'route_member' => request()->route('member'),
-            'member_data_educandos' => collect($memberData['educandos'] ?? [])->map(fn ($entry) => is_array($entry) ? ($entry['id'] ?? $entry) : $entry)->values()->all(),
-            'member_data_guardians' => collect($memberData['encarregados'] ?? [])->map(fn ($entry) => is_array($entry) ? ($entry['id'] ?? $entry) : $entry)->values()->all(),
-            'legacy_educandos' => $member->educandos ?? null,
-            'legacy_guardians' => $member->encarregado_educacao ?? null,
-            'pivot_educandos' => $member->educandos()->pluck('users.id')->all(),
-            'pivot_guardians' => $member->encarregados()->pluck('users.id')->all(),
-        ]);
-
         $canManageFamilyRelations = $viewer
             ? $accessControlService->canAccessPermission($viewer, 'membros.ficha', 'edit')
             : false;
+        $internalCommunications = ['received' => [], 'sent' => []];
+        if ($this->shouldLoadMemberCommunications()) {
+            $internalCommunications = [
+                'received' => $this->internalCommunicationService->receivedFeed($memberKey),
+                'sent' => $this->internalCommunicationService->sentFeed($memberKey),
+            ];
+        }
 
         return Inertia::render('Membros/Show', [
             'member' => $memberData,
@@ -559,10 +539,7 @@ class MembrosController extends Controller
                 $familyService,
             ),
             'allUsers' => $allUsers,
-            'internalCommunications' => [
-                'received' => $this->internalCommunicationService->receivedFeed($memberKey),
-                'sent' => $this->internalCommunicationService->sentFeed($memberKey),
-            ],
+            'internalCommunications' => $internalCommunications,
             'userTypes' => UserType::where('ativo', true)->get(),
             'ageGroups' => AgeGroup::all(),
             'faturas' => $faturas,
@@ -781,16 +758,6 @@ class MembrosController extends Controller
                 ->shouldHaveMonthlyFee($memberBeforeEligibilityWrite);
             $previousMonthlyTerms = $this->monthlyFeeTermsSnapshot($memberBeforeEligibilityWrite);
 
-            Log::info('membros.update incoming relations', [
-                'member_key' => $memberKey,
-                'request_educandos' => $request->input('educandos'),
-                'validated_educandos' => $data['educandos'] ?? null,
-                'request_guardians' => $request->input('encarregado_educacao'),
-                'validated_guardians' => $data['encarregado_educacao'] ?? null,
-                'sync_educandos' => $request->boolean('sync_educandos'),
-                'sync_guardians' => $request->boolean('sync_encarregado_educacao'),
-            ]);
-
             if (array_key_exists('escalao_id', $data) && !array_key_exists('escalao', $data)) {
                 $data['escalao'] = $data['escalao_id'] ? [(string) $data['escalao_id']] : [];
             }
@@ -916,14 +883,6 @@ class MembrosController extends Controller
                     $memberKey
                 );
             }
-
-            Log::info('membros.update persisted relations', [
-                'member_key' => $memberKey,
-                'legacy_educandos' => User::query()->whereKey($memberKey)->value('educandos'),
-                'legacy_guardians' => User::query()->whereKey($memberKey)->value('encarregado_educacao'),
-                'pivot_educandos' => DB::table('user_guardian')->where('guardian_id', $memberKey)->pluck('user_id')->all(),
-                'pivot_guardians' => DB::table('user_guardian')->where('user_id', $memberKey)->pluck('guardian_id')->all(),
-            ]);
 
             Cache::forget('membros:list');
             Cache::forget('membros:stats');
@@ -1063,13 +1022,24 @@ class MembrosController extends Controller
             'data_atestado_medico' => $data['data_atestado_medico'] ?? null,
             'informacoes_medicas' => $data['informacoes_medicas'] ?? null,
             'telefone' => $data['telefone'] ?? null,
-            'estado_civil' => $data['estado_civil'] ?? null,
             'notas' => $data['notas'] ?? null,
             'ocupacao' => $data['ocupacao'] ?? null,
             'empresa' => $data['empresa'] ?? null,
             'escola' => $data['escola'] ?? null,
-            'numero_irmaos' => $data['numero_irmaos'] ?? null,
         ], static fn ($value) => $value !== null);
+    }
+
+    private function shouldLoadMemberCommunications(): bool
+    {
+        $request = request();
+        $partialData = collect(explode(',', (string) $request->headers->get('X-Inertia-Partial-Data')))
+            ->map(static fn (string $value): string => trim($value))
+            ->filter()
+            ->values();
+
+        return $request->string('tab')->value() === 'communications'
+            || $request->filled('message')
+            || $partialData->contains('internalCommunications');
     }
 
     private function hasFinancialDataPayload(array $data): bool

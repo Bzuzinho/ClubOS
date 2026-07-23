@@ -48,6 +48,7 @@ final class MemberDataReadService
         'contacto_alternativo'    => ['contacto_alternativo', 'contacto_telefonico'],
         'email_secundario'        => 'email_secundario',
         'estado_civil'            => 'estado_civil',
+        'numero_irmaos'           => null,
         'tipo_utilizador'         => ['tipo_utilizador', 'perfil'],
         'observacoes'             => 'observacoes',
     ];
@@ -165,7 +166,12 @@ final class MemberDataReadService
         $baseMemberData['contacto']                = $personal['contacto'];
         $baseMemberData['contacto_alternativo']    = $personal['contacto_alternativo'];
         $baseMemberData['email_secundario']        = $personal['email_secundario'];
+        $baseMemberData['estado_civil']            = $personal['estado_civil'];
         $baseMemberData['observacoes']             = $personal['observacoes'];
+
+        if (array_key_exists('numero_irmaos', $personal)) {
+            $baseMemberData['numero_irmaos'] = $personal['numero_irmaos'];
+        }
 
         // --- Campos de configuração com chaves canónicas do frontend ---
         // RGPD — chaves legadas preservadas

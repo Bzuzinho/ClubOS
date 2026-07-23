@@ -21,6 +21,7 @@ class StoreMembroRequest extends FormRequest
             'password' => ['nullable', 'string', 'min:8'],
             'numero_socio' => ['nullable', 'string', 'max:50', 'unique:users,numero_socio'],
             'nif' => ['nullable', 'string', 'max:50'],
+            'contacto' => ['nullable', 'string', 'max:20'],
             'telefone' => ['nullable', 'string', 'max:20'],
             'data_nascimento' => ['nullable', 'date'],
             'data_inscricao' => ['nullable', 'date'],
@@ -32,7 +33,7 @@ class StoreMembroRequest extends FormRequest
             'codigo_postal' => ['nullable', 'string', 'max:10'],
             'localidade' => ['nullable', 'string', 'max:255'],
             'nacionalidade' => ['nullable', 'string', 'max:255'],
-            'estado_civil' => ['nullable', 'string'],
+            'estado_civil' => ['nullable', 'string', Rule::in(['solteiro', 'casado', 'uniao_de_facto', 'divorciado', 'viuvo'])],
             
             // Tipo e estado
             'tipo_membro' => ['nullable', 'array'],
@@ -76,7 +77,7 @@ class StoreMembroRequest extends FormRequest
             'escola' => ['nullable', 'string'],
             'email_secundario' => ['nullable', 'email'],
             'cc' => ['nullable', 'string'],
-            'numero_irmãos' => ['nullable', 'integer'],
+            'numero_irmaos' => ['nullable', 'integer'],
             'tipo_mensalidade' => ['nullable', 'exists:monthly_fees,id'],
             'discount_type' => ['nullable', Rule::in(['percent', 'fixed'])],
             'discount_value' => ['nullable', 'numeric', 'min:0'],

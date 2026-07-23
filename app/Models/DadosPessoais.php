@@ -31,6 +31,8 @@ class DadosPessoais extends Model
         'contacto',
         'contacto_alternativo',
         'email_secundario',
+        'estado_civil',
+        'numero_irmaos',
         'tipo_utilizador',
         'observacoes',
         'migrated_from_users_at',
@@ -40,6 +42,7 @@ class DadosPessoais extends Model
     protected $casts = [
         'data_nascimento' => 'date',
         'validade_documento' => 'date',
+        'numero_irmaos' => 'integer',
         'migrated_from_users_at' => 'datetime',
     ];
 

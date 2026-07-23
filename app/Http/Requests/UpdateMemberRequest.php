@@ -33,6 +33,7 @@ class UpdateMemberRequest extends FormRequest
                 Rule::unique('users', 'numero_socio')->ignore($this->member),
             ],
             'nif' => ['nullable', 'string', 'max:50'],
+            'contacto' => ['nullable', 'string', 'max:20'],
             'telefone' => ['nullable', 'string', 'max:20'],
             'data_nascimento' => ['nullable', 'date'],
             'data_inscricao' => ['nullable', 'date'],
@@ -44,7 +45,7 @@ class UpdateMemberRequest extends FormRequest
             'codigo_postal' => ['nullable', 'string', 'max:10'],
             'localidade' => ['nullable', 'string', 'max:255'],
             'nacionalidade' => ['nullable', 'string', 'max:255'],
-            'estado_civil' => ['nullable', 'string'],
+            'estado_civil' => ['nullable', 'string', Rule::in(['solteiro', 'casado', 'uniao_de_facto', 'divorciado', 'viuvo'])],
 
             // Tipo e estado
             'tipo_membro' => ['nullable', 'array'],

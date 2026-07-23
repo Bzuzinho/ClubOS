@@ -1,4 +1,4 @@
-import { useEffect, useState, FormEventHandler } from 'react';
+import { useEffect, useRef, useState, FormEventHandler } from 'react';
 import { Head, router, usePage } from '@inertiajs/react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { moduleTabbedContentClass, moduleTabsClass, moduleViewportClass } from '@/lib/module-layout';
@@ -154,6 +154,7 @@ const normalizeMember = (member: User): User => {
         numero_socio: member.numero_socio ?? member.member_number ?? '',
         email_utilizador: member.email_utilizador ?? member.email ?? '',
         data_nascimento: normalizedBirthDate,
+        contacto_telefonico: member.contacto_telefonico ?? member.contacto ?? '',
         encarregado_educacao: guardiansFromRelation,
         educandos: educandosFromRelation,
     };
@@ -240,6 +241,8 @@ const buildMemberUpdatePayload = (user: User) => ({
     localidade: user.localidade || '',
     nacionalidade: user.nacionalidade || '',
     estado_civil: user.estado_civil || '',
+    telefone: user.contacto_telefonico || '',
+    contacto: user.contacto_telefonico || '',
     contacto_telefonico: user.contacto_telefonico || '',
     email_secundario: user.email_secundario || '',
     numero_irmaos: user.numero_irmaos ?? null,
@@ -284,6 +287,12 @@ export default function Show({ member, family_context, permissions, allUsers, in
     const showSportsTab = resolveMemberTypes(member).includes('atleta');
     const canEditMember = Boolean(permissions?.can_edit);
     const initialTab = resolveMemberTab(query?.tab, showSportsTab);
+    const [activeTab, setActiveTab] = useState(initialTab);
+    const communicationsLoadedRef = useRef(
+        (internalCommunications?.received?.length ?? 0) > 0
+        || (internalCommunications?.sent?.length ?? 0) > 0
+        || initialTab === 'communications',
+    );
 
     useEffect(() => {
         setUser(normalizeMember(member));
@@ -374,6 +383,21 @@ export default function Show({ member, family_context, permissions, allUsers, in
         }
     };
 
+    const handleTabChange = (value: string) => {
+        setActiveTab(value);
+
+        if (value !== 'communications' || communicationsLoadedRef.current) {
+            return;
+        }
+
+        communicationsLoadedRef.current = true;
+        router.reload({
+            only: ['internalCommunications', 'flash'],
+            preserveScroll: true,
+            preserveState: true,
+        });
+    };
+
     const currentShowSportsTab = resolveMemberTypes(user).includes('atleta');
 
     return (
@@ -420,7 +444,7 @@ export default function Show({ member, family_context, permissions, allUsers, in
 
             <div className={moduleViewportClass}>
             <Card className="flex min-h-0 flex-1 flex-col p-2 sm:p-3 bg-white border-0">
-                <Tabs defaultValue={resolveMemberTab(query?.tab, currentShowSportsTab)} className={moduleTabsClass}>
+                <Tabs value={activeTab} onValueChange={handleTabChange} className={moduleTabsClass}>
                     <TabsList className={`grid w-full shrink-0 h-auto gap-1 p-1 ${currentShowSportsTab ? 'grid-cols-2 sm:grid-cols-7' : 'grid-cols-2 sm:grid-cols-6'}`}>
                             <TabsTrigger value="dashboard" className="text-xs px-2 py-1.5 whitespace-normal leading-tight text-center min-h-8">
                                 Dashboard
