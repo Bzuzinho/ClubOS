@@ -8,7 +8,17 @@ Esta preparação não apaga a BD Neon, não faz alterações destrutivas e não
 
 ## Estado Atual
 
-Produção usa PostgreSQL remoto Neon, identificado nos logs por host `*.neon.tech` com endpoint pooler. Os sintomas observados foram:
+A produção foi migrada e validada em PostgreSQL 17 local na Oracle VM:
+
+- host `127.0.0.1`;
+- porta `5433`;
+- database `clubmanager_prod`;
+- user `clubmanager_app`;
+- aplicação funcional e rápida.
+
+O Neon já não é a base de dados ativa. Mantém-se temporariamente como fallback durante o período inicial pós-migração, sem receber os backups diários locais.
+
+Antes da migração, a produção usava PostgreSQL remoto Neon, identificado nos logs por host `*.neon.tech` com endpoint pooler. Os sintomas observados foram:
 
 - `SQLSTATE[08006] timeout expired`;
 - falha IPv4 por timeout;
@@ -21,13 +31,13 @@ Desde P1.1, `ClubSettingsService` já tem cache/fallback seguro e existe `system
 
 ## Estado Alvo
 
-PostgreSQL local na Oracle VM:
+PostgreSQL local na Oracle VM, estado já atingido:
 
 - database: `clubmanager_prod`;
 - user: `clubmanager_app`;
 - password forte definida só no servidor, nunca commitada;
 - acesso local apenas por `127.0.0.1`/`localhost`;
-- porta `5432` não exposta publicamente;
+- porta `5433` não exposta publicamente;
 - Neon preservado para rollback imediato enquanto a migração é validada.
 
 ## Variáveis `.env`
@@ -53,7 +63,7 @@ Se produção usa `DB_URL`, guardar o valor apenas no backup privado de `.env`, 
 DB_CONNECTION=pgsql
 DB_URL=
 DB_HOST=127.0.0.1
-DB_PORT=5432
+DB_PORT=5433
 DB_DATABASE=clubmanager_prod
 DB_USERNAME=clubmanager_app
 DB_PASSWORD=********
@@ -72,7 +82,8 @@ Os scripts vivem em `scripts/ops/database/` e assumem execução na Oracle VM Ub
 - `validate-local-postgres.sh`;
 - `switch-production-db-to-local.sh`;
 - `rollback-production-db-to-neon.sh`;
-- `backup-local-postgres.sh`.
+- `backup-local-postgres.sh`;
+- `install-local-postgres-backup-cron.sh`.
 
 Todos usam `set -euo pipefail`, validam variáveis obrigatórias e não imprimem passwords.
 
@@ -378,7 +389,7 @@ Depois altera:
 DB_CONNECTION=pgsql
 DB_URL=
 DB_HOST=127.0.0.1
-DB_PORT=5432
+DB_PORT=5433
 DB_DATABASE=clubmanager_prod
 DB_USERNAME=clubmanager_app
 DB_PASSWORD=********
@@ -452,40 +463,71 @@ Rollback restaura `.env`, limpa caches e recarrega PHP-FPM/nginx. Não mexe nos 
 
 ## Backups Pós-Migração
 
-Backup local diário:
+O backup diário local usa as credenciais do `.env` produtivo, cria dumps custom PostgreSQL em
+`/var/backups/clubmanager/postgres-local` e mantém estritamente os 7 dumps mais recentes.
+Cada dump `clubmanager-prod-YYYYMMDD-HHMMSS.dump` tem um checksum
+`.dump.sha256` correspondente. O script usa `flock` para impedir execuções sobrepostas,
+prefere `/usr/lib/postgresql/17/bin/pg_dump`, não imprime a password e não altera a BD.
+
+Preparar permissões na VM:
 
 ```bash
-export LOCAL_DB_NAME=clubmanager_prod
-export LOCAL_DB_USER=clubmanager_app
-export LOCAL_DB_PASSWORD='********'
-export BACKUP_DIR=/var/backups/clubmanager/local
-bash scripts/ops/database/backup-local-postgres.sh
+cd /var/www/clubmanager
+chmod +x scripts/ops/database/backup-local-postgres.sh
+chmod +x scripts/ops/database/install-local-postgres-backup-cron.sh
 ```
 
-Política recomendada:
+Executar e validar manualmente:
 
-- dump custom diário;
-- retenção local 14 dias;
-- checksum SHA256;
-- permissões restritas;
-- log simples;
-- cópia externa encriptada para Oracle Object Storage, S3 compatível, Google Drive/rclone ou destino equivalente;
-- teste mensal de restore.
+```bash
+cd /var/www/clubmanager
+sudo scripts/ops/database/backup-local-postgres.sh
+ls -lh /var/backups/clubmanager/postgres-local
+find /var/backups/clubmanager/postgres-local -name 'clubmanager-prod-*.dump' | wc -l
+sha256sum -c /var/backups/clubmanager/postgres-local/*.sha256
+```
 
-Exemplo cron:
+O número devolvido pelo `find` deve ser no máximo 7.
+
+Instalar ou atualizar o cron root, de forma idempotente:
+
+```bash
+cd /var/www/clubmanager
+sudo scripts/ops/database/install-local-postgres-backup-cron.sh
+sudo crontab -l
+```
+
+O cron instalado corre diariamente às `02:15 UTC`:
 
 ```cron
-15 2 * * * cd /var/www/clubos && /usr/bin/env bash scripts/ops/database/backup-local-postgres.sh >> storage/logs/db-backup.log 2>&1
+15 2 * * * /var/www/clubmanager/scripts/ops/database/backup-local-postgres.sh >> /var/log/clubmanager-postgres-backup.log 2>&1
 ```
 
-Usar ficheiro de ambiente root-only para secrets do cron, nunca Git.
+### Teste seguro de restore
+
+Testar periodicamente o dump mais recente numa base temporária. Estes comandos nunca
+devem apontar para `clubmanager_prod`:
+
+```bash
+cd /var/www/clubmanager
+LATEST_DUMP="$(find /var/backups/clubmanager/postgres-local -maxdepth 1 -type f -name 'clubmanager-prod-*.dump' -printf '%T@ %p\n' | sort -rn | head -n 1 | cut -d' ' -f2-)"
+sudo -u postgres /usr/lib/postgresql/17/bin/createdb --port=5433 clubmanager_restore_test
+sudo -u postgres /usr/lib/postgresql/17/bin/pg_restore --port=5433 --dbname=clubmanager_restore_test --no-owner --no-acl "${LATEST_DUMP}"
+sudo -u postgres /usr/lib/postgresql/17/bin/psql --port=5433 --dbname=clubmanager_restore_test --tuples-only --command="select count(*) from information_schema.tables where table_schema = 'public';"
+sudo -u postgres /usr/lib/postgresql/17/bin/dropdb --port=5433 clubmanager_restore_test
+```
+
+Antes do teste, confirmar que `LATEST_DUMP` não está vazio. Se o restore falhar, apagar
+apenas `clubmanager_restore_test` e investigar; nunca limpar ou restaurar sobre produção.
+Não existe envio para serviços externos nesta fase.
 
 ## Checklist Final
 
 - [ ] PostgreSQL instalado localmente.
 - [ ] Role `clubmanager_app` criada.
 - [ ] Database `clubmanager_prod` criada.
-- [ ] Porta 5432 não exposta publicamente.
+- [x] Produção em PostgreSQL 17 local, porta 5433.
+- [ ] Porta 5433 não exposta publicamente.
 - [ ] Dump Neon custom criado.
 - [ ] Checksum do dump produtivo validado.
 - [ ] Schema-only dump criado.
@@ -505,6 +547,8 @@ Usar ficheiro de ambiente root-only para secrets do cron, nunca Git.
 - [ ] Switch executado com confirmação explícita.
 - [ ] Validação manual pós-switch OK.
 - [ ] Logs sem erro `telemovel` e sem timeout Neon.
-- [ ] Backup local diário configurado.
-- [ ] Cópia externa encriptada definida.
+- [ ] Backup local diário instalado e execução manual validada na VM.
+- [ ] Retenção confirmada com no máximo 7 dumps.
+- [ ] Checksums validados com `sha256sum -c`.
+- [ ] Restore temporário `clubmanager_restore_test` validado.
 - [ ] Rollback testado ou ensaiado documentalmente.
