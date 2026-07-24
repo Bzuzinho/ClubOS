@@ -78,6 +78,16 @@ Todos usam `set -euo pipefail`, validam variáveis obrigatórias e não imprimem
 
 O script `migrate-neon-to-local-postgres.sh` é o orquestrador recomendado para a fase final. Ele lê a ligação Neon do `.env` atual da aplicação, valida Neon e PostgreSQL local, compara tabelas/contagens, verifica drift conhecido (`dados_pessoais.telemovel`, `contacto`, `contacto_telefonico`, `estado_civil` e `dados_configuracao.platform_access_enabled`), gera log/relatório em `/var/backups/clubmanager` e bloqueia o switch se houver divergências. Por desenho, não altera `.env` automaticamente.
 
+Desde DB1.1, este script exige PostgreSQL 17 efetivo para a validação/restauro produtivo:
+
+- usa por defeito `/usr/lib/postgresql/17/bin/psql`;
+- usa por defeito `/usr/lib/postgresql/17/bin/pg_restore`;
+- usa por defeito `/usr/lib/postgresql/17/bin/pg_dump`;
+- regista no log os caminhos e versões efetivas dos binários;
+- regista no log a versão do servidor Neon e do servidor local;
+- bloqueia se o servidor local tiver major inferior ao servidor Neon;
+- bloqueia se `pg_restore` tiver major inferior ao servidor Neon.
+
 ## Instalação PostgreSQL Local
 
 Definir password local fora do Git:
@@ -104,6 +114,74 @@ sudo ss -ltnp | grep 5432
 ```
 
 A configuração esperada é escutar apenas localmente. Não abrir `5432` no firewall/cloud security list.
+
+### DB1.1 — PostgreSQL 17 server obrigatório
+
+A primeira execução real do orquestrador bloqueou corretamente o switch porque a BD local apontada estava em PostgreSQL 14:
+
+```txt
+Neon PostgreSQL: 17.10
+Local PostgreSQL usado pelo script: 14.23
+Local target: 127.0.0.1:5432/clubmanager_prod
+Client psql: 17.10
+pg_restore usado: 14.23
+Neon total tables: 140
+Local total tables: 139
+Divergent table count: 8
+```
+
+Divergências críticas observadas antes da correção do ambiente local:
+
+```txt
+athlete_sports_data: Neon 19 / Local 0
+centro_custo_user: Neon 5 / Local 78
+dados_configuracao: Neon 79 / Local 0
+dados_financeiros: Neon 37 / Local 78
+dados_pessoais: Neon 79 / Local 0
+migrations: Neon 183 / Local 181
+stock_movements: Neon 28 / Local 25
+user_guardian: Neon 8 / Local 7
+```
+
+Isto significa que a BD local `clubmanager_prod` anterior não é válida para switch. Não trocar `.env`, não apagar Neon e não apagar dumps.
+
+Ver clusters locais:
+
+```bash
+pg_lsclusters
+```
+
+Se só existir PostgreSQL 14 em `5432`, instalar/ativar PostgreSQL 17 e usar a porta do cluster 17, por exemplo `5433` se `5432` continuar ocupada pelo 14. A porta real deve ser passada em `LOCAL_DB_PORT` e depois usada também no script de switch.
+
+Trocar a password local exposta por uma password forte nova, definida apenas no shell da VM:
+
+```bash
+export LOCAL_DB_PASSWORD='********'
+```
+
+Recriar apenas a BD local no cluster PostgreSQL 17 e restaurar o dump válido:
+
+```bash
+cd /var/www/clubmanager
+export LOCAL_DB_PORT=5433
+export LOCAL_DB_PASSWORD='********'
+export DUMP_PATH=/var/backups/clubmanager/neon-prod-20260723-163106.dump
+export DB1_PREPARE_LOCAL_PG17=true
+export DB1_CONFIRM_RECREATE_LOCAL_DB=RECREATE_LOCAL_DB
+bash scripts/ops/database/migrate-neon-to-local-postgres.sh
+```
+
+O modo `DB1_PREPARE_LOCAL_PG17=true`:
+
+- atualiza/cria apenas a role local `clubmanager_app` com a password fornecida;
+- dropa apenas a BD local `clubmanager_prod` no cluster/porta indicada;
+- recria `clubmanager_prod` com owner `clubmanager_app`;
+- garante ownership/privileges do schema `public`;
+- restaura o dump com `pg_restore` 17;
+- executa `ANALYZE`;
+- compara Neon/local;
+- não altera `.env`;
+- não mexe na BD Neon.
 
 ## Dump Neon
 
@@ -209,17 +287,19 @@ Para a validação final Neon vs local, preferir o orquestrador:
 
 ```bash
 cd /var/www/clubmanager
+export LOCAL_DB_PORT=5433
 export LOCAL_DB_PASSWORD='********'
 export DUMP_PATH=/var/backups/clubmanager/neon-prod-20260723-163106.dump
 bash scripts/ops/database/migrate-neon-to-local-postgres.sh
 ```
 
-Se o relatório mostrar divergências entre Neon e local e for necessário refazer o restore da BD local descartável:
+Se o relatório mostrar divergências entre Neon e local e for necessário refazer o restore da BD local descartável no PostgreSQL 17:
 
 ```bash
+export LOCAL_DB_PORT=5433
 export LOCAL_DB_PASSWORD='********'
 export DUMP_PATH=/var/backups/clubmanager/neon-prod-20260723-163106.dump
-export DB1_ALLOW_RESTORE_ON_DIVERGENCE=true
+export DB1_PREPARE_LOCAL_PG17=true
 export DB1_CONFIRM_RECREATE_LOCAL_DB=RECREATE_LOCAL_DB
 bash scripts/ops/database/migrate-neon-to-local-postgres.sh
 ```
@@ -240,6 +320,27 @@ dados_desportivos = tabela ausente
 
 Estas contagens não devem ser tratadas como erro até comparar com Neon real. Se Neon também tiver `dados_pessoais=0` e `dados_configuracao=0`, documentar como estado produtivo atual. Se Neon tiver dados nessas tabelas e local não, o restore local está incorreto e o switch fica bloqueado.
 
+Após DB1.1, o critério esperado para a comparação restaurada em PostgreSQL 17 é:
+
+```txt
+Neon total tables = Local total tables
+migrations: Neon 183 / Local 183
+users: Neon 79 / Local 79
+dados_pessoais: Neon 79 / Local 79
+dados_configuracao: Neon 79 / Local 79
+dados_financeiros: Neon 37 / Local 37
+athlete_sports_data: Neon 19 / Local 19
+stock_movements: Neon 28 / Local 28
+user_guardian: Neon 8 / Local 8
+```
+
+Também confirmar no log:
+
+- `platform_access_enabled` existe localmente;
+- `estado_civil` existe localmente;
+- `telemovel` continua inexistente localmente quando também inexistente no Neon;
+- divergências zero, ou apenas divergências justificadas e não críticas.
+
 ## Troca do `.env` de Produção
 
 Pré-condições obrigatórias:
@@ -259,6 +360,7 @@ Executar:
 ```bash
 export LOCAL_DB_NAME=clubmanager_prod
 export LOCAL_DB_USER=clubmanager_app
+export LOCAL_DB_PORT=<porta PostgreSQL 17 validada>
 export LOCAL_DB_PASSWORD='********'
 export DB1_CONFIRM_SWITCH_TO_LOCAL_POSTGRES=SWITCH_TO_LOCAL_POSTGRES
 bash scripts/ops/database/switch-production-db-to-local.sh
