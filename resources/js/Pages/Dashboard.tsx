@@ -1,7 +1,7 @@
 import { Head, usePage } from '@inertiajs/react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { moduleScrollableContentClass, moduleViewportClass } from '@/lib/module-layout';
-import { Users, Trophy, CalendarBlank, CurrencyCircleDollar, Heartbeat, UserCircle } from '@phosphor-icons/react';
+import { Users, Trophy, CalendarBlank, CurrencyCircleDollar, Heartbeat, UserCircle, WarningCircle } from '@phosphor-icons/react';
 import { Card } from '@/Components/ui/card';
 import { Button } from '@/Components/ui/button';
 import { router } from '@inertiajs/react';
@@ -33,6 +33,19 @@ interface Props {
     };
     recentEvents: Event[];
     recentActivity: FinancialEntry[];
+    minorsWithoutGuardian?: {
+        total: number;
+        has_more: boolean;
+        all_url: string;
+        items: Array<{
+            id: string;
+            name: string;
+            age: number | null;
+            birthdate: string | null;
+            status: string;
+            member_url: string;
+        }>;
+    };
 }
 
 interface PageProps {
@@ -50,7 +63,7 @@ interface PageProps {
     };
 }
 
-export default function Dashboard({ stats, recentEvents = [], recentActivity = [] }: Props) {
+export default function Dashboard({ stats, recentEvents = [], recentActivity = [], minorsWithoutGuardian }: Props) {
     const { communicationAlerts } = usePage<PageProps>().props;
     // Validação de dados
     const toNumber = (value: unknown, fallback = 0) => {
@@ -159,6 +172,49 @@ export default function Dashboard({ stats, recentEvents = [], recentActivity = [
                         );
                     })}
                 </div>
+
+                {(minorsWithoutGuardian?.total ?? 0) > 0 && (
+                    <Card className="border-amber-300 bg-amber-50/60 p-3">
+                        <div className="flex items-start justify-between gap-3">
+                            <div className="flex min-w-0 items-start gap-2">
+                                <WarningCircle className="mt-0.5 flex-shrink-0 text-amber-700" size={20} weight="fill" />
+                                <div>
+                                    <h2 className="text-sm sm:text-base font-semibold text-amber-950">
+                                        Menores sem encarregado de educação
+                                    </h2>
+                                    <p className="text-xs text-amber-800">
+                                        {minorsWithoutGuardian?.total ?? 0} pendência(s) administrativa(s) para gestão progressiva.
+                                    </p>
+                                </div>
+                            </div>
+                            <span className="rounded-full bg-amber-200 px-2.5 py-1 text-sm font-bold text-amber-950">
+                                {minorsWithoutGuardian?.total ?? 0}
+                            </span>
+                        </div>
+
+                        <div className="mt-3 space-y-1.5">
+                            {(minorsWithoutGuardian?.items ?? []).map((minor) => (
+                                <div key={minor.id} className="flex flex-col gap-2 rounded-lg border border-amber-200 bg-white/80 p-2 sm:flex-row sm:items-center sm:justify-between">
+                                    <div className="min-w-0">
+                                        <p className="truncate text-xs font-semibold">{minor.name}</p>
+                                        <p className="text-[11px] text-muted-foreground">
+                                            Idade: {minor.age ?? 'Não disponível'} · Nascimento: {minor.birthdate ? new Date(`${minor.birthdate}T00:00:00`).toLocaleDateString('pt-PT') : 'Data inválida/não disponível'} · Estado: {minor.status}
+                                        </p>
+                                    </div>
+                                    <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => router.visit(minor.member_url)}>
+                                        Abrir ficha
+                                    </Button>
+                                </div>
+                            ))}
+                        </div>
+
+                        {(minorsWithoutGuardian?.has_more ?? false) && (
+                            <Button variant="link" className="mt-2 h-auto p-0 text-xs text-amber-900" onClick={() => router.visit(minorsWithoutGuardian?.all_url ?? '/membros')}>
+                                Ver todos
+                            </Button>
+                        )}
+                    </Card>
+                )}
 
                 {/* Two column layout: Events + Activity */}
                 <div className="grid gap-2 sm:gap-3 lg:grid-cols-2">

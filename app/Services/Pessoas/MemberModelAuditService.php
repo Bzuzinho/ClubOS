@@ -590,7 +590,7 @@ final class MemberModelAuditService
             $userId = (string) $user->id;
             $context = $this->contextFor($contexts, $user);
             if ($this->isMinor($user) && ! $guardiansByChild->has($userId) && ! $this->hasFamilyGuardian($userId, $schema)) {
-                $findings[] = $this->finding('warning', 'minor_without_guardian', $user, null, 'Menor sem encarregado de educação em user_guardian/familia_user.', 'assign_guardian_after_review', true, $context + [
+                $findings[] = $this->finding('warning', 'minor_without_guardian', $user, null, 'Pendência administrativa: resolução operacional e progressiva através do dashboard, sem criação ou associação automática de encarregado de educação.', 'manage_guardian_from_admin_dashboard', true, $context + [
                     'candidate_context' => $this->guardianCandidateContext($user, $schema),
                 ]);
             }

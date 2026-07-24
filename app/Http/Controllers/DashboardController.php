@@ -17,6 +17,7 @@ use App\Models\Training;
 use App\Models\TrainingAthlete;
 use App\Services\Financeiro\CurrentAccountService;
 use App\Services\Members\MemberIdentityDisplayResolver;
+use App\Services\Members\MinorWithoutGuardianService;
 use App\Services\Performance\AuthenticatedModuleWarmupService;
 use App\Services\AccessControl\UserTypeAccessControlService;
 use App\Services\Family\FamilyService;
@@ -127,6 +128,7 @@ class DashboardController extends Controller
             'recentActivity' => $recentActivity,
             'userTypes' => $userTypes,
             'ageGroups' => $ageGroups,
+            'minorsWithoutGuardian' => app(MinorWithoutGuardianService::class)->summary(),
         ]);
     }
 

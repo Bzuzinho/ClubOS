@@ -95,7 +95,13 @@ final class MemberModelAuditCommandTest extends TestCase
 
         $payload = $this->audit(['--json' => true, '--user' => $minor->id]);
 
-        $this->assertContains('minor_without_guardian', collect($payload['findings'])->pluck('code')->all());
+        $finding = collect($payload['findings'])->firstWhere('code', 'minor_without_guardian');
+
+        $this->assertNotNull($finding);
+        $this->assertSame('warning', $finding['severity']);
+        $this->assertTrue($finding['actionable']);
+        $this->assertSame('manage_guardian_from_admin_dashboard', $finding['recommendation']);
+        $this->assertStringContainsString('progressiva através do dashboard', $finding['detail']);
     }
 
     public function test_guardian_without_dependents_is_reported_as_non_actionable_info(): void
