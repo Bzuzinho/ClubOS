@@ -102,6 +102,7 @@ class FinanceiroController extends Controller
         try {
             $faturas = Cache::remember('financeiro:faturas', 60, fn () =>
                 $this->invoiceFinancialSnapshotQuery()
+                    ->with(['user:id,name', 'user.dadosPessoais'])
                     ->withExists([
                         'fiscalDocumentRequests as has_fiscal_document_request',
                         'fiscalDocumentRequests as has_registered_fiscal_document' => function ($query): void {
@@ -116,6 +117,9 @@ class FinanceiroController extends Controller
                     ->map(function ($fatura) {
                         $fatura = $this->normalizeInvoiceFinancialAmounts($fatura);
                         $fatura->valor_total = (float) $fatura->valor_total;
+                        $fatura->owner_name = $fatura->user
+                            ? $this->memberFiscalDataResolver->resolve($fatura->user)['nome']
+                            : null;
 
                         return $fatura;
                     })

@@ -383,6 +383,10 @@ class MonthlyFeeGenerationService
      */
     private function buildMonthlyInvoicePayload(string $invoiceId, User $user, MonthlyFee $plan, Carbon $period, Carbon $today, array $options, Carbon $timestamp): array
     {
+        if (blank($user->getKey()) || ! User::query()->whereKey($user->getKey())->exists()) {
+            throw new \DomainException('Não foi possível determinar um titular válido para a mensalidade.');
+        }
+
         $periodStart = $period->copy()->startOfMonth();
         $settings = $this->resolveSettings($options);
         $dueDate = $this->settingsService->resolveDueDateFromSettings($periodStart, $settings);

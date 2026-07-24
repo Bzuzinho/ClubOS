@@ -1236,9 +1236,11 @@ export function FaturasTab({
     setLinhas(newLinhas);
   };
 
-  const getUserName = (userId: string) => {
+  const getUserName = (userId: string | null, ownerName?: string | null) => {
+    if (ownerName) return ownerName;
+    if (!userId) return 'SEM TITULAR';
     const user = (users || []).find((u) => u.id === userId);
-    return user ? user.nome_completo : 'Utilizador desconhecido';
+    return user ? user.nome_completo : 'TITULAR INVÁLIDO';
   };
 
   const getCentroCustoName = (id?: string) => {
@@ -1717,7 +1719,7 @@ export function FaturasTab({
               filteredFaturas
                 .sort((a, b) => new Date(b.data_emissao).getTime() - new Date(a.data_emissao).getTime())
                 .map((fatura) => {
-                  const userName = getUserName(fatura.user_id);
+                  const userName = getUserName(fatura.user_id, fatura.owner_name);
                   const paidAmount = getInvoicePaidAmount(fatura);
                   const outstandingAmount = getInvoiceOutstandingAmount(fatura);
                   const competenceLabel = getInvoiceCompetenceLabel(fatura);
@@ -1839,7 +1841,7 @@ export function FaturasTab({
                               onCheckedChange={() => handleToggleFaturaSelection(fatura.id)}
                             />
                           </TableCell>
-                          <TableCell className="hidden sm:table-cell font-medium text-xs max-w-[150px] truncate">{getUserName(fatura.user_id)}</TableCell>
+                          <TableCell className={`hidden sm:table-cell font-medium text-xs max-w-[150px] truncate ${!fatura.user_id ? 'text-red-700' : ''}`}>{getUserName(fatura.user_id, fatura.owner_name)}</TableCell>
                           <TableCell className="hidden md:table-cell text-xs">
                             <div className="space-y-1">
                               <Badge variant="outline">{getInvoiceTypeLabel(fatura.tipo)}</Badge>

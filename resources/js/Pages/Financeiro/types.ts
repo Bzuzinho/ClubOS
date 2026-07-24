@@ -23,7 +23,8 @@ export interface CentroCusto {
 
 export interface Fatura {
   id: string;
-  user_id: string;
+  user_id: string | null;
+  owner_name?: string | null;
   data_fatura: string;
   mes?: string | null;
   data_emissao: string;
