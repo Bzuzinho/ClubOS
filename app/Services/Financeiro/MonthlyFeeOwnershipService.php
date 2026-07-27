@@ -9,6 +9,7 @@ use App\Models\Invoice;
 use App\Models\MapaConciliacao;
 use App\Models\Payment;
 use App\Models\PaymentAllocation;
+use App\Models\User;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
@@ -157,10 +158,33 @@ final class MonthlyFeeOwnershipService
             });
 
             Payment::query()->whereNull('user_id')->whereNull('family_id')->with('allocations.invoice:id,user_id')->orderBy('id')->each(function (Payment $payment) use ($apply, &$changes, &$skipped): void {
-                $owners = $payment->allocations->pluck('invoice.user_id')->filter()->unique()->values();
-                if ($payment->allocations->isEmpty() || $owners->count() !== 1 || $payment->allocations->contains(fn (PaymentAllocation $allocation): bool => blank($allocation->invoice?->user_id))) {
+                if ($payment->allocations->isEmpty() || $payment->allocations->contains(fn (PaymentAllocation $allocation): bool => $allocation->invoice === null)) {
+                    $skipped[] = ['payment_id' => $payment->id, 'reason' => 'payment_without_invoice_allocation'];
+
                     return;
                 }
+
+                if ($payment->allocations->contains(fn (PaymentAllocation $allocation): bool => blank($allocation->invoice->user_id))) {
+                    $skipped[] = ['payment_id' => $payment->id, 'reason' => 'allocated_invoice_without_owner'];
+
+                    return;
+                }
+
+                $owners = $payment->allocations->pluck('invoice.user_id')->unique()->values();
+                $validOwners = User::query()->whereKey($owners->all())->pluck('id');
+                $invalidOwners = $owners->diff($validOwners)->values();
+                if ($invalidOwners->isNotEmpty()) {
+                    $skipped[] = ['payment_id' => $payment->id, 'reason' => 'invalid_invoice_owner', 'candidate_user_ids' => $owners->all()];
+
+                    return;
+                }
+
+                if ($owners->count() !== 1) {
+                    $skipped[] = ['payment_id' => $payment->id, 'reason' => 'ambiguous_payment_owner', 'candidate_user_ids' => $owners->all()];
+
+                    return;
+                }
+
                 $ownerId = (string) $owners->first();
                 $changes[] = ['table' => 'payments', 'id' => $payment->id, 'field' => 'user_id', 'from' => null, 'to' => $ownerId];
                 if ($apply) {
