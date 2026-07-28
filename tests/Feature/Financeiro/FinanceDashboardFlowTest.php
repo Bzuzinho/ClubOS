@@ -357,6 +357,38 @@ class FinanceDashboardFlowTest extends TestCase
         $response->assertSee('mensalidades_vencidas', false);
     }
 
+    public function test_financeiro_index_marks_zero_paid_zero_open_entry_as_not_applicable(): void
+    {
+        $admin = User::query()->where('email', 'admin@test.com')->firstOrFail();
+        $costCenter = CostCenter::query()->firstOrFail();
+        $entry = FinancialEntry::query()->create([
+            'data' => '2026-01-01',
+            'tipo' => 'receita',
+            'categoria' => 'Saldo inicial',
+            'descricao' => 'Valor Transitado',
+            'valor' => 15062.16,
+            'valor_pago' => 0,
+            'valor_em_aberto' => 0,
+            'estado' => 'pendente',
+            'centro_custo_id' => $costCenter->id,
+            'origem_tipo' => 'manual',
+            'origem_modulo' => 'financeiro',
+        ]);
+
+        Cache::flush();
+
+        $response = $this->inertiaGetAs($admin, route('financeiro.index', ['fresh' => 1]));
+        $movement = collect($response->json('props.movimentosFinanceiros'))
+            ->firstWhere('financial_entry_id', $entry->id);
+
+        $response->assertOk();
+        $this->assertNotNull($movement);
+        $this->assertSame('por_pagar', $movement['estado_pagamento']);
+        $this->assertSame('nao_aplicavel', $movement['estado_pagamento_exibicao']);
+        $this->assertSame(0.0, (float) $movement['valor_pago']);
+        $this->assertSame(0.0, (float) $movement['valor_em_aberto']);
+    }
+
     public function test_financeiro_index_exposes_only_active_payment_methods(): void
     {
         $admin = User::query()->where('email', 'admin@test.com')->firstOrFail();

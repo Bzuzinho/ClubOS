@@ -171,7 +171,7 @@ export function MovimentosTab({
   const [formData, setFormData] = useState({
     user_id: '',
     supplier_id: '',
-    nome_manual: defaultFinancialEntityName,
+    nome_manual: '',
     nif_manual: '',
     morada_manual: '',
     classificacao: 'receita' as 'receita' | 'despesa',
@@ -323,7 +323,7 @@ export function MovimentosTab({
       .filter((movimento) => {
         const estadoMatch =
           estadoFilter === 'all' ||
-          movimento.estado_pagamento === estadoFilter;
+          (movimento.estado_pagamento_exibicao || movimento.estado_pagamento) === estadoFilter;
 
         const documentalMatch =
           documentalFilter === 'all' ||
@@ -673,7 +673,7 @@ export function MovimentosTab({
     setFormData({
       user_id: '',
       supplier_id: '',
-      nome_manual: defaultFinancialEntityName,
+      nome_manual: '',
       nif_manual: '',
       morada_manual: '',
       classificacao: 'receita',
@@ -873,6 +873,7 @@ export function MovimentosTab({
               <SelectItem value="parcial">Parcial</SelectItem>
               <SelectItem value="pago_parcial">Pago parcial</SelectItem>
               <SelectItem value="cancelado">Cancelado</SelectItem>
+              <SelectItem value="nao_aplicavel">Nao aplicavel</SelectItem>
             </SelectContent>
           </Select>
 
@@ -951,7 +952,7 @@ export function MovimentosTab({
                           ...prev,
                           user_id: '',
                           supplier_id: '',
-                          nome_manual: defaultFinancialEntityName,
+                          nome_manual: '',
                           nif_manual: '',
                           morada_manual: '',
                         }));
@@ -984,7 +985,7 @@ export function MovimentosTab({
                         setFormData((prev) => ({
                           ...prev,
                           supplier_id: '',
-                          nome_manual: defaultFinancialEntityName,
+                          nome_manual: '',
                           nif_manual: '',
                           morada_manual: '',
                         }));
@@ -1470,7 +1471,7 @@ export function MovimentosTab({
                         <div className="mt-1 flex flex-wrap gap-1">
                           {getClassificacaoBadge(movimento.classificacao)}
                           <Badge variant="outline">{movimento.tipo}</Badge>
-                          <MovementPaymentStatusBadge status={movimento.estado_pagamento} />
+                          <MovementPaymentStatusBadge status={movimento.estado_pagamento_exibicao || movimento.estado_pagamento} />
                           <MovementConciliationStatusBadge status={movimento.estado_conciliacao} />
                           <MovementDocumentStatusBadge status={movimento.estado_documental} />
                         </div>
@@ -1624,7 +1625,7 @@ export function MovimentosTab({
                     <TableCell>{formatAmount(openAmount)}</TableCell>
                     <TableCell>
                       <div className="flex flex-wrap gap-1">
-                        <MovementPaymentStatusBadge status={movimento.estado_pagamento} />
+                        <MovementPaymentStatusBadge status={movimento.estado_pagamento_exibicao || movimento.estado_pagamento} />
                         <MovementConciliationStatusBadge status={movimento.estado_conciliacao} />
                       </div>
                     </TableCell>

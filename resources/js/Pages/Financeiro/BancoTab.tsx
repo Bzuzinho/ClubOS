@@ -1069,14 +1069,14 @@ export function BancoTab({
     }
   };
 
-  const handleCriarDespesaDoPagamento = async (extrato: ExtratoBancario) => {
+  const handleCriarDespesaDaSaida = async (extrato: ExtratoBancario) => {
     if (!extrato.centro_custo_id) {
       toast.error('A linha bancaria precisa de centro de custo antes de criar a despesa.');
       return;
     }
 
     const confirmed = window.confirm(
-      'Criar despesa a partir desta linha bancaria? Esta operacao cria um movimento financeiro associado e concilia o valor automaticamente.'
+      'Criar despesa a partir desta saida bancaria? Esta operacao cria um movimento financeiro associado e concilia o valor automaticamente.'
     );
 
     if (!confirmed) {
@@ -1098,13 +1098,13 @@ export function BancoTab({
 
       if (!response.ok) {
         const payload = await response.json().catch(() => null);
-        throw new Error(payload?.message || 'Erro ao criar despesa a partir do pagamento');
+        throw new Error(payload?.message || 'Erro ao criar despesa a partir da saida bancaria');
       }
 
-      toast.success('Despesa criada a partir do pagamento bancario.');
+      toast.success('Despesa criada a partir da saida bancaria.');
       refreshFinanceiroData();
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Erro ao criar despesa a partir do pagamento';
+      const message = error instanceof Error ? error.message : 'Erro ao criar despesa a partir da saida bancaria';
       toast.error(message);
     }
   };
@@ -2140,17 +2140,17 @@ export function BancoTab({
                         >
                           Conciliar
                         </Button>
-                        {!associatedMovementId ? (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => void handleCriarDespesaDoPagamento(extrato)}
-                            className="h-8 px-2"
-                          >
-                            Criar despesa
-                          </Button>
-                        ) : null}
                       </>
+                    ) : null}
+                    {!fullyReconciled && toNumber(extrato.valor) < 0 && !associatedMovementId ? (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => void handleCriarDespesaDaSaida(extrato)}
+                        className="h-8 px-2"
+                      >
+                        Criar despesa
+                      </Button>
                     ) : null}
                     {canUnreconcile ? (
                       <Button
@@ -2298,18 +2298,18 @@ export function BancoTab({
                                 >
                                   Conciliar
                                 </Button>
-                                {!associatedMovementId ? (
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    onClick={() => void handleCriarDespesaDoPagamento(extrato)}
-                                    className="text-[10px] md:text-xs h-7 md:h-8 px-2 md:px-3"
-                                    title="Criar despesa a partir deste pagamento"
-                                  >
-                                    Criar despesa
-                                  </Button>
-                                ) : null}
                               </>
+                            ) : null}
+                            {!fullyReconciled && toNumber(extrato.valor) < 0 && !associatedMovementId ? (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => void handleCriarDespesaDaSaida(extrato)}
+                                className="text-[10px] md:text-xs h-7 md:h-8 px-2 md:px-3"
+                                title="Criar despesa a partir desta saida bancaria"
+                              >
+                                Criar despesa
+                              </Button>
                             ) : null}
                             {canUnreconcile ? (
                               <Button

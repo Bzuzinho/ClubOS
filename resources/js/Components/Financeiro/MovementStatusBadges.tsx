@@ -1,6 +1,6 @@
 import { Badge } from '@/Components/ui/badge';
 
-type PaymentStatus = 'pendente' | 'por_pagar' | 'pago' | 'vencido' | 'parcial' | 'pago_parcial' | 'cancelado';
+type PaymentStatus = 'pendente' | 'por_pagar' | 'pago' | 'vencido' | 'parcial' | 'pago_parcial' | 'cancelado' | 'nao_aplicavel';
 type DocumentStatus = 'sem_documentos' | 'falta_fatura' | 'falta_recibo' | 'falta_comprovativo_pagamento' | 'pendente_validacao' | 'completo' | 'inconsistente';
 type ConciliationStatus = 'nao_conciliado' | 'sugerido' | 'conciliado' | 'divergente';
 
@@ -35,6 +35,7 @@ export function MovementPaymentStatusBadge({ status, className = '' }: PaymentBa
     parcial: 'bg-blue-100 text-blue-800',
     pago_parcial: 'bg-blue-100 text-blue-800',
     cancelado: 'bg-slate-100 text-slate-800',
+    nao_aplicavel: 'bg-slate-100 text-slate-700',
   };
 
   const labels: Record<PaymentStatus, string> = {
@@ -45,6 +46,7 @@ export function MovementPaymentStatusBadge({ status, className = '' }: PaymentBa
     parcial: 'Parcial',
     pago_parcial: 'Pago parcial',
     cancelado: 'Cancelado',
+    nao_aplicavel: 'Nao aplicavel',
   };
 
   return <Badge className={`${variants[status]} ${className}`.trim()}>{labels[status]}</Badge>;

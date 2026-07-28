@@ -78,7 +78,7 @@ export default function DashboardCharts({
           <h3 className="font-semibold text-xs sm:text-sm mb-1.5">Distribuição de Faturas por Tipo</h3>
           <ChartMountGuard className="h-[120px] sm:h-[140px]">
             {tiposFaturaData.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={120}>
+              <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={120} initialDimension={{ width: 1, height: 120 }}>
                 <PieChart>
                   <Pie
                     data={tiposFaturaData}
@@ -110,7 +110,7 @@ export default function DashboardCharts({
         <Card className="p-2 sm:p-2.5">
           <h3 className="font-semibold text-xs sm:text-sm mb-1.5">Evolução Mensal (últimos 6 meses)</h3>
           <ChartMountGuard className="h-[180px] sm:h-[200px]">
-            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={180}>
+            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={180} initialDimension={{ width: 1, height: 180 }}>
               <LineChart data={monthlyData}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="mes" tick={{ fontSize: 10 }} />
@@ -128,7 +128,7 @@ export default function DashboardCharts({
           <h3 className="font-semibold text-xs sm:text-sm mb-1.5">Despesas e Receitas por Centro de Custo</h3>
           <ChartMountGuard className="h-[180px] sm:h-[200px]">
             {centrosCustoData.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={180}>
+              <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={180} initialDimension={{ width: 1, height: 180 }}>
                 <BarChart data={centrosCustoData}>
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis dataKey="nome" tick={{ fontSize: 10 }} />

@@ -324,6 +324,7 @@ export interface MovimentoFinanceiro extends Movimento {
   movimento_id?: string | null;
   financial_entry_id?: string | null;
   source_kind?: 'movement' | 'financial_entry';
+  estado_pagamento_exibicao?: Movimento['estado_pagamento'] | 'nao_aplicavel';
   valor_pago?: number | null;
   valor_em_aberto?: number | null;
   read_only?: boolean;

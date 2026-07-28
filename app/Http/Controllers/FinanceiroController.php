@@ -23,7 +23,6 @@ use App\Models\PaymentMethod;
 use App\Models\Product;
 use App\Models\Supplier;
 use App\Models\User;
-use App\Services\Club\ClubSettingsService;
 use App\Services\Financeiro\BankReconciliationService;
 use App\Services\Financeiro\CurrentAccountService;
 use App\Services\Financeiro\FinanceDashboardService;
@@ -1240,6 +1239,18 @@ class FinanceiroController extends Controller
         $dueDate = $movement?->data_vencimento
             ? Carbon::parse($movement->data_vencimento)
             : $emissionDate;
+        $paymentState = $this->resolveFinancialMovementState(
+            $bankStatementReconciled && $movement === null ? 'pago' : ($entry->estado ?? 'pendente'),
+            $dueDate,
+            $openAmount,
+        );
+        $displayPaymentState = $openAmount !== null
+            && $openAmount <= 0.009
+            && $paidAmount !== null
+            && $paidAmount <= 0.009
+            && $paymentState !== 'cancelado'
+                ? 'nao_aplicavel'
+                : $paymentState;
 
         return [
             'id' => (string) ($movement?->id ?? $entry->id),
@@ -1257,11 +1268,8 @@ class FinanceiroController extends Controller
             'valor_total' => $classificacao === 'despesa' ? -$totalAmount : $totalAmount,
             'valor_pago' => $paidAmount,
             'valor_em_aberto' => $openAmount,
-            'estado_pagamento' => $this->resolveFinancialMovementState(
-                $bankStatementReconciled && $movement === null ? 'pago' : ($entry->estado ?? 'pendente'),
-                $dueDate,
-                $openAmount,
-            ),
+            'estado_pagamento' => $paymentState,
+            'estado_pagamento_exibicao' => $displayPaymentState,
             'numero_recibo' => $movement?->numero_recibo ?? $entry->documento_ref,
             'referencia_pagamento' => $movement?->referencia_pagamento ?? $entry->documento_ref,
             'metodo_pagamento' => $movement?->metodo_pagamento ?? $entry->metodo_pagamento,
@@ -1295,6 +1303,7 @@ class FinanceiroController extends Controller
         $cleanObservacoes = $this->stripMovementOriginReference($movement->observacoes);
         $emissionDate = $movement->data_emissao ? Carbon::parse($movement->data_emissao) : null;
         $dueDate = $movement->data_vencimento ? Carbon::parse($movement->data_vencimento) : $emissionDate;
+        $paymentState = $this->resolveFinancialMovementState($movement->estado_pagamento, $dueDate, $openAmount);
 
         return [
             'id' => (string) $movement->id,
@@ -1312,7 +1321,8 @@ class FinanceiroController extends Controller
             'valor_total' => (float) $movement->valor_total,
             'valor_pago' => $paidAmount,
             'valor_em_aberto' => $openAmount,
-            'estado_pagamento' => $this->resolveFinancialMovementState($movement->estado_pagamento, $dueDate, $openAmount),
+            'estado_pagamento' => $paymentState,
+            'estado_pagamento_exibicao' => $paymentState,
             'numero_recibo' => $movement->numero_recibo,
             'referencia_pagamento' => $movement->referencia_pagamento,
             'metodo_pagamento' => $movement->metodo_pagamento,
@@ -1987,6 +1997,20 @@ class FinanceiroController extends Controller
             ]);
         }
 
+        if (!empty($data['user_id']) && !empty($data['supplier_id'])) {
+            throw ValidationException::withMessages([
+                'supplier_id' => 'Selecione apenas um utilizador ou um fornecedor.',
+            ]);
+        }
+
+        $data = $this->hydrateMovementCounterpartyData($data);
+
+        if (empty($data['user_id']) && empty($data['supplier_id']) && blank($data['nome_manual'] ?? null)) {
+            throw ValidationException::withMessages([
+                'nome_manual' => 'Indique a entidade ou selecione um utilizador/fornecedor.',
+            ]);
+        }
+
         if ($data['classificacao'] === 'despesa') {
             $result = $this->manualExpenseService->createSimpleExpense($data, $request->user());
 
@@ -2004,18 +2028,6 @@ class FinanceiroController extends Controller
             throw ValidationException::withMessages([
                 'estado_pagamento' => 'A liquidacao do movimento tem de ser efetuada pelo fluxo de pagamento.',
             ]);
-        }
-
-        if (!empty($data['user_id']) && !empty($data['supplier_id'])) {
-            throw ValidationException::withMessages([
-                'supplier_id' => 'Selecione apenas um utilizador ou um fornecedor.',
-            ]);
-        }
-
-        $data = $this->hydrateMovementCounterpartyData($data);
-
-        if (empty($data['user_id']) && empty($data['nome_manual'])) {
-            $data['nome_manual'] = app(ClubSettingsService::class)->defaultFinancialEntityName($data['classificacao'] ?? null);
         }
 
         if ($request->hasFile('documento_original')) {
@@ -2171,8 +2183,10 @@ class FinanceiroController extends Controller
 
         $data = $this->hydrateMovementCounterpartyData($data);
 
-        if (empty($data['user_id']) && empty($data['nome_manual'])) {
-            $data['nome_manual'] = app(ClubSettingsService::class)->defaultFinancialEntityName($data['classificacao'] ?? null);
+        if (empty($data['user_id']) && empty($data['supplier_id']) && blank($data['nome_manual'] ?? null)) {
+            throw ValidationException::withMessages([
+                'nome_manual' => 'Indique a entidade ou selecione um utilizador/fornecedor.',
+            ]);
         }
 
         $data = $this->sanitizeMovementOriginData($data);
@@ -2368,6 +2382,12 @@ class FinanceiroController extends Controller
 
     public function createExpenseFromBankStatement(Request $request, BankStatement $extrato): JsonResponse
     {
+        if ((float) $extrato->valor >= 0) {
+            throw ValidationException::withMessages([
+                'extrato' => 'A criação de despesa só está disponível para saídas bancárias.',
+            ]);
+        }
+
         $data = $request->validate([
             'supplier_id' => ['nullable', 'exists:suppliers,id'],
             'nome_manual' => ['nullable', 'string', 'max:255'],

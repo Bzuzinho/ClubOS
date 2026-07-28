@@ -156,6 +156,7 @@ class FiscalDocumentRequest extends Model
     {
         return $query
             ->whereIn('status', [self::STATUS_PENDING, self::STATUS_IN_PROGRESS])
+            ->whereJsonContains('metadata->internal_due_at_explicit', true)
             ->whereDate('due_at', '<', now()->toDateString());
     }
 
@@ -171,7 +172,7 @@ class FiscalDocumentRequest extends Model
 
     public function isOverdue(): bool
     {
-        if (!$this->due_at) {
+        if (!$this->due_at || ($this->metadata['internal_due_at_explicit'] ?? false) !== true) {
             return false;
         }
 
