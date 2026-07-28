@@ -260,13 +260,11 @@ export function BancoTab({
   const [reconciliationSuggestions, setReconciliationSuggestions] = useState<BankReconciliationSuggestion[]>([]);
   const [suggestionCache, setSuggestionCache] = useState<Record<string, BankReconciliationSuggestion[]>>({});
   const [suggestionCounts, setSuggestionCounts] = useState<Record<string, number>>({});
-  const [suggestionBestScores, setSuggestionBestScores] = useState<Record<string, number>>({});
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
   const [suggestionActionId, setSuggestionActionId] = useState<string | null>(null);
   const [bulkSuggestionSummary, setBulkSuggestionSummary] = useState<{
     analyzed_count: number;
     suggestions_created: number;
-    high_confidence_count: number;
     unmatched_count: number;
     errors: number;
   } | null>(null);
@@ -583,28 +581,11 @@ export function BancoTab({
       return next;
     });
 
-    setSuggestionBestScores((current) => {
-      const next = { ...current };
-      (extratos || []).forEach((extrato) => {
-        if (getStatementStatus(extrato) === 'reconciled') {
-          next[extrato.id] = 0;
-        }
-      });
-      return next;
-    });
   };
 
   const applySuggestionsToState = (extratoId: string, suggestions: BankReconciliationSuggestion[]) => {
-    const bestScore = suggestions.reduce((highest: number, suggestion: BankReconciliationSuggestion) => {
-      const score = Number(suggestion.score || 0);
-      return score > highest ? score : highest;
-    }, 0);
-
     setSuggestionCache((current) => ({ ...current, [extratoId]: suggestions }));
     setSuggestionCounts((current) => ({ ...current, [extratoId]: suggestions.length }));
-    setSuggestionBestScores((current) => ({ ...current, [extratoId]: bestScore }));
-
-    return bestScore;
   };
 
   const bulkSuggestionsAbortControllerRef = useRef<AbortController | null>(null);
@@ -627,9 +608,9 @@ export function BancoTab({
 
     const payload = await response.json();
     const suggestions = Array.isArray(payload?.suggestions) ? payload.suggestions : [];
-    const bestScore = applySuggestionsToState(extrato.id, suggestions);
+    applySuggestionsToState(extrato.id, suggestions);
 
-    return { suggestions, bestScore };
+    return { suggestions };
   };
 
   const handleCancelBulkSuggestionGeneration = () => {
@@ -638,14 +619,13 @@ export function BancoTab({
 
   const handleGenerateSuggestionsBatch = async () => {
     const statementsToAnalyze = extratosTabela.filter(
-      (extrato) => getStatementStatus(extrato) !== 'reconciled'
+      (extrato) => getStatementStatus(extrato) !== 'reconciled' && toNumber(extrato.valor) > 0
     );
 
     if (statementsToAnalyze.length === 0) {
       const emptySummary = {
         analyzed_count: 0,
         suggestions_created: 0,
-        high_confidence_count: 0,
         unmatched_count: 0,
         errors: 0,
       };
@@ -661,7 +641,6 @@ export function BancoTab({
     const summary = {
       analyzed_count: 0,
       suggestions_created: 0,
-      high_confidence_count: 0,
       unmatched_count: 0,
       errors: 0,
     };
@@ -680,10 +659,6 @@ export function BancoTab({
           const { suggestions } = await requestSuggestionsForExtrato(extrato, { signal: abortController.signal });
           summary.analyzed_count += 1;
           summary.suggestions_created += suggestions.length;
-          summary.high_confidence_count += suggestions.filter((suggestion: BankReconciliationSuggestion) =>
-            ['very_high', 'high'].includes(String(suggestion.confidence_label || ''))
-          ).length;
-
           if (suggestions.length === 0) {
             summary.unmatched_count += 1;
           }
@@ -768,7 +743,6 @@ export function BancoTab({
       if (selectedSuggestionExtrato) {
         setSuggestionCache((current) => ({ ...current, [selectedSuggestionExtrato.id]: [] }));
         setSuggestionCounts((counts) => ({ ...counts, [selectedSuggestionExtrato.id]: 0 }));
-        setSuggestionBestScores((scores) => ({ ...scores, [selectedSuggestionExtrato.id]: 0 }));
       }
       if (selectedSuggestionExtrato) {
         setSuggestionCache((current) => {
@@ -776,10 +750,6 @@ export function BancoTab({
           const updated = existing.filter((item) => item.id !== suggestion.id);
           setReconciliationSuggestions(updated);
           setSuggestionCounts((counts) => ({ ...counts, [selectedSuggestionExtrato.id]: updated.length }));
-          setSuggestionBestScores((scores) => ({
-            ...scores,
-            [selectedSuggestionExtrato.id]: updated.reduce((highest, item) => Math.max(highest, Number(item.score || 0)), 0),
-          }));
           return { ...current, [selectedSuggestionExtrato.id]: updated };
         });
       }
@@ -819,10 +789,6 @@ export function BancoTab({
           const updated = existing.filter((item) => item.id !== suggestion.id);
           setReconciliationSuggestions(updated);
           setSuggestionCounts((counts) => ({ ...counts, [selectedSuggestionExtrato.id]: updated.length }));
-          setSuggestionBestScores((scores) => ({
-            ...scores,
-            [selectedSuggestionExtrato.id]: updated.reduce((highest, item) => Math.max(highest, Number(item.score || 0)), 0),
-          }));
           return { ...current, [selectedSuggestionExtrato.id]: updated };
         });
       }
@@ -897,30 +863,6 @@ export function BancoTab({
 
   const openMovementDetail = (movementId: string) => {
     router.visit(route('financeiro.movimentos.show', movementId));
-  };
-
-  const getBestScoreLabel = (extratoId: string) => {
-    const score = suggestionBestScores[extratoId] || 0;
-
-    if (score <= 0) return 'Sem confianca';
-    if (score >= 90) return `Muito alta (${score})`;
-    if (score >= 75) return `Alta (${score})`;
-    if (score >= 55) return `Media (${score})`;
-
-    return `Baixa (${score})`;
-  };
-
-  const getSuggestionConfidenceTone = (label?: string | null) => {
-    switch (label) {
-      case 'very_high':
-        return 'border-emerald-200 bg-emerald-50 text-emerald-800';
-      case 'high':
-        return 'border-emerald-200 bg-emerald-50 text-emerald-700';
-      case 'medium':
-        return 'border-amber-200 bg-amber-50 text-amber-700';
-      default:
-        return 'border-slate-200 bg-slate-50 text-slate-600';
-    }
   };
 
   const getSuggestionSourceBadges = (suggestion: BankReconciliationSuggestion) => {
@@ -2088,18 +2030,18 @@ export function BancoTab({
         <div>
           <p className="text-sm font-medium">Sugestoes bancarias</p>
           <p className="text-xs text-muted-foreground">
-            Analisa linhas por conciliar e cria propostas assistidas com nivel de confianca.
+            Analisa apenas entradas por conciliar e prepara uma distribuição simples para revisão.
           </p>
           {bulkSuggestionSummary && (
             <p className="mt-1 text-xs text-muted-foreground">
-              {bulkSuggestionSummary.analyzed_count} analisadas, {bulkSuggestionSummary.suggestions_created} sugestoes, {bulkSuggestionSummary.high_confidence_count} com confianca alta, {bulkSuggestionSummary.unmatched_count} sem correspondencia e {bulkSuggestionSummary.errors} erros.
+              {bulkSuggestionSummary.analyzed_count} analisadas, {bulkSuggestionSummary.suggestions_created} sugestoes, {bulkSuggestionSummary.unmatched_count} sem correspondencia e {bulkSuggestionSummary.errors} erros.
             </p>
           )}
         </div>
         <div className="flex flex-col gap-2 sm:flex-row">
           <Button type="button" onClick={() => void handleGenerateSuggestionsBatch()} disabled={bulkGeneratingSuggestions}>
             <Gear size={16} className="mr-2" />
-            {bulkGeneratingSuggestions ? 'A gerar sugestoes...' : 'Gerar sugestoes de conciliacao'}
+            {bulkGeneratingSuggestions ? 'A gerar sugestões...' : 'Gerar sugestões de conciliação'}
           </Button>
           {bulkGeneratingSuggestions && (
             <Button type="button" variant="outline" onClick={handleCancelBulkSuggestionGeneration}>
@@ -2157,8 +2099,6 @@ export function BancoTab({
                     <span className="text-right">€{reconciledAmount.toFixed(2)}</span>
                     <span className="text-muted-foreground">Por conciliar</span>
                     <span className="text-right">€{remainingAmount.toFixed(2)}</span>
-                    <span className="text-muted-foreground">Confianca da sugestao</span>
-                    <span className="text-right">{getBestScoreLabel(extrato.id)}</span>
                   </div>
 
                   <div className="flex flex-wrap gap-2 pt-1">
@@ -2172,7 +2112,7 @@ export function BancoTab({
                         Abrir movimento
                       </Button>
                     ) : null}
-                    {!fullyReconciled ? (
+                    {!fullyReconciled && toNumber(extrato.valor) > 0 ? (
                       <>
                         <Button
                           size="sm"
@@ -2264,14 +2204,13 @@ export function BancoTab({
                   <TableHead className="sticky top-0 bg-card z-20 text-xs md:text-sm whitespace-nowrap">Por Conciliar</TableHead>
                   <TableHead className="sticky top-0 bg-card z-20 text-xs md:text-sm whitespace-nowrap">Centro Custo</TableHead>
                   <TableHead className="sticky top-0 bg-card z-20 text-xs md:text-sm whitespace-nowrap">Estado</TableHead>
-                  <TableHead className="sticky top-0 bg-card z-20 text-xs md:text-sm whitespace-nowrap">Confianca da sugestao</TableHead>
                   <TableHead className="sticky top-0 bg-card z-20 text-xs md:text-sm text-right whitespace-nowrap">Acoes</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {extratosTabela.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={10} className="text-center text-muted-foreground py-8">
+                    <TableCell colSpan={9} className="text-center text-muted-foreground py-8">
                       Nenhum movimento encontrado
                     </TableCell>
                   </TableRow>
@@ -2314,9 +2253,6 @@ export function BancoTab({
                             {movementDocumentalState ? <MovementDocumentStatusBadge status={movementDocumentalState} className="text-[10px] md:text-xs whitespace-nowrap" /> : null}
                           </div>
                         </TableCell>
-                        <TableCell className="text-xs md:text-sm whitespace-nowrap">
-                          {getBestScoreLabel(extrato.id)}
-                        </TableCell>
                         <TableCell className="text-right">
                           <div className="flex flex-wrap gap-1 md:gap-2 justify-end whitespace-nowrap">
                             {associatedMovementId ? (
@@ -2330,7 +2266,7 @@ export function BancoTab({
                                 Abrir movimento
                               </Button>
                             ) : null}
-                            {!fullyReconciled ? (
+                            {!fullyReconciled && toNumber(extrato.valor) > 0 ? (
                               <>
                                 <Button
                                   size="sm"
@@ -2499,7 +2435,6 @@ export function BancoTab({
                             </>
                           )}
                         </div>
-                        <Badge variant="outline">{sugestao.score}% match</Badge>
                       </div>
                     </Card>
                   ))}
@@ -2809,7 +2744,7 @@ export function BancoTab({
         <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Sugestoes de Conciliacao Assistida</DialogTitle>
-            <DialogDescription>Analise a confianca, o motivo principal e confirme ou rejeite as sugestoes para esta linha bancaria.</DialogDescription>
+            <DialogDescription>Reveja o motivo principal e confirme ou rejeite as sugestoes para esta linha bancaria.</DialogDescription>
           </DialogHeader>
 
           {selectedSuggestionExtrato ? (
@@ -2866,10 +2801,6 @@ export function BancoTab({
                               {suggestion.user?.nome_completo || suggestion.family?.nome || 'Contexto nao identificado'}
                             </div>
                             <div className="mt-2 flex flex-wrap gap-2 text-xs">
-                              <Badge className={getSuggestionConfidenceTone(suggestion.confidence_label)} variant="outline">
-                                Confianca {suggestion.score}
-                              </Badge>
-                              <Badge variant="secondary">Confianca {suggestion.confidence_label || 'low'}</Badge>
                               {getSuggestionSourceBadges(suggestion).map((label) => (
                                 <Badge key={`${suggestion.id}-${label}`} variant="outline">
                                   {label}
@@ -2900,10 +2831,9 @@ export function BancoTab({
                           })}
                         </div>
 
-                        <div className="grid gap-2 text-xs text-muted-foreground md:grid-cols-3">
+                        <div className="grid gap-2 text-xs text-muted-foreground md:grid-cols-2">
                           <div>Total alocado: €{toNumber(suggestion.total_allocated_amount).toFixed(2)}</div>
-                          <div>Excedente/credito: €{toNumber(suggestion.unallocated_amount).toFixed(2)}</div>
-                          <div>Criterios considerados: {(suggestion.matched_rules || []).join(', ') || '-'}</div>
+                          <div>Valor por atribuir: €{toNumber(suggestion.unallocated_amount).toFixed(2)}</div>
                         </div>
 
                         {suggestion.assisted_allocation_context ? (
@@ -2915,7 +2845,7 @@ export function BancoTab({
                               <div>Movimentos elegiveis: {(suggestion.assisted_allocation_context.eligible_movements || []).length}</div>
                             </div>
                             <div className="text-xs text-muted-foreground">
-                              O nivel de confianca identifica o contexto mais provavel. A alocacao final continua editavel antes da confirmacao.
+                              A alocacao final continua editavel antes da confirmacao.
                             </div>
                           </div>
                         ) : null}
@@ -2969,7 +2899,6 @@ export function BancoTab({
         onCompleted={(statementId) => {
           setSuggestionCache((current) => ({ ...current, [statementId]: [] }));
           setSuggestionCounts((current) => ({ ...current, [statementId]: 0 }));
-          setSuggestionBestScores((current) => ({ ...current, [statementId]: 0 }));
           setSelectedAssistedSuggestion(null);
           refreshFinanceiroData();
         }}

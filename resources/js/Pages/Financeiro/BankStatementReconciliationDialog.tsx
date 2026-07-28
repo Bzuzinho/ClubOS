@@ -445,7 +445,7 @@ export function BankStatementReconciliationDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-[96vw] xl:max-w-7xl 2xl:max-w-[1500px] max-h-[92vh] overflow-y-auto">
+      <DialogContent className="w-[calc(100vw-2rem)] min-w-0 max-w-[96vw] xl:max-w-7xl 2xl:max-w-[1500px] max-h-[92vh] overflow-x-hidden overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Conciliacao Manual</DialogTitle>
           <DialogDescription>
@@ -454,7 +454,7 @@ export function BankStatementReconciliationDialog({
         </DialogHeader>
 
         {statement ? (
-          <div className="space-y-4">
+          <div className="min-w-0 space-y-4">
             <Card className="p-4 bg-muted/40">
               <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-6 text-sm">
                 <div>
@@ -504,7 +504,7 @@ export function BankStatementReconciliationDialog({
             </div>
 
             <div className="space-y-4">
-              <Card className="p-4 space-y-3">
+              <Card className="min-w-0 p-4 space-y-3">
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <h3 className="font-semibold">
@@ -530,7 +530,7 @@ export function BankStatementReconciliationDialog({
                 ) : openInvoices.length === 0 ? (
                   <div className="py-8 text-center text-sm text-muted-foreground">Nao foram encontradas faturas em aberto para esta pesquisa.</div>
                 ) : (
-                  <div className="max-h-[420px] overflow-auto rounded-lg border">
+                  <div className="w-full min-w-0 max-h-[420px] overflow-auto rounded-lg border">
                     <table className="w-full min-w-[1100px] text-sm">
                       <thead className="bg-muted/50 text-xs uppercase tracking-wide text-muted-foreground">
                         <tr>
@@ -582,7 +582,7 @@ export function BankStatementReconciliationDialog({
                 )}
               </Card>
 
-              <Card className="p-4 space-y-3">
+              <Card className="min-w-0 p-4 space-y-3">
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <h3 className="font-semibold">Movimentos financeiros em aberto</h3>
@@ -604,7 +604,7 @@ export function BankStatementReconciliationDialog({
                 ) : openMovements.length === 0 ? (
                   <div className="py-8 text-center text-sm text-muted-foreground">Nao foram encontrados movimentos em aberto para esta pesquisa.</div>
                 ) : (
-                  <div className="max-h-[420px] overflow-auto rounded-lg border">
+                  <div className="w-full min-w-0 max-h-[420px] overflow-auto rounded-lg border">
                     <table className="w-full min-w-[1280px] text-sm">
                       <thead className="bg-muted/50 text-xs uppercase tracking-wide text-muted-foreground">
                         <tr>
@@ -749,7 +749,7 @@ export function BankStatementReconciliationDialog({
               </div>
             </Card>
 
-            <DialogFooter className="gap-2 sm:justify-end">
+            <DialogFooter className="sticky bottom-0 z-10 gap-2 border-t bg-background py-3 sm:justify-end">
               <Button variant="outline" onClick={() => onOpenChange(false)} disabled={submitting}>
                 Cancelar
               </Button>

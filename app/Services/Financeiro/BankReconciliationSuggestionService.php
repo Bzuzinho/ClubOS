@@ -52,7 +52,11 @@ class BankReconciliationSuggestionService
         $bankStatement = $bankStatement->fresh();
         $forceRegeneration = (bool) ($options['force_regeneration'] ?? false);
 
-        if (!$bankStatement || $this->isBankStatementFullyReconciled($bankStatement)) {
+        if (
+            !$bankStatement
+            || (float) $bankStatement->valor <= 0
+            || $this->isBankStatementFullyReconciled($bankStatement)
+        ) {
             return collect();
         }
 
@@ -158,6 +162,7 @@ class BankReconciliationSuggestionService
     public function generateForUnreconciled(array $filters = []): int
     {
         $query = BankStatement::query()
+            ->where('valor', '>', 0)
             ->where(function ($nestedQuery) {
                 $nestedQuery
                     ->where('conciliado', false)
@@ -201,7 +206,11 @@ class BankReconciliationSuggestionService
     {
         $bankStatement = $bankStatement->fresh();
 
-        if (!$bankStatement || $this->isBankStatementFullyReconciled($bankStatement)) {
+        if (
+            !$bankStatement
+            || (float) $bankStatement->valor <= 0
+            || $this->isBankStatementFullyReconciled($bankStatement)
+        ) {
             return false;
         }
 
@@ -880,7 +889,12 @@ class BankReconciliationSuggestionService
             })
             ->filter()
             ->sortBy(fn (array $invoice): array => [
-                $invoice['month_key'] ?? '9999-12',
+                $invoice['is_monthly'] && $invoice['month_key'] === $referenceMonth ? 0
+                    : (!$invoice['is_monthly'] && $invoice['month_key'] === $referenceMonth ? 1
+                        : (!$invoice['is_monthly'] ? 2 : 3)),
+                $invoice['is_monthly'] && $invoice['month_key'] !== $referenceMonth
+                    ? sprintf('%06d', 999999 - (int) str_replace('-', '', (string) $invoice['month_key']))
+                    : ($invoice['month_key'] ?? '9999-12'),
                 $invoice['vencimento'] ?? '9999-12-31',
                 $invoice['id'],
             ])
@@ -1176,6 +1190,7 @@ class BankReconciliationSuggestionService
         }
 
         $statementDate = $bankStatement->data_movimento;
+        $statementMonthKey = $statementDate->format('Y-m');
         $dueMonthlyInvoices = collect($invoiceArray)
             ->filter(function (array $candidate) use ($statementDate): bool {
                 /** @var Invoice $invoice */
@@ -1205,14 +1220,15 @@ class BankReconciliationSuggestionService
                 ])
                 ->all();
         } else {
-            $oldestInvoice = $dueMonthlyInvoices->first();
+            $oldestInvoice = $dueMonthlyInvoices
+                ->first(fn (array $candidate): bool => $this->resolveInvoiceMonthKey($candidate['invoice']) === $statementMonthKey);
 
             if ($oldestInvoice && abs($oldestInvoice['open_amount'] - $statementAmount) <= 0.009) {
                 $sets[] = [[
                     'invoice' => $oldestInvoice['invoice'],
                     'open_amount' => $oldestInvoice['open_amount'],
                     'amount' => $oldestInvoice['open_amount'],
-                    'reason' => 'repositorio confirmado: mensalidade mais antiga em aberto',
+                    'reason' => 'repositorio confirmado: mensalidade do periodo do movimento',
                 ]];
             }
         }
@@ -1243,6 +1259,14 @@ class BankReconciliationSuggestionService
         );
 
         if ($monthlyCandidates->isEmpty()) {
+            return null;
+        }
+
+        // Divida antiga permanece disponivel no contexto assistido, mas nunca
+        // inicia uma selecao automatica quando nao existe mensalidade do periodo.
+        if (!$monthlyCandidates->contains(
+            fn (array $candidate): bool => ($candidate['month_key'] ?? null) === $referenceMonthKey
+        )) {
             return null;
         }
 
@@ -1337,22 +1361,24 @@ class BankReconciliationSuggestionService
     ): Collection {
         $statementDate = $bankStatement?->data_movimento;
 
+        $statementMonthKey = $statementDate?->format('Y-m');
+
         return $candidateInvoices
             ->sortBy(function (array $candidate) use ($statementAmount, $statementDate, $context, $historyProfile): array {
                 /** @var Invoice $invoice */
                 $invoice = $candidate['invoice'];
 
-                $sameHistoricalOrigin = $this->candidateMatchesHistoricalOrigin($candidate, $context, $historyProfile) ? 0 : 1;
-                $sameMovementDate = $statementDate && $invoice->data_vencimento
-                    && $invoice->data_vencimento->isSameDay($statementDate) ? 0 : 1;
-                $currentOrOverdueMonthly = $this->isCurrentOrOverdueMonthlyInvoice($invoice, $statementDate) ? 0 : 1;
+                $invoiceMonthKey = $this->resolveInvoiceMonthKey($invoice);
+                $samePeriod = $statementDate && $invoiceMonthKey === $statementDate->format('Y-m') ? 0 : 1;
+                $monthly = $this->isMonthlyInvoice($invoice) ? 0 : 1;
+                $oldMonthly = $monthly === 0 && $samePeriod !== 0 ? 1 : 0;
                 $directAmountMatch = abs($candidate['open_amount'] - $statementAmount) <= 0.009 ? 0 : 1;
                 $dueDate = $invoice->data_vencimento?->format('Y-m-d') ?? '9999-12-31';
 
                 return [
-                    $sameHistoricalOrigin,
-                    $sameMovementDate,
-                    $currentOrOverdueMonthly,
+                    $samePeriod,
+                    $monthly,
+                    $oldMonthly,
                     $directAmountMatch,
                     $dueDate,
                     (string) $invoice->id,
@@ -1837,45 +1863,7 @@ class BankReconciliationSuggestionService
 
     private function resolveReferenceMonthKey(BankStatement $bankStatement): ?string
     {
-        $statementMonthKey = $bankStatement->data_movimento?->format('Y-m');
-        if ($statementMonthKey === null) {
-            return null;
-        }
-
-        $source = trim((string) ($bankStatement->descricao . ' ' . $bankStatement->referencia));
-        if ($source === '') {
-            return $statementMonthKey;
-        }
-
-        $normalized = Str::lower(Str::ascii($source));
-        $statementYear = (int) $bankStatement->data_movimento->format('Y');
-
-        if (preg_match('/\b(janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)(?:\s+de)?\s+(20\d{2})\b/u', $normalized, $matches) === 1) {
-            $month = self::REFERENCE_MONTH_NAMES[$matches[1]] ?? null;
-            $year = (int) ($matches[2] ?? 0);
-
-            if ($month !== null && $year >= 2000) {
-                return sprintf('%04d-%02d', $year, $month);
-            }
-        }
-
-        if (preg_match('/\b(janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)\b/u', $normalized, $matches) === 1) {
-            $month = self::REFERENCE_MONTH_NAMES[$matches[1]] ?? null;
-
-            if ($month !== null) {
-                return sprintf('%04d-%02d', $statementYear, $month);
-            }
-        }
-
-        if (preg_match('/\b(0?[1-9]|1[0-2])\/(20\d{2})\b/', $normalized, $matches) === 1) {
-            return sprintf('%04d-%02d', (int) $matches[2], (int) $matches[1]);
-        }
-
-        if (preg_match('/\b(20\d{2})\-(0?[1-9]|1[0-2])\b/', $normalized, $matches) === 1) {
-            return sprintf('%04d-%02d', (int) $matches[1], (int) $matches[2]);
-        }
-
-        return $statementMonthKey;
+        return $bankStatement->data_movimento?->format('Y-m');
     }
 
     private function fetchMonthlyInvoicesUntilReferenceMonth(
@@ -1926,7 +1914,8 @@ class BankReconciliationSuggestionService
             ->filter(fn (array $candidate): bool => $candidate['open_amount'] > 0.009)
             ->filter(fn (array $candidate): bool => $candidate['month_key'] !== null && $candidate['month_key'] <= $referenceMonthKey)
             ->sortBy(fn (array $candidate): array => [
-                $candidate['month_key'],
+                $candidate['month_key'] === $referenceMonthKey ? 0 : 1,
+                $candidate['month_key'] === $referenceMonthKey ? '' : sprintf('%06d', 999999 - (int) str_replace('-', '', $candidate['month_key'])),
                 $candidate['invoice']->data_vencimento?->format('Y-m-d') ?? '9999-12-31',
                 (string) $candidate['invoice']->id,
             ])
@@ -2293,12 +2282,6 @@ class BankReconciliationSuggestionService
             $score += 20;
             $rules[] = 'movement_date_matches_due_monthly_fee';
             $explanations[] = 'A data do movimento coincide com a mensalidade em falta sugerida.';
-        }
-
-        if ($this->candidateSetMatchesOldestMonthlyPrefix($bankStatement, $candidateInvoices, $context, $historyProfile)) {
-            $score += 24;
-            $rules[] = 'oldest_due_monthly_prefix_match';
-            $explanations[] = 'O valor coincide com as mensalidades atuais e vencidas por ordem da mais antiga.';
         }
 
         return [

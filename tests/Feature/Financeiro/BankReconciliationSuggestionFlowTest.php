@@ -10,6 +10,7 @@ use App\Models\BankStatement;
 use App\Models\CostCenter;
 use App\Models\Familia;
 use App\Models\FiscalDocumentRequest;
+use App\Models\FinancialEntry;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\MapaConciliacao;
@@ -19,8 +20,10 @@ use App\Models\PaymentAllocation;
 use App\Models\User;
 use App\Models\UserType;
 use App\Services\Financeiro\BankReconciliationSuggestionService;
+use App\Services\Financeiro\FinancialSettlementService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Validation\ValidationException;
 use Tests\TestCase;
 
 class BankReconciliationSuggestionFlowTest extends TestCase
@@ -48,6 +51,50 @@ class BankReconciliationSuggestionFlowTest extends TestCase
             });
 
         $this->assertNotNull($matchingSuggestion);
+    }
+
+    public function test_negative_bank_statement_never_generates_receipt_suggestions(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $user = $this->createFinanceUser(['nome_completo' => 'Saida Sem Sugestao']);
+        $this->createInvoice($user, 25.00, 'mensalidade', '2026-05-10');
+        $statement = $this->createBankStatement(-25.00, 'Pagamento Saida Sem Sugestao');
+
+        $this->actingAs($admin)
+            ->postJson(route('financeiro.bank-statements.generate-suggestions', $statement))
+            ->assertOk()
+            ->assertJsonPath('generated_count', 0)
+            ->assertJsonPath('suggestions', []);
+    }
+
+    public function test_mixed_allocation_failure_rolls_back_invoice_payment_and_created_movement_entry(): void
+    {
+        $user = $this->createFinanceUser(['nome_completo' => 'Rollback Misto']);
+        $invoice = $this->createInvoice($user, 30.00, 'mensalidade', '2026-05-10');
+        $movement = $this->createOpenMovement($user, 10.00);
+        $statement = $this->createBankStatement(50.00, 'Transferencia Rollback Misto');
+
+        try {
+            app(FinancialSettlementService::class)->settleMixedAllocations($statement, [
+                ['invoice_id' => $invoice->id, 'amount' => 30.00],
+                ['movement_id' => $movement->id, 'amount' => 20.00],
+            ], [
+                'method' => 'transferencia',
+                'source' => Payment::SOURCE_RECONCILIATION,
+            ]);
+            $this->fail('Era esperada uma falha por exceder o valor em aberto do movimento.');
+        } catch (ValidationException) {
+            // A falha da segunda alocacao deve reverter a primeira e a conversao do Movement.
+        }
+
+        $this->assertDatabaseMissing('payments', ['bank_statement_id' => $statement->id]);
+        $this->assertDatabaseMissing('payment_allocations', ['invoice_id' => $invoice->id]);
+        $this->assertFalse(FinancialEntry::query()
+            ->where('origem_tipo', 'movement')
+            ->where('origem_id', $movement->id)
+            ->exists());
+        $this->assertSame('pendente', $invoice->fresh()->estado_pagamento);
+        $this->assertSame('unreconciled', $statement->fresh()->conciliacao_status);
     }
 
     public function test_it_gracefully_skips_repository_lookup_when_repository_table_is_missing(): void
@@ -349,7 +396,7 @@ class BankReconciliationSuggestionFlowTest extends TestCase
         $this->assertContains('stale_invoice_period', $januaryScore['matched_rules']);
     }
 
-    public function test_history_prioritizes_oldest_current_and_overdue_monthly_fees(): void
+    public function test_history_prioritizes_movement_month_and_does_not_silently_select_oldest_fees(): void
     {
         $admin = User::factory()->admin()->create();
         $user = $this->createFinanceUser([
@@ -394,11 +441,15 @@ class BankReconciliationSuggestionFlowTest extends TestCase
         $suggestions = collect($response->json('suggestions'));
         $topSuggestionInvoiceIds = collect($suggestions->first()['suggested_allocations'] ?? [])->pluck('invoice_id')->all();
 
-        $this->assertEqualsCanonicalizing([
-            $januaryInvoice->id,
-            $februaryInvoice->id,
-        ], $topSuggestionInvoiceIds);
-        $this->assertNotContains($marchInvoice->id, $topSuggestionInvoiceIds);
+        $this->assertSame($marchInvoice->id, $topSuggestionInvoiceIds[0] ?? null);
+        $this->assertCount(2, $topSuggestionInvoiceIds);
+        $this->assertTrue(
+            collect([$januaryInvoice->id, $februaryInvoice->id])->contains($topSuggestionInvoiceIds[1] ?? null)
+        );
+        $eligibleIds = collect(data_get($suggestions->first(), 'assisted_allocation_context.eligible_invoices', []))
+            ->pluck('id');
+        $this->assertTrue($eligibleIds->contains($januaryInvoice->id));
+        $this->assertTrue($eligibleIds->contains($februaryInvoice->id));
     }
 
     public function test_confirming_suggestion_creates_payment_and_allocations(): void
@@ -498,7 +549,7 @@ class BankReconciliationSuggestionFlowTest extends TestCase
         $this->assertContains('repository_match', $response->json('suggestions.0.matched_rules'));
     }
 
-    public function test_repository_match_falls_back_to_oldest_due_monthly_fee_when_total_due_does_not_match(): void
+    public function test_repository_match_without_period_invoice_requires_review_instead_of_selecting_oldest_fee(): void
     {
         $admin = User::factory()->admin()->create();
         $user = $this->createFinanceUser([
@@ -552,11 +603,11 @@ class BankReconciliationSuggestionFlowTest extends TestCase
             ->postJson(route('financeiro.bank-statements.generate-suggestions', $statement))
             ->assertOk();
 
-        $topSuggestionInvoiceIds = collect($response->json('suggestions.0.suggested_allocations') ?? [])
-            ->pluck('invoice_id')
-            ->all();
-
-        $this->assertSame([$januaryInvoice->id], $topSuggestionInvoiceIds);
+        $this->assertSame([], $response->json('suggestions'));
+        $this->assertDatabaseMissing('bank_reconciliation_suggestions', [
+            'bank_statement_id' => $statement->id,
+            'status' => BankReconciliationSuggestion::STATUS_SUGGESTED,
+        ]);
     }
 
     public function test_reference_month_sequence_covers_open_monthly_invoices_until_reference_month(): void
@@ -591,6 +642,11 @@ class BankReconciliationSuggestionFlowTest extends TestCase
             'data_emissao' => '2026-04-01',
             'mes' => '2026-04',
         ]);
+        $mayInvoice = $this->createInvoice($user, 30.00, 'mensalidade', '2026-05-10', [
+            'data_fatura' => '2026-05-01',
+            'data_emissao' => '2026-05-01',
+            'mes' => '2026-05',
+        ]);
 
         $statement = BankStatement::create([
             'conta' => 'PT50-0001',
@@ -613,17 +669,18 @@ class BankReconciliationSuggestionFlowTest extends TestCase
             ->pluck('invoice_id')
             ->all();
 
-        $this->assertEqualsCanonicalizing([
-            $januaryInvoice->id,
-            $februaryInvoice->id,
-            $marchInvoice->id,
+        $this->assertSame([
+            $mayInvoice->id,
             $aprilInvoice->id,
+            $marchInvoice->id,
+            $februaryInvoice->id,
         ], $topSuggestionInvoiceIds);
-        $this->assertStringContainsString('abril de 2026', (string) ($response->json('suggestions.0.explanation') ?? ''));
-        $this->assertContains('reference_month_sequence_full', $response->json('suggestions.0.matched_rules'));
+        $this->assertNotContains($januaryInvoice->id, $topSuggestionInvoiceIds);
+        $this->assertStringContainsString('maio de 2026', (string) ($response->json('suggestions.0.explanation') ?? ''));
+        $this->assertContains('reference_month_sequence_partial', $response->json('suggestions.0.matched_rules'));
         $this->assertNotContains('exact_single_invoice_amount', $response->json('suggestions.0.matched_rules'));
-        $this->assertSame('abril de 2026', data_get($response->json('suggestions.0.metadata'), 'reference_month_context.reference_month_label'));
-        $this->assertSame(4, (int) data_get($response->json('suggestions.0.metadata'), 'reference_month_context.total_months'));
+        $this->assertSame('maio de 2026', data_get($response->json('suggestions.0.metadata'), 'reference_month_context.reference_month_label'));
+        $this->assertSame(5, (int) data_get($response->json('suggestions.0.metadata'), 'reference_month_context.total_months'));
         $this->assertSame(4, (int) data_get($response->json('suggestions.0.metadata'), 'reference_month_context.covered_months'));
     }
 
@@ -648,6 +705,11 @@ class BankReconciliationSuggestionFlowTest extends TestCase
             'mes' => '2026-02',
             'estado_pagamento' => 'vencido',
         ]);
+        $mayInvoice = $this->createInvoice($user, 30.00, 'mensalidade', '2026-05-10', [
+            'data_fatura' => '2026-05-01',
+            'data_emissao' => '2026-05-01',
+            'mes' => '2026-05',
+        ]);
 
         $statement = BankStatement::create([
             'conta' => 'PT50-0001',
@@ -667,8 +729,9 @@ class BankReconciliationSuggestionFlowTest extends TestCase
             ->assertOk();
 
         $topSuggestionAllocations = collect($response->json('suggestions.0.suggested_allocations') ?? []);
-        $this->assertSame([$januaryInvoice->id], $topSuggestionAllocations->pluck('invoice_id')->all());
-        $this->assertStringContainsString('so cobre 1 de 2 mensalidades', (string) ($response->json('suggestions.0.explanation') ?? ''));
+        $this->assertSame([$mayInvoice->id], $topSuggestionAllocations->pluck('invoice_id')->all());
+        $this->assertNotContains($januaryInvoice->id, $topSuggestionAllocations->pluck('invoice_id')->all());
+        $this->assertStringContainsString('so cobre 1 de 3 mensalidades', (string) ($response->json('suggestions.0.explanation') ?? ''));
         $this->assertContains('reference_month_sequence_partial', $response->json('suggestions.0.matched_rules'));
         $this->assertNotContains('exact_single_invoice_amount', $response->json('suggestions.0.matched_rules'));
     }
@@ -695,17 +758,22 @@ class BankReconciliationSuggestionFlowTest extends TestCase
             'mes' => '2026-02',
             'estado_pagamento' => 'vencido',
         ]);
+        $marchInvoice = $this->createInvoice($user, 30.00, 'mensalidade', '2026-03-10', [
+            'data_fatura' => '2026-03-01',
+            'data_emissao' => '2026-03-01',
+            'mes' => '2026-03',
+        ]);
 
         $statement = BankStatement::create([
             'conta' => 'PT50-0001',
             'data_movimento' => '2026-03-20',
             'descricao' => 'Transferencia Carla Referencia Parcial Dois Meses',
-            'valor' => 50.00,
+            'valor' => 80.00,
             'saldo' => 1000.00,
             'referencia' => 'Mensalidade fevereiro 2026',
             'conciliado' => false,
             'valor_conciliado' => 0,
-            'valor_por_conciliar' => 50.00,
+            'valor_por_conciliar' => 80.00,
             'conciliacao_status' => 'unreconciled',
         ]);
 
@@ -715,7 +783,7 @@ class BankReconciliationSuggestionFlowTest extends TestCase
 
         $allocations = collect($response->json('suggestions.0.suggested_allocations') ?? []);
 
-        $this->assertSame([$januaryPartial->id, $februaryInvoice->id], $allocations->pluck('invoice_id')->all());
+        $this->assertSame([$marchInvoice->id, $februaryInvoice->id, $januaryPartial->id], $allocations->pluck('invoice_id')->all());
         $this->assertSame(20.0, (float) ($allocations->firstWhere('invoice_id', $januaryPartial->id)['amount'] ?? 0));
         $this->assertSame(30.0, (float) ($allocations->firstWhere('invoice_id', $februaryInvoice->id)['amount'] ?? 0));
         $this->assertContains('reference_month_sequence_full', $response->json('suggestions.0.matched_rules'));
@@ -754,6 +822,11 @@ class BankReconciliationSuggestionFlowTest extends TestCase
             'data_emissao' => '2026-05-01',
             'mes' => '2026-05',
         ]);
+        $aprilInvoice = $this->createInvoice($user, 30.00, 'mensalidade', '2026-04-10', [
+            'data_fatura' => '2026-04-01',
+            'data_emissao' => '2026-04-01',
+            'mes' => '2026-04',
+        ]);
 
         $statement = BankStatement::create([
             'conta' => 'PT50-0001',
@@ -776,10 +849,11 @@ class BankReconciliationSuggestionFlowTest extends TestCase
             ->pluck('invoice_id')
             ->all();
 
-        $this->assertSame([$januaryInvoice->id, $februaryInvoice->id], $allocationIds);
+        $this->assertSame([$aprilInvoice->id, $februaryInvoice->id], $allocationIds);
+        $this->assertNotContains($januaryInvoice->id, $allocationIds);
         $this->assertNotContains($hiddenMarchInvoice->id, $allocationIds);
         $this->assertNotContains($futureMayInvoice->id, $allocationIds);
-        $this->assertContains('reference_month_sequence_full', $response->json('suggestions.0.matched_rules'));
+        $this->assertContains('reference_month_sequence_partial', $response->json('suggestions.0.matched_rules'));
     }
 
     public function test_reference_month_sequence_without_safe_identity_does_not_reach_high_confidence(): void
@@ -869,7 +943,7 @@ class BankReconciliationSuggestionFlowTest extends TestCase
         $statement = $this->createBankStatement(50.00, 'Pagamento total ' . $user->nome_completo);
         $suggestion = $this->generateSuggestion($admin, $statement, [$invoice]);
 
-        $this->actingAs($admin)
+        $response = $this->actingAs($admin)
             ->postJson(route('financeiro.bank-reconciliation-suggestions.confirm', $suggestion))
             ->assertOk();
 
@@ -1019,7 +1093,7 @@ class BankReconciliationSuggestionFlowTest extends TestCase
         $statement = $this->createBankStatement(50.00, 'Pagamento com excedente ' . $user->nome_completo);
         $suggestion = $this->generateSuggestion($admin, $statement, [$invoice]);
 
-        $this->actingAs($admin)
+        $response = $this->actingAs($admin)
             ->postJson(route('financeiro.bank-reconciliation-suggestions.confirm', $suggestion), [
                 'create_credit' => true,
             ])
@@ -1253,16 +1327,16 @@ class BankReconciliationSuggestionFlowTest extends TestCase
     {
         $admin = User::factory()->admin()->create();
         $user = $this->createFinanceUser(['nome_completo' => 'Assistida Completa']);
-        $invoice = $this->createInvoice($user, 30.00, 'mensalidade', '2026-04-10', [
-            'mes' => '2026-04',
-            'data_fatura' => '2026-04-01',
-            'data_emissao' => '2026-04-01',
+        $invoice = $this->createInvoice($user, 30.00, 'mensalidade', '2026-05-10', [
+            'mes' => '2026-05',
+            'data_fatura' => '2026-05-01',
+            'data_emissao' => '2026-05-01',
         ]);
         $movement = $this->createOpenMovement($user, 20.00);
         $statement = $this->createBankStatement(60.00, 'Transferencia Assistida Completa');
         $suggestion = $this->generateSuggestion($admin, $statement, [$invoice]);
 
-        $this->actingAs($admin)
+        $response = $this->actingAs($admin)
             ->postJson(route('financeiro.bank-reconciliation-suggestions.confirm', $suggestion), [
                 'invoices' => [[
                     'invoice_id' => $invoice->id,
@@ -1280,7 +1354,8 @@ class BankReconciliationSuggestionFlowTest extends TestCase
             ->assertOk()
             ->assertJsonPath('summary.suggestion_confirmed', true)
             ->assertJsonPath('summary.assisted_allocation', true)
-            ->assertJsonPath('summary.created_credit', true);
+            ->assertJsonPath('summary.created_credit', true)
+            ->assertJsonPath('summary.affected_payment_count', 1);
 
         $suggestion->refresh();
         $invoice->refresh();
@@ -1289,6 +1364,9 @@ class BankReconciliationSuggestionFlowTest extends TestCase
         $this->assertSame(BankReconciliationSuggestion::STATUS_CONFIRMED, $suggestion->status);
         $this->assertSame('pago', $invoice->estado_pagamento);
         $this->assertContains($movement->estado_pagamento, ['parcial', 'pago']);
+        $this->assertSame(1, Payment::query()->where('bank_statement_id', $statement->id)->count());
+        $this->assertNotNull($response->json('payment.allocations.0'));
+        $this->assertNotEmpty(collect($response->json('payment.allocations'))->pluck('financial_entry')->filter());
 
         $this->assertDatabaseHas('payment_allocations', [
             'invoice_id' => $invoice->id,
@@ -1353,6 +1431,12 @@ class BankReconciliationSuggestionFlowTest extends TestCase
             'mes' => '2026-04',
             'estado_pagamento' => 'pendente',
         ]);
+        $mayInvoice = $this->createInvoice($user, 30.00, 'mensalidade', '2026-05-10', [
+            'data_fatura' => '2026-05-01',
+            'data_emissao' => '2026-05-01',
+            'mes' => '2026-05',
+            'estado_pagamento' => 'pendente',
+        ]);
 
         $statement = $this->createBankStatement(30.00, 'Transferencia Assistida Referencia Abril', 'Mensalidade abril 2026');
 
@@ -1363,16 +1447,17 @@ class BankReconciliationSuggestionFlowTest extends TestCase
         $context = data_get($response->json('suggestions.0'), 'assisted_allocation_context');
 
         $this->assertIsArray($context);
-        $this->assertSame('2026-04', data_get($context, 'reference_month'));
+        $this->assertSame('2026-05', data_get($context, 'reference_month'));
         $this->assertEqualsCanonicalizing([
             $januaryInvoice->id,
             $februaryInvoice->id,
             $marchInvoice->id,
             $aprilInvoice->id,
+            $mayInvoice->id,
         ], collect((array) data_get($context, 'eligible_invoices', []))->pluck('id')->all());
 
         $defaultInvoices = collect((array) data_get($context, 'default_allocations.invoices', []));
-        $this->assertSame([$januaryInvoice->id], $defaultInvoices->pluck('invoice_id')->all());
+        $this->assertSame([$mayInvoice->id], $defaultInvoices->pluck('invoice_id')->all());
         $this->assertSame(30.0, (float) ($defaultInvoices->first()['amount'] ?? 0));
         $this->assertSame(0.0, (float) data_get($context, 'default_allocations.credit_amount', -1));
     }
@@ -1382,10 +1467,10 @@ class BankReconciliationSuggestionFlowTest extends TestCase
         $admin = User::factory()->admin()->create();
         $user = $this->createFinanceUser(['nome_completo' => 'Assistida Fatura Movimento']);
 
-        $invoice = $this->createInvoice($user, 120.00, 'mensalidade', '2026-04-10', [
-            'mes' => '2026-04',
-            'data_fatura' => '2026-04-01',
-            'data_emissao' => '2026-04-01',
+        $invoice = $this->createInvoice($user, 120.00, 'mensalidade', '2026-05-10', [
+            'mes' => '2026-05',
+            'data_fatura' => '2026-05-01',
+            'data_emissao' => '2026-05-01',
             'estado_pagamento' => 'vencido',
         ]);
         $movement = $this->createOpenMovement($user, 20.00);
@@ -1450,10 +1535,10 @@ class BankReconciliationSuggestionFlowTest extends TestCase
         $admin = User::factory()->admin()->create();
         $user = $this->createFinanceUser(['nome_completo' => 'Assistida Limites']);
 
-        $invoice = $this->createInvoice($user, 30.00, 'mensalidade', '2026-04-10', [
-            'mes' => '2026-04',
-            'data_fatura' => '2026-04-01',
-            'data_emissao' => '2026-04-01',
+        $invoice = $this->createInvoice($user, 30.00, 'mensalidade', '2026-05-10', [
+            'mes' => '2026-05',
+            'data_fatura' => '2026-05-01',
+            'data_emissao' => '2026-05-01',
         ]);
         $movement = $this->createOpenMovement($user, 20.00);
         $statement = $this->createBankStatement(40.00, 'Transferencia Assistida Limites', 'Mensalidade abril 2026');

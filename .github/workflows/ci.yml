@@ -38,11 +38,65 @@ jobs:
           cp .env.example .env
           php artisan key:generate --force
 
+      - name: Build frontend
+        run: npm run build
+
       - name: Run test suite
         run: php artisan test
 
       - name: Run legacy members read guard rail
         run: php artisan members:audit-users-legacy-read --fail-on-finding
 
-      - name: Build frontend
-        run: npm run build
+  postgres-concurrency:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: clubos_test
+          POSTGRES_USER: clubos_test
+          POSTGRES_PASSWORD: clubos_test_ci_only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U clubos_test -d clubos_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      APP_ENV: testing
+      APP_KEY: base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+      CACHE_STORE: array
+      SESSION_DRIVER: array
+      QUEUE_CONNECTION: sync
+      MAIL_MAILER: array
+      DB_CONNECTION: pgsql
+      DB_HOST: 127.0.0.1
+      DB_PORT: 5432
+      DB_DATABASE: clubos_test
+      DB_USERNAME: clubos_test
+      DB_PASSWORD: clubos_test_ci_only
+      DB_PROTECT_DESTRUCTIVE_COMMANDS: 'false'
+      DB_ALLOW_DESTRUCTIVE_COMMANDS: 'true'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, xml, curl, zip, intl, bcmath, pdo, pdo_pgsql
+          coverage: none
+
+      - name: Install Composer dependencies
+        run: composer install --no-interaction --prefer-dist
+
+      - name: Prepare PostgreSQL schema
+        run: php artisan migrate --force
+
+      - name: Run PostgreSQL concurrency test
+        run: php artisan test tests/Feature/Financeiro/PostgresMixedBankReconciliationConcurrencyTest.php
