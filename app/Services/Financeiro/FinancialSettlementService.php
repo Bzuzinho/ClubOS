@@ -6,6 +6,7 @@ use App\Models\AccountCredit;
 use App\Models\BankStatement;
 use App\Models\FinancialEntry;
 use App\Models\FiscalDocumentRequest;
+use App\Models\Invoice;
 use App\Models\MapaConciliacao;
 use App\Models\Movement;
 use App\Models\Payment;
@@ -48,6 +49,193 @@ class FinancialSettlementService
         ]);
 
         return $this->paymentAllocationService->allocatePayment($payment, $allocations, $options);
+    }
+
+    /**
+     * Confirma, de forma atomica, alocacoes heterogeneas de uma unica linha bancaria.
+     *
+     * Cada item deve indicar exatamente um de invoice_id, financial_entry_id ou
+     * movement_id. Movements sao convertidos para a FinancialEntry canonica dentro
+     * da mesma transacao.
+     */
+    public function settleMixedAllocations(BankStatement $bankStatement, array $allocations, array $options = []): Payment
+    {
+        if ($allocations === []) {
+            throw ValidationException::withMessages([
+                'allocations' => 'Indique pelo menos uma alocacao.',
+            ]);
+        }
+
+        return DB::transaction(function () use ($bankStatement, $allocations, $options): Payment {
+            $bankStatement = BankStatement::query()
+                ->whereKey($bankStatement->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            if ((float) $bankStatement->valor <= 0) {
+                throw ValidationException::withMessages([
+                    'bank_statement' => 'As sugestoes de recebimentos aceitam apenas movimentos bancarios positivos.',
+                ]);
+            }
+
+            $invoiceAllocations = [];
+            $entryAllocations = [];
+
+            foreach ($allocations as $allocation) {
+                $targets = collect(['invoice_id', 'financial_entry_id', 'movement_id'])
+                    ->filter(fn (string $key): bool => !empty($allocation[$key]))
+                    ->values();
+
+                if ($targets->count() !== 1) {
+                    throw ValidationException::withMessages([
+                        'allocations' => 'Cada alocacao deve ter exatamente um alvo.',
+                    ]);
+                }
+
+                $amount = round(abs((float) ($allocation['amount'] ?? 0)), 2);
+                if ($amount <= 0) {
+                    throw ValidationException::withMessages([
+                        'allocations' => 'Cada alocacao deve ter um valor superior a zero.',
+                    ]);
+                }
+
+                if (!empty($allocation['invoice_id'])) {
+                    $invoiceAllocations[] = [
+                        'invoice_id' => $allocation['invoice_id'],
+                        'amount' => $amount,
+                        'notes' => $allocation['notes'] ?? null,
+                        'metadata' => $allocation['metadata'] ?? null,
+                    ];
+                    continue;
+                }
+
+                if (!empty($allocation['movement_id'])) {
+                    $movement = Movement::query()
+                        ->whereKey($allocation['movement_id'])
+                        ->lockForUpdate()
+                        ->firstOrFail();
+
+                    if (
+                        $movement->classificacao !== 'receita'
+                        || $movement->supplier_id
+                        || in_array($movement->estado_pagamento, ['pago', 'cancelado'], true)
+                    ) {
+                        throw ValidationException::withMessages([
+                            'allocations' => 'O movimento indicado nao e uma receita elegivel em aberto.',
+                        ]);
+                    }
+
+                    $costCenterId = $allocation['centro_custo_id'] ?? $movement->centro_custo_id;
+                    if (!$costCenterId) {
+                        throw ValidationException::withMessages([
+                            'allocations' => 'O movimento indicado nao tem centro de custo.',
+                        ]);
+                    }
+
+                    if ($movement->centro_custo_id !== $costCenterId) {
+                        $movement->forceFill(['centro_custo_id' => $costCenterId])->save();
+                    }
+
+                    $entry = $this->findOrCreateFinancialEntryForMovement($movement->fresh(), [
+                        'categoria' => 'Movimento Financeiro',
+                        'method' => $options['method'] ?? 'transferencia',
+                    ]);
+                } else {
+                    $entry = FinancialEntry::query()
+                        ->whereKey($allocation['financial_entry_id'])
+                        ->lockForUpdate()
+                        ->firstOrFail();
+                }
+
+                if (
+                    $entry->tipo !== 'receita'
+                    || in_array($entry->estado, ['pago', 'cancelado'], true)
+                    || $entry->fatura_id
+                ) {
+                    throw ValidationException::withMessages([
+                        'allocations' => 'A entrada financeira indicada nao e uma receita independente elegivel.',
+                    ]);
+                }
+
+                $entryAllocations[] = [
+                    'financial_entry_id' => $entry->id,
+                    'amount' => $amount,
+                    'notes' => $allocation['notes'] ?? null,
+                    'metadata' => array_merge((array) ($allocation['metadata'] ?? []), [
+                        'movement_id' => $allocation['movement_id'] ?? null,
+                    ]),
+                ];
+            }
+
+            $requestedTotal = round(
+                collect($invoiceAllocations)->sum('amount') + collect($entryAllocations)->sum('amount'),
+                2,
+            );
+            $available = round((float) ($bankStatement->valor_por_conciliar ?? abs((float) $bankStatement->valor)), 2);
+            if ($requestedTotal - $available > 0.009) {
+                throw ValidationException::withMessages([
+                    'allocations' => 'As alocacoes excedem o valor disponivel da linha bancaria.',
+                ]);
+            }
+
+            $payment = Payment::query()
+                ->confirmed()
+                ->where('bank_statement_id', $bankStatement->id)
+                ->lockForUpdate()
+                ->first();
+
+            $commonOptions = array_merge($options, [
+                'bank_statement_id' => $bankStatement->id,
+                'amount' => abs((float) $bankStatement->valor),
+                'payment_date' => $bankStatement->data_movimento,
+                'reference' => $options['reference'] ?? $bankStatement->referencia,
+                'description' => $options['description'] ?? $bankStatement->descricao,
+                'create_credit' => false,
+            ]);
+
+            $payment ??= $this->resolvePayment(
+                $entryAllocations !== [] ? $entryAllocations : $invoiceAllocations,
+                $commonOptions,
+            );
+
+            if ($invoiceAllocations !== []) {
+                Invoice::query()
+                    ->whereIn('id', collect($invoiceAllocations)->pluck('invoice_id'))
+                    ->lockForUpdate()
+                    ->get();
+                $payment = $this->paymentAllocationService->allocatePayment($payment, $invoiceAllocations, array_merge($commonOptions, [
+                    'bank_statement' => $bankStatement,
+                ]));
+            }
+
+            if ($entryAllocations !== []) {
+                FinancialEntry::query()
+                    ->whereIn('id', collect($entryAllocations)->pluck('financial_entry_id'))
+                    ->lockForUpdate()
+                    ->get();
+                $payment = $this->settleFinancialEntries($entryAllocations, $commonOptions);
+            }
+
+            $payment = $this->syncPaymentBalances($payment->fresh());
+            if ((bool) ($options['create_credit'] ?? false) && (float) $payment->unallocated_amount > 0) {
+                app(AccountCreditService::class)->createFromPaymentOverpayment($payment, null, $options);
+                $payment = $this->syncPaymentBalances($payment->fresh());
+            }
+
+            $this->syncBankStatementStatus($bankStatement->fresh());
+            $this->reconciliationRepositoryService->storeFromConfirmedReconciliation(
+                $bankStatement->fresh(),
+                $payment,
+                $options['created_by'] ?? null,
+            );
+
+            return $payment->fresh([
+                'allocations.invoice',
+                'allocations.financialEntry',
+                'credits',
+                'bankStatement',
+            ]);
+        });
     }
 
     public function settleFinancialEntries(array $allocations, array $options = []): Payment
@@ -117,8 +305,7 @@ class FinancialSettlementService
 
             $payment = $this->syncPaymentBalances($payment->fresh());
 
-            $shouldCreateCredit = (bool) ($options['create_credit'] ?? false)
-                || ((float) $payment->unallocated_amount > 0 && ($payment->user_id || $payment->family_id));
+            $shouldCreateCredit = (bool) ($options['create_credit'] ?? false);
 
             if ($shouldCreateCredit && (float) $payment->unallocated_amount > 0) {
                 app(AccountCreditService::class)->createFromPaymentOverpayment($payment, null, $options);
