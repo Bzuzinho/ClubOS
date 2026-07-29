@@ -175,6 +175,27 @@ class BankReconciliationSuggestionFlowTest extends TestCase
             });
 
         $this->assertNotNull($matchingSuggestion);
+        $this->assertSame(100, (int) $matchingSuggestion['score']);
+        $this->assertTrue((bool) $matchingSuggestion['is_directly_reconcilable']);
+
+        $this->actingAs($admin)
+            ->postJson(
+                route(
+                    'financeiro.bank-reconciliation-suggestions.confirm',
+                    BankReconciliationSuggestion::query()->findOrFail($matchingSuggestion['id']),
+                ),
+            )
+            ->assertOk()
+            ->assertJsonPath('summary.new_fiscal_requests', 2);
+
+        $this->assertDatabaseHas('fiscal_document_requests', [
+            'invoice_id' => $invoiceA->id,
+            'status' => FiscalDocumentRequest::STATUS_PENDING,
+        ]);
+        $this->assertDatabaseHas('fiscal_document_requests', [
+            'invoice_id' => $invoiceB->id,
+            'status' => FiscalDocumentRequest::STATUS_PENDING,
+        ]);
     }
 
     public function test_it_generates_suggestion_when_guardian_has_legacy_educandos_attribute_values(): void
@@ -972,7 +993,7 @@ class BankReconciliationSuggestionFlowTest extends TestCase
         $this->assertDatabaseCount('payment_allocations', 2);
     }
 
-    public function test_partial_confirmation_keeps_invoice_partial_without_fiscal_request(): void
+    public function test_partial_suggestion_requires_assisted_allocation_and_keeps_invoice_without_fiscal_request(): void
     {
         $admin = User::factory()->admin()->create();
         $user = $this->createFinanceUser();
@@ -1004,6 +1025,17 @@ class BankReconciliationSuggestionFlowTest extends TestCase
 
         $this->actingAs($admin)
             ->postJson(route('financeiro.bank-reconciliation-suggestions.confirm', $suggestion))
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('suggestion');
+
+        $this->actingAs($admin)
+            ->postJson(route('financeiro.bank-reconciliation-suggestions.confirm', $suggestion), [
+                'invoices' => [[
+                    'invoice_id' => $invoice->id,
+                    'amount' => 40.00,
+                    'notes' => 'Pagamento parcial confirmado na alocacao assistida.',
+                ]],
+            ])
             ->assertOk()
             ->assertJsonPath('summary.has_partial_invoice', true);
 
@@ -1011,6 +1043,238 @@ class BankReconciliationSuggestionFlowTest extends TestCase
 
         $this->assertSame('parcial', $invoice->estado_pagamento);
         $this->assertDatabaseCount('fiscal_document_requests', 0);
+    }
+
+    public function test_negative_statement_suggests_and_reconciles_exact_expense_without_fiscal_request(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $costCenter = CostCenter::query()->firstOrCreate(
+            ['codigo' => 'CC-EXPENSE-RECON'],
+            [
+                'nome' => 'Despesas Bancarias',
+                'tipo' => 'departamento',
+                'ativo' => true,
+            ],
+        );
+        $movement = Movement::query()->create([
+            'nome_manual' => 'Fornecedor Energia',
+            'classificacao' => 'despesa',
+            'categoria' => 'Energia Piscina',
+            'data_emissao' => '2026-05-02',
+            'data_vencimento' => '2026-05-05',
+            'valor_total' => -42.50,
+            'estado_pagamento' => 'por_pagar',
+            'estado_conciliacao' => 'nao_conciliado',
+            'centro_custo_id' => $costCenter->id,
+            'tipo' => 'servico',
+            'observacoes' => 'Pagamento energia piscina',
+        ]);
+        $statement = $this->createBankStatement(-42.50, 'Pagamento energia piscina');
+
+        $response = $this->actingAs($admin)
+            ->postJson(route('financeiro.bank-statements.generate-suggestions', $statement))
+            ->assertOk()
+            ->assertJsonPath('suggestions.0.score', 100)
+            ->assertJsonPath('suggestions.0.is_directly_reconcilable', true)
+            ->assertJsonPath('suggestions.0.suggested_allocations.0.movement_id', $movement->id)
+            ->assertJsonPath('suggestions.0.assisted_allocation_context', null);
+
+        $suggestion = BankReconciliationSuggestion::query()->findOrFail($response->json('suggestions.0.id'));
+
+        $this->actingAs($admin)
+            ->postJson(route('financeiro.bank-reconciliation-suggestions.confirm', $suggestion))
+            ->assertOk()
+            ->assertJsonPath('summary.suggestion_confirmed', true)
+            ->assertJsonPath('summary.new_fiscal_requests', 0);
+
+        $this->assertSame('pago', $movement->fresh()->estado_pagamento);
+        $this->assertTrue($statement->fresh()->conciliado);
+        $this->assertSame('reconciled', $statement->fresh()->conciliacao_status);
+        $financialEntryId = $movement->fresh()->latestFinancialEntry?->id;
+        $this->assertNotNull($financialEntryId);
+        $this->assertDatabaseMissing('fiscal_document_requests', [
+            'financial_entry_id' => $financialEntryId,
+        ]);
+    }
+
+    public function test_positive_statement_suggests_and_reconciles_exact_billed_movement(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $user = $this->createFinanceUser([
+            'nome_completo' => 'Atleta Movimento Faturado',
+            'numero_socio' => '7451',
+        ]);
+        $movement = $this->createOpenMovement($user, 37.50, [
+            'data_emissao' => '2026-05-01',
+            'data_vencimento' => '2026-05-10',
+            'categoria' => 'Inscricao Competicao',
+            'observacoes' => 'Inscricao competicao Atleta Movimento Faturado',
+        ]);
+        $statement = $this->createBankStatement(
+            37.50,
+            'Transferencia Atleta Movimento Faturado inscricao competicao',
+        );
+
+        $response = $this->actingAs($admin)
+            ->postJson(route('financeiro.bank-statements.generate-suggestions', $statement))
+            ->assertOk()
+            ->assertJsonPath('suggestions.0.score', 100)
+            ->assertJsonPath('suggestions.0.is_directly_reconcilable', true)
+            ->assertJsonPath('suggestions.0.suggested_allocations.0.movement_id', $movement->id);
+
+        $suggestion = BankReconciliationSuggestion::query()->findOrFail($response->json('suggestions.0.id'));
+
+        $this->actingAs($admin)
+            ->postJson(route('financeiro.bank-reconciliation-suggestions.confirm', $suggestion))
+            ->assertOk()
+            ->assertJsonPath('summary.suggestion_confirmed', true);
+
+        $movement->refresh();
+        $this->assertSame('pago', $movement->estado_pagamento);
+        $this->assertTrue($statement->fresh()->conciliado);
+        $this->assertDatabaseHas('fiscal_document_requests', [
+            'financial_entry_id' => $movement->latestFinancialEntry?->id,
+            'status' => FiscalDocumentRequest::STATUS_PENDING,
+        ]);
+    }
+
+    public function test_equal_invoice_and_billed_movement_require_assisted_choice(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $user = $this->createFinanceUser([
+            'nome_completo' => 'Atleta Alvo Ambiguo',
+            'numero_socio' => '7452',
+        ]);
+        $this->createInvoice($user, 37.50, 'mensalidade', '2026-05-10');
+        $this->createOpenMovement($user, 37.50, [
+            'data_emissao' => '2026-05-01',
+            'data_vencimento' => '2026-05-10',
+            'categoria' => 'Inscricao Competicao',
+            'observacoes' => 'Inscricao competicao Atleta Alvo Ambiguo',
+        ]);
+        $statement = $this->createBankStatement(
+            37.50,
+            'Transferencia Atleta Alvo Ambiguo inscricao competicao',
+        );
+
+        $response = $this->actingAs($admin)
+            ->postJson(route('financeiro.bank-statements.generate-suggestions', $statement))
+            ->assertOk();
+
+        $suggestions = collect($response->json('suggestions'));
+        $this->assertTrue($suggestions->contains(
+            fn (array $suggestion): bool => collect($suggestion['suggested_allocations'] ?? [])
+                ->contains(fn (array $allocation): bool => !empty($allocation['movement_id']))
+        ));
+        $this->assertTrue($suggestions->contains(
+            fn (array $suggestion): bool => collect($suggestion['suggested_allocations'] ?? [])
+                ->contains(fn (array $allocation): bool => !empty($allocation['invoice_id']))
+        ));
+        $suggestions->each(function (array $suggestion): void {
+            $this->assertLessThan(100, (int) $suggestion['score']);
+            $this->assertFalse((bool) $suggestion['is_directly_reconcilable']);
+        });
+    }
+
+    public function test_multiple_equal_expenses_never_expose_direct_reconciliation(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $costCenter = CostCenter::query()->firstOrCreate(
+            ['codigo' => 'CC-EXPENSE-AMBIGUOUS'],
+            [
+                'nome' => 'Despesas Ambiguas',
+                'tipo' => 'departamento',
+                'ativo' => true,
+            ],
+        );
+
+        foreach (['Fornecedor Energia Norte', 'Fornecedor Energia Sul'] as $supplierName) {
+            Movement::query()->create([
+                'nome_manual' => $supplierName,
+                'classificacao' => 'despesa',
+                'categoria' => 'Energia Piscina',
+                'data_emissao' => '2026-05-02',
+                'data_vencimento' => '2026-05-05',
+                'valor_total' => -42.50,
+                'estado_pagamento' => 'por_pagar',
+                'estado_conciliacao' => 'nao_conciliado',
+                'centro_custo_id' => $costCenter->id,
+                'tipo' => 'servico',
+                'observacoes' => 'Pagamento energia piscina',
+            ]);
+        }
+
+        $statement = $this->createBankStatement(-42.50, 'Pagamento energia piscina');
+
+        $response = $this->actingAs($admin)
+            ->postJson(route('financeiro.bank-statements.generate-suggestions', $statement))
+            ->assertOk()
+            ->assertJsonCount(2, 'suggestions');
+
+        collect($response->json('suggestions'))->each(function (array $suggestion): void {
+            $this->assertLessThan(100, (int) $suggestion['score']);
+            $this->assertFalse((bool) $suggestion['is_directly_reconcilable']);
+        });
+    }
+
+    public function test_negative_statement_without_equal_open_expense_returns_no_suggestion(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $user = $this->createFinanceUser(['nome_completo' => 'Despesa Sem Match']);
+        $this->createOpenMovement($user, -30.00, [
+            'classificacao' => 'despesa',
+            'estado_pagamento' => 'por_pagar',
+            'observacoes' => 'Despesa diferente',
+        ]);
+        $statement = $this->createBankStatement(-25.00, 'Saida bancaria sem despesa');
+
+        $this->actingAs($admin)
+            ->postJson(route('financeiro.bank-statements.generate-suggestions', $statement))
+            ->assertOk()
+            ->assertJsonPath('generated_count', 0)
+            ->assertJsonCount(0, 'suggestions');
+    }
+
+    public function test_reconciled_bank_statement_blocks_value_change_and_deletion(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $costCenter = CostCenter::query()->firstOrCreate(
+            ['codigo' => 'CC-BANK-GUARD'],
+            [
+                'nome' => 'Guarda Bancaria',
+                'tipo' => 'departamento',
+                'ativo' => true,
+            ],
+        );
+        $statement = $this->createBankStatement(25.00, 'Movimento protegido');
+        $statement->forceFill([
+            'centro_custo_id' => $costCenter->id,
+            'conciliado' => true,
+            'valor_conciliado' => 25.00,
+            'valor_por_conciliar' => 0,
+            'conciliacao_status' => 'reconciled',
+        ])->save();
+
+        $this->actingAs($admin)
+            ->putJson(route('financeiro.extratos.update', $statement), [
+                'data_movimento' => '2026-05-05',
+                'descricao' => 'Movimento protegido',
+                'valor' => 30.00,
+                'referencia' => $statement->referencia,
+                'centro_custo_id' => $costCenter->id,
+            ])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('extrato');
+
+        $this->actingAs($admin)
+            ->deleteJson(route('financeiro.extratos.destroy', $statement))
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('extrato');
+
+        $this->assertDatabaseHas('bank_statements', [
+            'id' => $statement->id,
+            'valor' => 25.00,
+        ]);
     }
 
     public function test_full_confirmation_creates_fiscal_document_request(): void

@@ -388,6 +388,59 @@ class FinancialSettlementService
         ];
     }
 
+    public function settleExpenseMovement(BankStatement $bankStatement, Movement $movement, array $options = []): array
+    {
+        return DB::transaction(function () use ($bankStatement, $movement, $options): array {
+            $bankStatement = BankStatement::query()
+                ->whereKey($bankStatement->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+            $movement = Movement::query()
+                ->whereKey($movement->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            if ((float) $bankStatement->valor >= 0) {
+                throw ValidationException::withMessages([
+                    'bank_statement' => 'A conciliacao de despesa exige uma saida bancaria.',
+                ]);
+            }
+
+            if (
+                $movement->classificacao !== 'despesa'
+                || in_array($movement->estado_pagamento, ['pago', 'cancelado'], true)
+            ) {
+                throw ValidationException::withMessages([
+                    'movement' => 'O movimento indicado nao e uma despesa elegivel em aberto.',
+                ]);
+            }
+
+            $availableAmount = round(abs((float) (
+                $bankStatement->valor_por_conciliar
+                ?? $bankStatement->valor
+            )), 2);
+            $movementAmount = round(abs((float) $movement->valor_total), 2);
+
+            if (abs($availableAmount - $movementAmount) > 0.009) {
+                throw ValidationException::withMessages([
+                    'movement' => 'O valor da despesa nao coincide com o valor por conciliar da saida bancaria.',
+                ]);
+            }
+
+            return $this->settleMovement($movement, array_merge($options, [
+                'bank_statement_id' => $bankStatement->id,
+                'amount' => $availableAmount,
+                'payment_date' => $options['payment_date']
+                    ?? optional($bankStatement->data_movimento)?->toDateString()
+                    ?? now()->toDateString(),
+                'method' => $options['method'] ?? 'transferencia',
+                'reference' => $options['reference'] ?? $bankStatement->referencia,
+                'description' => $options['description'] ?? $bankStatement->descricao,
+                'user_id' => $movement->user_id,
+            ]));
+        });
+    }
+
     public function reopenMovement(Movement $movement, string $targetStatus, array $options = []): array
     {
         if (! in_array($targetStatus, ['pendente', 'vencido'], true)) {

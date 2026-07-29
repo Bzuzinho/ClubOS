@@ -115,6 +115,8 @@ export interface ExtratoBancario {
   lancamento_id?: string | null;
   movement_id?: string | null;
   movement_estado_documental?: 'sem_documentos' | 'falta_fatura' | 'falta_recibo' | 'falta_comprovativo_pagamento' | 'pendente_validacao' | 'completo' | 'inconsistente' | null;
+  suggestion_count?: number;
+  direct_suggestion?: BankReconciliationSuggestion | null;
   created_at?: string | null;
 }
 
@@ -137,9 +139,25 @@ export interface ConciliacaoMapa {
 }
 
 export interface BankReconciliationSuggestionAllocation {
-  invoice_id: string;
+  invoice_id?: string | null;
+  movement_id?: string | null;
   amount: number;
   reason?: string | null;
+  movement?: {
+    id: string;
+    user_id?: string | null;
+    user_name?: string | null;
+    supplier_id?: string | null;
+    supplier_name?: string | null;
+    nome_manual?: string | null;
+    categoria?: string | null;
+    observacoes?: string | null;
+    valor_total: number;
+    data_emissao?: string | null;
+    data_vencimento?: string | null;
+    centro_custo_id?: string | null;
+    centro_custo_name?: string | null;
+  } | null;
 }
 
 export interface BankReconciliationSuggestion {
@@ -153,6 +171,7 @@ export interface BankReconciliationSuggestion {
   total_bank_amount: number;
   total_allocated_amount: number;
   unallocated_amount: number;
+  is_directly_reconcilable?: boolean;
   suggested_allocations?: BankReconciliationSuggestionAllocation[] | null;
   assisted_allocation_context?: BankReconciliationAssistedAllocationContext | null;
   matched_rules?: string[] | null;

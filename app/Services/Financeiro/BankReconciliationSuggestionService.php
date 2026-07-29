@@ -54,10 +54,14 @@ class BankReconciliationSuggestionService
 
         if (
             !$bankStatement
-            || (float) $bankStatement->valor <= 0
+            || abs((float) $bankStatement->valor) <= 0.009
             || $this->isBankStatementFullyReconciled($bankStatement)
         ) {
             return collect();
+        }
+
+        if ((float) $bankStatement->valor < 0) {
+            return $this->generateExpenseSuggestions($bankStatement, $options);
         }
 
         $existingSuggestions = $this->fetchActiveSuggestions($bankStatement);
@@ -76,8 +80,18 @@ class BankReconciliationSuggestionService
 
         $normalizedText = $this->normalizeStatementText($bankStatement);
         $contexts = $this->buildCandidateContexts($bankStatement, $normalizedText, $statementAmount);
-        $suggestions = collect();
-        $seenSignatures = [];
+        $suggestions = $this->generateReceiptMovementSuggestions(
+            $bankStatement,
+            $statementAmount,
+            $normalizedText,
+            $rejectedAllocationSignatures,
+            $forceRegeneration,
+        );
+        $seenSignatures = $suggestions
+            ->mapWithKeys(fn (BankReconciliationSuggestion $suggestion): array => [
+                $this->makeAllocationSignatureFromAllocations((array) $suggestion->suggested_allocations) => true,
+            ])
+            ->all();
 
         foreach ($contexts as $context) {
             $candidateInvoices = $this->fetchOpenInvoicesForContext(
@@ -92,6 +106,11 @@ class BankReconciliationSuggestionService
             }
 
             $historyProfile = $this->resolvePaymentHistoryProfile($context['user_id'] ?? null, $context['family_id'] ?? null);
+            $hasEqualReceiptMovement = $this->hasEqualOpenReceiptMovementForContext(
+                $context['user_id'] ?? null,
+                $context['family_id'] ?? null,
+                $statementAmount,
+            );
             $referenceMonthSequence = $this->buildReferenceMonthChronologicalSequence(
                 $candidateInvoices,
                 $statementAmount,
@@ -117,6 +136,7 @@ class BankReconciliationSuggestionService
                     'statement_amount' => $statementAmount,
                     'normalized_text' => $normalizedText,
                     'history_profile' => $historyProfile,
+                    'has_equal_receipt_movement' => $hasEqualReceiptMovement,
                     'reference_month_available' => $referenceMonthSequence !== null
                         && (int) data_get($referenceMonthSequence, '0.reference_month_total_months', 0) > 1,
                 ], $candidateContext);
@@ -162,7 +182,7 @@ class BankReconciliationSuggestionService
     public function generateForUnreconciled(array $filters = []): int
     {
         $query = BankStatement::query()
-            ->where('valor', '>', 0)
+            ->where('valor', '!=', 0)
             ->where(function ($nestedQuery) {
                 $nestedQuery
                     ->where('conciliado', false)
@@ -208,7 +228,7 @@ class BankReconciliationSuggestionService
 
         if (
             !$bankStatement
-            || (float) $bankStatement->valor <= 0
+            || abs((float) $bankStatement->valor) <= 0.009
             || $this->isBankStatementFullyReconciled($bankStatement)
         ) {
             return false;
@@ -489,6 +509,18 @@ class BankReconciliationSuggestionService
         }
 
         $score = max(0, min(100, $score));
+        $isCompleteExactSettlement = abs($statementAmount - $allocatedAmount) <= 0.009
+            && abs($openAmount - $allocatedAmount) <= 0.009;
+
+        if (!$isCompleteExactSettlement) {
+            $score = min($score, 99);
+        }
+
+        if (($context['has_equal_receipt_movement'] ?? false) === true) {
+            $score = min($score, 99);
+            $rules[] = 'equal_receipt_movement_requires_review';
+            $explanations[] = 'Existe tambem um movimento faturado em aberto com o mesmo valor; confirme manualmente o alvo.';
+        }
 
         return [
             'score' => $score,
@@ -516,6 +548,80 @@ class BankReconciliationSuggestionService
                 ]);
             }
 
+            if (
+                (int) $suggestion->score !== 100
+                || round((float) $suggestion->unallocated_amount, 2) > 0.009
+            ) {
+                throw ValidationException::withMessages([
+                    'suggestion' => 'A conciliacao direta exige uma sugestao exata com score de 100%. Use a alocacao assistida.',
+                ]);
+            }
+
+            if ((float) $bankStatement->valor < 0) {
+                return $this->confirmExpenseSuggestion($suggestion, $bankStatement, $actor, $options);
+            }
+
+            $movementAllocations = collect((array) $suggestion->suggested_allocations)
+                ->filter(fn (array $allocation): bool => !empty($allocation['movement_id']))
+                ->values();
+            if ($movementAllocations->isNotEmpty()) {
+                if (
+                    $movementAllocations->count() !== 1
+                    || collect((array) $suggestion->suggested_allocations)->count() !== 1
+                ) {
+                    throw ValidationException::withMessages([
+                        'suggestion' => 'A sugestao direta de movimento deve identificar uma unica receita.',
+                    ]);
+                }
+
+                $allocation = $movementAllocations->first();
+                $availableAmount = $this->resolveRemainingAmount($bankStatement);
+                if (abs((float) $allocation['amount'] - $availableAmount) > 0.009) {
+                    throw ValidationException::withMessages([
+                        'suggestion' => 'A receita sugerida nao cobre integralmente o valor bancario.',
+                    ]);
+                }
+
+                $movement = Movement::query()->findOrFail($allocation['movement_id']);
+                $payment = $this->financialSettlementService->settleMixedAllocations(
+                    $bankStatement,
+                    [[
+                        'movement_id' => $movement->id,
+                        'amount' => $availableAmount,
+                        'centro_custo_id' => $movement->centro_custo_id,
+                        'notes' => $allocation['reason'] ?? $suggestion->explanation,
+                        'metadata' => ['suggestion_id' => $suggestion->id],
+                    ]],
+                    [
+                        'method' => $options['method'] ?? 'transferencia',
+                        'reference' => $options['reference'] ?? $bankStatement->referencia,
+                        'description' => $options['description'] ?? $bankStatement->descricao,
+                        'notes' => $options['notes'] ?? $suggestion->explanation,
+                        'family_id' => $options['family_id'] ?? $suggestion->family_id,
+                        'user_id' => $options['user_id'] ?? $suggestion->user_id,
+                        'created_by' => $actor?->id,
+                        'source' => Payment::SOURCE_RECONCILIATION,
+                        'suggestion_id' => $suggestion->id,
+                        'suggestion_score' => $suggestion->score,
+                        'map_rule' => 'receipt_movement_suggestion_score',
+                        'map_metadata' => [
+                            'suggestion_id' => $suggestion->id,
+                            'matched_rules' => $suggestion->matched_rules,
+                        ],
+                    ],
+                );
+
+                $this->finalizeConfirmedSuggestion(
+                    $suggestion,
+                    $actor,
+                    $payment->user_id ?: $movement->user_id,
+                    $payment->family_id ?: $this->resolveFamilyId($movement->user_id),
+                    $bankStatement,
+                );
+
+                return $payment->fresh(['allocations.financialEntry', 'bankStatement']);
+            }
+
             $allocations = collect((array) $suggestion->suggested_allocations)
                 ->map(function (array $allocation): array {
                     return [
@@ -536,14 +642,34 @@ class BankReconciliationSuggestionService
 
             $invoiceIds = collect($allocations)->pluck('invoice_id')->all();
             $openInvoices = Invoice::query()
+                ->withSum([
+                    'paymentAllocations as confirmed_payment_allocations_sum' => function ($paymentAllocationQuery): void {
+                        $paymentAllocationQuery->where('status', PaymentAllocation::STATUS_CONFIRMED);
+                    },
+                ], 'amount')
                 ->whereIn('id', $invoiceIds)
                 ->whereIn('estado_pagamento', ['pendente', 'vencido', 'parcial'])
-                ->pluck('id')
-                ->all();
+                ->get()
+                ->keyBy('id');
 
-            if (count($openInvoices) !== count($invoiceIds)) {
+            if ($openInvoices->count() !== count($invoiceIds)) {
                 throw ValidationException::withMessages([
                     'suggestion' => 'Uma ou mais faturas da sugestao ja nao estao em aberto.',
+                ]);
+            }
+
+            $containsPartialSettlement = collect($allocations)->contains(function (array $allocation) use ($openInvoices): bool {
+                $invoice = $openInvoices->get($allocation['invoice_id']);
+
+                return !$invoice
+                    || abs($this->getInvoiceOutstandingAmount($invoice) - (float) $allocation['amount']) > 0.009;
+            });
+            $allocatedTotal = round(collect($allocations)->sum('amount'), 2);
+            $availableAmount = $this->resolveRemainingAmount($bankStatement);
+
+            if ($containsPartialSettlement || abs($allocatedTotal - $availableAmount) > 0.009) {
+                throw ValidationException::withMessages([
+                    'suggestion' => 'A conciliacao direta so pode liquidar integralmente as obrigacoes identificadas e todo o valor bancario.',
                 ]);
             }
 
@@ -589,6 +715,7 @@ class BankReconciliationSuggestionService
         ?string $resolvedUserId,
         ?string $resolvedFamilyId,
         BankStatement $bankStatement,
+        bool $learnAlias = true,
     ): void {
         $suggestion->forceFill([
             'status' => BankReconciliationSuggestion::STATUS_CONFIRMED,
@@ -608,12 +735,14 @@ class BankReconciliationSuggestionService
                 'status' => BankReconciliationSuggestion::STATUS_EXPIRED,
             ]);
 
-        $this->reconciliationAliasService->learnFromConfirmedReconciliation(
-            $bankStatement,
-            $resolvedUserId,
-            $resolvedFamilyId,
-            $actor?->id,
-        );
+        if ($learnAlias) {
+            $this->reconciliationAliasService->learnFromConfirmedReconciliation(
+                $bankStatement,
+                $resolvedUserId,
+                $resolvedFamilyId,
+                $actor?->id,
+            );
+        }
     }
 
     public function buildAssistedAllocationContext(BankReconciliationSuggestion $suggestion): ?array
@@ -805,6 +934,452 @@ class BankReconciliationSuggestionService
         return array_values($contexts);
     }
 
+    private function generateReceiptMovementSuggestions(
+        BankStatement $bankStatement,
+        float $statementAmount,
+        string $normalizedStatementText,
+        array $rejectedAllocationSignatures,
+        bool $forceRegeneration,
+    ): Collection {
+        $candidates = Movement::query()
+            ->with([
+                'user:id,nome_completo,name,numero_socio,nif',
+                'user.families:id,nome',
+                'centroCusto:id,nome',
+            ])
+            ->where('classificacao', 'receita')
+            ->whereNull('supplier_id')
+            ->whereIn('estado_pagamento', ['pendente', 'por_pagar', 'vencido', 'parcial', 'pago_parcial'])
+            ->whereRaw('ABS(valor_total) BETWEEN ? AND ?', [
+                max($statementAmount - 0.009, 0),
+                $statementAmount + 0.009,
+            ])
+            ->orderBy('data_vencimento')
+            ->orderBy('data_emissao')
+            ->orderBy('id')
+            ->get();
+
+        $candidateCount = $candidates->count();
+        $strongCandidateCount = $candidates
+            ->filter(fn (Movement $movement): bool =>
+                $this->countMovementMatchingTokens($movement, $normalizedStatementText) >= 2
+            )
+            ->count();
+        $existingBySignature = $this->fetchActiveSuggestions($bankStatement)
+            ->keyBy(fn (BankReconciliationSuggestion $suggestion): string =>
+                (string) data_get($suggestion->metadata, 'allocation_signature', '')
+            );
+        $equalInvoiceCache = [];
+
+        return $candidates
+            ->map(function (Movement $movement) use (
+                $bankStatement,
+                $statementAmount,
+                $normalizedStatementText,
+                $candidateCount,
+                $strongCandidateCount,
+                $rejectedAllocationSignatures,
+                $forceRegeneration,
+                $existingBySignature,
+                &$equalInvoiceCache,
+            ): ?BankReconciliationSuggestion {
+                $allocation = [
+                    'movement_id' => $movement->id,
+                    'amount' => $statementAmount,
+                    'reason' => 'Valor exato de um movimento de receita em aberto.',
+                ];
+                $signature = $this->makeAllocationSignatureFromAllocations([$allocation]);
+
+                if (!$forceRegeneration && isset($rejectedAllocationSignatures[$signature])) {
+                    return null;
+                }
+
+                $familyId = $movement->user?->families?->first()?->id;
+                $matchingTokens = $this->countMovementMatchingTokens($movement, $normalizedStatementText);
+                $movementDate = $movement->data_vencimento ?: $movement->data_emissao;
+                $sameMonth = $movementDate
+                    && $bankStatement->data_movimento
+                    && $movementDate->format('Y-m') === $bankStatement->data_movimento->format('Y-m');
+                $identityKey = (string) ($movement->user_id ?: 'club') . '|' . (string) ($familyId ?: 'none');
+                if (!array_key_exists($identityKey, $equalInvoiceCache)) {
+                    $equalInvoiceCache[$identityKey] = $this->fetchOpenInvoicesForContext($movement->user_id, $familyId)
+                        ->contains(fn (array $candidate): bool =>
+                            abs((float) $candidate['open_amount'] - $statementAmount) <= 0.009
+                        );
+                }
+                $hasEqualInvoice = $equalInvoiceCache[$identityKey];
+
+                $score = 60;
+                $rules = ['exact_receipt_movement_amount'];
+                $explanations = ['O valor bancario coincide exatamente com um movimento de receita em aberto.'];
+
+                if ($matchingTokens >= 2) {
+                    $score += 20;
+                    $rules[] = 'receipt_movement_description_strong_match';
+                    $explanations[] = 'A descricao bancaria identifica o atleta, familia ou descricao do movimento.';
+                } elseif ($matchingTokens === 1) {
+                    $score += 10;
+                    $rules[] = 'receipt_movement_description_match';
+                    $explanations[] = 'A descricao bancaria contem uma pista do movimento.';
+                }
+
+                if ($sameMonth) {
+                    $score += 10;
+                    $rules[] = 'receipt_movement_same_month';
+                    $explanations[] = 'O movimento faturado pertence ao mesmo mes da entrada bancaria.';
+                }
+
+                if ($candidateCount === 1) {
+                    $score += 10;
+                    $rules[] = 'unique_exact_receipt_movement';
+                } elseif ($matchingTokens >= 2 && $strongCandidateCount === 1) {
+                    $score += 10;
+                    $rules[] = 'unique_strong_receipt_movement_match';
+                    $explanations[] = 'Entre os movimentos com o mesmo valor, apenas este coincide fortemente com a descricao bancaria.';
+                } else {
+                    $rules[] = 'multiple_exact_receipt_movements';
+                    $explanations[] = sprintf('Existem %d movimentos de receita em aberto com este valor.', $candidateCount);
+                }
+
+                if ($hasEqualInvoice) {
+                    $rules[] = 'equal_invoice_requires_review';
+                    $explanations[] = 'Existe tambem uma fatura em aberto com o mesmo valor; confirme manualmente o alvo.';
+                }
+
+                $isCertain = $strongCandidateCount === 1
+                    && $matchingTokens >= 2
+                    && $sameMonth
+                    && !$hasEqualInvoice;
+                $score = max(0, min($isCertain ? 100 : 99, $score));
+
+                if ($score < self::MIN_SCORE_TO_PERSIST_WITHOUT_HISTORY) {
+                    return null;
+                }
+
+                $existing = $existingBySignature->get($signature);
+                $suggestion = $existing ?? new BankReconciliationSuggestion();
+                $suggestion->fill([
+                    'bank_statement_id' => $bankStatement->id,
+                    'user_id' => $movement->user_id,
+                    'family_id' => $familyId,
+                    'status' => BankReconciliationSuggestion::STATUS_SUGGESTED,
+                    'score' => $score,
+                    'confidence_label' => $this->resolveConfidenceLabel($score),
+                    'total_bank_amount' => $statementAmount,
+                    'total_allocated_amount' => $statementAmount,
+                    'unallocated_amount' => 0,
+                    'suggested_allocations' => [$allocation],
+                    'matched_rules' => $rules,
+                    'explanation' => implode(' ', $explanations),
+                    'confirmed_by' => null,
+                    'confirmed_at' => null,
+                    'rejected_by' => null,
+                    'rejected_at' => null,
+                    'rejection_reason' => null,
+                    'metadata' => array_merge((array) ($suggestion->metadata ?? []), [
+                        'allocation_signature' => $signature,
+                        'normalized_text' => $normalizedStatementText,
+                        'target_type' => 'receipt_movement',
+                        'candidate_movement_ids' => [$movement->id],
+                    ]),
+                ]);
+                $suggestion->save();
+
+                return $suggestion->refresh(['bankStatement', 'user.families', 'family']);
+            })
+            ->filter()
+            ->sortByDesc('score')
+            ->values();
+    }
+
+    private function hasEqualOpenReceiptMovementForContext(
+        ?string $userId,
+        ?string $familyId,
+        float $statementAmount,
+    ): bool {
+        if (!$userId && !$familyId) {
+            return false;
+        }
+
+        return Movement::query()
+            ->where('classificacao', 'receita')
+            ->whereNull('supplier_id')
+            ->whereIn('estado_pagamento', ['pendente', 'por_pagar', 'vencido', 'parcial', 'pago_parcial'])
+            ->whereRaw('ABS(valor_total) BETWEEN ? AND ?', [
+                max($statementAmount - 0.009, 0),
+                $statementAmount + 0.009,
+            ])
+            ->where(function ($identityQuery) use ($userId, $familyId): void {
+                if ($userId) {
+                    $identityQuery->where('user_id', $userId);
+                }
+
+                if ($familyId) {
+                    $method = $userId ? 'orWhereHas' : 'whereHas';
+                    $identityQuery->{$method}('user.families', function ($familyQuery) use ($familyId): void {
+                        $familyQuery->where('familias.id', $familyId);
+                    });
+                }
+            })
+            ->exists();
+    }
+
+    private function generateExpenseSuggestions(BankStatement $bankStatement, array $options = []): Collection
+    {
+        $forceRegeneration = (bool) ($options['force_regeneration'] ?? false);
+        $existingSuggestions = $this->fetchActiveSuggestions($bankStatement);
+
+        if (!$forceRegeneration && $this->shouldReuseExistingSuggestions($existingSuggestions)) {
+            return $existingSuggestions;
+        }
+
+        $rejectedAllocationSignatures = $forceRegeneration
+            ? []
+            : $this->fetchRejectedAllocationSignatures($bankStatement);
+        $statementAmount = $this->resolveRemainingAmount($bankStatement);
+        $normalizedStatementText = $this->normalizeStatementText($bankStatement);
+
+        $candidates = Movement::query()
+            ->with([
+                'user:id,nome_completo,name',
+                'user.families:id,nome',
+                'supplier:id,nome,nif',
+                'centroCusto:id,nome',
+            ])
+            ->where('classificacao', 'despesa')
+            ->whereIn('estado_pagamento', ['pendente', 'por_pagar', 'vencido', 'parcial', 'pago_parcial'])
+            ->whereRaw('ABS(valor_total) BETWEEN ? AND ?', [
+                max($statementAmount - 0.009, 0),
+                $statementAmount + 0.009,
+            ])
+            ->orderBy('data_vencimento')
+            ->orderBy('data_emissao')
+            ->orderBy('id')
+            ->get();
+
+        $candidateCount = $candidates->count();
+        $strongCandidateCount = $candidates
+            ->filter(fn (Movement $movement): bool =>
+                $this->countMovementMatchingTokens($movement, $normalizedStatementText) >= 2
+            )
+            ->count();
+        $existingBySignature = $existingSuggestions
+            ->keyBy(fn (BankReconciliationSuggestion $suggestion): string =>
+                (string) data_get($suggestion->metadata, 'allocation_signature', '')
+            );
+        $suggestions = $candidates
+            ->map(function (Movement $movement) use (
+                $bankStatement,
+                $statementAmount,
+                $normalizedStatementText,
+                $candidateCount,
+                $strongCandidateCount,
+                $rejectedAllocationSignatures,
+                $forceRegeneration,
+                $existingBySignature,
+            ): ?BankReconciliationSuggestion {
+                $allocation = [
+                    'movement_id' => $movement->id,
+                    'amount' => $statementAmount,
+                    'reason' => 'Valor exato de uma despesa em aberto.',
+                ];
+                $signature = $this->makeAllocationSignatureFromAllocations([$allocation]);
+
+                if (!$forceRegeneration && isset($rejectedAllocationSignatures[$signature])) {
+                    return null;
+                }
+
+                $scoreData = $this->calculateExpenseScore(
+                    $bankStatement,
+                    $movement,
+                    $normalizedStatementText,
+                    $statementAmount,
+                    $candidateCount,
+                    $strongCandidateCount,
+                );
+                $existing = $existingBySignature->get($signature);
+                $suggestion = $existing ?? new BankReconciliationSuggestion();
+
+                $suggestion->fill([
+                    'bank_statement_id' => $bankStatement->id,
+                    'user_id' => $movement->user_id,
+                    'family_id' => $this->resolveFamilyId($movement->user_id),
+                    'status' => BankReconciliationSuggestion::STATUS_SUGGESTED,
+                    'score' => $scoreData['score'],
+                    'confidence_label' => $scoreData['confidence_label'],
+                    'total_bank_amount' => $statementAmount,
+                    'total_allocated_amount' => $statementAmount,
+                    'unallocated_amount' => 0,
+                    'suggested_allocations' => [$allocation],
+                    'matched_rules' => $scoreData['matched_rules'],
+                    'explanation' => $scoreData['explanation'],
+                    'confirmed_by' => null,
+                    'confirmed_at' => null,
+                    'rejected_by' => null,
+                    'rejected_at' => null,
+                    'rejection_reason' => null,
+                    'metadata' => array_merge((array) ($suggestion->metadata ?? []), [
+                        'allocation_signature' => $signature,
+                        'normalized_text' => $normalizedStatementText,
+                        'target_type' => 'expense_movement',
+                        'candidate_movement_ids' => [$movement->id],
+                    ]),
+                ]);
+                $suggestion->save();
+
+                return $suggestion->refresh(['bankStatement', 'user.families', 'family']);
+            })
+            ->filter()
+            ->sortByDesc('score')
+            ->values();
+
+        $this->expireStaleSuggestions($bankStatement, $suggestions->pluck('id')->all());
+
+        return $suggestions;
+    }
+
+    /**
+     * @return array{score:int,confidence_label:string,matched_rules:array<int,string>,explanation:string}
+     */
+    private function calculateExpenseScore(
+        BankStatement $bankStatement,
+        Movement $movement,
+        string $normalizedStatementText,
+        float $statementAmount,
+        int $candidateCount,
+        int $strongCandidateCount,
+    ): array {
+        $score = 70;
+        $rules = ['exact_expense_amount'];
+        $explanations = ['O valor da saida bancaria coincide exatamente com uma despesa em aberto.'];
+
+        $matchingTokens = $this->countMovementMatchingTokens($movement, $normalizedStatementText);
+
+        if ($matchingTokens >= 2) {
+            $score += 20;
+            $rules[] = 'expense_description_strong_match';
+            $explanations[] = 'A descricao bancaria coincide com a entidade ou descricao da despesa.';
+        } elseif ($matchingTokens === 1) {
+            $score += 10;
+            $rules[] = 'expense_description_match';
+            $explanations[] = 'A descricao bancaria contem uma pista da despesa.';
+        }
+
+        $movementDate = $movement->data_vencimento ?: $movement->data_emissao;
+        if ($bankStatement->data_movimento && $movementDate) {
+            $days = abs($movementDate->diffInDays($bankStatement->data_movimento, false));
+            if ($days <= 31) {
+                $score += 10;
+                $rules[] = 'expense_date_near_statement';
+                $explanations[] = 'A data da despesa e a data bancaria sao compativeis.';
+            }
+        }
+
+        if ($candidateCount === 1) {
+            $score += 10;
+            $rules[] = 'unique_exact_expense';
+            $explanations[] = 'Nao existe outra despesa em aberto com o mesmo valor.';
+        } elseif ($matchingTokens >= 2 && $strongCandidateCount === 1) {
+            $rules[] = 'unique_strong_expense_match';
+            $explanations[] = 'Entre as despesas com o mesmo valor, apenas esta coincide fortemente com a descricao bancaria.';
+        } else {
+            $rules[] = 'multiple_exact_expenses';
+            $explanations[] = sprintf('Existem %d despesas em aberto com este valor; confirme manualmente a correta.', $candidateCount);
+        }
+
+        $hasCertainIdentity = $strongCandidateCount === 1 && $matchingTokens >= 2;
+        if (
+            !$hasCertainIdentity
+            || abs(abs((float) $movement->valor_total) - $statementAmount) > 0.009
+        ) {
+            $score = min($score, 99);
+        }
+
+        $score = max(0, min(100, $score));
+
+        return [
+            'score' => $score,
+            'confidence_label' => $this->resolveConfidenceLabel($score),
+            'matched_rules' => $rules,
+            'explanation' => implode(' ', $explanations),
+        ];
+    }
+
+    private function countMovementMatchingTokens(Movement $movement, string $normalizedStatementText): int
+    {
+        $movementText = $this->normalizer->normalize(trim(implode(' ', array_filter([
+            $movement->observacoes,
+            $movement->categoria,
+            $movement->nome_manual,
+            $movement->referencia_pagamento,
+            $movement->supplier?->nome,
+            $movement->supplier?->nif,
+            $movement->user?->nome_completo ?: $movement->user?->name,
+            $movement->user?->numero_socio,
+            $movement->user?->nif,
+            $movement->user?->families?->pluck('nome')->implode(' '),
+        ]))));
+
+        return collect(explode(' ', $movementText))
+            ->filter(fn (string $token): bool => strlen($token) >= 4 && !$this->isIgnoredIdentityToken($token))
+            ->unique()
+            ->filter(fn (string $token): bool => str_contains($normalizedStatementText, $token))
+            ->count();
+    }
+
+    private function confirmExpenseSuggestion(
+        BankReconciliationSuggestion $suggestion,
+        BankStatement $bankStatement,
+        ?User $actor,
+        array $options,
+    ): Payment {
+        $movementIds = collect((array) $suggestion->suggested_allocations)
+            ->pluck('movement_id')
+            ->filter()
+            ->unique()
+            ->values();
+
+        if ($movementIds->count() !== 1) {
+            throw ValidationException::withMessages([
+                'suggestion' => 'A sugestao de despesa nao identifica um unico movimento.',
+            ]);
+        }
+
+        $movement = Movement::query()->findOrFail($movementIds->first());
+        $settlement = $this->financialSettlementService->settleExpenseMovement(
+            $bankStatement,
+            $movement,
+            [
+                'payment_date' => optional($bankStatement->data_movimento)?->toDateString() ?? now()->toDateString(),
+                'method' => $options['method'] ?? 'transferencia',
+                'reference' => $options['reference'] ?? $bankStatement->referencia,
+                'description' => $options['description'] ?? $bankStatement->descricao,
+                'notes' => $options['notes'] ?? $suggestion->explanation,
+                'created_by' => $actor?->id,
+                'source' => Payment::SOURCE_RECONCILIATION,
+                'suggestion_id' => $suggestion->id,
+                'suggestion_score' => $suggestion->score,
+                'map_rule' => 'expense_suggestion_score',
+                'map_metadata' => [
+                    'suggestion_id' => $suggestion->id,
+                    'matched_rules' => $suggestion->matched_rules,
+                    'expense_reconciliation' => true,
+                ],
+            ],
+        );
+
+        $this->finalizeConfirmedSuggestion(
+            $suggestion,
+            $actor,
+            $movement->user_id,
+            $this->resolveFamilyId($movement->user_id),
+            $bankStatement,
+            false,
+        );
+
+        return $settlement['payment']->fresh(['allocations.financialEntry', 'bankStatement']);
+    }
+
     private function resolveAssistedReferenceMonth(BankReconciliationSuggestion $suggestion, BankStatement $bankStatement): string
     {
         $metadataMonth = data_get($suggestion->metadata, 'reference_month_context.reference_month_key');
@@ -924,13 +1499,18 @@ class BankReconciliationSuggestionService
             })
             ->whereIn('estado_pagamento', ['pendente', 'parcial']);
 
-        if ($userId) {
-            $query->where('user_id', $userId);
-        }
+        if ($userId || $familyId) {
+            $query->where(function ($identityQuery) use ($userId, $familyId): void {
+                if ($userId) {
+                    $identityQuery->where('user_id', $userId);
+                }
 
-        if ($familyId) {
-            $query->whereHas('user.families', function ($familyQuery) use ($familyId): void {
-                $familyQuery->where('familias.id', $familyId);
+                if ($familyId) {
+                    $method = $userId ? 'orWhereHas' : 'whereHas';
+                    $identityQuery->{$method}('user.families', function ($familyQuery) use ($familyId): void {
+                        $familyQuery->where('familias.id', $familyId);
+                    });
+                }
             });
         }
 
@@ -2542,10 +3122,14 @@ class BankReconciliationSuggestionService
     {
         $parts = collect($allocations)
             ->map(function (array $allocation): string {
-                $invoiceId = (string) ($allocation['invoice_id'] ?? '');
+                $target = !empty($allocation['invoice_id'])
+                    ? (string) $allocation['invoice_id']
+                    : (!empty($allocation['movement_id'])
+                        ? 'movement:' . $allocation['movement_id']
+                        : 'unknown');
                 $amount = number_format((float) ($allocation['amount'] ?? 0), 2, '.', '');
 
-                return $invoiceId . ':' . $amount;
+                return $target . ':' . $amount;
             })
             ->sort()
             ->values()
@@ -2572,6 +3156,6 @@ class BankReconciliationSuggestionService
         }
 
         return (bool) $bankStatement->conciliado
-            && round((float) ($bankStatement->valor_por_conciliar ?? 0), 2) <= 0.009;
+            && round(abs((float) ($bankStatement->valor_por_conciliar ?? 0)), 2) <= 0.009;
     }
 }

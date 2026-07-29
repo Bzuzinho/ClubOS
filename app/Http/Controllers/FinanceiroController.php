@@ -2622,6 +2622,37 @@ class FinanceiroController extends Controller
             'centro_custo_id' => ['required', 'exists:cost_centers,id'],
         ]);
 
+        $hasReconciliation = (bool) $extrato->conciliado
+            || in_array($extrato->conciliacao_status, ['partial', 'reconciled'], true)
+            || (float) ($extrato->valor_conciliado ?? 0) > 0.009
+            || $extrato->payments()->confirmed()->exists()
+            || $extrato->reconciliationMaps()->where('status', 'confirmado')->exists();
+
+        if ($hasReconciliation && (
+            round((float) $data['valor'], 2) !== round((float) $extrato->valor, 2)
+            || Carbon::parse($data['data_movimento'])->toDateString() !== optional($extrato->data_movimento)->toDateString()
+        )) {
+            throw ValidationException::withMessages([
+                'extrato' => 'Desconcilie o movimento antes de alterar a data ou o valor bancario.',
+            ]);
+        }
+
+        $duplicateAttributes = $this->buildBankStatementAttributes([
+            'conta' => $extrato->conta,
+            'data_movimento' => $data['data_movimento'],
+            'descricao' => $data['descricao'],
+            'valor' => $data['valor'],
+            'referencia' => $data['referencia'] ?? null,
+            'ficheiro_id' => $extrato->ficheiro_id,
+            'centro_custo_id' => $data['centro_custo_id'],
+        ]);
+
+        if (BankStatement::findDuplicateFor($duplicateAttributes, $extrato->id)) {
+            throw ValidationException::withMessages([
+                'extrato' => BankStatement::DUPLICATE_MESSAGE,
+            ]);
+        }
+
         $extrato = DB::transaction(function () use ($extrato, $data): BankStatement {
             $extrato->update([
                 'data_movimento' => $data['data_movimento'],
@@ -2647,6 +2678,18 @@ class FinanceiroController extends Controller
 
     public function destroyExtrato(BankStatement $extrato)
     {
+        $hasReconciliation = (bool) $extrato->conciliado
+            || in_array($extrato->conciliacao_status, ['partial', 'reconciled'], true)
+            || (float) ($extrato->valor_conciliado ?? 0) > 0.009
+            || $extrato->payments()->confirmed()->exists()
+            || $extrato->reconciliationMaps()->where('status', 'confirmado')->exists();
+
+        if ($hasReconciliation) {
+            throw ValidationException::withMessages([
+                'extrato' => 'Nao e possivel apagar um movimento bancario conciliado. Desconcilie primeiro.',
+            ]);
+        }
+
         if ($extrato->lancamento_id) {
             FinancialEntry::where('id', $extrato->lancamento_id)->delete();
         }
@@ -2689,13 +2732,44 @@ class FinanceiroController extends Controller
     private function financeBankStatements(): Collection
     {
         return BankStatement::query()
+            ->with([
+                'suggestions' => fn ($query) => $query
+                    ->where('status', \App\Models\BankReconciliationSuggestion::STATUS_SUGGESTED)
+                    ->orderByDesc('score')
+                    ->orderByDesc('created_at'),
+            ])
             ->orderBy('data_movimento', 'desc')
             ->orderBy('created_at', 'desc')
             ->limit(1000)
             ->get()
             ->map(function (BankStatement $extrato) {
+                $activeSuggestions = $extrato->suggestions;
+                $directSuggestion = $activeSuggestions->first(function ($suggestion): bool {
+                    return (int) $suggestion->score === 100
+                        && round((float) $suggestion->unallocated_amount, 2) <= 0.009
+                        && collect((array) $suggestion->suggested_allocations)->isNotEmpty();
+                });
+
                 $extrato->valor = (float) $extrato->valor;
                 $extrato->saldo = $extrato->saldo !== null ? (float) $extrato->saldo : null;
+                $extrato->setAttribute('suggestion_count', $activeSuggestions->count());
+                $extrato->setAttribute('direct_suggestion', $directSuggestion ? [
+                    'id' => $directSuggestion->id,
+                    'bank_statement_id' => $directSuggestion->bank_statement_id,
+                    'user_id' => $directSuggestion->user_id,
+                    'family_id' => $directSuggestion->family_id,
+                    'status' => $directSuggestion->status,
+                    'score' => (int) $directSuggestion->score,
+                    'confidence_label' => $directSuggestion->confidence_label,
+                    'total_bank_amount' => (float) $directSuggestion->total_bank_amount,
+                    'total_allocated_amount' => (float) $directSuggestion->total_allocated_amount,
+                    'unallocated_amount' => (float) $directSuggestion->unallocated_amount,
+                    'suggested_allocations' => $directSuggestion->suggested_allocations,
+                    'matched_rules' => $directSuggestion->matched_rules,
+                    'explanation' => $directSuggestion->explanation,
+                    'is_directly_reconcilable' => true,
+                ] : null);
+                $extrato->unsetRelation('suggestions');
 
                 return $extrato;
             });
