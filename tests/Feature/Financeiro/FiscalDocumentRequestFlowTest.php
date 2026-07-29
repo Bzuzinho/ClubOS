@@ -943,7 +943,7 @@ class FiscalDocumentRequestFlowTest extends TestCase
         ]);
 
         $costCenter = CostCenter::create([
-            'codigo' => 'CC-FISCAL',
+            'codigo' => 'CC-FISCAL-' . uniqid(),
             'nome' => 'Centro Fiscal',
             'tipo' => 'departamento',
             'ativo' => true,
