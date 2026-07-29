@@ -2149,10 +2149,9 @@ class BankReconciliationSuggestionService
                         ->orWhere('contacto', 'like', '%' . $compactDigits . '%');
                 }
             })
-            ->limit(10)
             ->get();
 
-        return $users->map(function (User $user) use ($normalizedText, $compactDigits, $users): array {
+        $matches = $users->map(function (User $user) use ($normalizedText, $compactDigits): array {
             $fiscalData = $this->memberFiscalDataResolver->resolve($user);
             $name = $this->normalizer->normalize($this->memberFiscalDataResolver->displayName($user));
             $secondaryEmail = $this->normalizer->normalize($this->memberFiscalDataResolver->emailSecondary($user));
@@ -2187,7 +2186,7 @@ class BankReconciliationSuggestionService
                     'matched_email_or_phone' => ($email !== '' && str_contains($normalizedText, $email))
                         || ($secondaryEmail !== '' && str_contains($normalizedText, $secondaryEmail))
                         || $phoneMatches,
-                    'conflict_count' => max($users->count() - 1, 0),
+                    'conflict_count' => 0,
                 ],
             ];
         })->filter(function (array $match): bool {
@@ -2197,7 +2196,17 @@ class BankReconciliationSuggestionService
                 || ($flags['matched_nif'] ?? false)
                 || ($flags['matched_member_number'] ?? false)
                 || ($flags['matched_email_or_phone'] ?? false);
-        })->values()->all();
+        })->values();
+
+        $conflictCount = max($matches->count() - 1, 0);
+
+        return $matches
+            ->map(function (array $match) use ($conflictCount): array {
+                $match['flags']['conflict_count'] = $conflictCount;
+
+                return $match;
+            })
+            ->all();
     }
 
     private function findFamiliesFromStatement(string $normalizedText): array
@@ -2616,7 +2625,7 @@ class BankReconciliationSuggestionService
                 continue;
             }
 
-            if (abs($invoice->data_vencimento->diffInDays($statementDate, false)) <= 10) {
+            if (abs($invoice->data_vencimento->diffInDays($statementDate, false)) <= 20) {
                 return true;
             }
         }
