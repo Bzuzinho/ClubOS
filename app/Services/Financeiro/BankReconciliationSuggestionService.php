@@ -12,6 +12,7 @@ use App\Models\PaymentAllocation;
 use App\Models\User;
 use App\Services\Members\MemberFiscalDataResolver;
 use App\Services\Members\MemberPersonalDataColumnService;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
@@ -941,19 +942,18 @@ class BankReconciliationSuggestionService
         array $rejectedAllocationSignatures,
         bool $forceRegeneration,
     ): Collection {
-        $candidates = Movement::query()
-            ->with([
-                'user:id,nome_completo,name,numero_socio,nif',
-                'user.families:id,nome',
-                'centroCusto:id,nome',
-            ])
-            ->where('classificacao', 'receita')
-            ->whereNull('supplier_id')
-            ->whereIn('estado_pagamento', ['pendente', 'por_pagar', 'vencido', 'parcial', 'pago_parcial'])
-            ->whereRaw('ABS(valor_total) BETWEEN ? AND ?', [
-                max($statementAmount - 0.009, 0),
-                $statementAmount + 0.009,
-            ])
+        $candidates = $this->whereMovementAbsoluteAmount(
+            Movement::query()
+                ->with([
+                    'user:id,nome_completo,name,numero_socio,nif',
+                    'user.families:id,nome',
+                    'centroCusto:id,nome',
+                ])
+                ->where('classificacao', 'receita')
+                ->whereNull('supplier_id')
+                ->whereIn('estado_pagamento', ['pendente', 'por_pagar', 'vencido', 'parcial', 'pago_parcial']),
+            $statementAmount,
+        )
             ->orderBy('data_vencimento')
             ->orderBy('data_emissao')
             ->orderBy('id')
@@ -1101,14 +1101,13 @@ class BankReconciliationSuggestionService
             return false;
         }
 
-        return Movement::query()
-            ->where('classificacao', 'receita')
-            ->whereNull('supplier_id')
-            ->whereIn('estado_pagamento', ['pendente', 'por_pagar', 'vencido', 'parcial', 'pago_parcial'])
-            ->whereRaw('ABS(valor_total) BETWEEN ? AND ?', [
-                max($statementAmount - 0.009, 0),
-                $statementAmount + 0.009,
-            ])
+        return $this->whereMovementAbsoluteAmount(
+            Movement::query()
+                ->where('classificacao', 'receita')
+                ->whereNull('supplier_id')
+                ->whereIn('estado_pagamento', ['pendente', 'por_pagar', 'vencido', 'parcial', 'pago_parcial']),
+            $statementAmount,
+        )
             ->where(function ($identityQuery) use ($userId, $familyId): void {
                 if ($userId) {
                     $identityQuery->where('user_id', $userId);
@@ -1139,19 +1138,18 @@ class BankReconciliationSuggestionService
         $statementAmount = $this->resolveRemainingAmount($bankStatement);
         $normalizedStatementText = $this->normalizeStatementText($bankStatement);
 
-        $candidates = Movement::query()
-            ->with([
-                'user:id,nome_completo,name',
-                'user.families:id,nome',
-                'supplier:id,nome,nif',
-                'centroCusto:id,nome',
-            ])
-            ->where('classificacao', 'despesa')
-            ->whereIn('estado_pagamento', ['pendente', 'por_pagar', 'vencido', 'parcial', 'pago_parcial'])
-            ->whereRaw('ABS(valor_total) BETWEEN ? AND ?', [
-                max($statementAmount - 0.009, 0),
-                $statementAmount + 0.009,
-            ])
+        $candidates = $this->whereMovementAbsoluteAmount(
+            Movement::query()
+                ->with([
+                    'user:id,nome_completo,name',
+                    'user.families:id,nome',
+                    'supplier:id,nome,nif',
+                    'centroCusto:id,nome',
+                ])
+                ->where('classificacao', 'despesa')
+                ->whereIn('estado_pagamento', ['pendente', 'por_pagar', 'vencido', 'parcial', 'pago_parcial']),
+            $statementAmount,
+        )
             ->orderBy('data_vencimento')
             ->orderBy('data_emissao')
             ->orderBy('id')
@@ -1236,6 +1234,26 @@ class BankReconciliationSuggestionService
         $this->expireStaleSuggestions($bankStatement, $suggestions->pluck('id')->all());
 
         return $suggestions;
+    }
+
+    private function whereMovementAbsoluteAmount(Builder $query, float $amount): Builder
+    {
+        $minimum = max(round($amount - 0.009, 3), 0);
+        $maximum = round($amount + 0.009, 3);
+
+        return $query->where(function (Builder $amountQuery) use ($minimum, $maximum): void {
+            $amountQuery
+                ->where(function (Builder $positiveQuery) use ($minimum, $maximum): void {
+                    $positiveQuery
+                        ->where('valor_total', '>=', $minimum)
+                        ->where('valor_total', '<=', $maximum);
+                })
+                ->orWhere(function (Builder $negativeQuery) use ($minimum, $maximum): void {
+                    $negativeQuery
+                        ->where('valor_total', '>=', -$maximum)
+                        ->where('valor_total', '<=', -$minimum);
+                });
+        });
     }
 
     /**

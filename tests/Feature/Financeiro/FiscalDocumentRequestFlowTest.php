@@ -939,7 +939,7 @@ class FiscalDocumentRequestFlowTest extends TestCase
             'morada' => 'Rua do Clube 10',
             'codigo_postal' => '1000-100',
             'localidade' => 'Lisboa',
-            'email' => 'socio@example.com',
+            'email' => fake()->unique()->safeEmail(),
         ]);
 
         $costCenter = CostCenter::create([
@@ -1009,7 +1009,7 @@ class FiscalDocumentRequestFlowTest extends TestCase
             'morada' => 'Rua do Clube 10',
             'codigo_postal' => '1000-100',
             'localidade' => 'Lisboa',
-            'email' => 'socio@example.com',
+            'email' => fake()->unique()->safeEmail(),
         ]);
 
         $costCenter = CostCenter::create([

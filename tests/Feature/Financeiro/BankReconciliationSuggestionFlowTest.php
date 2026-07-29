@@ -1359,9 +1359,15 @@ class BankReconciliationSuggestionFlowTest extends TestCase
 
         $response = $this->actingAs($admin)
             ->postJson(route('financeiro.bank-reconciliation-suggestions.confirm', $suggestion), [
+                'invoices' => [[
+                    'invoice_id' => $invoice->id,
+                    'amount' => 30.00,
+                ]],
                 'create_credit' => true,
+                'credit_user_id' => $user->id,
             ])
             ->assertOk()
+            ->assertJsonPath('summary.assisted_allocation', true)
             ->assertJsonPath('summary.created_credit', true);
 
         $this->assertDatabaseHas('account_credits', [
