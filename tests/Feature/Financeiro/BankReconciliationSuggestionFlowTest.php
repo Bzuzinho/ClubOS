@@ -336,25 +336,34 @@ class BankReconciliationSuggestionFlowTest extends TestCase
         $this->assertContains('matched_member_number', $response->json('suggestions.0.matched_rules'));
     }
 
-    public function test_it_falls_back_to_amount_matching_when_name_query_returns_only_weak_candidates(): void
+    public function test_it_prioritizes_the_full_name_after_more_than_ten_weak_candidates(): void
     {
         $admin = User::factory()->admin()->create();
 
-        User::factory()->create(['nome_completo' => 'Beatriz Silva da Conceicao']);
-        User::factory()->create(['nome_completo' => 'Ana Luisa Silva Rodrigues']);
-        User::factory()->create(['nome_completo' => 'Beatriz Silva Santos']);
+        foreach (range(1, 12) as $index) {
+            User::factory()->create([
+                'nome_completo' => "Atleta Silva Teste {$index}",
+            ]);
+        }
 
         $user = $this->createFinanceUser([
             'nome_completo' => 'Ines da Silva Guerra Figueiredo',
             'email' => 'ines-' . uniqid() . '@example.com',
         ]);
-        $invoice = $this->createInvoice($user, 30.00, 'mensalidade', '2026-03-11');
-        $statement = $this->createBankStatement(30.00, 'TRF CR INTRAB 264 DE INES DA SILVA GUERRA FIGUEIREDO');
+        $invoice = $this->createInvoice($user, 30.00, 'mensalidade', '2026-01-01', [
+            'data_fatura' => '2026-01-01',
+            'data_emissao' => '2026-01-01',
+            'mes' => '2026-01',
+        ]);
+        $statement = $this->createBankStatement(
+            30.00,
+            'TRF CR INTRAB 264 DE INES DA SILVA GUERRA FIGUEIREDO',
+        );
+        $statement->forceFill(['data_movimento' => '2026-01-12'])->save();
 
         $response = $this->actingAs($admin)
-            ->postJson(route('financeiro.bank-statements.generate-suggestions', $statement));
-
-        $response->assertOk();
+            ->postJson(route('financeiro.bank-statements.generate-suggestions', $statement))
+            ->assertOk();
 
         $matchingSuggestion = collect($response->json('suggestions'))
             ->first(function (array $suggestion) use ($user, $invoice) {
@@ -366,6 +375,45 @@ class BankReconciliationSuggestionFlowTest extends TestCase
             });
 
         $this->assertNotNull($matchingSuggestion);
+        $this->assertSame(100, (int) $matchingSuggestion['score']);
+        $this->assertContains('matched_name', $matchingSuggestion['matched_rules']);
+        $this->assertContains('near_due_date', $matchingSuggestion['matched_rules']);
+    }
+
+    public function test_near_due_date_bonus_applies_through_twenty_days(): void
+    {
+        $user = $this->createFinanceUser([
+            'nome_completo' => 'Atleta Limite Proximidade',
+            'email' => 'limite-proximidade-' . uniqid() . '@example.com',
+        ]);
+        $invoice = $this->createInvoice($user, 30.00, 'mensalidade', '2026-01-01', [
+            'data_fatura' => '2026-01-01',
+            'data_emissao' => '2026-01-01',
+            'mes' => '2026-01',
+        ]);
+        $statement = $this->createBankStatement(30.00, 'TRF ATLETA LIMITE PROXIMIDADE');
+        $service = app(BankReconciliationSuggestionService::class);
+        $candidateInvoices = [[
+            'invoice' => $invoice->fresh(),
+            'open_amount' => 30.00,
+            'amount' => 30.00,
+        ]];
+        $context = [
+            'statement_amount' => 30.00,
+            'normalized_text' => 'TRF ATLETA LIMITE PROXIMIDADE',
+            'user_id' => $user->id,
+            'matched_name' => true,
+            'conflict_count' => 0,
+        ];
+
+        $statement->forceFill(['data_movimento' => '2026-01-21'])->save();
+        $atTwentyDays = $service->calculateScore($statement->fresh(), $candidateInvoices, $context);
+
+        $statement->forceFill(['data_movimento' => '2026-01-22'])->save();
+        $atTwentyOneDays = $service->calculateScore($statement->fresh(), $candidateInvoices, $context);
+
+        $this->assertContains('near_due_date', $atTwentyDays['matched_rules']);
+        $this->assertNotContains('near_due_date', $atTwentyOneDays['matched_rules']);
     }
 
     public function test_monthly_invoice_from_same_movement_month_gets_higher_score(): void
