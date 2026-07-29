@@ -119,11 +119,6 @@ class BankReconciliationSuggestionController extends Controller
                     ->where('conciliado', false)
                     ->orWhere('conciliacao_status', 'partial')
                     ->orWhereNull('conciliacao_status');
-            })
-            ->whereDoesntHave('suggestions', function ($suggestionQuery) {
-                $suggestionQuery
-                    ->where('status', BankReconciliationSuggestion::STATUS_SUGGESTED)
-                    ->where('score', '>', 0);
             });
 
         if (!empty($data['date_from'])) {
@@ -157,6 +152,10 @@ class BankReconciliationSuggestionController extends Controller
         $query->orderByDesc('data_movimento')
             ->chunkById(100, function ($statements) use (&$summary): void {
                 foreach ($statements as $statement) {
+                    if (!$this->suggestionService->shouldAutoGenerateForBankStatement($statement)) {
+                        continue;
+                    }
+
                     $summary['analyzed_count']++;
 
                     try {
