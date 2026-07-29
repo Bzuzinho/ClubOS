@@ -69,6 +69,7 @@ class FinanceiroController extends Controller
         private readonly ManualExpenseService $manualExpenseService,
         private readonly MovementDocumentControlService $movementDocumentControlService,
         private readonly MemberFiscalDataResolver $memberFiscalDataResolver,
+        private readonly MemberCostCenterResolver $memberCostCenterResolver,
         private readonly MemberMonthlyFeeResolver $memberMonthlyFeeResolver,
         private readonly ManualInvoiceService $manualInvoiceService,
         private readonly InvoiceFinancialGuardService $invoiceFinancialGuardService,

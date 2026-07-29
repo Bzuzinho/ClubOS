@@ -9,6 +9,7 @@ use App\Models\CostCenter;
 use App\Models\User;
 use App\Services\Financeiro\MemberCostCenterResolver;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Tests\TestCase;
@@ -73,6 +74,31 @@ final class MemberCostCenterResolverTest extends TestCase
         $response->assertOk();
         $this->assertSame([], $response->json('props.member.centro_custo'));
         $this->assertSame([], $response->json('props.member.centro_custo_pesos'));
+    }
+
+    public function test_finance_index_exposes_member_cost_centers_without_silently_dropping_users(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $member = User::factory()->create([
+            'nome_completo' => 'Membro Centro Financeiro',
+            'estado' => 'ativo',
+        ]);
+
+        $center = $this->createCostCenter('CC-FINANCE-INDEX', 'Centro Financeiro');
+        $this->attachCostCenters($member, [[$center->id, 1.75]]);
+
+        Cache::flush();
+
+        $response = $this->inertiaGetAs($admin, route('financeiro.index', ['fresh' => 1]));
+        $financeMember = collect($response->json('props.users'))
+            ->firstWhere('id', $member->id);
+
+        $response->assertOk();
+        $this->assertNotNull($financeMember);
+        $this->assertSame([$center->id], $financeMember['centro_custo']);
+        $this->assertSame([
+            ['id' => $center->id, 'peso' => 1.75],
+        ], $financeMember['centro_custo_pesos']);
     }
 
     public function test_divergence_between_canonical_and_legacy_cost_centers_is_detected(): void
