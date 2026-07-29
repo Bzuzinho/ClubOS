@@ -66,6 +66,27 @@ class BankReconciliationSuggestionService
         }
 
         $existingSuggestions = $this->fetchActiveSuggestions($bankStatement);
+        $unsafePersistedSuggestionIds = $existingSuggestions
+            ->filter(fn (BankReconciliationSuggestion $suggestion): bool =>
+                (int) ($suggestion->score ?? 0) > 0
+                && !$this->hasPersistedIdentityEvidence($suggestion)
+            )
+            ->pluck('id')
+            ->all();
+
+        if ($unsafePersistedSuggestionIds !== []) {
+            BankReconciliationSuggestion::query()
+                ->whereIn('id', $unsafePersistedSuggestionIds)
+                ->where('status', BankReconciliationSuggestion::STATUS_SUGGESTED)
+                ->update(['status' => BankReconciliationSuggestion::STATUS_EXPIRED]);
+
+            $existingSuggestions = $existingSuggestions
+                ->reject(fn (BankReconciliationSuggestion $suggestion): bool =>
+                    in_array($suggestion->id, $unsafePersistedSuggestionIds, true)
+                )
+                ->values();
+        }
+
         if (!$forceRegeneration && $this->shouldReuseExistingSuggestions($existingSuggestions)) {
             return $existingSuggestions;
         }
@@ -95,6 +116,10 @@ class BankReconciliationSuggestionService
             ->all();
 
         foreach ($contexts as $context) {
+            if (!$this->hasClearIdentityEvidence($context)) {
+                continue;
+            }
+
             $candidateInvoices = $this->fetchOpenInvoicesForContext(
                 $context['user_id'] ?? null,
                 $context['family_id'] ?? null,
@@ -235,7 +260,17 @@ class BankReconciliationSuggestionService
             return false;
         }
 
-        return !$this->shouldReuseExistingSuggestions($this->fetchActiveSuggestions($bankStatement));
+        $existingSuggestions = $this->fetchActiveSuggestions($bankStatement);
+
+        if ((float) $bankStatement->valor > 0 && $existingSuggestions->contains(
+            fn (BankReconciliationSuggestion $suggestion): bool =>
+                (int) ($suggestion->score ?? 0) > 0
+                && !$this->hasPersistedIdentityEvidence($suggestion)
+        )) {
+            return true;
+        }
+
+        return !$this->shouldReuseExistingSuggestions($existingSuggestions);
     }
 
     public function buildSuggestion(BankStatement $bankStatement, array $candidateInvoices, array $matchedRules, ?array $scoreData = null): BankReconciliationSuggestion
@@ -926,13 +961,10 @@ class BankReconciliationSuggestionService
             $registerContext($guardianMatch['user_id'] ?? null, $guardianMatch['family_id'] ?? null, $guardianMatch['flags'] ?? []);
         }
 
-        if ($contexts === []) {
-            foreach ($this->buildFallbackContexts($statementAmount) as $context) {
-                $registerContext($context['user_id'], $context['family_id'], $context);
-            }
-        }
-
-        return array_values($contexts);
+        return collect($contexts)
+            ->filter(fn (array $context): bool => $this->hasClearIdentityEvidence($context))
+            ->values()
+            ->all();
     }
 
     private function generateReceiptMovementSuggestions(
@@ -3169,11 +3201,29 @@ class BankReconciliationSuggestionService
     {
         return (bool) (
             ($context['repository_match'] ?? false)
+            || ($context['alias_confirmed'] ?? false)
             || ($context['matched_name'] ?? false)
             || ($context['matched_nif'] ?? false)
             || ($context['matched_member_number'] ?? false)
             || ($context['matched_email_or_phone'] ?? false)
         );
+    }
+
+    private function hasPersistedIdentityEvidence(BankReconciliationSuggestion $suggestion): bool
+    {
+        $identityRules = [
+            'repository_match',
+            'confirmed_alias',
+            'matched_name',
+            'matched_nif',
+            'matched_member_number',
+            'matched_email_or_phone',
+            'receipt_movement_description_strong_match',
+        ];
+
+        return collect((array) ($suggestion->matched_rules ?? []))
+            ->intersect($identityRules)
+            ->isNotEmpty();
     }
 
     private function isBankStatementFullyReconciled(BankStatement $bankStatement): bool
