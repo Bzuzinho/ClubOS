@@ -380,6 +380,44 @@ class BankReconciliationSuggestionFlowTest extends TestCase
         $this->assertContains('near_due_date', $matchingSuggestion['matched_rules']);
     }
 
+    public function test_it_does_not_suggest_ines_invoice_for_unrelated_paulo_transfer(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $ines = $this->createFinanceUser([
+            'nome_completo' => 'Ines da Silva Guerra Figueiredo',
+            'email' => 'ines-paulo-regression-' . uniqid() . '@example.com',
+        ]);
+        $invoice = $this->createInvoice($ines, 30.00, 'mensalidade', '2026-06-10', [
+            'data_fatura' => '2026-06-01',
+            'data_emissao' => '2026-06-01',
+            'mes' => '2026-06',
+        ]);
+        $statement = $this->createBankStatement(
+            30.00,
+            'TRF SEPA+ INST 1642 DE PAULO JORGE SANTOS SEMEDO',
+        );
+        $statement->forceFill(['data_movimento' => '2026-07-23'])->save();
+
+        $response = $this->actingAs($admin)
+            ->postJson(route('financeiro.bank-statements.generate-suggestions', $statement))
+            ->assertOk();
+
+        $response
+            ->assertJsonPath('generated_count', 0)
+            ->assertJsonPath('suggestions', []);
+
+        $this->assertDatabaseMissing('bank_reconciliation_suggestions', [
+            'bank_statement_id' => $statement->id,
+            'user_id' => $ines->id,
+            'status' => BankReconciliationSuggestion::STATUS_SUGGESTED,
+        ]);
+        $this->assertDatabaseHas('invoices', [
+            'id' => $invoice->id,
+            'user_id' => $ines->id,
+            'estado_pagamento' => 'pendente',
+        ]);
+    }
+
     public function test_near_due_date_bonus_applies_through_twenty_days(): void
     {
         $user = $this->createFinanceUser([
@@ -925,7 +963,7 @@ class BankReconciliationSuggestionFlowTest extends TestCase
         $this->assertContains('reference_month_sequence_partial', $response->json('suggestions.0.matched_rules'));
     }
 
-    public function test_reference_month_sequence_without_safe_identity_does_not_reach_high_confidence(): void
+    public function test_reference_month_sequence_without_safe_identity_returns_no_suggestions(): void
     {
         $admin = User::factory()->admin()->create();
         $user = $this->createFinanceUser([
@@ -964,8 +1002,14 @@ class BankReconciliationSuggestionFlowTest extends TestCase
             ->postJson(route('financeiro.bank-statements.generate-suggestions', $statement))
             ->assertOk();
 
-        $topScore = (int) ($response->json('suggestions.0.score') ?? 0);
-        $this->assertLessThan(80, $topScore);
+        $response
+            ->assertJsonPath('generated_count', 0)
+            ->assertJsonPath('suggestions', []);
+
+        $this->assertDatabaseMissing('bank_reconciliation_suggestions', [
+            'bank_statement_id' => $statement->id,
+            'status' => BankReconciliationSuggestion::STATUS_SUGGESTED,
+        ]);
     }
 
     public function test_future_monthly_invoice_without_repository_match_does_not_reach_high_confidence(): void
@@ -2069,6 +2113,66 @@ class BankReconciliationSuggestionFlowTest extends TestCase
         $this->assertContains($legacySuggestion->confidence_label, [
             BankReconciliationSuggestion::CONFIDENCE_HIGH,
             BankReconciliationSuggestion::CONFIDENCE_VERY_HIGH,
+        ]);
+    }
+
+    public function test_batch_generation_expires_persisted_amount_only_false_positive(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $ines = $this->createFinanceUser([
+            'nome_completo' => 'Ines da Silva Guerra Figueiredo',
+            'email' => 'ines-batch-regression-' . uniqid() . '@example.com',
+        ]);
+        $invoice = $this->createInvoice($ines, 30.00, 'mensalidade', '2026-06-10', [
+            'data_fatura' => '2026-06-01',
+            'data_emissao' => '2026-06-01',
+            'mes' => '2026-06',
+        ]);
+        $statement = $this->createBankStatement(
+            30.00,
+            'TRF SEPA+ INST 1642 DE PAULO JORGE SANTOS SEMEDO',
+        );
+        $statement->forceFill(['data_movimento' => '2026-07-23'])->save();
+
+        $unsafeSuggestion = BankReconciliationSuggestion::create([
+            'bank_statement_id' => $statement->id,
+            'user_id' => $ines->id,
+            'family_id' => $ines->families->first()?->id,
+            'status' => BankReconciliationSuggestion::STATUS_SUGGESTED,
+            'score' => 100,
+            'confidence_label' => BankReconciliationSuggestion::CONFIDENCE_VERY_HIGH,
+            'total_bank_amount' => 30.00,
+            'total_allocated_amount' => 30.00,
+            'unallocated_amount' => 0,
+            'suggested_allocations' => [[
+                'invoice_id' => $invoice->id,
+                'amount' => 30.00,
+                'reason' => 'correspondencia antiga apenas por valor',
+            ]],
+            'matched_rules' => [
+                'exact_single_invoice_amount',
+                'recurring_monthly_pattern',
+                'no_conflict',
+            ],
+            'explanation' => 'Sugestao antiga sem qualquer prova de identidade.',
+            'metadata' => [
+                'allocation_signature' => $this->makeTestAllocationSignature($invoice->id, 30.00),
+                'candidate_invoice_ids' => [$invoice->id],
+            ],
+        ]);
+
+        $response = $this->actingAs($admin)
+            ->postJson(route('financeiro.bank-reconciliation-suggestions.generate'))
+            ->assertOk();
+
+        $response->assertJsonPath('generated_count', 0);
+        $this->assertSame(
+            BankReconciliationSuggestion::STATUS_EXPIRED,
+            $unsafeSuggestion->fresh()->status,
+        );
+        $this->assertDatabaseMissing('bank_reconciliation_suggestions', [
+            'bank_statement_id' => $statement->id,
+            'status' => BankReconciliationSuggestion::STATUS_SUGGESTED,
         ]);
     }
 
