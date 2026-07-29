@@ -570,18 +570,23 @@ export function BancoTab({
     }
   };
 
-  const loadSuggestionCounts = async () => {
-    setSuggestionCounts((current) => {
-      const next = { ...current };
-      (extratos || []).forEach((extrato) => {
-        if (getStatementStatus(extrato) === 'reconciled') {
-          next[extrato.id] = 0;
-        }
-      });
-      return next;
+  const loadSuggestionCounts = () => {
+    const nextCounts: Record<string, number> = {};
+    (extratos || []).forEach((extrato) => {
+      nextCounts[extrato.id] = getStatementStatus(extrato) === 'reconciled'
+        ? 0
+        : Number(extrato.suggestion_count || 0);
     });
-
+    setSuggestionCounts(nextCounts);
   };
+
+  const suggestionSummaryKey = (extratos || [])
+    .map((extrato) => `${extrato.id}:${extrato.suggestion_count || 0}:${extrato.direct_suggestion?.id || ''}:${getStatementStatus(extrato)}`)
+    .join('|');
+
+  useEffect(() => {
+    loadSuggestionCounts();
+  }, [suggestionSummaryKey]);
 
   const applySuggestionsToState = (extratoId: string, suggestions: BankReconciliationSuggestion[]) => {
     setSuggestionCache((current) => ({ ...current, [extratoId]: suggestions }));
@@ -597,13 +602,16 @@ export function BancoTab({
     const response = await fetch(buildRouteUrl('financeiro.bank-statements.generate-suggestions', extrato.id), {
       method: 'POST',
       headers: buildJsonHeaders(),
+      credentials: 'same-origin',
+      signal: options?.signal,
       body: JSON.stringify({
         force_regeneration: options?.forceRegeneration === true,
       }),
     });
 
     if (!response.ok) {
-      throw new Error('Erro ao gerar sugestoes');
+      const payload = await response.json().catch(() => null);
+      throw new Error(payload?.message || 'Erro ao gerar sugestoes');
     }
 
     const payload = await response.json();
@@ -619,7 +627,7 @@ export function BancoTab({
 
   const handleGenerateSuggestionsBatch = async () => {
     const statementsToAnalyze = extratosTabela.filter(
-      (extrato) => getStatementStatus(extrato) !== 'reconciled' && toNumber(extrato.valor) > 0
+      (extrato) => getStatementStatus(extrato) !== 'reconciled' && Math.abs(toNumber(extrato.valor)) > 0.009
     );
 
     if (statementsToAnalyze.length === 0) {
@@ -693,7 +701,9 @@ export function BancoTab({
     setSuggestionActionId(extrato.id);
 
     try {
-      const { suggestions } = await requestSuggestionsForExtrato(extrato);
+      const { suggestions } = await requestSuggestionsForExtrato(extrato, {
+        forceRegeneration: true,
+      });
 
       if (openDialog) {
         setSelectedSuggestionExtrato(extrato);
@@ -717,8 +727,13 @@ export function BancoTab({
   };
 
   const handleConfirmSuggestion = async (suggestion: BankReconciliationSuggestion) => {
-    if (suggestion.assisted_allocation_context) {
+    if (suggestion.assisted_allocation_context && !suggestion.is_directly_reconcilable) {
       openAssistedSuggestionDialog(suggestion);
+      return;
+    }
+
+    if (!suggestion.is_directly_reconcilable) {
+      toast.error('A conciliacao direta so esta disponivel para sugestoes com score de 100%.');
       return;
     }
 
@@ -743,15 +758,7 @@ export function BancoTab({
       if (selectedSuggestionExtrato) {
         setSuggestionCache((current) => ({ ...current, [selectedSuggestionExtrato.id]: [] }));
         setSuggestionCounts((counts) => ({ ...counts, [selectedSuggestionExtrato.id]: 0 }));
-      }
-      if (selectedSuggestionExtrato) {
-        setSuggestionCache((current) => {
-          const existing = current[selectedSuggestionExtrato.id] ?? [];
-          const updated = existing.filter((item) => item.id !== suggestion.id);
-          setReconciliationSuggestions(updated);
-          setSuggestionCounts((counts) => ({ ...counts, [selectedSuggestionExtrato.id]: updated.length }));
-          return { ...current, [selectedSuggestionExtrato.id]: updated };
-        });
+        setReconciliationSuggestions([]);
       }
 
       if ((payload?.summary?.new_fiscal_requests || 0) > 0) {
@@ -762,6 +769,56 @@ export function BancoTab({
       refreshFinanceiroData();
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Erro ao confirmar sugestao';
+      toast.error(message);
+    } finally {
+      setSuggestionActionId(null);
+    }
+  };
+
+  const handleConfirmExpenseSuggestionManually = async (suggestion: BankReconciliationSuggestion) => {
+    const movementAllocation = (suggestion.suggested_allocations || [])
+      .find((allocation) => allocation.movement_id);
+
+    if (!movementAllocation?.movement_id) {
+      toast.error('A sugestao nao identifica uma despesa valida.');
+      return;
+    }
+
+    setSuggestionActionId(suggestion.id);
+
+    try {
+      const response = await fetch(buildRouteUrl('financeiro.bank-reconciliation-suggestions.confirm', suggestion.id), {
+        method: 'POST',
+        headers: buildJsonHeaders(),
+        credentials: 'same-origin',
+        body: JSON.stringify({
+          movements: [{
+            movement_id: movementAllocation.movement_id,
+            amount: movementAllocation.amount,
+            notes: 'Despesa escolhida manualmente na sugestao bancaria.',
+          }],
+        }),
+      });
+
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        const message = payload?.errors?.movements?.[0]
+          || payload?.errors?.movement?.[0]
+          || payload?.message
+          || 'Erro ao associar a despesa';
+        throw new Error(message);
+      }
+
+      if (selectedSuggestionExtrato) {
+        setSuggestionCache((current) => ({ ...current, [selectedSuggestionExtrato.id]: [] }));
+        setSuggestionCounts((current) => ({ ...current, [selectedSuggestionExtrato.id]: 0 }));
+      }
+      setReconciliationSuggestions([]);
+      setSuggestionsDialogOpen(false);
+      toast.success('Despesa associada e saida bancaria conciliada. Nao foi gerada emissao fiscal.');
+      refreshFinanceiroData();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Erro ao associar a despesa';
       toast.error(message);
     } finally {
       setSuggestionActionId(null);
@@ -816,6 +873,38 @@ export function BancoTab({
     setSelectedReconciliationExtrato(selectedSuggestionExtrato);
     setSuggestionsDialogOpen(false);
     setReconciliationDialogOpen(true);
+  };
+
+  const isDirectSuggestion = (suggestion?: BankReconciliationSuggestion | null) => {
+    return Boolean(
+      suggestion
+      && suggestion.is_directly_reconcilable
+      && suggestion.score === 100
+      && toNumber(suggestion.unallocated_amount) <= 0.009
+      && (suggestion.suggested_allocations || []).length > 0
+    );
+  };
+
+  const getDirectSuggestionForExtrato = (extratoId: string) => {
+    const cachedDirectSuggestion = (suggestionCache[extratoId] || [])
+      .slice()
+      .sort((left, right) => right.score - left.score)
+      .find((suggestion) => isDirectSuggestion(suggestion)) || null;
+
+    if (cachedDirectSuggestion) {
+      return cachedDirectSuggestion;
+    }
+
+    const statementSuggestion = (extratos || [])
+      .find((extrato) => extrato.id === extratoId)
+      ?.direct_suggestion || null;
+
+    return isDirectSuggestion(statementSuggestion) ? statementSuggestion : null;
+  };
+
+  const hasLoadedSuggestionResult = (extratoId: string) => {
+    return Object.prototype.hasOwnProperty.call(suggestionCache, extratoId)
+      || (extratos || []).some((extrato) => extrato.id === extratoId && extrato.suggestion_count !== undefined);
   };
 
   const getReconciliationBadge = (extrato: ExtratoBancario) => {
@@ -1069,14 +1158,14 @@ export function BancoTab({
     }
   };
 
-  const handleCriarDespesaDoPagamento = async (extrato: ExtratoBancario) => {
+  const handleCriarDespesaDaSaida = async (extrato: ExtratoBancario) => {
     if (!extrato.centro_custo_id) {
       toast.error('A linha bancaria precisa de centro de custo antes de criar a despesa.');
       return;
     }
 
     const confirmed = window.confirm(
-      'Criar despesa a partir desta linha bancaria? Esta operacao cria um movimento financeiro associado e concilia o valor automaticamente.'
+      'Criar despesa a partir desta saida bancaria? Esta operacao cria um movimento financeiro associado e concilia o valor automaticamente.'
     );
 
     if (!confirmed) {
@@ -1098,13 +1187,21 @@ export function BancoTab({
 
       if (!response.ok) {
         const payload = await response.json().catch(() => null);
-        throw new Error(payload?.message || 'Erro ao criar despesa a partir do pagamento');
+        throw new Error(
+          payload?.errors?.extrato?.[0]
+          || payload?.errors?.movement?.[0]
+          || payload?.message
+          || 'Erro ao criar despesa a partir da saida bancaria'
+        );
       }
 
-      toast.success('Despesa criada a partir do pagamento bancario.');
+      toast.success('Despesa criada a partir da saida bancaria.');
+      setSuggestionCache((current) => ({ ...current, [extrato.id]: [] }));
+      setSuggestionCounts((current) => ({ ...current, [extrato.id]: 0 }));
+      setSuggestionsDialogOpen(false);
       refreshFinanceiroData();
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Erro ao criar despesa a partir do pagamento';
+      const message = error instanceof Error ? error.message : 'Erro ao criar despesa a partir da saida bancaria';
       toast.error(message);
     }
   };
@@ -1166,7 +1263,11 @@ export function BancoTab({
       });
 
       if (!response.ok) {
-        throw new Error('Erro ao atualizar movimento bancario');
+        const payload = await response.json().catch(() => null);
+        const firstError = Object.values(payload?.errors || {})
+          .flat()
+          .find((value) => typeof value === 'string');
+        throw new Error((firstError as string | undefined) || payload?.message || 'Erro ao atualizar movimento bancario');
       }
 
       const data = await response.json();
@@ -1241,6 +1342,10 @@ export function BancoTab({
       return;
     }
 
+    if (!window.confirm('Apagar definitivamente esta linha bancaria?')) {
+      return;
+    }
+
     try {
       const response = await fetch(route('financeiro.extratos.destroy', extrato.id), {
         method: 'DELETE',
@@ -1253,7 +1358,11 @@ export function BancoTab({
       });
 
       if (!response.ok) {
-        throw new Error('Erro ao apagar movimento');
+        const payload = await response.json().catch(() => null);
+        const firstError = Object.values(payload?.errors || {})
+          .flat()
+          .find((value) => typeof value === 'string');
+        throw new Error((firstError as string | undefined) || payload?.message || 'Erro ao apagar movimento');
       }
 
       const data = await response.json();
@@ -2030,7 +2139,7 @@ export function BancoTab({
         <div>
           <p className="text-sm font-medium">Sugestoes bancarias</p>
           <p className="text-xs text-muted-foreground">
-            Analisa apenas entradas por conciliar e prepara uma distribuição simples para revisão.
+            Analisa entradas e saidas por conciliar e prepara correspondencias para revisao.
           </p>
           {bulkSuggestionSummary && (
             <p className="mt-1 text-xs text-muted-foreground">
@@ -2068,6 +2177,8 @@ export function BancoTab({
                   const associatedMovement = getAssociatedMovement(extrato);
                   const associatedMovementId = getAssociatedMovementId(extrato);
                   const movementDocumentalState = extrato.movement_estado_documental || associatedMovement?.estado_documental;
+                  const directSuggestion = getDirectSuggestionForExtrato(extrato.id);
+                  const suggestionsLoaded = hasLoadedSuggestionResult(extrato.id);
 
                   return (
                 <div className="space-y-3">
@@ -2112,7 +2223,7 @@ export function BancoTab({
                         Abrir movimento
                       </Button>
                     ) : null}
-                    {!fullyReconciled && toNumber(extrato.valor) > 0 ? (
+                    {!fullyReconciled ? (
                       <>
                         <Button
                           size="sm"
@@ -2129,28 +2240,34 @@ export function BancoTab({
                           onClick={() => void handleOpenSuggestions(extrato)}
                           className="h-8 px-2"
                         >
-                          Ver sugestoes
+                          Consultar sugestao
                         </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => openReconciliationDialog(extrato)}
-                          className="h-8 px-2"
-                          title="Abrir conciliacao"
-                        >
-                          Conciliar
-                        </Button>
-                        {!associatedMovementId ? (
+                        {directSuggestion ? (
                           <Button
                             size="sm"
-                            variant="outline"
-                            onClick={() => void handleCriarDespesaDoPagamento(extrato)}
+                            onClick={() => void handleConfirmSuggestion(directSuggestion)}
                             className="h-8 px-2"
+                            disabled={suggestionActionId === directSuggestion.id}
+                            title="Conciliar pela sugestao exata"
                           >
-                            Criar despesa
+                            Conciliar
                           </Button>
                         ) : null}
                       </>
+                    ) : null}
+                    {!fullyReconciled
+                      && toNumber(extrato.valor) < 0
+                      && !associatedMovementId
+                      && suggestionsLoaded
+                      && (suggestionCounts[extrato.id] || 0) === 0 ? (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => void handleCriarDespesaDaSaida(extrato)}
+                        className="h-8 px-2"
+                      >
+                        Criar despesa
+                      </Button>
                     ) : null}
                     {canUnreconcile ? (
                       <Button
@@ -2225,6 +2342,8 @@ export function BancoTab({
                       const associatedMovement = getAssociatedMovement(extrato);
                       const associatedMovementId = getAssociatedMovementId(extrato);
                       const movementDocumentalState = extrato.movement_estado_documental || associatedMovement?.estado_documental;
+                      const directSuggestion = getDirectSuggestionForExtrato(extrato.id);
+                      const suggestionsLoaded = hasLoadedSuggestionResult(extrato.id);
 
                       return (
                       <TableRow key={extrato.id}>
@@ -2266,7 +2385,7 @@ export function BancoTab({
                                 Abrir movimento
                               </Button>
                             ) : null}
-                            {!fullyReconciled && toNumber(extrato.valor) > 0 ? (
+                            {!fullyReconciled ? (
                               <>
                                 <Button
                                   size="sm"
@@ -2284,32 +2403,38 @@ export function BancoTab({
                                   variant="outline"
                                   onClick={() => void handleOpenSuggestions(extrato)}
                                   className="h-8 w-8 p-0"
-                                  title="Ver sugestoes de conciliacao"
-                                  aria-label="Ver sugestoes de conciliacao"
+                                  title="Consultar sugestao de conciliacao"
+                                  aria-label="Consultar sugestao de conciliacao"
                                 >
                                   <Eye size={14} />
                                 </Button>
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => openReconciliationDialog(extrato)}
-                                  className="text-[10px] md:text-xs h-7 md:h-8 px-2 md:px-3"
-                                  title="Abrir conciliacao"
-                                >
-                                  Conciliar
-                                </Button>
-                                {!associatedMovementId ? (
+                                {directSuggestion ? (
                                   <Button
                                     size="sm"
-                                    variant="outline"
-                                    onClick={() => void handleCriarDespesaDoPagamento(extrato)}
+                                    onClick={() => void handleConfirmSuggestion(directSuggestion)}
                                     className="text-[10px] md:text-xs h-7 md:h-8 px-2 md:px-3"
-                                    title="Criar despesa a partir deste pagamento"
+                                    disabled={suggestionActionId === directSuggestion.id}
+                                    title="Conciliar pela sugestao exata"
                                   >
-                                    Criar despesa
+                                    Conciliar
                                   </Button>
                                 ) : null}
                               </>
+                            ) : null}
+                            {!fullyReconciled
+                              && toNumber(extrato.valor) < 0
+                              && !associatedMovementId
+                              && suggestionsLoaded
+                              && (suggestionCounts[extrato.id] || 0) === 0 ? (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => void handleCriarDespesaDaSaida(extrato)}
+                                className="text-[10px] md:text-xs h-7 md:h-8 px-2 md:px-3"
+                                title="Criar despesa a partir desta saida bancaria"
+                              >
+                                Criar despesa
+                              </Button>
                             ) : null}
                             {canUnreconcile ? (
                               <Button
@@ -2787,94 +2912,198 @@ export function BancoTab({
               {suggestionsLoading ? (
                 <div className="py-8 text-center text-sm text-muted-foreground">A carregar sugestoes...</div>
               ) : reconciliationSuggestions.length === 0 ? (
-                <div className="py-8 text-center text-sm text-muted-foreground">Sem sugestoes para esta linha bancaria.</div>
+                <div className="space-y-4 rounded-lg border border-dashed p-5 text-center">
+                  <div className="text-sm text-muted-foreground">
+                    Sem correspondencias para esta linha bancaria.
+                  </div>
+                  {toNumber(selectedSuggestionExtrato.valor) < 0 ? (
+                    <Button onClick={() => void handleCriarDespesaDaSaida(selectedSuggestionExtrato)}>
+                      Criar despesa
+                    </Button>
+                  ) : (
+                    <Button
+                      onClick={() => {
+                        setSuggestionsDialogOpen(false);
+                        openReconciliationDialog(selectedSuggestionExtrato);
+                      }}
+                    >
+                      Abrir conciliacao manual
+                    </Button>
+                  )}
+                </div>
               ) : (
-                <div className="space-y-3">
-                  {reconciliationSuggestions
+                (() => {
+                  const sortedSuggestions = reconciliationSuggestions
                     .slice()
-                    .sort((left, right) => right.score - left.score)
-                    .map((suggestion) => (
-                      <Card key={suggestion.id} className="p-4 space-y-3">
-                        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                    .sort((left, right) => right.score - left.score);
+                  const primarySuggestion = sortedSuggestions[0];
+                  const isExpenseSuggestion = toNumber(selectedSuggestionExtrato.valor) < 0;
+                  const allocatedInvoiceIds = new Set(
+                    (primarySuggestion.suggested_allocations || [])
+                      .map((allocation) => allocation.invoice_id)
+                      .filter((invoiceId): invoiceId is string => Boolean(invoiceId))
+                  );
+                  const remainingMonthlyInvoices = (primarySuggestion.assisted_allocation_context?.eligible_invoices || [])
+                    .filter((invoice) => !allocatedInvoiceIds.has(invoice.id))
+                    .filter((invoice) => invoice.tipo?.toLowerCase().includes('mens'));
+
+                  const renderAllocation = (suggestion: BankReconciliationSuggestion, allocation: NonNullable<BankReconciliationSuggestion['suggested_allocations']>[number]) => {
+                    if (allocation.movement_id) {
+                      const movement = allocation.movement;
+                      const movementName = movement?.supplier_name
+                        || movement?.user_name
+                        || movement?.nome_manual
+                        || movement?.categoria
+                        || (isExpenseSuggestion ? 'Despesa' : 'Movimento faturado');
+
+                      return (
+                        <div key={`${suggestion.id}-${allocation.movement_id}`} className="rounded-md border p-3">
+                          <div className="font-medium">{movementName}</div>
+                          <div className="text-xs text-muted-foreground">
+                            {movement?.categoria || (isExpenseSuggestion ? 'despesa' : 'receita')}
+                            {movement?.data_emissao ? ` · ${format(new Date(movement.data_emissao), 'dd/MM/yyyy')}` : ''}
+                            {' · '}€{toNumber(allocation.amount).toFixed(2)}
+                          </div>
+                          {movement?.observacoes ? (
+                            <div className="mt-1 text-xs text-muted-foreground">{movement.observacoes}</div>
+                          ) : null}
+                        </div>
+                      );
+                    }
+
+                    const invoice = (faturas || []).find((item) => item.id === allocation.invoice_id);
+                    const invoiceUser = invoice ? (users || []).find((item) => item.id === invoice.user_id) : null;
+                    const invoicePeriod = formatSuggestionInvoicePeriod(invoice);
+
+                    return (
+                      <div key={`${suggestion.id}-${allocation.invoice_id}`} className="rounded-md border p-3">
+                        <div className="font-medium">
+                          {invoiceUser?.nome_completo || suggestion.user?.nome_completo || 'Mensalidade/Fatura'}
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          {invoice?.tipo || 'fatura'}
+                          {invoicePeriod ? ` · ${invoicePeriod}` : ''}
+                          {' · '}€{toNumber(allocation.amount).toFixed(2)}
+                        </div>
+                      </div>
+                    );
+                  };
+
+                  return (
+                    <div className="space-y-4">
+                      <Card className="space-y-4 border-primary/30 p-4">
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                           <div>
+                            <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                              Sugestao principal
+                            </div>
                             <div className="font-semibold">
-                              {suggestion.user?.nome_completo || suggestion.family?.nome || 'Contexto nao identificado'}
-                            </div>
-                            <div className="mt-2 flex flex-wrap gap-2 text-xs">
-                              {getSuggestionSourceBadges(suggestion).map((label) => (
-                                <Badge key={`${suggestion.id}-${label}`} variant="outline">
-                                  {label}
-                                </Badge>
-                              ))}
+                              {primarySuggestion.user?.nome_completo
+                                || primarySuggestion.family?.nome
+                                || (isExpenseSuggestion ? 'Despesa identificada' : 'Contexto nao identificado')}
                             </div>
                           </div>
-                          <div />
+                          <Badge className={isDirectSuggestion(primarySuggestion)
+                            ? 'bg-green-100 text-green-800'
+                            : 'bg-amber-100 text-amber-800'}>
+                            Score {primarySuggestion.score}%
+                          </Badge>
                         </div>
 
-                        <div className="space-y-2 text-sm">
-                          {(suggestion.suggested_allocations || []).map((allocation) => {
-                            const invoice = (faturas || []).find((item) => item.id === allocation.invoice_id);
-                            const invoiceUser = invoice ? (users || []).find((item) => item.id === invoice.user_id) : null;
-                            const invoicePeriod = formatSuggestionInvoicePeriod(invoice);
-
-                            return (
-                              <div key={`${suggestion.id}-${allocation.invoice_id}`} className="rounded-md border p-3">
-                                <div className="font-medium">{invoiceUser?.nome_completo || suggestion.user?.nome_completo || 'Fatura'}</div>
-                                <div className="text-xs text-muted-foreground">
-                                  {invoice?.tipo || 'fatura'}
-                                  {invoicePeriod ? ` · ${invoicePeriod}` : ''}
-                                  {' · '}alocar €{toNumber(allocation.amount).toFixed(2)}
-                                  {' · '}{allocation.reason || 'sem justificacao adicional'}
-                                </div>
-                              </div>
-                            );
-                          })}
+                        <div className="space-y-2">
+                          {(primarySuggestion.suggested_allocations || [])
+                            .map((allocation) => renderAllocation(primarySuggestion, allocation))}
                         </div>
 
-                        <div className="grid gap-2 text-xs text-muted-foreground md:grid-cols-2">
-                          <div>Total alocado: €{toNumber(suggestion.total_allocated_amount).toFixed(2)}</div>
-                          <div>Valor por atribuir: €{toNumber(suggestion.unallocated_amount).toFixed(2)}</div>
+                        <div className="grid gap-2 text-xs text-muted-foreground sm:grid-cols-2">
+                          <div>Total associado: €{toNumber(primarySuggestion.total_allocated_amount).toFixed(2)}</div>
+                          <div>Por atribuir: €{toNumber(primarySuggestion.unallocated_amount).toFixed(2)}</div>
                         </div>
 
-                        {suggestion.assisted_allocation_context ? (
-                          <div className="rounded-md border p-3 text-sm space-y-2">
-                            <div className="font-medium">Alocacao assistida disponivel</div>
-                            <div className="grid gap-2 text-xs text-muted-foreground md:grid-cols-3">
-                              <div>Mes referencia: {suggestion.assisted_allocation_context.reference_month || '-'}</div>
-                              <div>Faturas elegiveis: {(suggestion.assisted_allocation_context.eligible_invoices || []).length}</div>
-                              <div>Movimentos elegiveis: {(suggestion.assisted_allocation_context.eligible_movements || []).length}</div>
-                            </div>
-                            <div className="text-xs text-muted-foreground">
-                              A alocacao final continua editavel antes da confirmacao.
-                            </div>
-                          </div>
-                        ) : null}
-
-                        <div className="rounded-md border border-dashed p-3 text-sm text-muted-foreground bg-muted/30">
-                          <div className="text-xs uppercase tracking-wide mb-1">Motivo principal</div>
-                          <div className="text-foreground">{getSuggestionMainReason(suggestion)}</div>
+                        <div className="rounded-md border border-dashed bg-muted/30 p-3 text-sm">
+                          <div className="mb-1 text-xs uppercase tracking-wide text-muted-foreground">Porque foi sugerido</div>
+                          <div>{getSuggestionMainReason(primarySuggestion)}</div>
                         </div>
 
                         <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
-                          <Button variant="outline" onClick={() => void handleRejectSuggestion(suggestion)} disabled={suggestionActionId === suggestion.id}>
+                          <Button
+                            variant="outline"
+                            onClick={() => void handleRejectSuggestion(primarySuggestion)}
+                            disabled={suggestionActionId === primarySuggestion.id}
+                          >
                             Rejeitar
                           </Button>
-                          {suggestion.assisted_allocation_context ? (
+                          {isDirectSuggestion(primarySuggestion) ? (
                             <Button
-                              onClick={() => openAssistedSuggestionDialog(suggestion)}
-                              disabled={suggestionActionId === suggestion.id}
+                              onClick={() => void handleConfirmSuggestion(primarySuggestion)}
+                              disabled={suggestionActionId === primarySuggestion.id}
                             >
-                              Abrir alocacao assistida
+                              Conciliar
                             </Button>
-                          ) : (
-                            <Button onClick={() => void handleConfirmSuggestion(suggestion)} disabled={suggestionActionId === suggestion.id}>
-                              Confirmar sugestao
+                          ) : isExpenseSuggestion ? (
+                            <Button
+                              onClick={() => void handleConfirmExpenseSuggestionManually(primarySuggestion)}
+                              disabled={suggestionActionId === primarySuggestion.id}
+                            >
+                              Associar despesa manualmente
                             </Button>
-                          )}
+                          ) : null}
                         </div>
                       </Card>
-                    ))}
-                </div>
+
+                      {!isExpenseSuggestion && remainingMonthlyInvoices.length > 0 ? (
+                        <div className="space-y-2">
+                          <div className="text-sm font-semibold">Outras mensalidades em falta</div>
+                          <div className="space-y-2">
+                            {remainingMonthlyInvoices.map((invoice) => (
+                              <div key={invoice.id} className="flex flex-col gap-1 rounded-md border p-3 text-sm sm:flex-row sm:items-center sm:justify-between">
+                                <div>
+                                  <div className="font-medium">{invoice.user_name || 'Atleta'}</div>
+                                  <div className="text-xs text-muted-foreground">
+                                    {invoice.mes || invoice.data_vencimento || 'Periodo nao indicado'}
+                                  </div>
+                                </div>
+                                <div className="font-medium">€{toNumber(invoice.valor_em_aberto).toFixed(2)}</div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
+
+                      {isExpenseSuggestion && sortedSuggestions.length > 1 ? (
+                        <div className="space-y-2">
+                          <div className="text-sm font-semibold">Outras despesas com o mesmo valor</div>
+                          {sortedSuggestions.slice(1).map((suggestion) => (
+                            <Card key={suggestion.id} className="space-y-3 p-3">
+                              {(suggestion.suggested_allocations || [])
+                                .map((allocation) => renderAllocation(suggestion, allocation))}
+                              <div className="flex justify-end">
+                                <Button
+                                  variant="outline"
+                                  onClick={() => void handleConfirmExpenseSuggestionManually(suggestion)}
+                                  disabled={suggestionActionId === suggestion.id}
+                                >
+                                  Escolher esta despesa
+                                </Button>
+                              </div>
+                            </Card>
+                          ))}
+                        </div>
+                      ) : null}
+
+                      {!isExpenseSuggestion && primarySuggestion.assisted_allocation_context ? (
+                        <div className="flex justify-end border-t pt-4">
+                          <Button
+                            onClick={() => openAssistedSuggestionDialog(primarySuggestion)}
+                            disabled={suggestionActionId === primarySuggestion.id}
+                          >
+                            Abrir alocacao assistida
+                          </Button>
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })()
               )}
             </div>
           ) : null}

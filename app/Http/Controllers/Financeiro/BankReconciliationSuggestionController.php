@@ -113,7 +113,7 @@ class BankReconciliationSuggestionController extends Controller
         ]);
 
         $query = BankStatement::query()
-            ->where('valor', '>', 0)
+            ->where('valor', '!=', 0)
             ->where(function ($nestedQuery) {
                 $nestedQuery
                     ->where('conciliado', false)
@@ -229,6 +229,72 @@ class BankReconciliationSuggestionController extends Controller
                 throw ValidationException::withMessages([
                     'bank_statement' => 'A linha bancaria ja se encontra totalmente conciliada.',
                 ]);
+            }
+
+            if ((float) $bankStatement->valor < 0) {
+                $movementAllocations = collect($data['movements'] ?? [])->values();
+                if ($movementAllocations->count() !== 1) {
+                    throw ValidationException::withMessages([
+                        'movements' => 'Escolha uma unica despesa para associar a esta saida bancaria.',
+                    ]);
+                }
+
+                $movementAllocation = $movementAllocations->first();
+                $eligibleMovementIds = collect((array) $suggestion->suggested_allocations)
+                    ->pluck('movement_id')
+                    ->filter()
+                    ->unique();
+
+                if (!$eligibleMovementIds->contains($movementAllocation['movement_id'])) {
+                    throw ValidationException::withMessages([
+                        'movements' => 'A despesa escolhida nao pertence a esta sugestao.',
+                    ]);
+                }
+
+                $movement = Movement::query()->findOrFail($movementAllocation['movement_id']);
+                $settlement = $this->financialSettlementService->settleExpenseMovement(
+                    $bankStatement,
+                    $movement,
+                    [
+                        'payment_date' => optional($bankStatement->data_movimento)?->toDateString() ?? now()->toDateString(),
+                        'method' => 'transferencia',
+                        'reference' => $bankStatement->referencia,
+                        'description' => $bankStatement->descricao,
+                        'notes' => $movementAllocation['notes'] ?? $suggestion->explanation,
+                        'created_by' => $request->user()?->id,
+                        'source' => Payment::SOURCE_RECONCILIATION,
+                        'suggestion_id' => $suggestion->id,
+                        'suggestion_score' => $suggestion->score,
+                        'map_rule' => 'expense_assisted_allocation',
+                        'map_metadata' => [
+                            'manual_allocation' => true,
+                            'expense_reconciliation' => true,
+                            'suggestion_id' => $suggestion->id,
+                            'score' => (int) $suggestion->score,
+                        ],
+                    ],
+                );
+
+                $this->suggestionService->finalizeConfirmedSuggestion(
+                    $suggestion,
+                    $request->user(),
+                    $movement->user_id,
+                    $movement->user?->families()->value('familias.id'),
+                    $bankStatement,
+                    false,
+                );
+
+                return $this->paymentResponse(
+                    $settlement['payment']->fresh(),
+                    [],
+                    0,
+                    [
+                        'suggestion_confirmed' => true,
+                        'assisted_allocation' => true,
+                        'expense_reconciliation' => true,
+                        'affected_payment_count' => 1,
+                    ],
+                );
             }
 
             $assistedContext = $this->suggestionService->buildAssistedAllocationContext($suggestion);
@@ -563,16 +629,67 @@ class BankReconciliationSuggestionController extends Controller
     private function decorateSuggestion(BankReconciliationSuggestion $suggestion): array
     {
         $payload = $suggestion->toArray();
-        $payload['assisted_allocation_context'] = $this->suggestionService->buildAssistedAllocationContext($suggestion);
+        $movementIds = collect((array) ($suggestion->suggested_allocations ?? []))
+            ->pluck('movement_id')
+            ->filter()
+            ->unique()
+            ->values();
+        $movements = $movementIds->isEmpty()
+            ? collect()
+            : Movement::query()
+                ->with(['user:id,nome_completo,name', 'supplier:id,nome,nif', 'centroCusto:id,nome'])
+                ->whereIn('id', $movementIds)
+                ->get()
+                ->keyBy('id');
+
+        $payload['suggested_allocations'] = collect((array) ($suggestion->suggested_allocations ?? []))
+            ->map(function (array $allocation) use ($movements): array {
+                $movement = !empty($allocation['movement_id'])
+                    ? $movements->get($allocation['movement_id'])
+                    : null;
+
+                if ($movement) {
+                    $allocation['movement'] = [
+                        'id' => $movement->id,
+                        'user_id' => $movement->user_id,
+                        'user_name' => $movement->user?->nome_completo ?: $movement->user?->name,
+                        'supplier_id' => $movement->supplier_id,
+                        'supplier_name' => $movement->supplier?->nome,
+                        'nome_manual' => $movement->nome_manual,
+                        'categoria' => $movement->categoria,
+                        'observacoes' => $movement->observacoes,
+                        'valor_total' => round(abs((float) $movement->valor_total), 2),
+                        'data_emissao' => optional($movement->data_emissao)?->toDateString(),
+                        'data_vencimento' => optional($movement->data_vencimento)?->toDateString(),
+                        'centro_custo_id' => $movement->centro_custo_id,
+                        'centro_custo_name' => $movement->centroCusto?->nome,
+                    ];
+                }
+
+                return $allocation;
+            })
+            ->values()
+            ->all();
+        $isExpenseSuggestion = data_get($suggestion->metadata, 'target_type') === 'expense_movement'
+            || (float) ($suggestion->bankStatement?->valor ?? 0) < 0;
+        $payload['assisted_allocation_context'] = $isExpenseSuggestion
+            ? null
+            : $this->suggestionService->buildAssistedAllocationContext($suggestion);
+        $payload['is_directly_reconcilable'] = (int) $suggestion->score === 100
+            && round((float) $suggestion->unallocated_amount, 2) <= 0.009
+            && collect((array) $suggestion->suggested_allocations)->isNotEmpty();
 
         return $payload;
     }
 
     private function isBankStatementFullyReconciled(BankStatement $bankStatement): bool
     {
-        return (bool) ($bankStatement->conciliado)
-            || ($bankStatement->conciliacao_status === 'reconciled')
-            || round((float) ($bankStatement->valor_por_conciliar ?? 0), 2) <= 0.009;
+        if ($bankStatement->conciliacao_status === 'reconciled') {
+            return true;
+        }
+
+        return (bool) $bankStatement->conciliado
+            && round(abs((float) ($bankStatement->valor_por_conciliar ?? 0)), 2) <= 0.009;
     }
 
     private function paymentResponse(Payment $payment, array $invoiceIds, int $fiscalRequestsBefore, array $summary = []): JsonResponse

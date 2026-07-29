@@ -184,6 +184,9 @@ class FiscalDocumentRequestService
         $payload['provider'] = $provider;
         $payload['document_type'] = $documentType;
         $payload['priority'] = $payload['priority'] ?? FiscalDocumentRequest::PRIORITY_NORMAL;
+        $payload['metadata'] = array_merge((array) ($payload['metadata'] ?? []), [
+            'internal_due_at_explicit' => array_key_exists('due_at', $options) && filled($options['due_at']),
+        ]);
 
         [$status, $lastError] = $this->resolveInitialStatus($payload, $options['status'] ?? null);
 
@@ -339,7 +342,7 @@ class FiscalDocumentRequestService
             'user_id' => $invoice->user_id,
             'amount' => $invoice->valor_total,
             'paid_at' => $invoice->data_pagamento,
-            'due_at' => $invoice->data_vencimento,
+            'due_at' => null,
             'customer_name' => $fiscalData['nome'],
             'customer_tax_number' => $fiscalData['nif'],
             'customer_email' => $user?->email,

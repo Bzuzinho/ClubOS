@@ -164,6 +164,35 @@ class ManualExpenseFlowsTest extends TestCase
         $this->assertNotEmpty($response->json('errors.centro_custo_id.0'));
     }
 
+    public function test_store_movimento_requires_an_explicit_counterparty(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $costCenter = CostCenter::query()->firstOrFail();
+
+        $response = $this->actingAs($admin)->postJson(route('financeiro.movimentos.store'), [
+            'classificacao' => 'receita',
+            'data_emissao' => now()->toDateString(),
+            'data_vencimento' => now()->toDateString(),
+            'valor_total' => 25.00,
+            'estado_pagamento' => 'pendente',
+            'centro_custo_id' => $costCenter->id,
+            'tipo' => 'outro',
+            'items' => [[
+                'descricao' => 'Receita sem entidade',
+                'quantidade' => 1,
+                'valor_unitario' => 25.00,
+                'imposto_percentual' => 0,
+                'total_linha' => 25.00,
+            ]],
+        ]);
+
+        $response
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['nome_manual']);
+
+        $this->assertDatabaseCount('movements', 0);
+    }
+
     public function test_bank_payment_before_invoice_creates_paid_reconciled_expense_missing_invoice(): void
     {
         $admin = User::factory()->create();
@@ -199,6 +228,31 @@ class ManualExpenseFlowsTest extends TestCase
 
         $statement->refresh();
         $this->assertTrue((bool) $statement->conciliado);
+    }
+
+    public function test_positive_bank_entry_cannot_create_an_expense(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $costCenter = CostCenter::query()->firstOrFail();
+        $statement = BankStatement::query()->create([
+            'data_movimento' => now()->toDateString(),
+            'descricao' => 'Transferencia recebida de patrocinador',
+            'valor' => 125.00,
+            'referencia' => 'TRX-RECEITA-1',
+            'centro_custo_id' => $costCenter->id,
+            'conciliado' => false,
+        ]);
+
+        $response = $this->actingAs($admin)->postJson(route('financeiro.extratos.criar-despesa', $statement->id), [
+            'centro_custo_id' => $costCenter->id,
+        ]);
+
+        $response
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['extrato']);
+
+        $this->assertDatabaseCount('movements', 0);
+        $this->assertFalse((bool) $statement->fresh()->conciliado);
     }
 
     public function test_liquidar_movimento_allows_manual_cash_without_receipt_number(): void

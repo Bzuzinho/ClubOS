@@ -31,6 +31,40 @@ class FiscalDocumentRequestFlowTest extends TestCase
         $this->assertSame(FiscalDocumentRequest::STATUS_PENDING, $request->status);
         $this->assertSame('123456789', $request->customer_tax_number);
         $this->assertSame('Mensalidade maio', $request->description);
+        $this->assertNull($request->due_at);
+    }
+
+    public function test_it_only_sets_an_internal_due_date_when_explicitly_requested(): void
+    {
+        $invoice = $this->createInvoice();
+
+        $request = app(FiscalDocumentRequestService::class)->createFromInvoice($invoice, [
+            'paid_at' => '2026-05-05',
+            'due_at' => '2026-05-10',
+        ]);
+
+        $this->assertSame('2026-05-05', $request->paid_at?->toDateString());
+        $this->assertSame('2026-05-10', $request->due_at?->toDateString());
+        $this->assertTrue($request->metadata['internal_due_at_explicit'] ?? false);
+    }
+
+    public function test_overdue_scope_ignores_legacy_invoice_due_dates_without_explicit_marker(): void
+    {
+        $legacyRequest = app(FiscalDocumentRequestService::class)->createFromInvoice($this->createInvoice());
+        $legacyRequest->forceFill([
+            'due_at' => now()->subDays(5)->toDateString(),
+        ])->save();
+
+        $explicitRequest = app(FiscalDocumentRequestService::class)->createFromInvoice($this->createInvoice(), [
+            'due_at' => now()->subDay()->toDateString(),
+        ]);
+
+        $overdueIds = FiscalDocumentRequest::query()->overdue()->pluck('id');
+
+        $this->assertFalse($legacyRequest->fresh()->isOverdue());
+        $this->assertTrue($explicitRequest->fresh()->isOverdue());
+        $this->assertFalse($overdueIds->contains($legacyRequest->id));
+        $this->assertTrue($overdueIds->contains($explicitRequest->id));
     }
 
     public function test_create_from_invoice_uses_dados_pessoais_fiscal_data_before_users_legacy_data(): void
@@ -905,11 +939,11 @@ class FiscalDocumentRequestFlowTest extends TestCase
             'morada' => 'Rua do Clube 10',
             'codigo_postal' => '1000-100',
             'localidade' => 'Lisboa',
-            'email' => 'socio@example.com',
+            'email' => fake()->unique()->safeEmail(),
         ]);
 
         $costCenter = CostCenter::create([
-            'codigo' => 'CC-FISCAL',
+            'codigo' => 'CC-FISCAL-' . uniqid(),
             'nome' => 'Centro Fiscal',
             'tipo' => 'departamento',
             'ativo' => true,
@@ -975,7 +1009,7 @@ class FiscalDocumentRequestFlowTest extends TestCase
             'morada' => 'Rua do Clube 10',
             'codigo_postal' => '1000-100',
             'localidade' => 'Lisboa',
-            'email' => 'socio@example.com',
+            'email' => fake()->unique()->safeEmail(),
         ]);
 
         $costCenter = CostCenter::create([

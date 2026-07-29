@@ -78,7 +78,7 @@ class FiscalEmissionQueueService
             'priority' => $options['priority'] ?? FiscalDocumentRequest::PRIORITY_NORMAL,
             'amount' => abs((float) $financialEntry->valor),
             'paid_at' => $options['paid_at'] ?? $financialEntry->data_pagamento,
-            'due_at' => $options['due_at'] ?? $financialEntry->data,
+            'due_at' => $options['due_at'] ?? null,
             'customer_name' => $fiscalData['nome'] ?: $financialEntry->entidade_nome,
             'customer_tax_number' => $fiscalData['nif'],
             'customer_email' => $user?->email,
@@ -93,6 +93,7 @@ class FiscalEmissionQueueService
                 'financial_entry_estado' => $financialEntry->estado,
                 'origem_modulo' => $financialEntry->origem_modulo,
                 'origem_tipo' => $financialEntry->origem_tipo,
+                'internal_due_at_explicit' => array_key_exists('due_at', $options) && filled($options['due_at']),
             ]),
             'created_by' => $options['created_by'] ?? null,
         ]);

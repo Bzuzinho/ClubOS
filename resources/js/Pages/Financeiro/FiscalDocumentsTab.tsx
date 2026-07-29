@@ -47,7 +47,7 @@ type FiscalDocumentsTabProps = {
 
 const STATUS_LABELS: Record<FiscalDocumentRequestStatus, string> = {
   pending: 'Por tratar',
-  in_progress: 'Por tratar',
+  in_progress: 'Em tratamento',
   issued: 'Recibo emitido',
   error_data: 'Erro de dados',
   cancelled: 'Cancelado/anulado',
@@ -142,8 +142,10 @@ function getRequestAlert(request: FiscalDocumentRequest) {
 
   const today = startOfDay(new Date());
 
-  if (request.due_at) {
-    const dueDate = parseISO(request.due_at);
+  const effectiveDueAt = getEffectiveDueAt(request);
+
+  if (effectiveDueAt) {
+    const dueDate = parseISO(effectiveDueAt);
     if (!Number.isNaN(dueDate.getTime()) && isBefore(startOfDay(dueDate), today)) {
       return 'Atrasado';
     }
@@ -157,6 +159,26 @@ function getRequestAlert(request: FiscalDocumentRequest) {
   }
 
   return null;
+}
+
+function getEffectiveDueAt(request: FiscalDocumentRequest) {
+  if (!request.due_at || request.metadata?.internal_due_at_explicit !== true) {
+    return null;
+  }
+
+  const dueDate = parseISO(request.due_at);
+  if (Number.isNaN(dueDate.getTime())) {
+    return request.due_at;
+  }
+
+  if (request.paid_at) {
+    const paidAt = parseISO(request.paid_at);
+    if (!Number.isNaN(paidAt.getTime()) && isBefore(startOfDay(dueDate), startOfDay(paidAt))) {
+      return null;
+    }
+  }
+
+  return request.due_at;
 }
 
 async function parseJsonResponse(response: Response) {
@@ -610,7 +632,7 @@ export function FiscalDocumentsTab({ fiscalRequests }: FiscalDocumentsTabProps) 
                       <DetailItem label="Tipo documento" value={DOCUMENT_TYPE_LABELS[request.document_type] || request.document_type} />
                       <DetailItem label="Valor" value={formatCurrency(request.amount)} />
                       <DetailItem label="Data pagamento" value={formatDate(request.paid_at)} />
-                      <DetailItem label="Prazo/limite" value={formatDate(request.due_at)} />
+                      <DetailItem label="Prazo interno" value={formatDate(getEffectiveDueAt(request))} />
                       <DetailItem label="Referencia interna" value={request.internal_reference || '—'} multiline />
                       <DetailItem label="Provider" value={getProviderLabel(request.provider)} />
                       <DetailItem label="Nº documento externo" value={request.external_document_number || '—'} multiline />
@@ -635,7 +657,7 @@ export function FiscalDocumentsTab({ fiscalRequests }: FiscalDocumentsTabProps) 
                   <TableHead className="whitespace-normal">Tipo documento</TableHead>
                   <TableHead className="whitespace-normal">Valor</TableHead>
                   <TableHead className="whitespace-normal">Data pagamento</TableHead>
-                  <TableHead className="whitespace-normal">Prazo/limite</TableHead>
+                  <TableHead className="whitespace-normal">Prazo interno</TableHead>
                   <TableHead className="whitespace-normal">Referencia interna</TableHead>
                   <TableHead className="whitespace-normal">Nº documento externo</TableHead>
                   <TableHead className="whitespace-normal">Criado em</TableHead>
@@ -676,7 +698,7 @@ export function FiscalDocumentsTab({ fiscalRequests }: FiscalDocumentsTabProps) 
                       <TableCell className="align-top whitespace-normal break-words">{DOCUMENT_TYPE_LABELS[request.document_type] || request.document_type}</TableCell>
                       <TableCell className="align-top whitespace-normal break-words">{formatCurrency(request.amount)}</TableCell>
                       <TableCell className="align-top whitespace-normal break-words">{formatDate(request.paid_at)}</TableCell>
-                      <TableCell className="align-top whitespace-normal break-words">{formatDate(request.due_at)}</TableCell>
+                      <TableCell className="align-top whitespace-normal break-words">{formatDate(getEffectiveDueAt(request))}</TableCell>
                       <TableCell className="align-top whitespace-normal break-words">
                         <div className="max-w-[12rem] text-sm text-foreground break-words">{request.internal_reference || '—'}</div>
                         <div className="text-xs text-muted-foreground">{getProviderLabel(request.provider)}</div>

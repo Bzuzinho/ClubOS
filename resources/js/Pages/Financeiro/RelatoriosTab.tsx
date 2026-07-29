@@ -142,8 +142,8 @@ export function RelatoriosTab({ centrosCusto, users, ageGroups }: RelatoriosTabP
     if (tipoRelatorio === 'escalao') {
       return relatorioEscalao.map((item) => ({
         name: item.age_group,
-        Receitas: item.receitas,
-        Pago: item.total_pago,
+        'Outras receitas': item.receitas,
+        'Mensalidades pagas': item.total_pago,
       }));
     }
 
@@ -333,7 +333,7 @@ export function RelatoriosTab({ centrosCusto, users, ageGroups }: RelatoriosTabP
             Visualizacao Grafica
           </h3>
           <div className="h-[220px]">
-            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={220}>
+            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={220} initialDimension={{ width: 1, height: 220 }}>
               <BarChart data={chartData}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="name" tick={{ fontSize: 11 }} />
@@ -348,8 +348,8 @@ export function RelatoriosTab({ centrosCusto, users, ageGroups }: RelatoriosTabP
                 )}
                 {tipoRelatorio === 'escalao' && (
                   <>
-                    <Bar dataKey="Receitas" fill="oklch(0.55 0.15 150)" />
-                    <Bar dataKey="Pago" fill="oklch(0.45 0.15 250)" />
+                    <Bar dataKey="Outras receitas" fill="oklch(0.55 0.15 150)" />
+                    <Bar dataKey="Mensalidades pagas" fill="oklch(0.45 0.15 250)" />
                   </>
                 )}
                 {tipoRelatorio === 'centro-custo' && (
@@ -374,7 +374,7 @@ export function RelatoriosTab({ centrosCusto, users, ageGroups }: RelatoriosTabP
             <TableHeader>
               <TableRow>
                 <TableHead>Periodo</TableHead>
-                <TableHead className="text-right">Receitas</TableHead>
+                <TableHead className="text-right">Outras receitas</TableHead>
                 <TableHead className="text-right">Despesas</TableHead>
                 <TableHead className="text-right">Saldo</TableHead>
               </TableRow>
@@ -426,7 +426,7 @@ export function RelatoriosTab({ centrosCusto, users, ageGroups }: RelatoriosTabP
                 <TableHead className="text-right">Nº Atletas</TableHead>
                 <TableHead className="text-right">Receitas</TableHead>
                 <TableHead className="text-right">Total Faturado</TableHead>
-                <TableHead className="text-right">Total Pago</TableHead>
+                <TableHead className="text-right">Mensalidades pagas</TableHead>
                 <TableHead className="text-right">Pendente</TableHead>
               </TableRow>
             </TableHeader>

@@ -47,6 +47,7 @@ class FiscalEmissionQueueServiceCanonicalDataTest extends TestCase
         $this->assertSame('Nome Canonico', $request->customer_name);
         $this->assertSame('222222222', $request->customer_tax_number);
         $this->assertSame("Rua Canonica 99\n2222-222 Porto Canonico", $request->customer_address);
+        $this->assertNull($request->due_at);
     }
 
     public function test_queue_financial_entry_falls_back_to_users_fiscal_data_without_dados_pessoais(): void
