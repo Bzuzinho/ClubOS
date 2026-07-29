@@ -260,7 +260,17 @@ class BankReconciliationSuggestionService
             return false;
         }
 
-        return !$this->shouldReuseExistingSuggestions($this->fetchActiveSuggestions($bankStatement));
+        $existingSuggestions = $this->fetchActiveSuggestions($bankStatement);
+
+        if ((float) $bankStatement->valor > 0 && $existingSuggestions->contains(
+            fn (BankReconciliationSuggestion $suggestion): bool =>
+                (int) ($suggestion->score ?? 0) > 0
+                && !$this->hasPersistedIdentityEvidence($suggestion)
+        )) {
+            return true;
+        }
+
+        return !$this->shouldReuseExistingSuggestions($existingSuggestions);
     }
 
     public function buildSuggestion(BankStatement $bankStatement, array $candidateInvoices, array $matchedRules, ?array $scoreData = null): BankReconciliationSuggestion
