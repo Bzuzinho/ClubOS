@@ -667,7 +667,7 @@ export function BancoTab({
         try {
           const { suggestions } = await requestSuggestionsForExtrato(extrato, {
             signal: abortController.signal,
-            forceRegeneration: true,
+            forceRegeneration: false,
           });
           summary.analyzed_count += 1;
           summary.suggestions_created += suggestions.length;
@@ -697,7 +697,11 @@ export function BancoTab({
           `Falharam ${summary.errors} de ${summary.analyzed_count} linhas. Primeiro erro: ${firstErrorMessage || 'erro desconhecido'}`
         );
       } else {
-        toast.success(`Sugestoes geradas para ${summary.analyzed_count} linha(s) bancarias.`);
+        toast.success(`Sugestoes disponíveis para ${summary.analyzed_count} linha(s) bancárias.`);
+      }
+
+      if (!cancelled && summary.analyzed_count > 0) {
+        refreshFinanceiroData();
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Erro ao gerar sugestoes de conciliacao';
