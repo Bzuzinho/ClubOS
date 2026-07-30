@@ -311,6 +311,227 @@ class PaymentAllocationService
         return $payment;
     }
 
+    public function reconcileLegacyPaidInvoice(
+        BankStatement $bankStatement,
+        Invoice $invoice,
+        array $options = [],
+    ): Payment {
+        return DB::transaction(function () use ($bankStatement, $invoice, $options): Payment {
+            $bankStatement = BankStatement::query()
+                ->whereKey($bankStatement->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+            $invoice = Invoice::query()
+                ->whereKey($invoice->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            if ((float) $bankStatement->valor <= 0 || $this->isBankStatementFullyReconciled($bankStatement)) {
+                throw ValidationException::withMessages([
+                    'bank_statement' => 'A linha bancária não está disponível para conciliar este pagamento.',
+                ]);
+            }
+
+            $statementAmount = round((float) (
+                $bankStatement->valor_por_conciliar
+                ?? abs((float) $bankStatement->valor)
+            ), 2);
+            $invoiceAmount = round((float) $invoice->valor_total, 2);
+            $trackedPaidAmount = round(max(
+                (float) ($invoice->valor_pago ?? 0),
+                $invoiceAmount - (float) ($invoice->valor_em_aberto ?? $invoiceAmount),
+            ), 2);
+
+            if (
+                $invoice->estado_pagamento !== 'pago'
+                || abs($invoiceAmount - $statementAmount) > 0.009
+                || abs($trackedPaidAmount - $statementAmount) > 0.009
+            ) {
+                throw ValidationException::withMessages([
+                    'invoice' => 'A mensalidade antiga deixou de corresponder integralmente ao movimento bancário.',
+                ]);
+            }
+
+            $legacyAllocations = PaymentAllocation::query()
+                ->confirmed()
+                ->where('invoice_id', $invoice->id)
+                ->whereHas('payment', function ($paymentQuery): void {
+                    $paymentQuery
+                        ->confirmed()
+                        ->whereNull('bank_statement_id');
+                })
+                ->with([
+                    'payment.allocations' => function ($allocationQuery): void {
+                        $allocationQuery->confirmed();
+                    },
+                ])
+                ->lockForUpdate()
+                ->get()
+                ->filter(function (PaymentAllocation $allocation) use ($statementAmount): bool {
+                    $payment = $allocation->payment;
+
+                    return $payment
+                        && abs((float) $allocation->amount - $statementAmount) <= 0.009
+                        && abs((float) $payment->amount - $statementAmount) <= 0.009
+                        && $payment->allocations->count() === 1;
+                })
+                ->values();
+
+            if ($legacyAllocations->count() > 1) {
+                throw ValidationException::withMessages([
+                    'invoice' => 'Existem vários pagamentos manuais possíveis para esta mensalidade. Confirme a associação manualmente.',
+                ]);
+            }
+
+            $allocation = $legacyAllocations->first();
+            $payment = $allocation?->payment;
+            $legacyPaymentSnapshot = $payment ? [
+                'payment_id' => $payment->id,
+                'source' => $payment->source,
+                'payment_date' => optional($payment->payment_date)->toDateString(),
+                'method' => $payment->method,
+                'reference' => $payment->reference,
+            ] : null;
+
+            if ($payment) {
+                $payment->forceFill([
+                    'bank_statement_id' => $bankStatement->id,
+                    'payment_date' => $bankStatement->data_movimento,
+                    'method' => $payment->method ?: ($options['method'] ?? 'transferencia'),
+                    'reference' => $bankStatement->referencia ?: $payment->reference,
+                    'description' => $bankStatement->descricao ?: $payment->description,
+                    'source' => Payment::SOURCE_RECONCILIATION,
+                    'created_by' => $options['created_by'] ?? $payment->created_by,
+                    'notes' => $options['notes'] ?? $payment->notes,
+                    'metadata' => array_merge((array) ($payment->metadata ?? []), [
+                        'legacy_manual_payment_linked' => true,
+                        'legacy_payment_snapshot' => $legacyPaymentSnapshot,
+                        'linked_bank_statement_id' => $bankStatement->id,
+                        'linked_at' => now()->toIso8601String(),
+                    ]),
+                ]);
+                $payment->save();
+            } else {
+                $payment = $this->createPayment([
+                    'user_id' => $invoice->user_id,
+                    'bank_statement_id' => $bankStatement->id,
+                    'amount' => $statementAmount,
+                    'payment_date' => $bankStatement->data_movimento,
+                    'method' => $options['method'] ?? 'transferencia',
+                    'reference' => $bankStatement->referencia,
+                    'description' => $bankStatement->descricao,
+                    'source' => Payment::SOURCE_RECONCILIATION,
+                    'created_by' => $options['created_by'] ?? null,
+                    'notes' => $options['notes'] ?? 'Normalização de mensalidade paga antes do fluxo canónico de conciliação.',
+                    'metadata' => [
+                        'legacy_invoice_payment_normalized' => true,
+                        'legacy_invoice_id' => $invoice->id,
+                        'linked_bank_statement_id' => $bankStatement->id,
+                        'linked_at' => now()->toIso8601String(),
+                    ],
+                ]);
+
+                $allocation = PaymentAllocation::query()->create([
+                    'payment_id' => $payment->id,
+                    'invoice_id' => $invoice->id,
+                    'amount' => $statementAmount,
+                    'status' => PaymentAllocation::STATUS_CONFIRMED,
+                    'allocated_at' => $bankStatement->data_movimento ?? now(),
+                    'created_by' => $options['created_by'] ?? null,
+                    'notes' => 'Alocação criada a partir de um pagamento manual anterior ao fluxo canónico.',
+                    'metadata' => [
+                        'legacy_invoice_payment_normalized' => true,
+                    ],
+                ]);
+            }
+
+            $canonicalEntry = FinancialEntry::query()
+                ->where('origem_tipo', 'payment_allocation')
+                ->where('origem_id', $allocation->id)
+                ->lockForUpdate()
+                ->first();
+
+            $legacyEntries = FinancialEntry::query()
+                ->where('fatura_id', $invoice->id)
+                ->where('valor', '>=', $statementAmount - 0.009)
+                ->where('valor', '<=', $statementAmount + 0.009)
+                ->where(function ($entryQuery): void {
+                    $entryQuery
+                        ->whereNull('bank_statement_id')
+                        ->orWhereNull('payment_id');
+                })
+                ->where(function ($entryQuery): void {
+                    $entryQuery
+                        ->whereNull('origem_tipo')
+                        ->orWhere('origem_tipo', 'manual');
+                })
+                ->lockForUpdate()
+                ->get();
+
+            if (!$canonicalEntry && $legacyEntries->count() > 1) {
+                throw ValidationException::withMessages([
+                    'invoice' => 'Existem vários lançamentos antigos para esta mensalidade. Confirme a associação manualmente.',
+                ]);
+            }
+
+            $entry = $canonicalEntry ?? $legacyEntries->first() ?? new FinancialEntry();
+            $entry->forceFill([
+                'data' => $bankStatement->data_movimento ?? $invoice->data_pagamento ?? now()->toDateString(),
+                'tipo' => 'receita',
+                'categoria' => 'Pagamento de Fatura',
+                'descricao' => $entry->descricao ?: sprintf(
+                    'Pagamento conciliado da mensalidade de %s',
+                    $invoice->user?->nome_completo ?? $invoice->user?->name ?? $invoice->id,
+                ),
+                'documento_ref' => $bankStatement->referencia ?: $entry->documento_ref,
+                'valor' => $statementAmount,
+                'valor_pago' => $statementAmount,
+                'valor_em_aberto' => 0,
+                'estado' => 'pago',
+                'data_pagamento' => $bankStatement->data_movimento,
+                'data_liquidacao' => $bankStatement->data_movimento,
+                'centro_custo_id' => $invoice->centro_custo_id,
+                'user_id' => $invoice->user_id,
+                'fatura_id' => $invoice->id,
+                'payment_id' => $payment->id,
+                'bank_statement_id' => $bankStatement->id,
+                'origem_tipo' => 'payment_allocation',
+                'origem_modulo' => 'financeiro',
+                'origem_id' => $allocation->id,
+                'metodo_pagamento' => $payment->method,
+            ]);
+            $entry->save();
+
+            $this->createOrUpdateReconciliationMap(
+                payment: $payment,
+                allocation: $allocation,
+                invoice: $invoice,
+                bankStatement: $bankStatement,
+                entry: $entry,
+                previousStatus: 'pago',
+                options: array_merge($options, [
+                    'map_rule' => 'legacy_paid_invoice_link',
+                    'map_metadata' => [
+                        'legacy_paid_invoice' => true,
+                        'legacy_payment_reused' => $legacyPaymentSnapshot !== null,
+                        'suggestion_id' => $options['suggestion_id'] ?? null,
+                    ],
+                ]),
+            );
+
+            $payment = $this->syncPaymentBalances($payment->fresh());
+            $this->recalculateInvoicePaymentStatus($invoice->fresh());
+            $this->syncBankStatementStatus($bankStatement->fresh());
+            $this->reconciliationRepositoryService->storeFromConfirmedReconciliation(
+                $bankStatement->fresh(),
+                $payment,
+                $options['created_by'] ?? null,
+            );
+
+            return $payment->fresh(['allocations.invoice', 'bankStatement']);
+        });
+    }
+
     public function recalculateInvoicePaymentStatus(Invoice $invoice): Invoice
     {
         $paidAmount = $this->getInvoicePaidAmount($invoice);

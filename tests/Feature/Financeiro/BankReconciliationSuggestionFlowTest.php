@@ -2280,6 +2280,147 @@ class BankReconciliationSuggestionFlowTest extends TestCase
         $this->assertContains($response->status(), [403, 404]);
     }
 
+    public function test_paid_manual_monthly_fee_is_suggested_and_existing_payment_is_reused(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $user = $this->createFinanceUser(['nome_completo' => 'Ines Legacy Reconciliacao']);
+        $invoice = Invoice::withoutEvents(fn () => $this->createInvoice(
+            $user,
+            30.00,
+            'mensalidade',
+            '2026-05-10',
+            [
+                'mes' => '2026-05',
+                'estado_pagamento' => 'pago',
+                'valor_pago' => 30.00,
+                'valor_em_aberto' => 0,
+                'data_pagamento' => '2026-05-05',
+                'metodo_pagamento' => 'transferencia',
+            ],
+        ));
+        $payment = Payment::query()->create([
+            'user_id' => $user->id,
+            'family_id' => $user->families->first()?->id,
+            'bank_statement_id' => null,
+            'amount' => 30.00,
+            'allocated_amount' => 30.00,
+            'unallocated_amount' => 0,
+            'payment_date' => '2026-05-05',
+            'method' => 'transferencia',
+            'reference' => 'MANUAL-LEGACY-30',
+            'description' => 'Pagamento manual anterior à conciliação',
+            'source' => Payment::SOURCE_MANUAL,
+            'status' => Payment::STATUS_CONFIRMED,
+            'created_by' => $admin->id,
+        ]);
+        $allocation = PaymentAllocation::query()->create([
+            'payment_id' => $payment->id,
+            'invoice_id' => $invoice->id,
+            'amount' => 30.00,
+            'status' => PaymentAllocation::STATUS_CONFIRMED,
+            'allocated_at' => '2026-05-05',
+            'created_by' => $admin->id,
+        ]);
+        $statement = $this->createBankStatement(
+            30.00,
+            'TRF CR INTRAB DE INES LEGACY RECONCILIACAO',
+        );
+
+        $this->actingAs($admin)
+            ->postJson(route('financeiro.bank-statements.generate-suggestions', $statement))
+            ->assertOk();
+
+        $suggestion = BankReconciliationSuggestion::query()
+            ->where('bank_statement_id', $statement->id)
+            ->where('status', BankReconciliationSuggestion::STATUS_SUGGESTED)
+            ->get()
+            ->first(fn (BankReconciliationSuggestion $candidate): bool =>
+                data_get($candidate->metadata, 'target_type') === 'legacy_paid_invoice'
+            );
+
+        $this->assertNotNull($suggestion);
+        $this->assertSame(100, (int) $suggestion->score);
+
+        $this->actingAs($admin)
+            ->postJson(route('financeiro.bank-reconciliation-suggestions.confirm', $suggestion))
+            ->assertOk()
+            ->assertJsonPath('summary.suggestion_confirmed', true);
+
+        $this->assertSame(1, Payment::query()->where('user_id', $user->id)->count());
+        $this->assertSame($statement->id, $payment->fresh()->bank_statement_id);
+        $this->assertSame(Payment::SOURCE_RECONCILIATION, $payment->fresh()->source);
+        $this->assertSame('pago', $invoice->fresh()->estado_pagamento);
+        $this->assertTrue($statement->fresh()->conciliado);
+        $this->assertDatabaseHas('mapa_conciliacao', [
+            'extrato_id' => $statement->id,
+            'fatura_id' => $invoice->id,
+            'payment_id' => $payment->id,
+            'payment_allocation_id' => $allocation->id,
+            'status' => 'confirmado',
+            'regra_usada' => 'legacy_paid_invoice_link',
+        ]);
+    }
+
+    public function test_paid_legacy_monthly_fee_without_canonical_payment_is_normalized_once(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $user = $this->createFinanceUser(['nome_completo' => 'Ricardo Legacy Sem Payment']);
+        $invoice = Invoice::withoutEvents(fn () => $this->createInvoice(
+            $user,
+            22.50,
+            'mensalidade',
+            '2026-05-10',
+            [
+                'mes' => '2026-05',
+                'estado_pagamento' => 'pago',
+                'valor_pago' => 22.50,
+                'valor_em_aberto' => 0,
+                'data_pagamento' => '2026-05-05',
+                'metodo_pagamento' => 'transferencia',
+            ],
+        ));
+        $statement = $this->createBankStatement(
+            22.50,
+            'TRF CR INTRAB DE RICARDO LEGACY SEM PAYMENT',
+        );
+
+        $this->actingAs($admin)
+            ->postJson(route('financeiro.bank-statements.generate-suggestions', $statement))
+            ->assertOk();
+
+        $suggestion = BankReconciliationSuggestion::query()
+            ->where('bank_statement_id', $statement->id)
+            ->where('status', BankReconciliationSuggestion::STATUS_SUGGESTED)
+            ->get()
+            ->first(fn (BankReconciliationSuggestion $candidate): bool =>
+                data_get($candidate->metadata, 'target_type') === 'legacy_paid_invoice'
+            );
+
+        $this->assertNotNull($suggestion);
+
+        $this->actingAs($admin)
+            ->postJson(route('financeiro.bank-reconciliation-suggestions.confirm', $suggestion))
+            ->assertOk();
+
+        $payment = Payment::query()
+            ->where('bank_statement_id', $statement->id)
+            ->firstOrFail();
+
+        $this->assertSame(1, Payment::query()->where('bank_statement_id', $statement->id)->count());
+        $this->assertSame(1, PaymentAllocation::query()
+            ->where('payment_id', $payment->id)
+            ->where('invoice_id', $invoice->id)
+            ->confirmed()
+            ->count());
+        $this->assertSame(1, FinancialEntry::query()
+            ->where('origem_tipo', 'payment_allocation')
+            ->where('fatura_id', $invoice->id)
+            ->where('bank_statement_id', $statement->id)
+            ->count());
+        $this->assertTrue($statement->fresh()->conciliado);
+        $this->assertSame('pago', $invoice->fresh()->estado_pagamento);
+    }
+
     private function generateSuggestion(User $admin, BankStatement $statement, array $invoices): BankReconciliationSuggestion
     {
         $response = $this->actingAs($admin)->postJson(route('financeiro.bank-statements.generate-suggestions', $statement));

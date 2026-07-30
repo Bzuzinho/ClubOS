@@ -127,6 +127,24 @@ class BankReconciliationSuggestionService
                 (bool) ($context['repository_match'] ?? false),
             );
 
+            $legacyPaidSuggestion = $this->generateLegacyPaidInvoiceSuggestion(
+                $bankStatement,
+                $context,
+                $statementAmount,
+                $normalizedText,
+                $rejectedAllocationSignatures,
+                $forceRegeneration,
+            );
+            if ($legacyPaidSuggestion) {
+                $legacySignature = $this->makeAllocationSignatureFromAllocations(
+                    (array) $legacyPaidSuggestion->suggested_allocations,
+                );
+                if (!isset($seenSignatures[$legacySignature])) {
+                    $seenSignatures[$legacySignature] = true;
+                    $suggestions->push($legacyPaidSuggestion);
+                }
+            }
+
             if ($candidateInvoices->isEmpty()) {
                 continue;
             }
@@ -677,6 +695,39 @@ class BankReconciliationSuggestionService
             }
 
             $invoiceIds = collect($allocations)->pluck('invoice_id')->all();
+            if (data_get($suggestion->metadata, 'target_type') === 'legacy_paid_invoice') {
+                if (count($invoiceIds) !== 1 || count($allocations) !== 1) {
+                    throw ValidationException::withMessages([
+                        'suggestion' => 'A conciliação de legado exige uma única mensalidade paga.',
+                    ]);
+                }
+
+                $invoice = Invoice::query()->findOrFail($invoiceIds[0]);
+                $payment = $this->financialSettlementService->reconcileLegacyPaidInvoice(
+                    $bankStatement,
+                    $invoice,
+                    [
+                        'method' => $options['method'] ?? 'transferencia',
+                        'reference' => $options['reference'] ?? $bankStatement->referencia,
+                        'description' => $options['description'] ?? $bankStatement->descricao,
+                        'notes' => $options['notes'] ?? $suggestion->explanation,
+                        'created_by' => $actor?->id,
+                        'suggestion_id' => $suggestion->id,
+                        'suggestion_score' => $suggestion->score,
+                    ],
+                );
+
+                $this->finalizeConfirmedSuggestion(
+                    $suggestion,
+                    $actor,
+                    $payment->user_id ?: $invoice->user_id,
+                    $payment->family_id ?: $this->resolveFamilyId($invoice->user_id),
+                    $bankStatement,
+                );
+
+                return $payment->fresh(['allocations.invoice', 'bankStatement']);
+            }
+
             $openInvoices = Invoice::query()
                 ->withSum([
                     'paymentAllocations as confirmed_payment_allocations_sum' => function ($paymentAllocationQuery): void {
@@ -1677,6 +1728,166 @@ class BankReconciliationSuggestionService
         $origemTipo = Str::of((string) ($invoice->origem_tipo ?? ''))->lower()->ascii()->value();
 
         return str_contains($tipo, 'mens') || str_contains($origemTipo, 'mens');
+    }
+
+    private function generateLegacyPaidInvoiceSuggestion(
+        BankStatement $bankStatement,
+        array $context,
+        float $statementAmount,
+        string $normalizedText,
+        array $rejectedAllocationSignatures,
+        bool $forceRegeneration,
+    ): ?BankReconciliationSuggestion {
+        $candidates = $this->fetchLegacyPaidInvoicesForContext(
+            $bankStatement,
+            $context['user_id'] ?? null,
+            $context['family_id'] ?? null,
+            $context['matched_user_ids'] ?? [],
+            $statementAmount,
+        );
+
+        if ($candidates->count() !== 1) {
+            return null;
+        }
+
+        /** @var Invoice $invoice */
+        $invoice = $candidates->first();
+        $candidateSet = [[
+            'invoice' => $invoice,
+            'open_amount' => $statementAmount,
+            'amount' => $statementAmount,
+            'reason' => 'mensalidade já paga manualmente e ainda sem conciliação bancária',
+        ]];
+        $signature = $this->makeAllocationSignature($candidateSet);
+
+        if (!$forceRegeneration && isset($rejectedAllocationSignatures[$signature])) {
+            return null;
+        }
+
+        $identityRules = collect([
+            ($context['repository_match'] ?? false) ? 'repository_match' : null,
+            ($context['alias_confirmed'] ?? false) ? 'confirmed_alias' : null,
+            ($context['matched_name'] ?? false) ? 'matched_name' : null,
+            ($context['matched_nif'] ?? false) ? 'matched_nif' : null,
+            ($context['matched_member_number'] ?? false) ? 'matched_member_number' : null,
+            ($context['matched_email_or_phone'] ?? false) ? 'matched_email_or_phone' : null,
+        ])->filter()->values()->all();
+
+        $suggestion = $this->buildSuggestion(
+            $bankStatement,
+            $candidateSet,
+            array_merge($context, [
+                'statement_amount' => $statementAmount,
+                'normalized_text' => $normalizedText,
+            ]),
+            [
+                'score' => 100,
+                'confidence_label' => BankReconciliationSuggestion::CONFIDENCE_VERY_HIGH,
+                'matched_rules' => array_values(array_unique(array_merge($identityRules, [
+                    'exact_legacy_paid_invoice_amount',
+                    'matching_invoice_period',
+                    'legacy_manual_payment_pending_reconciliation',
+                    'no_conflict',
+                ]))),
+                'explanation' => 'A identidade, o valor e o período bancário coincidem com uma mensalidade já paga manualmente, mas ainda sem conciliação. A confirmação associa o pagamento existente ao extrato sem criar um segundo pagamento.',
+            ],
+        );
+
+        $suggestion->forceFill([
+            'metadata' => array_merge((array) ($suggestion->metadata ?? []), [
+                'target_type' => 'legacy_paid_invoice',
+                'legacy_invoice_id' => $invoice->id,
+                'legacy_payment_reconciliation' => true,
+            ]),
+        ])->save();
+
+        return $suggestion->refresh(['bankStatement', 'user.families', 'family']);
+    }
+
+    private function fetchLegacyPaidInvoicesForContext(
+        BankStatement $bankStatement,
+        ?string $userId,
+        ?string $familyId,
+        array $matchedUserIds,
+        float $statementAmount,
+    ): Collection {
+        if (!$bankStatement->data_movimento) {
+            return collect();
+        }
+
+        $monthKey = $bankStatement->data_movimento->format('Y-m');
+        $monthStart = $bankStatement->data_movimento->copy()->startOfMonth()->toDateString();
+        $monthEnd = $bankStatement->data_movimento->copy()->endOfMonth()->toDateString();
+
+        $query = Invoice::query()
+            ->with([
+                'user:id,nome_completo,name',
+                'user.families:id',
+                'paymentAllocations' => function ($allocationQuery): void {
+                    $allocationQuery
+                        ->confirmed()
+                        ->with('payment');
+                },
+            ])
+            ->where('oculta', false)
+            ->where('estado_pagamento', 'pago')
+            ->where('valor_total', '>=', $statementAmount - 0.009)
+            ->where('valor_total', '<=', $statementAmount + 0.009)
+            ->where(function ($monthlyTypeQuery): void {
+                $monthlyTypeQuery
+                    ->where('tipo', 'like', '%mens%')
+                    ->orWhere('origem_tipo', 'like', '%mens%');
+            })
+            ->where(function ($periodQuery) use ($monthKey, $monthStart, $monthEnd): void {
+                $periodQuery
+                    ->where('mes', $monthKey)
+                    ->orWhereBetween('data_fatura', [$monthStart, $monthEnd])
+                    ->orWhereBetween('data_emissao', [$monthStart, $monthEnd]);
+            })
+            ->whereDoesntHave('paymentAllocations', function ($allocationQuery): void {
+                $allocationQuery
+                    ->confirmed()
+                    ->whereHas('payment', function ($paymentQuery): void {
+                        $paymentQuery
+                            ->confirmed()
+                            ->whereNotNull('bank_statement_id');
+                    });
+            })
+            ->whereNotExists(function ($mapQuery): void {
+                $mapQuery
+                    ->selectRaw('1')
+                    ->from('mapa_conciliacao')
+                    ->whereColumn('mapa_conciliacao.fatura_id', 'invoices.id')
+                    ->where('mapa_conciliacao.status', 'confirmado');
+            });
+
+        if ($familyId) {
+            $query->whereHas('user.families', function ($familyQuery) use ($familyId): void {
+                $familyQuery->where('familias.id', $familyId);
+            });
+        } elseif ($matchedUserIds !== []) {
+            $query->whereIn('user_id', $matchedUserIds);
+        } elseif ($userId) {
+            $query->where('user_id', $userId);
+        } else {
+            return collect();
+        }
+
+        return $query
+            ->orderBy('data_emissao')
+            ->orderBy('id')
+            ->get()
+            ->filter(function (Invoice $invoice) use ($statementAmount): bool {
+                $invoiceAmount = round((float) $invoice->valor_total, 2);
+                $trackedPaidAmount = round(max(
+                    (float) ($invoice->valor_pago ?? 0),
+                    $invoiceAmount - (float) ($invoice->valor_em_aberto ?? $invoiceAmount),
+                    (float) $invoice->paymentAllocations->sum('amount'),
+                ), 2);
+
+                return abs($trackedPaidAmount - $statementAmount) <= 0.009;
+            })
+            ->values();
     }
 
     private function fetchOpenInvoicesForContext(
