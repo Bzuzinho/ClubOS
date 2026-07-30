@@ -656,6 +656,7 @@ export function BancoTab({
 
     try {
       let cancelled = false;
+      let firstErrorMessage: string | null = null;
 
       for (const extrato of statementsToAnalyze) {
         if (abortController.signal.aborted) {
@@ -664,7 +665,10 @@ export function BancoTab({
         }
 
         try {
-          const { suggestions } = await requestSuggestionsForExtrato(extrato, { signal: abortController.signal });
+          const { suggestions } = await requestSuggestionsForExtrato(extrato, {
+            signal: abortController.signal,
+            forceRegeneration: true,
+          });
           summary.analyzed_count += 1;
           summary.suggestions_created += suggestions.length;
           if (suggestions.length === 0) {
@@ -678,6 +682,9 @@ export function BancoTab({
 
           summary.analyzed_count += 1;
           summary.errors += 1;
+          if (!firstErrorMessage) {
+            firstErrorMessage = error instanceof Error ? error.message : 'Erro ao gerar sugestoes';
+          }
         }
 
         setBulkSuggestionSummary({ ...summary });
@@ -685,6 +692,10 @@ export function BancoTab({
 
       if (cancelled) {
         toast.info(`Geracao de sugestoes cancelada apos ${summary.analyzed_count} linha(s) analisadas.`);
+      } else if (summary.errors > 0) {
+        toast.error(
+          `Falharam ${summary.errors} de ${summary.analyzed_count} linhas. Primeiro erro: ${firstErrorMessage || 'erro desconhecido'}`
+        );
       } else {
         toast.success(`Sugestoes geradas para ${summary.analyzed_count} linha(s) bancarias.`);
       }
