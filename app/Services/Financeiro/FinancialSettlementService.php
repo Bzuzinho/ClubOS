@@ -238,6 +238,18 @@ class FinancialSettlementService
         });
     }
 
+    public function reconcileLegacyPaidInvoice(
+        BankStatement $bankStatement,
+        Invoice $invoice,
+        array $options = [],
+    ): Payment {
+        return $this->paymentAllocationService->reconcileLegacyPaidInvoice(
+            $bankStatement,
+            $invoice,
+            $options,
+        );
+    }
+
     public function settleFinancialEntries(array $allocations, array $options = []): Payment
     {
         if ($allocations === []) {
