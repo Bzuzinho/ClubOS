@@ -17,7 +17,7 @@ class FinancialReportingFactService
         [$startDate, $endDate] = $this->normalizeDateRange($start, $end);
 
         $paidInvoices = $this->paidInvoicesQuery($filters)
-            ->when($startDate && $endDate, fn (Builder $query) => $query->whereBetween('data_pagamento', [$startDate->toDateString(), $endDate->toDateString()]))
+            ->when($startDate && $endDate, fn (Builder $query) => $query->whereBetween('data_pagamento', [$startDate->toDateTimeString(), $endDate->toDateTimeString()]))
             ->get([
                 'id',
                 'tipo',
@@ -59,7 +59,7 @@ class FinancialReportingFactService
             ->all();
 
         $paidEntries = $this->paidEntriesQuery($filters, $includedInvoiceIds)
-            ->when($startDate && $endDate, fn (Builder $query) => $query->whereBetween('data_pagamento', [$startDate->toDateString(), $endDate->toDateString()]))
+            ->when($startDate && $endDate, fn (Builder $query) => $query->whereBetween('data_pagamento', [$startDate->toDateTimeString(), $endDate->toDateTimeString()]))
             ->get([
                 'id',
                 'tipo',
@@ -117,7 +117,7 @@ class FinancialReportingFactService
             ->all();
 
         $paidMovements = $this->paidMovementsQuery($filters)
-            ->when($startDate && $endDate, fn (Builder $query) => $query->whereBetween('data_emissao', [$startDate->toDateString(), $endDate->toDateString()]))
+            ->when($startDate && $endDate, fn (Builder $query) => $query->whereBetween('data_emissao', [$startDate->toDateTimeString(), $endDate->toDateTimeString()]))
             ->get([
                 'id',
                 'classificacao',
