@@ -581,7 +581,7 @@ export function BancoTab({
   };
 
   const suggestionSummaryKey = (extratos || [])
-    .map((extrato) => `${extrato.id}:${extrato.suggestion_count || 0}:${extrato.direct_suggestion?.id || ''}:${getStatementStatus(extrato)}`)
+    .map((extrato) => `${extrato.id}:${extrato.suggestions_analyzed_at || ''}:${extrato.suggestion_count || 0}:${extrato.direct_suggestion?.id || ''}:${getStatementStatus(extrato)}`)
     .join('|');
 
   useEffect(() => {
@@ -626,9 +626,14 @@ export function BancoTab({
   };
 
   const handleGenerateSuggestionsBatch = async () => {
-    const statementsToAnalyze = extratosTabela.filter(
-      (extrato) => getStatementStatus(extrato) !== 'reconciled' && Math.abs(toNumber(extrato.valor)) > 0.009
-    );
+    const statementsToAnalyze = extratosTabela.filter((extrato) => {
+      const activeSuggestionCount = suggestionCounts[extrato.id]
+        ?? Number(extrato.suggestion_count || 0);
+
+      return getStatementStatus(extrato) !== 'reconciled'
+        && Math.abs(toNumber(extrato.valor)) > 0.009
+        && activeSuggestionCount === 0;
+    });
 
     if (statementsToAnalyze.length === 0) {
       const emptySummary = {
@@ -919,7 +924,13 @@ export function BancoTab({
 
   const hasLoadedSuggestionResult = (extratoId: string) => {
     return Object.prototype.hasOwnProperty.call(suggestionCache, extratoId)
-      || (extratos || []).some((extrato) => extrato.id === extratoId && extrato.suggestion_count !== undefined);
+      || (extratos || []).some((extrato) =>
+        extrato.id === extratoId
+        && (
+          Boolean(extrato.suggestions_analyzed_at)
+          || Number(extrato.suggestion_count || 0) > 0
+        )
+      );
   };
 
   const getReconciliationBadge = (extrato: ExtratoBancario) => {

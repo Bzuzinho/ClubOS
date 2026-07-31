@@ -2445,6 +2445,161 @@ class BankReconciliationSuggestionFlowTest extends TestCase
         return BankReconciliationSuggestion::query()->findOrFail($suggestionPayload['id']);
     }
 
+    public function test_negative_statement_remembers_that_suggestions_were_analyzed(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $statement = $this->createBankStatement(-18.50, 'DEBITO SEM DESPESA ASSOCIADA');
+
+        $this->actingAs($admin)
+            ->postJson(route('financeiro.bank-statements.generate-suggestions', $statement))
+            ->assertOk()
+            ->assertJsonPath('generated_count', 0);
+
+        $this->assertNotNull($statement->fresh()->suggestions_analyzed_at);
+    }
+
+    public function test_unmatched_statement_is_reanalyzed_after_new_invoice_is_created(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $user = $this->createFinanceUser(['nome_completo' => 'Helena Nova Importacao']);
+        $statement = $this->createBankStatement(25.00, 'TRF CR INTRAB DE HELENA NOVA IMPORTACAO');
+
+        $this->actingAs($admin)
+            ->postJson(route('financeiro.bank-statements.generate-suggestions', $statement))
+            ->assertOk()
+            ->assertJsonPath('generated_count', 0);
+
+        $this->createInvoice($user, 25.00);
+
+        $response = $this->actingAs($admin)
+            ->postJson(route('financeiro.bank-statements.generate-suggestions', $statement))
+            ->assertOk();
+
+        $this->assertGreaterThan(0, (int) $response->json('generated_count'));
+    }
+
+    public function test_payer_name_missing_one_middle_name_matches_all_family_monthly_fees(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $responsible = $this->createFinanceUser([
+            'nome_completo' => 'Ricardo Jorge Guerra Vitorino Ferreira',
+        ]);
+        $family = $responsible->families->firstOrFail();
+        $vania = $this->createFamilyMember($family, [
+            'nome_completo' => 'Vania Raquel da Silva Leao',
+        ]);
+        $jose = $this->createFamilyMember($family, [
+            'nome_completo' => 'Jose Pedro Ferreira Leao',
+        ]);
+
+        foreach ([$responsible, $vania, $jose] as $member) {
+            $this->createInvoice($member, 24.00, 'mensalidade', '2026-06-10', [
+                'data_fatura' => '2026-06-01',
+                'data_emissao' => '2026-06-01',
+                'mes' => '2026-06',
+            ]);
+        }
+
+        $statement = $this->createBankStatement(
+            72.00,
+            'TRF CR INTRAB 234 DE RICARDO JORGE VITORINO FERREIRA',
+        );
+        $statement->forceFill(['data_movimento' => '2026-06-09'])->save();
+
+        $response = $this->actingAs($admin)
+            ->postJson(route('financeiro.bank-statements.generate-suggestions', $statement))
+            ->assertOk();
+
+        $familySuggestion = collect($response->json('suggestions'))
+            ->first(fn (array $suggestion): bool =>
+                (int) ($suggestion['score'] ?? 0) === 100
+                && collect($suggestion['suggested_allocations'] ?? [])->count() === 3
+                && abs((float) ($suggestion['total_allocated_amount'] ?? 0) - 72.00) <= 0.009
+            );
+
+        $this->assertNotNull($familySuggestion);
+        $this->assertSame($family->id, $familySuggestion['family_id']);
+    }
+
+    public function test_family_legacy_paid_monthly_fees_are_linked_to_one_bank_payment(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $responsible = $this->createFinanceUser([
+            'nome_completo' => 'Ricardo Jorge Guerra Vitorino Ferreira',
+        ]);
+        $family = $responsible->families->firstOrFail();
+        $vania = $this->createFamilyMember($family, [
+            'nome_completo' => 'Vania Raquel da Silva Leao',
+        ]);
+        $jose = $this->createFamilyMember($family, [
+            'nome_completo' => 'Jose Pedro Ferreira Leao',
+        ]);
+
+        foreach ([$responsible, $vania, $jose] as $member) {
+            Invoice::withoutEvents(fn () => $this->createInvoice(
+                $member,
+                24.00,
+                'mensalidade',
+                '2026-06-10',
+                [
+                    'data_fatura' => '2026-06-01',
+                    'data_emissao' => '2026-06-01',
+                    'mes' => '2026-06',
+                    'estado_pagamento' => 'pago',
+                    'valor_pago' => 24.00,
+                    'valor_em_aberto' => 0,
+                    'data_pagamento' => '2026-06-09',
+                    'metodo_pagamento' => 'transferencia',
+                ],
+            ));
+        }
+
+        $statement = $this->createBankStatement(
+            72.00,
+            'TRF CR INTRAB 234 DE RICARDO JORGE VITORINO FERREIRA',
+        );
+        $statement->forceFill(['data_movimento' => '2026-06-09'])->save();
+
+        $this->actingAs($admin)
+            ->postJson(route('financeiro.bank-statements.generate-suggestions', $statement))
+            ->assertOk();
+
+        $suggestion = BankReconciliationSuggestion::query()
+            ->where('bank_statement_id', $statement->id)
+            ->where('status', BankReconciliationSuggestion::STATUS_SUGGESTED)
+            ->where('score', 100)
+            ->get()
+            ->first(fn (BankReconciliationSuggestion $candidate): bool =>
+                data_get($candidate->metadata, 'target_type') === 'legacy_paid_invoice'
+                && collect($candidate->suggested_allocations)->count() === 3
+            );
+
+        $this->assertNotNull($suggestion);
+
+        $this->actingAs($admin)
+            ->postJson(route('financeiro.bank-reconciliation-suggestions.confirm', $suggestion))
+            ->assertOk()
+            ->assertJsonPath('summary.suggestion_confirmed', true);
+
+        $payment = Payment::query()
+            ->where('bank_statement_id', $statement->id)
+            ->firstOrFail();
+
+        $this->assertSame(1, Payment::query()
+            ->where('bank_statement_id', $statement->id)
+            ->where('status', Payment::STATUS_CONFIRMED)
+            ->count());
+        $this->assertSame(3, PaymentAllocation::query()
+            ->where('payment_id', $payment->id)
+            ->confirmed()
+            ->count());
+        $this->assertSame(3, MapaConciliacao::query()
+            ->where('extrato_id', $statement->id)
+            ->where('status', 'confirmado')
+            ->count());
+        $this->assertTrue($statement->fresh()->conciliado);
+    }
+
     private function createFinanceUser(array $overrides = []): User
     {
         $defaults = [

@@ -115,6 +115,7 @@ export interface ExtratoBancario {
   lancamento_id?: string | null;
   movement_id?: string | null;
   movement_estado_documental?: 'sem_documentos' | 'falta_fatura' | 'falta_recibo' | 'falta_comprovativo_pagamento' | 'pendente_validacao' | 'completo' | 'inconsistente' | null;
+  suggestions_analyzed_at?: string | null;
   suggestion_count?: number;
   direct_suggestion?: BankReconciliationSuggestion | null;
   created_at?: string | null;
