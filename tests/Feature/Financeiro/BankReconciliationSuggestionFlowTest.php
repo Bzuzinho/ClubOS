@@ -217,6 +217,7 @@ class BankReconciliationSuggestionFlowTest extends TestCase
             'estado_pagamento' => 'vencido',
         ]);
         $statement = $this->createBankStatement(22.50, 'TRF CR INTRAB 189 DE RICARDO JORGE VITORINO FERREIRA');
+        $statement->forceFill(['data_movimento' => '2026-01-09'])->save();
         $this->learnStatementDescription($statement, $guardian->id, $family->id, $admin);
 
         $response = $this->actingAs($admin)->postJson(route('financeiro.bank-statements.generate-suggestions', $statement));
