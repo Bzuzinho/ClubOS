@@ -6,6 +6,7 @@ use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\MonthlyFee;
 use App\Models\User;
+use App\Services\Members\MemberIdentityDisplayResolver;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
@@ -21,6 +22,7 @@ class MonthlyFeeGenerationService
         private readonly MemberCostCenterResolver $memberCostCenterResolver,
         private readonly MemberMonthlyFeeResolver $memberMonthlyFeeResolver,
         private readonly MemberMonthlyFeeEligibilityService $memberMonthlyFeeEligibilityService,
+        private readonly MemberIdentityDisplayResolver $memberIdentityDisplayResolver,
     ) {
     }
 
@@ -36,7 +38,7 @@ class MonthlyFeeGenerationService
      */
     public function generateForUserWithSummary(User $user, Carbon $start, Carbon $end, array $options = []): array
     {
-        $user->loadMissing(['dadosFinanceiros.mensalidade', 'centrosCusto']);
+        $user->loadMissing(['dadosFinanceiros.mensalidade', 'centrosCusto', 'dadosPessoais']);
         $settings = $this->resolveSettings($options);
         $summary = $this->emptySummary();
         $summary['users_processed'] = 1;
@@ -229,7 +231,7 @@ class MonthlyFeeGenerationService
         }
 
         $query = User::query()
-            ->with(['dadosFinanceiros.mensalidade', 'centrosCusto', 'userTypes'])
+            ->with(['dadosFinanceiros.mensalidade', 'centrosCusto', 'userTypes', 'dadosPessoais'])
             ->where(function ($nested): void {
                 $nested
                     ->whereHas('dadosFinanceiros', fn ($financeQuery) => $financeQuery->whereNotNull('mensalidade_id'));
@@ -704,7 +706,7 @@ class MonthlyFeeGenerationService
     {
         return [
             'user_id' => (string) $user->id,
-            'name' => trim((string) ($user->nome_completo ?: $user->name ?: $user->id)),
+            'name' => $this->memberIdentityDisplayResolver->displayName($user),
             'reason' => $reason,
             'detail_reasons' => array_values(array_unique(array_filter(
                 $detailReasons,
