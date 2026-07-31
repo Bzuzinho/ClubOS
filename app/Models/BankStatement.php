@@ -31,6 +31,7 @@ class BankStatement extends Model
         'valor_conciliado',
         'valor_por_conciliar',
         'conciliacao_status',
+        'suggestions_analyzed_at',
         'lancamento_id',
     ];
 
@@ -41,6 +42,7 @@ class BankStatement extends Model
         'conciliado' => 'boolean',
         'valor_conciliado' => 'decimal:2',
         'valor_por_conciliar' => 'decimal:2',
+        'suggestions_analyzed_at' => 'datetime',
     ];
 
     public function centroCusto(): BelongsTo
