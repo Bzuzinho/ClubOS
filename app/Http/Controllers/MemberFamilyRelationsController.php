@@ -251,8 +251,12 @@ class MemberFamilyRelationsController extends Controller
 
     private function createFamilyFromCurrentRelations(User $member): Familia
     {
-        $guardians = $member->encarregados;
-        $dependents = $member->educandos;
+        $guardians = $member->relationLoaded('encarregados')
+            ? $member->getRelation('encarregados')
+            : $member->encarregados()->get();
+        $dependents = $member->relationLoaded('educandos')
+            ? $member->getRelation('educandos')
+            : $member->educandos()->get();
         $responsible = $guardians->first() ?? $member;
 
         $family = Familia::query()->create([
