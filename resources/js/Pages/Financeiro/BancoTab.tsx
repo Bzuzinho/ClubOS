@@ -922,17 +922,6 @@ export function BancoTab({
     return isDirectSuggestion(statementSuggestion) ? statementSuggestion : null;
   };
 
-  const hasLoadedSuggestionResult = (extratoId: string) => {
-    return Object.prototype.hasOwnProperty.call(suggestionCache, extratoId)
-      || (extratos || []).some((extrato) =>
-        extrato.id === extratoId
-        && (
-          Boolean(extrato.suggestions_analyzed_at)
-          || Number(extrato.suggestion_count || 0) > 0
-        )
-      );
-  };
-
   const getReconciliationBadge = (extrato: ExtratoBancario) => {
     const statementStatus = getStatementStatus(extrato);
 
@@ -974,6 +963,16 @@ export function BancoTab({
     }
 
     return (movimentos || []).find((movimento) => movimento.id === movementId) || null;
+  };
+
+  const canCreateExpenseFromStatement = (extrato: ExtratoBancario) => {
+    const activeSuggestionCount = suggestionCounts[extrato.id]
+      ?? Number(extrato.suggestion_count || 0);
+
+    return !isStatementFullyReconciled(extrato)
+      && toNumber(extrato.valor) < 0
+      && !getAssociatedMovementId(extrato)
+      && activeSuggestionCount === 0;
   };
 
   const openMovementDetail = (movementId: string) => {
@@ -2204,7 +2203,6 @@ export function BancoTab({
                   const associatedMovementId = getAssociatedMovementId(extrato);
                   const movementDocumentalState = extrato.movement_estado_documental || associatedMovement?.estado_documental;
                   const directSuggestion = getDirectSuggestionForExtrato(extrato.id);
-                  const suggestionsLoaded = hasLoadedSuggestionResult(extrato.id);
 
                   return (
                 <div className="space-y-3">
@@ -2281,11 +2279,7 @@ export function BancoTab({
                         ) : null}
                       </>
                     ) : null}
-                    {!fullyReconciled
-                      && toNumber(extrato.valor) < 0
-                      && !associatedMovementId
-                      && suggestionsLoaded
-                      && (suggestionCounts[extrato.id] || 0) === 0 ? (
+                    {canCreateExpenseFromStatement(extrato) ? (
                       <Button
                         size="sm"
                         variant="outline"
@@ -2369,7 +2363,6 @@ export function BancoTab({
                       const associatedMovementId = getAssociatedMovementId(extrato);
                       const movementDocumentalState = extrato.movement_estado_documental || associatedMovement?.estado_documental;
                       const directSuggestion = getDirectSuggestionForExtrato(extrato.id);
-                      const suggestionsLoaded = hasLoadedSuggestionResult(extrato.id);
 
                       return (
                       <TableRow key={extrato.id}>
@@ -2447,11 +2440,7 @@ export function BancoTab({
                                 ) : null}
                               </>
                             ) : null}
-                            {!fullyReconciled
-                              && toNumber(extrato.valor) < 0
-                              && !associatedMovementId
-                              && suggestionsLoaded
-                              && (suggestionCounts[extrato.id] || 0) === 0 ? (
+                            {canCreateExpenseFromStatement(extrato) ? (
                               <Button
                                 size="sm"
                                 variant="outline"
