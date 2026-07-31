@@ -891,13 +891,48 @@ export function FaturasTab({
         skipped_existing_count?: number;
         skipped_without_start?: number;
         skipped_without_plan?: number;
+        skipped_ineligible_count?: number;
+        skipped_plan_filter_count?: number;
+        skipped_outside_period_count?: number;
+        skipped_users?: Array<{
+          user_id?: string;
+          name?: string;
+          reason?: string;
+          detail_reasons?: string[];
+        }>;
         future_hidden_count?: number;
         activated_count?: number;
         errors?: Array<{ message?: string }>;
       } | undefined;
 
+      const skippedUsers = summary?.skipped_users || [];
+      const reasonLabels: Record<string, string> = {
+        inactive_member: 'membro inativo',
+        inactive_sports_athlete: 'atividade desportiva inativa',
+        missing_operational_type: 'sem tipo de membro',
+        no_monthly_fee_eligible_member_type: 'tipo de membro nao elegivel',
+        missing_monthly_fee_plan: 'sem plano de mensalidade',
+        monthly_fee_plan_filter_mismatch: 'plano diferente do filtro',
+        registration_after_generation_period: 'inscricao posterior ao periodo',
+        missing_generation_start: 'sem data de inicio',
+        ineligible_member: 'membro nao elegivel',
+      };
+      const skippedPreview = skippedUsers
+        .slice(0, 4)
+        .map((user) => {
+          const detail = user.detail_reasons?.find((reason) => reasonLabels[reason]);
+          const reason = detail || user.reason || 'ineligible_member';
+          return `${user.name || user.user_id || 'Membro'} (${reasonLabels[reason] || reason})`;
+        })
+        .join(', ');
+      const skippedSuffix = skippedUsers.length > 4 ? ` e mais ${skippedUsers.length - 4}` : '';
+
       if ((summary?.created_count || 0) === 0) {
-        toast.info('Nenhuma mensalidade nova foi criada para o periodo indicado.');
+        if (skippedUsers.length > 0) {
+          toast.warning(`Nenhuma mensalidade nova foi criada. Excluidos: ${skippedPreview}${skippedSuffix}.`);
+        } else {
+          toast.info('Nenhuma mensalidade nova foi criada para o periodo indicado; os periodos poderao ja existir.');
+        }
       } else {
         setFaturas((current) => {
           const existingIds = new Set((current || []).map((invoice) => invoice.id));
@@ -913,10 +948,17 @@ export function FaturasTab({
           + ((summary?.skipped_existing_count || 0) > 0 ? `, ${summary?.skipped_existing_count} ja existiam` : '')
           + ((summary?.skipped_without_start || 0) > 0 ? `, ${summary?.skipped_without_start} sem data de inicio` : '')
           + ((summary?.skipped_without_plan || 0) > 0 ? `, ${summary?.skipped_without_plan} sem plano` : '')
+          + ((summary?.skipped_ineligible_count || 0) > 0 ? `, ${summary?.skipped_ineligible_count} nao elegiveis` : '')
+          + ((summary?.skipped_plan_filter_count || 0) > 0 ? `, ${summary?.skipped_plan_filter_count} fora do plano filtrado` : '')
+          + ((summary?.skipped_outside_period_count || 0) > 0 ? `, ${summary?.skipped_outside_period_count} fora do periodo` : '')
           + ((summary?.future_hidden_count || 0) > 0 ? `, ${summary?.future_hidden_count} futuras ocultas` : '')
           + ((summary?.activated_count || 0) > 0 ? `, ${summary?.activated_count} ativadas` : '')
           + ((summary?.errors?.length || 0) > 0 ? `, ${summary?.errors?.length} erro(s)` : '')
         );
+
+        if (skippedUsers.length > 0) {
+          toast.warning(`Membros excluidos: ${skippedPreview}${skippedSuffix}.`);
+        }
       }
 
       reloadFinanceiroData();

@@ -48,25 +48,45 @@ class MonthlyFeeGenerationService
         }
 
         $plan = $this->resolveMonthlyFeePlan($user);
-        if (!$plan || !$this->isEligibleUser($user, $options)) {
-            $summary['skipped_without_plan'] = $plan ? 0 : 1;
+        if (!$plan) {
+            $summary['skipped_without_plan'] = 1;
+            $summary['skipped_users'][] = $this->skippedUser($user, 'missing_monthly_fee_plan');
+
+            return $summary;
+        }
+
+        if (!$this->isEligibleUser($user, $options)) {
+            $eligibility = $this->memberMonthlyFeeEligibilityService->evaluate($user);
+            $summary['skipped_ineligible_count'] = 1;
+            $summary['skipped_users'][] = $this->skippedUser(
+                $user,
+                'ineligible_member',
+                is_array($eligibility['reason_codes'] ?? null) ? $eligibility['reason_codes'] : [],
+            );
 
             return $summary;
         }
 
         if (!empty($options['monthly_fee_id']) && $plan->id !== (string) $options['monthly_fee_id']) {
+            $summary['skipped_plan_filter_count'] = 1;
+            $summary['skipped_users'][] = $this->skippedUser($user, 'monthly_fee_plan_filter_mismatch');
+
             return $summary;
         }
 
-        $effectiveStart = $this->resolveEffectiveStart($user, $start, $options, false);
+        $effectiveStart = $this->resolveEffectiveStart($user, $start, $options);
         if (!$effectiveStart) {
             $summary['skipped_without_start'] = 1;
+            $summary['skipped_users'][] = $this->skippedUser($user, 'missing_generation_start');
 
             return $summary;
         }
 
         $effectiveEnd = $end->copy()->startOfMonth();
         if ($effectiveStart->greaterThan($effectiveEnd)) {
+            $summary['skipped_outside_period_count'] = 1;
+            $summary['skipped_users'][] = $this->skippedUser($user, 'registration_after_generation_period');
+
             return $summary;
         }
 
@@ -209,7 +229,7 @@ class MonthlyFeeGenerationService
         }
 
         $query = User::query()
-            ->with(['dadosFinanceiros.mensalidade', 'centrosCusto'])
+            ->with(['dadosFinanceiros.mensalidade', 'centrosCusto', 'userTypes'])
             ->where(function ($nested): void {
                 $nested
                     ->whereHas('dadosFinanceiros', fn ($financeQuery) => $financeQuery->whereNotNull('mensalidade_id'));
@@ -236,7 +256,7 @@ class MonthlyFeeGenerationService
             });
         }
 
-        $query->orderBy('nome_completo')->chunkById(100, function (Collection $users) use ($start, $end, $filters, &$summary): void {
+        $query->chunkById(100, function (Collection $users) use ($start, $end, $filters, &$summary): void {
             foreach ($users as $user) {
                 try {
                     $userSummary = $this->generateForUserWithSummary($user, $start, $end, $filters);
@@ -535,7 +555,7 @@ class MonthlyFeeGenerationService
             : MonthlyFee::query()->find($planId);
     }
 
-    private function resolveEffectiveStart(User $user, Carbon $requestedStart, array $options = [], bool $fallbackToRequest = true): ?Carbon
+    private function resolveEffectiveStart(User $user, Carbon $requestedStart, array $options = []): ?Carbon
     {
         if (!empty($options['start_date'])) {
             return Carbon::parse((string) $options['start_date'])->startOfMonth();
@@ -548,7 +568,7 @@ class MonthlyFeeGenerationService
 
         $signupDate = $user->data_inscricao?->copy()?->startOfMonth();
         if (!$signupDate) {
-            return $fallbackToRequest ? $requestedStart->copy()->startOfMonth() : null;
+            return $requestedStart->copy()->startOfMonth();
         }
 
         return $signupDate->greaterThan($requestedStart)
@@ -633,6 +653,10 @@ class MonthlyFeeGenerationService
             'skipped_existing_count' => 0,
             'skipped_without_start' => 0,
             'skipped_without_plan' => 0,
+            'skipped_ineligible_count' => 0,
+            'skipped_plan_filter_count' => 0,
+            'skipped_outside_period_count' => 0,
+            'skipped_users' => [],
             'users_processed' => 0,
             'users_with_new_fees' => 0,
             'future_hidden_count' => 0,
@@ -656,6 +680,9 @@ class MonthlyFeeGenerationService
         $base['skipped_existing_count'] += (int) ($extra['skipped_existing_count'] ?? 0);
         $base['skipped_without_start'] += (int) ($extra['skipped_without_start'] ?? 0);
         $base['skipped_without_plan'] += (int) ($extra['skipped_without_plan'] ?? 0);
+        $base['skipped_ineligible_count'] += (int) ($extra['skipped_ineligible_count'] ?? 0);
+        $base['skipped_plan_filter_count'] += (int) ($extra['skipped_plan_filter_count'] ?? 0);
+        $base['skipped_outside_period_count'] += (int) ($extra['skipped_outside_period_count'] ?? 0);
         $base['future_hidden_count'] += (int) ($extra['future_hidden_count'] ?? 0);
         $base['activated_count'] += (int) ($extra['activated_count'] ?? 0);
         $base['generation_disabled'] = $base['generation_disabled'] || (bool) ($extra['generation_disabled'] ?? false);
@@ -664,8 +691,26 @@ class MonthlyFeeGenerationService
             $extra['created_invoice_ids'] ?? [],
         )));
         $base['errors'] = array_values(array_merge($base['errors'], $extra['errors'] ?? []));
+        $base['skipped_users'] = array_values(array_merge($base['skipped_users'], $extra['skipped_users'] ?? []));
 
         return $base;
+    }
+
+    /**
+     * @param list<string> $detailReasons
+     * @return array{user_id:string,name:string,reason:string,detail_reasons:list<string>}
+     */
+    private function skippedUser(User $user, string $reason, array $detailReasons = []): array
+    {
+        return [
+            'user_id' => (string) $user->id,
+            'name' => trim((string) ($user->nome_completo ?: $user->name ?: $user->id)),
+            'reason' => $reason,
+            'detail_reasons' => array_values(array_unique(array_filter(
+                $detailReasons,
+                static fn (mixed $detail): bool => is_string($detail) && trim($detail) !== '',
+            ))),
+        ];
     }
 
     /**

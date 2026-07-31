@@ -49,6 +49,8 @@ class FaturasTabFlowContractTest extends TestCase
         $this->assertStringContainsString('end_date: dataFimMensalidades || undefined,', $source);
         $this->assertStringContainsString('disabled={generatingMonthlyFees}', $source);
         $this->assertStringContainsString("{generatingMonthlyFees ? 'A gerar...' : 'Gerar Faturas'}", $source);
+        $this->assertStringContainsString('const skippedUsers = summary?.skipped_users || [];', $source);
+        $this->assertStringContainsString('Membros excluidos:', $source);
         $this->assertStringNotContainsString('getCsrfToken()', $source);
         $this->assertStringNotContainsString('const computedEndDate', $source);
     }
