@@ -2,6 +2,8 @@
 
 namespace Tests\Feature\Membros;
 
+use App\Http\Middleware\EnsureModuleAccess;
+use App\Http\Middleware\EnsurePermissionAccess;
 use App\Models\Familia;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -14,8 +16,6 @@ class MemberFamilyRelationsManagementTest extends TestCase
 
     public function test_admin_flow_adds_and_removes_guardian_with_reciprocal_legacy_state(): void
     {
-        $this->withoutMiddleware();
-
         $member = User::factory()->athlete()->create([
             'encarregado_educacao' => [],
         ]);
@@ -24,7 +24,9 @@ class MemberFamilyRelationsManagementTest extends TestCase
             'educandos' => [],
         ]);
 
-        $response = $this->from(route('membros.show', $member))
+        $response = $this->actingAs($member)
+            ->withoutMiddleware([EnsureModuleAccess::class, EnsurePermissionAccess::class])
+            ->from(route('membros.show', $member))
             ->post(route('membros.familia.encarregados.store', $member), [
                 'guardian_id' => $guardian->id,
             ]);
@@ -53,8 +55,6 @@ class MemberFamilyRelationsManagementTest extends TestCase
 
     public function test_admin_flow_creates_family_from_existing_relations_and_manages_members(): void
     {
-        $this->withoutMiddleware();
-
         $member = User::factory()->athlete()->create([
             'nome_completo' => 'Atleta Família',
             'encarregado_educacao' => [],
@@ -68,7 +68,9 @@ class MemberFamilyRelationsManagementTest extends TestCase
             'nome_completo' => 'Familiar Adicionado',
         ]);
 
-        $this->from(route('membros.show', $member))
+        $this->actingAs($member)
+            ->withoutMiddleware([EnsureModuleAccess::class, EnsurePermissionAccess::class])
+            ->from(route('membros.show', $member))
             ->post(route('membros.familia.encarregados.store', $member), [
                 'guardian_id' => $guardian->id,
             ])
@@ -130,8 +132,6 @@ class MemberFamilyRelationsManagementTest extends TestCase
 
     public function test_member_outside_the_displayed_members_family_cannot_be_mutated(): void
     {
-        $this->withoutMiddleware();
-
         $member = User::factory()->create();
         $otherMember = User::factory()->create();
         $target = User::factory()->create();
@@ -149,11 +149,13 @@ class MemberFamilyRelationsManagementTest extends TestCase
             'updated_at' => now(),
         ]);
 
-        $response = $this->post(route('membros.familia.membros.store', $member), [
-            'family_id' => $family->id,
-            'member_id' => $target->id,
-            'papel_na_familia' => 'familiar',
-        ]);
+        $response = $this->actingAs($member)
+            ->withoutMiddleware([EnsureModuleAccess::class, EnsurePermissionAccess::class])
+            ->post(route('membros.familia.membros.store', $member), [
+                'family_id' => $family->id,
+                'member_id' => $target->id,
+                'papel_na_familia' => 'familiar',
+            ]);
 
         $response->assertNotFound();
         $this->assertDatabaseMissing('familia_user', [
