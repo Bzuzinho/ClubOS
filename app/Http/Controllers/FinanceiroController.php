@@ -34,6 +34,7 @@ use App\Services\Financeiro\ManualExpenseService;
 use App\Services\Financeiro\MovementDocumentControlService;
 use App\Services\Financeiro\MonthlyInvoiceStatusService;
 use App\Services\Financeiro\MonthlyFeeGenerationService;
+use App\Services\Financeiro\MonthlyFeeSettingsService;
 use App\Services\Financeiro\MemberCostCenterResolver;
 use App\Services\Financeiro\PaymentAllocationService;
 use App\Services\Financeiro\ReconciliationAliasService;
@@ -61,6 +62,7 @@ class FinanceiroController extends Controller
     public function __construct(
         private readonly PaymentAllocationService $paymentAllocationService,
         private readonly MonthlyFeeGenerationService $monthlyFeeGenerationService,
+        private readonly MonthlyFeeSettingsService $monthlyFeeSettingsService,
         private readonly FinancialSettlementService $financialSettlementService,
         private readonly BankReconciliationService $bankReconciliationService,
         private readonly CurrentAccountService $currentAccountService,
@@ -806,7 +808,7 @@ class FinanceiroController extends Controller
                 : Carbon::today()->startOfMonth();
             $end = isset($data['end_date'])
                 ? Carbon::parse($data['end_date'])->startOfMonth()
-                : $start->copy();
+                : $this->monthlyFeeSettingsService->resolveReferenceWindow($start)['end'];
 
             if (!empty($data['user_id'])) {
                 $user = User::query()->findOrFail($data['user_id']);

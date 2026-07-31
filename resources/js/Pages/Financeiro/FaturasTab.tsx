@@ -220,6 +220,7 @@ export function FaturasTab({
   const [selectedMonthlyFeeId, setSelectedMonthlyFeeId] = useState<string>('all');
   const [dataInicioMensalidades, setDataInicioMensalidades] = useState('');
   const [dataFimMensalidades, setDataFimMensalidades] = useState('');
+  const [generatingMonthlyFees, setGeneratingMonthlyFees] = useState(false);
   const [editingFaturaId, setEditingFaturaId] = useState<string | null>(null);
   const [statusTransitionInvoiceId, setStatusTransitionInvoiceId] = useState<string | null>(null);
   const [showFutureInvoices, setShowFutureInvoices] = useState(false);
@@ -857,27 +858,18 @@ export function FaturasTab({
       return;
     }
 
-    try {
-      const computedEndDate = dataFimMensalidades || (
-        dataInicioMensalidades
-          ? format(getFinalMes(new Date(dataInicioMensalidades)), 'yyyy-MM-dd')
-          : undefined
-      );
+    setGeneratingMonthlyFees(true);
 
+    try {
       const response = await fetch(route('financeiro.monthly-fees.generate'), {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Accept: 'application/json',
-          'X-Requested-With': 'XMLHttpRequest',
-          'X-CSRF-TOKEN': getCsrfToken(),
-        },
+        headers: getFinanceiroJsonHeaders(),
         credentials: 'same-origin',
         body: JSON.stringify({
           generate_for_all: gerarParaTodos,
           user_id: gerarParaTodos ? undefined : selectedUserId,
           start_date: dataInicioMensalidades || undefined,
-          end_date: computedEndDate,
+          end_date: dataFimMensalidades || undefined,
           only_active: true,
           monthly_fee_id: selectedMonthlyFeeId !== 'all' ? selectedMonthlyFeeId : undefined,
         }),
@@ -937,6 +929,8 @@ export function FaturasTab({
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Erro ao gerar mensalidades';
       toast.error(message);
+    } finally {
+      setGeneratingMonthlyFees(false);
     }
   };
 
@@ -1476,8 +1470,13 @@ export function FaturasTab({
                 >
                   Cancelar
                 </Button>
-                <Button type="button" onClick={handleGerarFaturasMensais} className="w-full sm:w-auto">
-                  Gerar Faturas
+                <Button
+                  type="button"
+                  onClick={handleGerarFaturasMensais}
+                  disabled={generatingMonthlyFees}
+                  className="w-full sm:w-auto"
+                >
+                  {generatingMonthlyFees ? 'A gerar...' : 'Gerar Faturas'}
                 </Button>
               </DialogFooter>
             </DialogContent>
