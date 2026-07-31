@@ -771,7 +771,22 @@ export function BancoTab({
 
       if (!response.ok) {
         const payload = await response.json().catch(() => null);
-        throw new Error(payload?.message || 'Erro ao confirmar sugestao');
+        const validationMessage = firstValidationErrorFromPayload(payload)
+          || payload?.message
+          || 'Erro ao confirmar sugestao';
+        const suggestionBecameInvalid = response.status === 422
+          && Boolean(payload?.errors?.suggestion || payload?.errors?.bank_statement);
+
+        if (suggestionBecameInvalid && selectedSuggestionExtrato) {
+          await requestSuggestionsForExtrato(selectedSuggestionExtrato, {
+            forceRegeneration: true,
+          }).catch(() => null);
+          refreshFinanceiroData();
+
+          throw new Error(`${validationMessage} As sugestoes desta linha foram atualizadas.`);
+        }
+
+        throw new Error(validationMessage);
       }
 
       const payload = await response.json();

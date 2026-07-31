@@ -1083,6 +1083,29 @@ class BankReconciliationSuggestionFlowTest extends TestCase
         $this->assertSame('reconciled', $statement->conciliacao_status);
     }
 
+    public function test_confirming_suggestion_expires_suggestions_for_the_same_invoice_on_other_statements(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $user = $this->createFinanceUser(['nome_completo' => 'Membro Sugestao Concorrente']);
+        $invoice = $this->createInvoice($user, 25.00);
+        $firstStatement = $this->createBankStatement(25.00, 'Transferencia mensal aprendida');
+        $secondStatement = $this->createBankStatement(25.00, 'Transferencia mensal aprendida');
+
+        $firstSuggestion = $this->generateSuggestion($admin, $firstStatement, [$invoice]);
+        $secondSuggestion = $this->generateSuggestion($admin, $secondStatement, [$invoice]);
+
+        $this->assertSame(BankReconciliationSuggestion::STATUS_SUGGESTED, $secondSuggestion->status);
+
+        $this->actingAs($admin)
+            ->postJson(route('financeiro.bank-reconciliation-suggestions.confirm', $firstSuggestion))
+            ->assertOk();
+
+        $this->assertSame(
+            BankReconciliationSuggestion::STATUS_EXPIRED,
+            $secondSuggestion->fresh()->status,
+        );
+    }
+
     public function test_confirming_multi_invoice_suggestion_creates_multiple_allocations(): void
     {
         $admin = User::factory()->admin()->create();

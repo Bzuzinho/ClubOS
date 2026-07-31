@@ -407,6 +407,7 @@ export function BankStatementReconciliationDialog({
         const message = payload?.errors?.allocations?.[0]
           || payload?.errors?.movements?.[0]
           || payload?.errors?.create_credit?.[0]
+          || Object.values(payload?.errors || {}).flat().find((value) => typeof value === 'string')
           || payload?.message
           || 'Erro ao conciliar manualmente a linha bancaria';
 

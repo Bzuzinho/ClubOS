@@ -836,6 +836,8 @@ class BankReconciliationSuggestionService
                 'status' => BankReconciliationSuggestion::STATUS_EXPIRED,
             ]);
 
+        $this->expireSuggestionsSharingAllocationTargets($suggestion);
+
         if ($learnAlias) {
             $this->reconciliationAliasService->learnFromConfirmedReconciliation(
                 $bankStatement,
@@ -844,6 +846,59 @@ class BankReconciliationSuggestionService
                 $actor?->id,
             );
         }
+    }
+
+    /**
+     * A target can only be reconciled once. Suggestions are persisted, so a
+     * confirmation must also retire suggestions from other bank statements
+     * that still point at any of the same invoices, movements or entries.
+     */
+    private function expireSuggestionsSharingAllocationTargets(BankReconciliationSuggestion $confirmedSuggestion): void
+    {
+        $confirmedTargets = $this->allocationTargetKeys(
+            (array) $confirmedSuggestion->suggested_allocations,
+        );
+
+        if ($confirmedTargets === []) {
+            return;
+        }
+
+        $conflictingSuggestionIds = BankReconciliationSuggestion::query()
+            ->whereKeyNot($confirmedSuggestion->id)
+            ->where('status', BankReconciliationSuggestion::STATUS_SUGGESTED)
+            ->get(['id', 'suggested_allocations'])
+            ->filter(function (BankReconciliationSuggestion $candidate) use ($confirmedTargets): bool {
+                return array_intersect(
+                    $confirmedTargets,
+                    $this->allocationTargetKeys((array) $candidate->suggested_allocations),
+                ) !== [];
+            })
+            ->pluck('id')
+            ->all();
+
+        if ($conflictingSuggestionIds === []) {
+            return;
+        }
+
+        BankReconciliationSuggestion::query()
+            ->whereIn('id', $conflictingSuggestionIds)
+            ->where('status', BankReconciliationSuggestion::STATUS_SUGGESTED)
+            ->update(['status' => BankReconciliationSuggestion::STATUS_EXPIRED]);
+    }
+
+    private function allocationTargetKeys(array $allocations): array
+    {
+        return collect($allocations)
+            ->flatMap(function (array $allocation): array {
+                return collect(['invoice_id', 'movement_id', 'financial_entry_id'])
+                    ->filter(fn (string $key): bool => !empty($allocation[$key]))
+                    ->map(fn (string $key): string => $key . ':' . (string) $allocation[$key])
+                    ->values()
+                    ->all();
+            })
+            ->unique()
+            ->values()
+            ->all();
     }
 
     public function buildAssistedAllocationContext(BankReconciliationSuggestion $suggestion): ?array
