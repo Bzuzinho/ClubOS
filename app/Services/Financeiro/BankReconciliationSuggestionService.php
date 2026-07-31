@@ -1760,7 +1760,10 @@ class BankReconciliationSuggestionService
             $statementAmount,
         );
 
-        $exactSets = $this->findBestCombinationSets($candidates->all(), $statementAmount, true);
+        $exactSets = $candidates->count() === 1
+            && abs((float) $candidates->first()['open_amount'] - $statementAmount) <= 0.009
+                ? [[$candidates->first()]]
+                : $this->findBestCombinationSets($candidates->all(), $statementAmount, true);
 
         if (count($exactSets) !== 1) {
             return null;
