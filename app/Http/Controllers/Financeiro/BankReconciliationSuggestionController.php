@@ -13,6 +13,7 @@ use App\Services\Financeiro\FinancialSettlementService;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -84,6 +85,12 @@ class BankReconciliationSuggestionController extends Controller
         return DB::connection()->getDriverName() === 'pgsql' ? 'ilike' : 'like';
     }
 
+    private function invalidateFinanceiroSuggestionCaches(): void
+    {
+        Cache::forget('financeiro:index');
+        Cache::forget('financeiro:extratos');
+    }
+
     public function generateForBankStatement(Request $request, BankStatement $bankStatement): JsonResponse
     {
         $data = $request->validate([
@@ -93,6 +100,7 @@ class BankReconciliationSuggestionController extends Controller
         $suggestions = $this->suggestionService->generateForBankStatement($bankStatement, [
             'force_regeneration' => (bool) ($data['force_regeneration'] ?? false),
         ]);
+        $this->invalidateFinanceiroSuggestionCaches();
 
         return response()->json([
             'suggestions' => $suggestions
@@ -176,6 +184,8 @@ class BankReconciliationSuggestionController extends Controller
                     }
                 }
             });
+
+        $this->invalidateFinanceiroSuggestionCaches();
 
         return response()->json([
             'generated_count' => $summary['suggestions_created'],
