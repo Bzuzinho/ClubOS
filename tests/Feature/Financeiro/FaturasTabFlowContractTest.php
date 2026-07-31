@@ -39,4 +39,17 @@ class FaturasTabFlowContractTest extends TestCase
         $this->assertStringNotContainsString('liquidarMovimento', $source);
         $this->assertStringNotContainsString('dialogRecibo', $source);
     }
+
+    public function test_monthly_fee_generation_uses_shared_csrf_headers_and_preserves_an_empty_end_date(): void
+    {
+        $source = file_get_contents(resource_path('js/Pages/Financeiro/FaturasTab.tsx'));
+
+        $this->assertIsString($source);
+        $this->assertStringContainsString('headers: getFinanceiroJsonHeaders(),', $source);
+        $this->assertStringContainsString('end_date: dataFimMensalidades || undefined,', $source);
+        $this->assertStringContainsString('disabled={generatingMonthlyFees}', $source);
+        $this->assertStringContainsString("{generatingMonthlyFees ? 'A gerar...' : 'Gerar Faturas'}", $source);
+        $this->assertStringNotContainsString('getCsrfToken()', $source);
+        $this->assertStringNotContainsString('const computedEndDate', $source);
+    }
 }

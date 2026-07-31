@@ -84,6 +84,38 @@ class MonthlyFeeGenerationFlowTest extends TestCase
         $this->assertSame(4, Invoice::query()->where('tipo', 'mensalidade')->count());
     }
 
+    public function test_manual_endpoint_uses_configured_cycle_end_when_only_start_date_is_supplied(): void
+    {
+        $this->createClubSettings([
+            'monthly_fee_start_month' => 9,
+            'monthly_fee_end_month' => 7,
+        ]);
+
+        $admin = User::factory()->admin()->create();
+        $plan = $this->createMonthlyPlan();
+        $user = $this->createEligibleUser($plan, [
+            'data_inscricao' => '2026-10-01',
+        ]);
+
+        $this->actingAs($admin)->postJson(route('financeiro.monthly-fees.generate'), [
+            'generate_for_all' => false,
+            'user_id' => $user->id,
+            'start_date' => '2026-10-01',
+        ])->assertOk()
+            ->assertJsonPath('summary.created_count', 10);
+
+        $this->assertDatabaseHas('invoices', [
+            'user_id' => $user->id,
+            'mes' => '2027-07',
+            'tipo' => 'mensalidade',
+        ]);
+        $this->assertDatabaseMissing('invoices', [
+            'user_id' => $user->id,
+            'mes' => '2027-08',
+            'tipo' => 'mensalidade',
+        ]);
+    }
+
     public function test_it_does_not_duplicate_monthly_fees_for_the_same_period(): void
     {
         $plan = $this->createMonthlyPlan();
