@@ -108,7 +108,7 @@ class BankReconciliationSuggestionService
         }
 
         $normalizedText = $this->normalizeStatementText($bankStatement);
-        $contexts = $this->buildCandidateContexts($bankStatement, $normalizedText, $statementAmount);
+        $contexts = $this->buildCandidateContexts($bankStatement);
         $suggestions = $this->generateReceiptMovementSuggestions(
             $bankStatement,
             $statementAmount,
@@ -927,7 +927,7 @@ class BankReconciliationSuggestionService
         $suggestion->save();
     }
 
-    private function buildCandidateContexts(BankStatement $bankStatement, string $normalizedText, float $statementAmount): array
+    private function buildCandidateContexts(BankStatement $bankStatement): array
     {
         $contexts = [];
 
@@ -1005,25 +1005,16 @@ class BankReconciliationSuggestionService
             ->findPossibleMatches(trim($bankStatement->descricao . ' ' . $bankStatement->referencia));
 
         foreach ($aliasMatches as $alias) {
+            $isLearnedFromReconciliation = $alias->source === 'learned_from_reconciliation';
+            if (!$alias->is_confirmed && !$isLearnedFromReconciliation) {
+                continue;
+            }
+
             $registerContext($alias->user_id, $alias->family_id, [
                 'alias_match' => true,
-                'alias_confirmed' => (bool) $alias->is_confirmed,
+                'alias_confirmed' => true,
                 'conflict_count' => max($aliasMatches->count() - 1, 0),
             ]);
-        }
-
-        foreach ($this->findUsersFromStatement($normalizedText) as $userMatch) {
-            /** @var User $user */
-            $user = $userMatch['user'];
-            $registerContext($user->id, $userMatch['family_id'], $userMatch['flags']);
-        }
-
-        foreach ($this->findFamiliesFromStatement($normalizedText) as $familyMatch) {
-            $registerContext($familyMatch['user_id'] ?? null, $familyMatch['family_id'] ?? null, $familyMatch['flags'] ?? []);
-        }
-
-        foreach ($this->findGuardianFamiliesFromStatement($normalizedText) as $guardianMatch) {
-            $registerContext($guardianMatch['user_id'] ?? null, $guardianMatch['family_id'] ?? null, $guardianMatch['flags'] ?? []);
         }
 
         return collect($contexts)
@@ -3483,10 +3474,6 @@ class BankReconciliationSuggestionService
         return (bool) (
             ($context['repository_match'] ?? false)
             || ($context['alias_confirmed'] ?? false)
-            || ($context['matched_name'] ?? false)
-            || ($context['matched_nif'] ?? false)
-            || ($context['matched_member_number'] ?? false)
-            || ($context['matched_email_or_phone'] ?? false)
         );
     }
 
@@ -3495,10 +3482,6 @@ class BankReconciliationSuggestionService
         $identityRules = [
             'repository_match',
             'confirmed_alias',
-            'matched_name',
-            'matched_nif',
-            'matched_member_number',
-            'matched_email_or_phone',
             'receipt_movement_description_strong_match',
         ];
 

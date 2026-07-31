@@ -10,6 +10,7 @@ use App\Models\Movement;
 use App\Models\Payment;
 use App\Services\Financeiro\BankReconciliationSuggestionService;
 use App\Services\Financeiro\FinancialSettlementService;
+use App\Services\Financeiro\ReconciliationAliasService;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -22,6 +23,7 @@ class BankReconciliationSuggestionController extends Controller
     public function __construct(
         private readonly BankReconciliationSuggestionService $suggestionService,
         private readonly FinancialSettlementService $financialSettlementService,
+        private readonly ReconciliationAliasService $reconciliationAliasService,
     ) {
     }
 
@@ -454,19 +456,29 @@ class BankReconciliationSuggestionController extends Controller
             'allocations.*.notes' => ['nullable', 'string'],
         ]);
 
-        $allocationResult = $this->processAllocations(
-            $bankStatement,
-            $data,
-            $request->user(),
-            [
-                'map_rule' => 'manual_bank_allocation',
-                'map_metadata' => [
-                    'manual_allocation' => true,
+        $allocationResult = DB::transaction(function () use ($bankStatement, $data, $request): array {
+            $result = $this->processAllocations(
+                $bankStatement,
+                $data,
+                $request->user(),
+                [
+                    'map_rule' => 'manual_bank_allocation',
+                    'map_metadata' => [
+                        'manual_allocation' => true,
+                    ],
+                    'notes_fallback' => null,
+                    'require_explicit_credit_target' => true,
                 ],
-                'notes_fallback' => null,
-                'require_explicit_credit_target' => true,
-            ],
-        );
+            );
+
+            $this->reconciliationAliasService->learnFromConfirmedPayment(
+                $bankStatement->fresh(),
+                $result['payment']->fresh(),
+                $request->user()?->id,
+            );
+
+            return $result;
+        });
 
         return $this->paymentResponse($allocationResult['payment'], $allocationResult['invoice_ids'], $allocationResult['fiscal_requests_before'], [
             'manual_allocation' => true,

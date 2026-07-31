@@ -21,6 +21,7 @@ use App\Models\User;
 use App\Models\UserType;
 use App\Services\Financeiro\BankReconciliationSuggestionService;
 use App\Services\Financeiro\FinancialSettlementService;
+use App\Services\Financeiro\ReconciliationAliasService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\ValidationException;
@@ -36,6 +37,7 @@ class BankReconciliationSuggestionFlowTest extends TestCase
         $user = $this->createFinanceUser();
         $invoice = $this->createInvoice($user, 25.00, 'mensalidade', '2026-05-10');
         $statement = $this->createBankStatement(25.00, 'Pagamento John Exact');
+        $this->learnStatementDescription($statement, $user->id, $user->families->first()?->id, $admin);
 
         $response = $this->actingAs($admin)->postJson(route('financeiro.bank-statements.generate-suggestions', $statement));
 
@@ -101,7 +103,7 @@ class BankReconciliationSuggestionFlowTest extends TestCase
     {
         $admin = User::factory()->admin()->create();
         $user = $this->createFinanceUser(['nome_completo' => 'Repo Missing Table']);
-        $invoice = $this->createInvoice($user, 25.00, 'mensalidade', '2026-05-10');
+        $this->createInvoice($user, 25.00, 'mensalidade', '2026-05-10');
         $statement = $this->createBankStatement(25.00, 'Pagamento Repo Missing Table');
 
         Schema::drop('bank_reconciliation_repositories');
@@ -110,16 +112,9 @@ class BankReconciliationSuggestionFlowTest extends TestCase
 
         $response->assertOk();
 
-        $matchingSuggestion = collect($response->json('suggestions'))
-            ->first(function (array $suggestion) use ($user, $invoice) {
-                return ($suggestion['user_id'] ?? null) === $user->id
-                    && collect($suggestion['suggested_allocations'] ?? [])->contains(function (array $allocation) use ($invoice) {
-                        return ($allocation['invoice_id'] ?? null) === $invoice->id
-                            && (float) ($allocation['amount'] ?? 0) === 25.0;
-                    });
-            });
-
-        $this->assertNotNull($matchingSuggestion);
+        $response
+            ->assertJsonPath('generated_count', 0)
+            ->assertJsonPath('suggestions', []);
     }
 
     public function test_it_generates_suggestion_for_multiple_monthly_invoices_of_same_user(): void
@@ -129,6 +124,7 @@ class BankReconciliationSuggestionFlowTest extends TestCase
         $invoiceA = $this->createInvoice($user, 20.00, 'mensalidade', '2026-05-05');
         $invoiceB = $this->createInvoice($user, 30.00, 'mensalidade', '2026-05-10');
         $statement = $this->createBankStatement(50.00, 'Transferencia Maria Combo');
+        $this->learnStatementDescription($statement, $user->id, $user->families->first()?->id, $admin);
 
         $response = $this->actingAs($admin)->postJson(route('financeiro.bank-statements.generate-suggestions', $statement));
 
@@ -162,6 +158,7 @@ class BankReconciliationSuggestionFlowTest extends TestCase
         $invoiceA = $this->createInvoice($childA, 40.00, 'mensalidade', '2026-05-05');
         $invoiceB = $this->createInvoice($childB, 40.00, 'mensalidade', '2026-05-05');
         $statement = $this->createBankStatement(80.00, 'Transferencia Ricardo Ferreira');
+        $this->learnStatementDescription($statement, $guardian->id, $family->id, $admin);
 
         $response = $this->actingAs($admin)->postJson(route('financeiro.bank-statements.generate-suggestions', $statement));
         $response->assertOk();
@@ -220,6 +217,8 @@ class BankReconciliationSuggestionFlowTest extends TestCase
             'estado_pagamento' => 'vencido',
         ]);
         $statement = $this->createBankStatement(22.50, 'TRF CR INTRAB 189 DE RICARDO JORGE VITORINO FERREIRA');
+        $statement->forceFill(['data_movimento' => '2026-01-09'])->save();
+        $this->learnStatementDescription($statement, $guardian->id, $family->id, $admin);
 
         $response = $this->actingAs($admin)->postJson(route('financeiro.bank-statements.generate-suggestions', $statement));
 
@@ -255,6 +254,7 @@ class BankReconciliationSuggestionFlowTest extends TestCase
 
         $invoice = $this->createInvoice($child, 35.00, 'mensalidade', '2026-05-05');
         $statement = $this->createBankStatement(35.00, 'TRF MB', 'Pagamento Familia Costa');
+        $this->learnStatementDescription($statement, $guardian->id, $family->id, $admin);
 
         $response = $this->actingAs($admin)
             ->postJson(route('financeiro.bank-statements.generate-suggestions', $statement))
@@ -311,10 +311,10 @@ class BankReconciliationSuggestionFlowTest extends TestCase
         $withAliasBestScore = (int) collect($withAliasResponse->json('suggestions') ?? [])
             ->max(fn (array $suggestion) => (int) ($suggestion['score'] ?? 0));
 
-        $this->assertGreaterThanOrEqual($withAliasBestScore, $withoutAliasBestScore);
+        $this->assertGreaterThan($withoutAliasBestScore, $withAliasBestScore);
     }
 
-    public function test_it_matches_user_by_name_nif_and_member_number_in_statement_description(): void
+    public function test_profile_name_nif_and_member_number_do_not_replace_learned_bank_identity(): void
     {
         $admin = User::factory()->admin()->create();
         $user = $this->createFinanceUser([
@@ -325,15 +325,24 @@ class BankReconciliationSuggestionFlowTest extends TestCase
         $this->createInvoice($user, 40.00);
         $statement = $this->createBankStatement(40.00, 'Pedro Signals socio 7001', 'REF 987654321');
 
-        $response = $this->actingAs($admin)->postJson(route('financeiro.bank-statements.generate-suggestions', $statement));
+        $this->actingAs($admin)
+            ->postJson(route('financeiro.bank-statements.generate-suggestions', $statement))
+            ->assertOk()
+            ->assertJsonPath('generated_count', 0)
+            ->assertJsonPath('suggestions', []);
+
+        $this->learnStatementDescription($statement, $user->id, $user->families->first()?->id, $admin);
+
+        $response = $this->actingAs($admin)
+            ->postJson(route('financeiro.bank-statements.generate-suggestions', $statement), [
+                'force_regeneration' => true,
+            ]);
 
         $response
             ->assertOk()
             ->assertJsonPath('suggestions.0.user_id', $user->id);
 
-        $this->assertContains('matched_name', $response->json('suggestions.0.matched_rules'));
-        $this->assertContains('matched_nif', $response->json('suggestions.0.matched_rules'));
-        $this->assertContains('matched_member_number', $response->json('suggestions.0.matched_rules'));
+        $this->assertContains('confirmed_alias', $response->json('suggestions.0.matched_rules'));
     }
 
     public function test_it_prioritizes_the_full_name_after_more_than_ten_weak_candidates(): void
@@ -360,6 +369,7 @@ class BankReconciliationSuggestionFlowTest extends TestCase
             'TRF CR INTRAB 264 DE INES DA SILVA GUERRA FIGUEIREDO',
         );
         $statement->forceFill(['data_movimento' => '2026-01-12'])->save();
+        $this->learnStatementDescription($statement, $user->id, $user->families->first()?->id, $admin);
 
         $response = $this->actingAs($admin)
             ->postJson(route('financeiro.bank-statements.generate-suggestions', $statement))
@@ -376,7 +386,7 @@ class BankReconciliationSuggestionFlowTest extends TestCase
 
         $this->assertNotNull($matchingSuggestion);
         $this->assertSame(100, (int) $matchingSuggestion['score']);
-        $this->assertContains('matched_name', $matchingSuggestion['matched_rules']);
+        $this->assertContains('confirmed_alias', $matchingSuggestion['matched_rules']);
         $this->assertContains('near_due_date', $matchingSuggestion['matched_rules']);
     }
 
@@ -540,6 +550,7 @@ class BankReconciliationSuggestionFlowTest extends TestCase
             'valor_por_conciliar' => 60.00,
             'conciliacao_status' => 'unreconciled',
         ]);
+        $this->learnStatementDescription($statement, $user->id, $user->families->first()?->id, $admin);
 
         $response = $this->actingAs($admin)
             ->postJson(route('financeiro.bank-statements.generate-suggestions', $statement))
@@ -642,6 +653,7 @@ class BankReconciliationSuggestionFlowTest extends TestCase
             'valor_por_conciliar' => 60.00,
             'conciliacao_status' => 'unreconciled',
         ]);
+        $this->learnStatementDescription($statement, $user->id, $user->families->first()?->id, $admin);
 
         $response = $this->actingAs($admin)
             ->postJson(route('financeiro.bank-statements.generate-suggestions', $statement))
@@ -705,6 +717,7 @@ class BankReconciliationSuggestionFlowTest extends TestCase
             'valor_por_conciliar' => 30.00,
             'conciliacao_status' => 'unreconciled',
         ]);
+        $this->learnStatementDescription($statement, $user->id, $user->families->first()?->id, $admin);
 
         $response = $this->actingAs($admin)
             ->postJson(route('financeiro.bank-statements.generate-suggestions', $statement))
@@ -767,6 +780,7 @@ class BankReconciliationSuggestionFlowTest extends TestCase
             'valor_por_conciliar' => 120.00,
             'conciliacao_status' => 'unreconciled',
         ]);
+        $this->learnStatementDescription($statement, $user->id, $user->families->first()?->id, $admin);
 
         $response = $this->actingAs($admin)
             ->postJson(route('financeiro.bank-statements.generate-suggestions', $statement))
@@ -830,6 +844,7 @@ class BankReconciliationSuggestionFlowTest extends TestCase
             'valor_por_conciliar' => 30.00,
             'conciliacao_status' => 'unreconciled',
         ]);
+        $this->learnStatementDescription($statement, $user->id, $user->families->first()?->id, $admin);
 
         $response = $this->actingAs($admin)
             ->postJson(route('financeiro.bank-statements.generate-suggestions', $statement))
@@ -883,6 +898,7 @@ class BankReconciliationSuggestionFlowTest extends TestCase
             'valor_por_conciliar' => 80.00,
             'conciliacao_status' => 'unreconciled',
         ]);
+        $this->learnStatementDescription($statement, $user->id, $user->families->first()?->id, $admin);
 
         $response = $this->actingAs($admin)
             ->postJson(route('financeiro.bank-statements.generate-suggestions', $statement))
@@ -947,6 +963,7 @@ class BankReconciliationSuggestionFlowTest extends TestCase
             'valor_por_conciliar' => 60.00,
             'conciliacao_status' => 'unreconciled',
         ]);
+        $this->learnStatementDescription($statement, $user->id, $user->families->first()?->id, $admin);
 
         $response = $this->actingAs($admin)
             ->postJson(route('financeiro.bank-statements.generate-suggestions', $statement))
@@ -1248,6 +1265,7 @@ class BankReconciliationSuggestionFlowTest extends TestCase
             37.50,
             'Transferencia Atleta Alvo Ambiguo inscricao competicao',
         );
+        $this->learnStatementDescription($statement, $user->id, $user->families->first()?->id, $admin);
 
         $response = $this->actingAs($admin)
             ->postJson(route('financeiro.bank-statements.generate-suggestions', $statement))
@@ -1399,6 +1417,7 @@ class BankReconciliationSuggestionFlowTest extends TestCase
             ['descricao' => 'Desconto/Correcao 10%', 'valor' => -3.00],
         ]);
         $statement = $this->createBankStatement(27.00, 'Pagamento Socio Desconto');
+        $this->learnStatementDescription($statement, $user->id, $user->families->first()?->id, $admin);
 
         $response = $this->actingAs($admin)->postJson(route('financeiro.bank-statements.generate-suggestions', $statement));
 
@@ -1427,6 +1446,7 @@ class BankReconciliationSuggestionFlowTest extends TestCase
             'data_emissao' => '2026-06-01',
         ]);
         $statement = $this->createBankStatement(27.00, 'Pagamento Futuro Oculto');
+        $this->learnStatementDescription($statement, $user->id, $user->families->first()?->id, $admin);
 
         $response = $this->actingAs($admin)->postJson(route('financeiro.bank-statements.generate-suggestions', $statement));
 
@@ -1653,6 +1673,7 @@ class BankReconciliationSuggestionFlowTest extends TestCase
         $user = $this->createFinanceUser(['nome_completo' => 'Contrato UI']);
         $invoice = $this->createInvoice($user, 29.00);
         $statement = $this->createBankStatement(29.00, 'Pagamento Contrato UI');
+        $this->learnStatementDescription($statement, $user->id, $user->families->first()?->id, $admin);
 
         $response = $this->actingAs($admin)
             ->postJson(route('financeiro.bank-statements.generate-suggestions', $statement))
@@ -1801,6 +1822,7 @@ class BankReconciliationSuggestionFlowTest extends TestCase
         ]);
 
         $statement = $this->createBankStatement(30.00, 'Transferencia Assistida Referencia Abril', 'Mensalidade abril 2026');
+        $this->learnStatementDescription($statement, $user->id, $user->families->first()?->id, $admin);
 
         $response = $this->actingAs($admin)
             ->postJson(route('financeiro.bank-statements.generate-suggestions', $statement))
@@ -2022,6 +2044,7 @@ class BankReconciliationSuggestionFlowTest extends TestCase
         $user = $this->createFinanceUser(['nome_completo' => 'Duplicados']);
         $invoice = $this->createInvoice($user, 25.00, 'mensalidade', '2026-05-10');
         $statement = $this->createBankStatement(25.00, 'Pagamento Duplicados');
+        $this->learnStatementDescription($statement, $user->id, $user->families->first()?->id, $admin);
 
         $this->actingAs($admin)
             ->postJson(route('financeiro.bank-statements.generate-suggestions', $statement))
@@ -2046,6 +2069,7 @@ class BankReconciliationSuggestionFlowTest extends TestCase
         $user = $this->createFinanceUser(['nome_completo' => 'Reutiliza Score']);
         $invoice = $this->createInvoice($user, 25.00, 'mensalidade', '2026-05-10');
         $statement = $this->createBankStatement(25.00, 'Pagamento Reutiliza Score');
+        $this->learnStatementDescription($statement, $user->id, $user->families->first()?->id, $admin);
 
         $firstResponse = $this->actingAs($admin)
             ->postJson(route('financeiro.bank-statements.generate-suggestions', $statement))
@@ -2077,6 +2101,7 @@ class BankReconciliationSuggestionFlowTest extends TestCase
         $invoice = $this->createInvoice($user, 25.00, 'mensalidade', '2026-05-10');
         $statement = $this->createBankStatement(25.00, 'Pagamento Sem Score');
         $familyId = $user->families->first()?->id;
+        $this->learnStatementDescription($statement, $user->id, $familyId, $admin);
 
         $legacySuggestion = BankReconciliationSuggestion::create([
             'bank_statement_id' => $statement->id,
@@ -2186,6 +2211,7 @@ class BankReconciliationSuggestionFlowTest extends TestCase
         ]);
         $invoiceA = $this->createInvoice($userA, 25.00, 'mensalidade', '2026-05-10');
         $statementA = $this->createBankStatement(25.00, 'Pagamento Batch Ignora');
+        $this->learnStatementDescription($statementA, $userA->id, $userA->families->first()?->id, $admin);
 
         $this->actingAs($admin)
             ->postJson(route('financeiro.bank-statements.generate-suggestions', $statementA))
@@ -2204,6 +2230,7 @@ class BankReconciliationSuggestionFlowTest extends TestCase
         ]);
         $this->createInvoice($userB, 30.00, 'mensalidade', '2026-05-05');
         $statementB = $this->createBankStatement(30.00, 'Pagamento Batch Novo');
+        $this->learnStatementDescription($statementB, $userB->id, $userB->families->first()?->id, $admin);
 
         $this->travel(2)->seconds();
 
@@ -2245,7 +2272,35 @@ class BankReconciliationSuggestionFlowTest extends TestCase
         $user = $this->createFinanceUser(['nome_completo' => 'Alias Learn']);
         $invoice = $this->createInvoice($user, 28.00);
         $statement = $this->createBankStatement(28.00, 'Alias Learn pagamento', 'ALIAS-LEARN-REF');
-        $suggestion = $this->generateSuggestion($admin, $statement, [$invoice]);
+        BankReconciliationRepository::create([
+            'signature' => $this->makeRepositorySignature('PT50-0001', $statement->descricao),
+            'conta' => 'PT50-0001',
+            'descricao' => $statement->descricao,
+            'normalized_description' => 'ALIAS LEARN PAGAMENTO',
+            'primary_user_id' => $user->id,
+            'family_id' => $user->families->first()?->id,
+            'matched_user_ids' => [$user->id],
+            'match_count' => 1,
+            'last_reconciled_at' => now(),
+        ]);
+
+        $this->assertDatabaseMissing('bank_reconciliation_aliases', [
+            'user_id' => $user->id,
+            'type' => 'description_text',
+        ]);
+
+        $suggestion = $this->actingAs($admin)
+            ->postJson(route('financeiro.bank-statements.generate-suggestions', $statement))
+            ->assertOk()
+            ->collect('suggestions')
+            ->map(fn (array $payload) => BankReconciliationSuggestion::query()->findOrFail($payload['id']))
+            ->first(fn (BankReconciliationSuggestion $candidate): bool =>
+                collect($candidate->suggested_allocations)
+                    ->pluck('invoice_id')
+                    ->contains($invoice->id)
+            );
+
+        $this->assertNotNull($suggestion);
 
         $this->actingAs($admin)
             ->postJson(route('financeiro.bank-reconciliation-suggestions.confirm', $suggestion))
@@ -2254,8 +2309,184 @@ class BankReconciliationSuggestionFlowTest extends TestCase
         $this->assertDatabaseHas('bank_reconciliation_aliases', [
             'user_id' => $user->id,
             'type' => 'description_text',
+            'is_confirmed' => true,
             'source' => 'learned_from_reconciliation',
         ]);
+    }
+
+    public function test_first_statement_requires_manual_reconciliation_and_next_month_uses_learned_description(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $user = $this->createFinanceUser([
+            'nome_completo' => 'Carla Aprendizagem Bancaria',
+        ]);
+        $mayInvoice = $this->createInvoice($user, 30.00, 'mensalidade', '2026-05-10', [
+            'data_fatura' => '2026-05-01',
+            'data_emissao' => '2026-05-01',
+            'mes' => '2026-05',
+        ]);
+        $firstStatement = $this->createBankStatement(
+            30.00,
+            'TRF CR INTRAB 101 DE CARLA APRENDIZAGEM BANCARIA',
+            'OPERACAO-PRIMEIRA',
+        );
+
+        $this->actingAs($admin)
+            ->postJson(route('financeiro.bank-statements.generate-suggestions', $firstStatement))
+            ->assertOk()
+            ->assertJsonPath('generated_count', 0)
+            ->assertJsonPath('suggestions', []);
+
+        $this->actingAs($admin)
+            ->postJson(route('financeiro.bank-statements.allocate', $firstStatement), [
+                'invoices' => [[
+                    'invoice_id' => $mayInvoice->id,
+                    'amount' => 30.00,
+                ]],
+            ])
+            ->assertOk()
+            ->assertJsonPath('summary.bank_statement_reconciled', true);
+
+        $this->assertDatabaseHas('bank_reconciliation_aliases', [
+            'user_id' => $user->id,
+            'family_id' => $user->families->first()?->id,
+            'type' => 'description_text',
+            'normalized_value' => 'CARLA APRENDIZAGEM BANCARIA',
+            'is_confirmed' => true,
+            'source' => 'learned_from_reconciliation',
+        ]);
+
+        $juneInvoice = $this->createInvoice($user, 30.00, 'mensalidade', '2026-06-10', [
+            'data_fatura' => '2026-06-01',
+            'data_emissao' => '2026-06-01',
+            'mes' => '2026-06',
+        ]);
+        $nextStatement = $this->createBankStatement(
+            30.00,
+            'TRF CR INTRAB 987 DE CARLA APRENDIZAGEM BANCARIA',
+            'OPERACAO-SEGUINTE-DIFERENTE',
+        );
+        $nextStatement->forceFill(['data_movimento' => '2026-06-09'])->save();
+
+        $response = $this->actingAs($admin)
+            ->postJson(route('financeiro.bank-statements.generate-suggestions', $nextStatement))
+            ->assertOk();
+
+        $learnedSuggestion = collect($response->json('suggestions'))
+            ->first(fn (array $suggestion): bool =>
+                collect($suggestion['suggested_allocations'] ?? [])
+                    ->pluck('invoice_id')
+                    ->contains($juneInvoice->id)
+            );
+
+        $this->assertNotNull($learnedSuggestion);
+        $this->assertSame(100, (int) $learnedSuggestion['score']);
+        $this->assertTrue(
+            collect($learnedSuggestion['matched_rules'] ?? [])
+                ->intersect(['repository_match', 'confirmed_alias'])
+                ->isNotEmpty(),
+        );
+    }
+
+    public function test_manual_family_reconciliation_learns_payer_for_all_family_monthly_fees(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $responsible = $this->createFinanceUser([
+            'nome_completo' => 'Ricardo Jorge Guerra Vitorino Ferreira',
+        ]);
+        $family = $responsible->families->firstOrFail();
+        $vania = $this->createFamilyMember($family, [
+            'nome_completo' => 'Vania Raquel da Silva Leao',
+        ]);
+        $jose = $this->createFamilyMember($family, [
+            'nome_completo' => 'Jose Pedro Ferreira Leao',
+        ]);
+
+        $juneInvoices = collect([$responsible, $vania, $jose])
+            ->map(fn (User $member): Invoice => $this->createInvoice(
+                $member,
+                24.00,
+                'mensalidade',
+                '2026-06-10',
+                [
+                    'data_fatura' => '2026-06-01',
+                    'data_emissao' => '2026-06-01',
+                    'mes' => '2026-06',
+                ],
+            ));
+        $firstStatement = $this->createBankStatement(
+            72.00,
+            'TRF CR INTRAB 234 DE RICARDO JORGE VITORINO FERREIRA',
+            'FAMILIA-JUNHO-234',
+        );
+        $firstStatement->forceFill(['data_movimento' => '2026-06-09'])->save();
+
+        $this->actingAs($admin)
+            ->postJson(route('financeiro.bank-statements.generate-suggestions', $firstStatement))
+            ->assertOk()
+            ->assertJsonPath('generated_count', 0)
+            ->assertJsonPath('suggestions', []);
+
+        $this->actingAs($admin)
+            ->postJson(route('financeiro.bank-statements.allocate', $firstStatement), [
+                'invoices' => $juneInvoices
+                    ->map(fn (Invoice $invoice): array => [
+                        'invoice_id' => $invoice->id,
+                        'amount' => 24.00,
+                    ])
+                    ->all(),
+            ])
+            ->assertOk()
+            ->assertJsonPath('summary.bank_statement_reconciled', true);
+
+        $this->assertDatabaseHas('bank_reconciliation_repositories', [
+            'primary_user_id' => $responsible->id,
+            'family_id' => $family->id,
+        ]);
+        $this->assertDatabaseHas('bank_reconciliation_aliases', [
+            'user_id' => $responsible->id,
+            'family_id' => $family->id,
+            'normalized_value' => 'RICARDO JORGE VITORINO FERREIRA',
+            'is_confirmed' => true,
+            'source' => 'learned_from_reconciliation',
+        ]);
+
+        $julyInvoices = collect([$responsible, $vania, $jose])
+            ->map(fn (User $member): Invoice => $this->createInvoice(
+                $member,
+                24.00,
+                'mensalidade',
+                '2026-07-10',
+                [
+                    'data_fatura' => '2026-07-01',
+                    'data_emissao' => '2026-07-01',
+                    'mes' => '2026-07',
+                ],
+            ));
+        $nextStatement = $this->createBankStatement(
+            72.00,
+            'TRF CR INTRAB 999 DE RICARDO JORGE VITORINO FERREIRA',
+            'FAMILIA-JULHO-999',
+        );
+        $nextStatement->forceFill(['data_movimento' => '2026-07-09'])->save();
+
+        $response = $this->actingAs($admin)
+            ->postJson(route('financeiro.bank-statements.generate-suggestions', $nextStatement))
+            ->assertOk();
+
+        $expectedInvoiceIds = $julyInvoices->pluck('id')->sort()->values()->all();
+        $familySuggestion = collect($response->json('suggestions'))
+            ->first(fn (array $suggestion): bool =>
+                ($suggestion['family_id'] ?? null) === $family->id
+                && collect($suggestion['suggested_allocations'] ?? [])
+                    ->pluck('invoice_id')
+                    ->sort()
+                    ->values()
+                    ->all() === $expectedInvoiceIds
+            );
+
+        $this->assertNotNull($familySuggestion);
+        $this->assertSame(100, (int) $familySuggestion['score']);
     }
 
     public function test_user_without_permission_cannot_access_reconciliation_endpoints(): void
@@ -2325,6 +2556,7 @@ class BankReconciliationSuggestionFlowTest extends TestCase
             30.00,
             'TRF CR INTRAB DE INES LEGACY RECONCILIACAO',
         );
+        $this->learnStatementDescription($statement, $user->id, $user->families->first()?->id, $admin);
 
         $this->actingAs($admin)
             ->postJson(route('financeiro.bank-statements.generate-suggestions', $statement))
@@ -2383,6 +2615,7 @@ class BankReconciliationSuggestionFlowTest extends TestCase
             22.50,
             'TRF CR INTRAB DE RICARDO LEGACY SEM PAYMENT',
         );
+        $this->learnStatementDescription($statement, $user->id, $user->families->first()?->id, $admin);
 
         $this->actingAs($admin)
             ->postJson(route('financeiro.bank-statements.generate-suggestions', $statement))
@@ -2423,6 +2656,29 @@ class BankReconciliationSuggestionFlowTest extends TestCase
 
     private function generateSuggestion(User $admin, BankStatement $statement, array $invoices): BankReconciliationSuggestion
     {
+        $invoiceUsers = Invoice::query()
+            ->with('user.families:id,responsavel_user_id')
+            ->whereIn('id', collect($invoices)->pluck('id'))
+            ->get()
+            ->pluck('user')
+            ->filter()
+            ->unique('id')
+            ->values();
+        $commonFamilyIds = $invoiceUsers
+            ->map(fn (User $user): array => $user->families->pluck('id')->all())
+            ->reduce(
+                fn (?array $commonIds, array $memberFamilyIds): array => $commonIds === null
+                    ? $memberFamilyIds
+                    : array_values(array_intersect($commonIds, $memberFamilyIds)),
+                null,
+            ) ?? [];
+        $familyId = count($commonFamilyIds) === 1 ? (string) $commonFamilyIds[0] : null;
+        $userId = $invoiceUsers->count() === 1
+            ? $invoiceUsers->first()?->id
+            : ($familyId ? Familia::query()->whereKey($familyId)->value('responsavel_user_id') : null);
+
+        $this->learnStatementDescription($statement, $userId, $familyId, $admin);
+
         $response = $this->actingAs($admin)->postJson(route('financeiro.bank-statements.generate-suggestions', $statement));
         $response->assertOk();
 
@@ -2445,6 +2701,20 @@ class BankReconciliationSuggestionFlowTest extends TestCase
         return BankReconciliationSuggestion::query()->findOrFail($suggestionPayload['id']);
     }
 
+    private function learnStatementDescription(
+        BankStatement $statement,
+        ?string $userId,
+        ?string $familyId,
+        User $actor,
+    ): void {
+        app(ReconciliationAliasService::class)->learnFromConfirmedReconciliation(
+            $statement,
+            $userId,
+            $familyId,
+            $actor->id,
+        );
+    }
+
     public function test_negative_statement_remembers_that_suggestions_were_analyzed(): void
     {
         $admin = User::factory()->admin()->create();
@@ -2463,6 +2733,7 @@ class BankReconciliationSuggestionFlowTest extends TestCase
         $admin = User::factory()->admin()->create();
         $user = $this->createFinanceUser(['nome_completo' => 'Helena Nova Importacao']);
         $statement = $this->createBankStatement(25.00, 'TRF CR INTRAB DE HELENA NOVA IMPORTACAO');
+        $this->learnStatementDescription($statement, $user->id, $user->families->first()?->id, $admin);
 
         $this->actingAs($admin)
             ->postJson(route('financeiro.bank-statements.generate-suggestions', $statement))
@@ -2505,6 +2776,7 @@ class BankReconciliationSuggestionFlowTest extends TestCase
             'TRF CR INTRAB 234 DE RICARDO JORGE VITORINO FERREIRA',
         );
         $statement->forceFill(['data_movimento' => '2026-06-09'])->save();
+        $this->learnStatementDescription($statement, $responsible->id, $family->id, $admin);
 
         $response = $this->actingAs($admin)
             ->postJson(route('financeiro.bank-statements.generate-suggestions', $statement))
@@ -2559,6 +2831,7 @@ class BankReconciliationSuggestionFlowTest extends TestCase
             'TRF CR INTRAB 234 DE RICARDO JORGE VITORINO FERREIRA',
         );
         $statement->forceFill(['data_movimento' => '2026-06-09'])->save();
+        $this->learnStatementDescription($statement, $responsible->id, $family->id, $admin);
 
         $this->actingAs($admin)
             ->postJson(route('financeiro.bank-statements.generate-suggestions', $statement))

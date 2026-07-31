@@ -262,6 +262,19 @@ class BankReconciliationAliasManagementTest extends TestCase
 
     private function generateSuggestion(User $admin, BankStatement $statement, array $invoices): BankReconciliationSuggestion
     {
+        $invoiceUser = collect($invoices)
+            ->map(fn (Invoice $invoice): ?User => $invoice->user()->with('families:id')->first())
+            ->filter()
+            ->unique('id')
+            ->sole();
+
+        app(ReconciliationAliasService::class)->learnFromConfirmedReconciliation(
+            $statement,
+            $invoiceUser->id,
+            $invoiceUser->families->first()?->id,
+            $admin->id,
+        );
+
         $response = $this->actingAs($admin)->postJson(route('financeiro.bank-statements.generate-suggestions', $statement));
         $response->assertOk();
 
