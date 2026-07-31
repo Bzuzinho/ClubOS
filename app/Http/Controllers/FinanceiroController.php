@@ -188,7 +188,13 @@ class FinanceiroController extends Controller
         try {
             $extratos = Cache::remember('financeiro:extratos', 60, function () {
                 $statements = BankStatement::query()
-                    ->with(['financialEntry:id,origem_tipo,origem_id'])
+                    ->with([
+                        'financialEntry:id,origem_tipo,origem_id',
+                        'suggestions' => fn ($query) => $query
+                            ->where('status', \App\Models\BankReconciliationSuggestion::STATUS_SUGGESTED)
+                            ->orderByDesc('score')
+                            ->orderByDesc('created_at'),
+                    ])
                     ->orderBy('data_movimento', 'desc')
                     ->limit(1000)
                     ->get();
@@ -1367,6 +1373,14 @@ class FinanceiroController extends Controller
         }
 
         $movement = $movementId ? $movementMap->get($movementId) : null;
+        $activeSuggestions = $extrato->relationLoaded('suggestions')
+            ? $extrato->suggestions
+            : collect();
+        $directSuggestion = $activeSuggestions->first(function ($suggestion): bool {
+            return (int) $suggestion->score === 100
+                && round((float) $suggestion->unallocated_amount, 2) <= 0.009
+                && collect((array) $suggestion->suggested_allocations)->isNotEmpty();
+        });
 
         return [
             'id' => (string) $extrato->id,
@@ -1384,6 +1398,24 @@ class FinanceiroController extends Controller
             'lancamento_id' => $extrato->lancamento_id,
             'movement_id' => $movementId,
             'movement_estado_documental' => $movement?->estado_documental,
+            'suggestions_analyzed_at' => optional($extrato->suggestions_analyzed_at)?->toISOString(),
+            'suggestion_count' => $activeSuggestions->count(),
+            'direct_suggestion' => $directSuggestion ? [
+                'id' => $directSuggestion->id,
+                'bank_statement_id' => $directSuggestion->bank_statement_id,
+                'user_id' => $directSuggestion->user_id,
+                'family_id' => $directSuggestion->family_id,
+                'status' => $directSuggestion->status,
+                'score' => (int) $directSuggestion->score,
+                'confidence_label' => $directSuggestion->confidence_label,
+                'total_bank_amount' => (float) $directSuggestion->total_bank_amount,
+                'total_allocated_amount' => (float) $directSuggestion->total_allocated_amount,
+                'unallocated_amount' => (float) $directSuggestion->unallocated_amount,
+                'suggested_allocations' => $directSuggestion->suggested_allocations,
+                'matched_rules' => $directSuggestion->matched_rules,
+                'explanation' => $directSuggestion->explanation,
+                'is_directly_reconcilable' => true,
+            ] : null,
             'created_at' => optional($extrato->created_at)?->toISOString(),
         ];
     }
@@ -2753,6 +2785,10 @@ class FinanceiroController extends Controller
 
                 $extrato->valor = (float) $extrato->valor;
                 $extrato->saldo = $extrato->saldo !== null ? (float) $extrato->saldo : null;
+                $extrato->setAttribute(
+                    'suggestions_analyzed_at',
+                    optional($extrato->suggestions_analyzed_at)?->toISOString(),
+                );
                 $extrato->setAttribute('suggestion_count', $activeSuggestions->count());
                 $extrato->setAttribute('direct_suggestion', $directSuggestion ? [
                     'id' => $directSuggestion->id,
