@@ -4,6 +4,8 @@ namespace App\Services\Financeiro;
 
 use App\Models\BankReconciliationAlias;
 use App\Models\BankStatement;
+use App\Models\Familia;
+use App\Models\Payment;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Collection;
 
@@ -171,6 +173,10 @@ class ReconciliationAliasService
             if ($alias) {
                 $alias->fill([
                     'value' => $value,
+                    'is_confirmed' => true,
+                    'confidence' => 100,
+                    'confidence_score' => 100,
+                    'source' => 'learned_from_reconciliation',
                     'last_matched_at' => now(),
                     'last_used_at' => now(),
                     'match_count' => (int) $alias->match_count + 1,
@@ -188,9 +194,9 @@ class ReconciliationAliasService
                 'type' => $candidate['type'],
                 'value' => $value,
                 'normalized_value' => $normalizedValue,
-                'is_confirmed' => false,
-                'confidence' => 50,
-                'confidence_score' => 50,
+                'is_confirmed' => true,
+                'confidence' => 100,
+                'confidence_score' => 100,
                 'source' => 'learned_from_reconciliation',
                 'last_matched_at' => now(),
                 'last_used_at' => now(),
@@ -201,6 +207,62 @@ class ReconciliationAliasService
         }
 
         return $learned;
+    }
+
+    public function learnFromConfirmedPayment(
+        BankStatement $bankStatement,
+        Payment $payment,
+        ?string $createdBy = null,
+    ): array {
+        $payment = $payment->fresh(['allocations.invoice:id,user_id', 'user.families:id']);
+        $matchedUserIds = $payment?->allocations
+            ?->pluck('invoice.user_id')
+            ->filter()
+            ->map(fn ($userId) => (string) $userId)
+            ->unique()
+            ->values()
+            ->all() ?? [];
+
+        if ($matchedUserIds === [] && $payment?->user_id) {
+            $matchedUserIds = [(string) $payment->user_id];
+        }
+
+        $familyId = $payment?->family_id ?: $payment?->user?->families?->first()?->id;
+        if (!$familyId && $matchedUserIds !== []) {
+            $commonFamilyIds = User::query()
+                ->with('families:id,responsavel_user_id')
+                ->whereIn('id', $matchedUserIds)
+                ->get()
+                ->map(fn (User $user): array => $user->families->pluck('id')->all())
+                ->reduce(
+                    fn (?array $commonIds, array $memberFamilyIds): array => $commonIds === null
+                        ? $memberFamilyIds
+                        : array_values(array_intersect($commonIds, $memberFamilyIds)),
+                    null,
+                ) ?? [];
+
+            if (count($commonFamilyIds) === 1) {
+                $familyId = (string) $commonFamilyIds[0];
+            }
+        }
+
+        $userId = $payment?->user_id;
+        if (!$userId && $familyId) {
+            $userId = Familia::query()
+                ->whereKey($familyId)
+                ->value('responsavel_user_id');
+        }
+
+        if (!$userId && count($matchedUserIds) === 1) {
+            $userId = $matchedUserIds[0];
+        }
+
+        return $this->learnFromConfirmedReconciliation(
+            $bankStatement,
+            $userId,
+            $familyId,
+            $createdBy,
+        );
     }
 
     public function findPossibleMatches(string $bankDescription, ?float $amount = null): Collection
