@@ -62,7 +62,10 @@ class BankReconciliationSuggestionService
         }
 
         if ((float) $bankStatement->valor < 0) {
-            return $this->generateExpenseSuggestions($bankStatement, $options);
+            $suggestions = $this->generateExpenseSuggestions($bankStatement, $options);
+            $this->markSuggestionsAnalyzed($bankStatement);
+
+            return $suggestions;
         }
 
         $existingSuggestions = $this->fetchActiveSuggestions($bankStatement);
@@ -88,6 +91,8 @@ class BankReconciliationSuggestionService
         }
 
         if (!$forceRegeneration && $this->shouldReuseExistingSuggestions($existingSuggestions)) {
+            $this->markSuggestionsAnalyzed($bankStatement);
+
             return $existingSuggestions;
         }
 
@@ -97,6 +102,8 @@ class BankReconciliationSuggestionService
 
         $statementAmount = $this->resolveRemainingAmount($bankStatement);
         if ($statementAmount <= 0.009) {
+            $this->markSuggestionsAnalyzed($bankStatement);
+
             return collect();
         }
 
@@ -219,6 +226,7 @@ class BankReconciliationSuggestionService
             ->values();
 
         $this->expireStaleSuggestions($bankStatement, $sortedSuggestions->pluck('id')->all());
+        $this->markSuggestionsAnalyzed($bankStatement);
 
         return $sortedSuggestions;
     }
@@ -2414,10 +2422,7 @@ class BankReconciliationSuggestionService
             $email = $this->normalizer->normalize($user->email);
             $memberNumber = (string) ($user->numero_socio ?? '');
             $phoneMatches = $compactDigits !== '' && $contact !== '' && str_contains($contact, $compactDigits);
-            $matchedName = $name !== '' && (
-                str_contains($normalizedText, $name)
-                || ($nameTokens->isNotEmpty() && $nameTokens->every(fn (string $token) => str_contains($normalizedText, $token)))
-            );
+            $matchedName = $this->nameMatchesStatement($normalizedText, $name);
 
             return [
                 'user' => $user,
@@ -2493,7 +2498,7 @@ class BankReconciliationSuggestionService
             $familyName = $this->normalizer->normalize($family->nome);
             $responsavelName = $this->normalizer->normalize($family->responsavel?->nome_completo ?: $family->responsavel?->name);
             $matchedFamilyName = $familyName !== '' && str_contains($normalizedText, $familyName);
-            $matchedResponsavel = $responsavelName !== '' && str_contains($normalizedText, $responsavelName);
+            $matchedResponsavel = $this->nameMatchesStatement($normalizedText, $responsavelName);
 
             return [
                 'user_id' => $family->responsavel_user_id,
@@ -2545,7 +2550,7 @@ class BankReconciliationSuggestionService
 
         return $guardians->flatMap(function (User $guardian) use ($normalizedText, $guardians): Collection {
             $guardianName = $this->normalizer->normalize($this->memberFiscalDataResolver->displayName($guardian));
-            $matchedGuardian = $guardianName !== '' && str_contains($normalizedText, $guardianName);
+            $matchedGuardian = $this->nameMatchesStatement($normalizedText, $guardianName);
 
             if (!$matchedGuardian) {
                 return collect();
@@ -3406,6 +3411,51 @@ class BankReconciliationSuggestionService
             ->all();
 
         return implode('|', $parts);
+    }
+
+    private function markSuggestionsAnalyzed(BankStatement $bankStatement): void
+    {
+        BankStatement::query()
+            ->whereKey($bankStatement->id)
+            ->update(['suggestions_analyzed_at' => now()]);
+    }
+
+    private function nameMatchesStatement(string $normalizedText, string $normalizedName): bool
+    {
+        if ($normalizedText === '' || $normalizedName === '') {
+            return false;
+        }
+
+        if (str_contains($normalizedText, $normalizedName)) {
+            return true;
+        }
+
+        $nameTokens = collect(explode(' ', $normalizedName))
+            ->map(fn (string $token): string => trim($token))
+            ->filter(fn (string $token): bool => strlen($token) >= 3 && !$this->isIgnoredIdentityToken($token))
+            ->unique()
+            ->values();
+
+        if ($nameTokens->count() < 4) {
+            return $nameTokens->isNotEmpty()
+                && $nameTokens->every(fn (string $token): bool => str_contains($normalizedText, $token));
+        }
+
+        $statementTokens = collect(explode(' ', $normalizedText))
+            ->map(fn (string $token): string => trim($token))
+            ->filter(fn (string $token): bool => strlen($token) >= 3 && !$this->isIgnoredIdentityToken($token))
+            ->unique()
+            ->values();
+
+        $matchedTokens = $nameTokens->intersect($statementTokens);
+        $requiredMatches = max(3, $nameTokens->count() - 1);
+        $firstNameMatches = $statementTokens->contains($nameTokens->first());
+        $lastNameMatches = $statementTokens->contains($nameTokens->last());
+
+        return $firstNameMatches
+            && $lastNameMatches
+            && $matchedTokens->count() >= $requiredMatches
+            && ($matchedTokens->count() / $nameTokens->count()) >= 0.75;
     }
 
     private function hasClearIdentityEvidence(array $context): bool
