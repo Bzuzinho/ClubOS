@@ -267,10 +267,6 @@ const buildMemberUpdatePayload = (user: User) => ({
     data_inscricao: formatDateForInput(user.data_inscricao),
     data_atestado_medico: formatDateForInput(user.data_atestado_medico),
     informacoes_medicas: user.informacoes_medicas || '',
-    sync_encarregado_educacao: true,
-    encarregado_educacao: normalizeRelationIds(user.encarregado_educacao),
-    sync_educandos: true,
-    educandos: normalizeRelationIds(user.educandos),
     foto_perfil: user.foto_perfil || '',
     cartao_federacao: user.cartao_federacao || '',
     arquivo_rgpd: user.arquivo_rgpd || '',
@@ -334,10 +330,7 @@ export default function Show({ member, family_context, permissions, allUsers, in
         if (import.meta.env.DEV) {
             console.debug('[Membros/Show] saving member payload', {
                 memberId: user.id,
-                educandos: payload.educandos,
-                encarregado_educacao: payload.encarregado_educacao,
-                sync_educandos: payload.sync_educandos,
-                sync_encarregado_educacao: payload.sync_encarregado_educacao,
+                familyRelationsManagedSeparately: true,
             });
         }
 
@@ -481,15 +474,15 @@ export default function Show({ member, family_context, permissions, allUsers, in
                             user={user}
                             onChange={handleChange}
                             isAdmin={canEditMember}
-                            allUsers={allUsers}
                             userTypes={userTypes}
-                            onNavigateToUser={(userId) => router.visit(route('membros.show', userId))}
                         />
                     </TabsContent>
 
                     <TabsContent value="family" className={`${moduleTabbedContentClass} space-y-2 bg-white p-0 rounded-lg`}>
                         <FamilyTab
+                            memberId={user.id}
                             familyContext={family_context}
+                            allUsers={allUsers as Array<User & { nome_completo: string }>}
                             onOpenMember={(userId) => router.visit(route('membros.show', userId))}
                         />
                     </TabsContent>

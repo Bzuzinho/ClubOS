@@ -429,14 +429,18 @@ class MembrosController extends Controller
         $memberDataReadService = app(MemberDataReadService::class);
 
         $allUsers = User::query()
-            ->with(['dadosPessoais:id,user_id,nome_completo,data_nascimento'])
+            ->with([
+                'dadosPessoais:id,user_id,nome_completo,data_nascimento',
+                'userTypes:id,codigo,nome',
+            ])
             ->select(
                 'id',
                 'name',
                 'numero_socio',
                 'tipo_membro',
                 'foto_perfil',
-                'menor'
+                'menor',
+                'estado'
             )
             ->selectRaw('data_nascimento as legacy_data_nascimento')
             ->get()
@@ -452,9 +456,10 @@ class MembrosController extends Controller
                     'id' => $user->id,
                     'nome_completo' => $canonicalName,
                     'numero_socio' => $user->numero_socio,
-                    'tipo_membro' => $user->tipo_membro,
+                    'tipo_membro' => $this->memberTypeResolver->typesFor($user),
                     'foto_perfil' => $user->foto_perfil,
                     'menor' => $user->menor,
+                    'estado' => $user->estado,
                     'data_nascimento' => $personal['data_nascimento']
                         ?? $this->normalizedBirthDate($user->getAttribute('legacy_data_nascimento')),
                 ];
@@ -597,7 +602,7 @@ class MembrosController extends Controller
             ->values();
 
         $families = collect($familyService->actualFamiliesForUser($member) ?? [])
-            ->map(function ($family) {
+            ->map(function ($family) use ($member) {
                 $members = collect($family->members ?? [])
                     ->map(function (User $familyMember) {
                         $familyMember->loadMissing('dadosPessoais');
@@ -618,7 +623,7 @@ class MembrosController extends Controller
                     'nome' => $family->nome,
                     'ativo' => (bool) $family->ativo,
                     'papel_do_membro' => optional(
-                        collect($family->members ?? [])->firstWhere('id', $family->responsavel_user_id)
+                        collect($family->members ?? [])->firstWhere('id', $member->id)
                     )->pivot?->papel_na_familia,
                     'members' => $members,
                 ];

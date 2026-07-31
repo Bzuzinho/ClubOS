@@ -7,6 +7,7 @@ use App\Http\Controllers\PortalProfileController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\FamilyPortalController;
 use App\Http\Controllers\MembrosController;
+use App\Http\Controllers\MemberFamilyRelationsController;
 use App\Http\Controllers\MembrosImportController;
 use App\Http\Controllers\DocumentosMembrosController;
 use App\Http\Controllers\RelacoesMembroController;
@@ -178,6 +179,22 @@ Route::middleware(['auth', 'verified'])->group(function () {
     
     // Member documents and relationships
     Route::prefix('membros/{member}')->middleware('module.access:membros')->group(function() {
+        Route::post('familia/encarregados', [MemberFamilyRelationsController::class, 'storeGuardian'])
+            ->middleware('permission.access:membros.ficha,edit')
+            ->name('membros.familia.encarregados.store');
+        Route::delete('familia/encarregados/{guardian}', [MemberFamilyRelationsController::class, 'destroyGuardian'])
+            ->middleware('permission.access:membros.ficha,edit')
+            ->name('membros.familia.encarregados.destroy');
+        Route::post('familia/membros', [MemberFamilyRelationsController::class, 'storeFamilyMember'])
+            ->middleware('permission.access:membros.ficha,edit')
+            ->name('membros.familia.membros.store');
+        Route::patch('familia/{family}/membros/{familyMember}', [MemberFamilyRelationsController::class, 'updateFamilyMember'])
+            ->middleware('permission.access:membros.ficha,edit')
+            ->name('membros.familia.membros.update');
+        Route::delete('familia/{family}/membros/{familyMember}', [MemberFamilyRelationsController::class, 'destroyFamilyMember'])
+            ->middleware('permission.access:membros.ficha,edit')
+            ->name('membros.familia.membros.destroy');
+
         Route::get('documentos', [DocumentosMembrosController::class, 'index'])
             ->middleware('permission.access:membros.ficha,view')
             ->name('membros.documentos.index');
