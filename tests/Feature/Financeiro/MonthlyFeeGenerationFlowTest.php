@@ -84,6 +84,65 @@ class MonthlyFeeGenerationFlowTest extends TestCase
         $this->assertSame(4, Invoice::query()->where('tipo', 'mensalidade')->count());
     }
 
+    public function test_bulk_generation_does_not_skip_members_when_more_than_one_chunk_is_required(): void
+    {
+        $plan = $this->createMonthlyPlan();
+        $lastAlphabeticalUser = $this->createEligibleUser($plan, [
+            'nome_completo' => 'ZZZ Atleta Primeiro ID',
+            'email' => 'zzz-primeiro-id@example.com',
+            'data_inscricao' => '2026-05-01',
+        ]);
+
+        for ($index = 1; $index <= 100; $index++) {
+            $this->createEligibleUser($plan, [
+                'nome_completo' => sprintf('AAA Atleta %03d', $index),
+                'email' => sprintf('aaa-atleta-%03d@example.com', $index),
+                'data_inscricao' => '2026-05-01',
+            ]);
+        }
+
+        $summary = app(MonthlyFeeGenerationService::class)->generateForAllEligibleUsers(
+            Carbon::parse('2026-05-01'),
+            Carbon::parse('2026-05-01'),
+        );
+
+        $this->assertSame(101, $summary['users_processed']);
+        $this->assertSame(101, $summary['created_count']);
+        $this->assertDatabaseHas('invoices', [
+            'user_id' => $lastAlphabeticalUser->id,
+            'mes' => '2026-05',
+            'tipo' => 'mensalidade',
+        ]);
+    }
+
+    public function test_member_without_registration_date_uses_requested_cycle_start(): void
+    {
+        $plan = $this->createMonthlyPlan();
+        $user = $this->createEligibleUser($plan, [
+            'nome_completo' => 'Ana Luisa Sem Data Inscricao',
+            'data_inscricao' => null,
+        ]);
+
+        $summary = app(MonthlyFeeGenerationService::class)->generateForUserWithSummary(
+            $user,
+            Carbon::parse('2026-05-01'),
+            Carbon::parse('2026-06-01'),
+        );
+
+        $this->assertSame(2, $summary['created_count']);
+        $this->assertSame(0, $summary['skipped_without_start']);
+        $this->assertDatabaseHas('invoices', [
+            'user_id' => $user->id,
+            'mes' => '2026-05',
+            'tipo' => 'mensalidade',
+        ]);
+        $this->assertDatabaseHas('invoices', [
+            'user_id' => $user->id,
+            'mes' => '2026-06',
+            'tipo' => 'mensalidade',
+        ]);
+    }
+
     public function test_manual_endpoint_uses_configured_cycle_end_when_only_start_date_is_supplied(): void
     {
         $this->createClubSettings([
@@ -535,6 +594,10 @@ class MonthlyFeeGenerationFlowTest extends TestCase
         );
 
         $this->assertSame(0, $summary['created_count']);
+        $this->assertSame(1, $summary['skipped_ineligible_count']);
+        $this->assertSame($user->id, $summary['skipped_users'][0]['user_id']);
+        $this->assertSame('ineligible_member', $summary['skipped_users'][0]['reason']);
+        $this->assertContains('inactive_sports_athlete', $summary['skipped_users'][0]['detail_reasons']);
         $this->assertSame(0, Invoice::query()->where('user_id', $user->id)->where('tipo', 'mensalidade')->count());
     }
 
