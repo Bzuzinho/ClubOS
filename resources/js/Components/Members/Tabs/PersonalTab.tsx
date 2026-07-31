@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useRef } from 'react';
 import { usePage } from '@inertiajs/react';
 import { Label } from '@/Components/ui/label';
 import { Input } from '@/Components/ui/input';
@@ -8,8 +8,6 @@ import { Switch } from '@/Components/ui/switch';
 import { Avatar, AvatarFallback, AvatarImage } from '@/Components/ui/avatar';
 import { Button } from '@/Components/ui/button';
 import { Card } from '@/Components/ui/card';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/Components/ui/dialog';
-import { ScrollArea } from '@/Components/ui/scroll-area';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import { UserCircle, MapPin, Phone, Briefcase } from 'lucide-react';
@@ -18,9 +16,8 @@ interface PersonalTabProps {
   user: any;
   onChange: (field: string, value: any) => void;
   isAdmin: boolean;
-  allUsers: any[];
+  allUsers?: any[];
   userTypes?: Array<{ id: string; name: string; description: string }>;
-  onNavigateToUser?: (userId: string) => void;
 }
 
 const extractDateString = (value: any): string => {
@@ -52,18 +49,12 @@ const formatDateForInput = (value?: any): string => {
   return raw;
 };
 
-export function PersonalTab({ user, allUsers, onChange, isAdmin, userTypes = [], onNavigateToUser }: PersonalTabProps) {
+export function PersonalTab({ user, onChange, isAdmin, userTypes = [] }: PersonalTabProps) {
   const page = usePage();
   const resolvedUserTypes = userTypes.length > 0
     ? userTypes
     : ((page.props as any)?.userTypes || []);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  
-  // State para gerenciar diálogos de seleção
-  const [showGuardianDialog, setShowGuardianDialog] = useState(false);
-  const [showEducandoDialog, setShowEducandoDialog] = useState(false);
-  const [selectedGuardianId, setSelectedGuardianId] = useState<string>('');
-  const [selectedEducandoId, setSelectedEducandoId] = useState<string>('');
 
   const getInitials = (name: string) => {
     return name
@@ -72,46 +63,6 @@ export function PersonalTab({ user, allUsers, onChange, isAdmin, userTypes = [],
       .slice(0, 2)
       .join('')
       .toUpperCase();
-  };
-
-  const handleAddGuardian = () => {
-    if (selectedGuardianId) {
-      const currentGuardians = user.encarregado_educacao || [];
-      onChange('encarregado_educacao', [...currentGuardians, selectedGuardianId]);
-      toast.success('Encarregado adicionado');
-      setShowGuardianDialog(false);
-      setSelectedGuardianId('');
-    }
-  };
-
-  const handleAddEducando = () => {
-    if (selectedEducandoId) {
-      const currentEducandos = user.educandos || [];
-      onChange('educandos', [...currentEducandos, selectedEducandoId]);
-      toast.success('Educando adicionado');
-      setShowEducandoDialog(false);
-      setSelectedEducandoId('');
-    }
-  };
-
-  const handleRemoveGuardian = (index: number, guardianName?: string) => {
-    if (!window.confirm(`Remover a relação com ${guardianName || 'este encarregado'}?`)) {
-      return;
-    }
-
-    const currentGuardians = user.encarregado_educacao || [];
-    onChange('encarregado_educacao', currentGuardians.filter((_: string, i: number) => i !== index));
-    toast.success('Relação removida. Guarde para confirmar.');
-  };
-
-  const handleRemoveEducando = (index: number, educandoName?: string) => {
-    if (!window.confirm(`Remover a relação com ${educandoName || 'este educando'}?`)) {
-      return;
-    }
-
-    const currentEducandos = user.educandos || [];
-    onChange('educandos', currentEducandos.filter((_: string, i: number) => i !== index));
-    toast.success('Relação removida. Guarde para confirmar.');
   };
 
   const handleUploadClick = () => {
@@ -141,40 +92,6 @@ export function PersonalTab({ user, allUsers, onChange, isAdmin, userTypes = [],
       event.target.value = '';
     }
   };
-
-  const availableGuardians = allUsers.filter(u => {
-    if (u.id === user.id) return false;
-    if (!u.tipo_membro || !Array.isArray(u.tipo_membro)) return false;
-    
-    return u.tipo_membro.some((tipo: string) => {
-      const normalized = tipo.toLowerCase()
-        .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '')
-        .replace(/[\s_-]+/g, '_');
-      
-      return normalized.includes('encarregado') && normalized.includes('educacao');
-    });
-  });
-
-  const isMinorUser = (candidate: any): boolean => {
-    if (candidate?.menor === true) return true;
-    const birthDate = formatDateForInput(candidate?.data_nascimento);
-    const age = birthDate ? getUserAge(birthDate) : null;
-    return age !== null && age < 18;
-  };
-
-  const availableAthletes = allUsers.filter(u => {
-    if (u.id === user.id) return false;
-    return isMinorUser(u);
-  });
-
-  const isGuardian = user.tipo_membro?.some((tipo: string) => {
-    const normalized = tipo.toLowerCase()
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .replace(/[\s_-]+/g, '_');
-    return normalized.includes('encarregado') && normalized.includes('educacao');
-  }) || false;
 
   const normalizedBirthDate = formatDateForInput(user.data_nascimento);
   const userAge = normalizedBirthDate ? getUserAge(normalizedBirthDate) : null;
@@ -519,8 +436,8 @@ export function PersonalTab({ user, allUsers, onChange, isAdmin, userTypes = [],
         </Card>
       </div>
 
-      {/* Linha 3: Profissão e Educação + Relações Familiares */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-1">
+      {/* Linha 3: Profissão e Educação */}
+      <div>
         {/* Profissão e Educação */}
         <Card className="p-2">
           <h3 className="text-xs font-semibold mb-1 flex items-center gap-1">
@@ -561,209 +478,7 @@ export function PersonalTab({ user, allUsers, onChange, isAdmin, userTypes = [],
           </div>
         </Card>
 
-        {/* Relações Familiares */}
-        <div className="space-y-1">
-          <Card className="p-2">
-            <p className="text-xs text-muted-foreground">
-              Relações familiares nesta tab seguem o estado operacional atual (arrays legacy sincronizados com pivot). Esta sprint não altera a fonte de verdade.
-            </p>
-          </Card>
-
-          {/* Encarregado de Educação */}
-          {user.menor && (
-            <Card className="p-2">
-              <h3 className="text-xs font-semibold mb-1">Encarregado de Educação</h3>
-              {isAdmin && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-6 text-xs mb-1"
-                  onClick={() => setShowGuardianDialog(true)}
-                >
-                  + Adicionar
-                </Button>
-              )}
-              
-              {user.encarregado_educacao && user.encarregado_educacao.length > 0 ? (
-                <div className="space-y-1">
-                  {user.encarregado_educacao.map((guardianId: string, index: number) => {
-                    const guardian = allUsers.find((u: any) => u.id === guardianId);
-                    return guardian ? (
-                      <div key={guardianId} className="flex items-center justify-between p-2 border rounded text-xs">
-                        <span>{guardian.nome_completo}</span>
-                        {isAdmin && (
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            className="h-6 w-6 text-destructive"
-                            onClick={() => handleRemoveGuardian(index, guardian.nome_completo)}
-                          >
-                            ×
-                          </Button>
-                        )}
-                      </div>
-                    ) : null;
-                  })}
-                </div>
-              ) : (
-                <p className="text-xs text-muted-foreground">Sem encarregado associado. Adicione um responsável para completar a relação familiar.</p>
-              )}
-            </Card>
-          )}
-
-          {/* Educandos */}
-          {isGuardian && (
-            <Card className="p-2">
-              <h3 className="text-xs font-semibold mb-1">Educandos</h3>
-              {isAdmin && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-6 text-xs mb-1"
-                  onClick={() => setShowEducandoDialog(true)}
-                >
-                  + Adicionar
-                </Button>
-              )}
-              
-              {user.educandos && user.educandos.length > 0 ? (
-                <div className="space-y-1">
-                  {user.educandos.map((educandoId: string, index: number) => {
-                    const educando = allUsers.find((u: any) => u.id === educandoId);
-                    return educando ? (
-                      <div key={educandoId} className="flex items-center justify-between p-2 border rounded text-xs">
-                        <span>{educando.nome_completo}</span>
-                        {isAdmin && (
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            className="h-6 w-6 text-destructive"
-                            onClick={() => handleRemoveEducando(index, educando.nome_completo)}
-                          >
-                            ×
-                          </Button>
-                        )}
-                      </div>
-                    ) : null;
-                  })}
-                </div>
-              ) : (
-                <p className="text-xs text-muted-foreground">Sem educandos associados. Adicione educandos para disponibilizar visão consolidada no Portal Família.</p>
-              )}
-            </Card>
-          )}
-        </div>
       </div>
-
-      {/* Diálogo para selecionar Encarregado de Educação */}
-      <Dialog open={showGuardianDialog} onOpenChange={setShowGuardianDialog}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle className="text-sm">Selecionar Encarregado de Educação</DialogTitle>
-          </DialogHeader>
-          <ScrollArea className="h-64 w-full rounded border">
-            <div className="p-4 space-y-2">
-              {availableGuardians
-                .filter((g: any) => !user.encarregado_educacao?.includes(g.id))
-                .map((guardian: any) => (
-                  <button
-                    key={guardian.id}
-                    onClick={() => setSelectedGuardianId(guardian.id)}
-                    className={`w-full text-left px-3 py-2 rounded text-xs border transition-colors ${
-                      selectedGuardianId === guardian.id
-                        ? 'bg-primary text-primary-foreground border-primary'
-                        : 'hover:bg-muted border-muted'
-                    }`}
-                  >
-                    {guardian.nome_completo}
-                  </button>
-                ))}
-              {availableGuardians.filter((g: any) => !user.encarregado_educacao?.includes(g.id)).length === 0 && (
-                <p className="text-xs text-muted-foreground text-center py-4">
-                  Nenhum encarregado disponível
-                </p>
-              )}
-            </div>
-          </ScrollArea>
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => setShowGuardianDialog(false)}
-              className="h-7 text-xs"
-            >
-              Cancelar
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              onClick={handleAddGuardian}
-              disabled={!selectedGuardianId}
-              className="h-7 text-xs"
-            >
-              Adicionar
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Diálogo para selecionar Educando */}
-      <Dialog open={showEducandoDialog} onOpenChange={setShowEducandoDialog}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle className="text-sm">Selecionar Educando</DialogTitle>
-          </DialogHeader>
-          <ScrollArea className="h-64 w-full rounded border">
-            <div className="p-4 space-y-2">
-              {availableAthletes
-                .filter((a: any) => !user.educandos?.includes(a.id))
-                .map((athlete: any) => (
-                  <button
-                    key={athlete.id}
-                    onClick={() => setSelectedEducandoId(athlete.id)}
-                    className={`w-full text-left px-3 py-2 rounded text-xs border transition-colors ${
-                      selectedEducandoId === athlete.id
-                        ? 'bg-primary text-primary-foreground border-primary'
-                        : 'hover:bg-muted border-muted'
-                    }`}
-                  >
-                    {athlete.nome_completo}
-                  </button>
-                ))}
-              {availableAthletes.filter((a: any) => !user.educandos?.includes(a.id)).length === 0 && (
-                <p className="text-xs text-muted-foreground text-center py-4">
-                  Nenhum educando disponível
-                </p>
-              )}
-            </div>
-          </ScrollArea>
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => setShowEducandoDialog(false)}
-              className="h-7 text-xs"
-            >
-              Cancelar
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              onClick={handleAddEducando}
-              disabled={!selectedEducandoId}
-              className="h-7 text-xs"
-            >
-              Adicionar
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }
