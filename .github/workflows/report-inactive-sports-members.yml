@@ -1,0 +1,89 @@
+name: Relatório — membros inativos desportivamente
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  VM_HOST: 129.159.13.211
+  VM_USER: ubuntu
+  VM_APP_DIR: /var/www/clubmanager
+
+jobs:
+  report:
+    name: Gerar listagem em produção
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Configurar chave SSH
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "${{ secrets.ORACLE_SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "$VM_HOST" >> ~/.ssh/known_hosts
+
+      - name: Consultar membros inativos desportivamente
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ssh -i ~/.ssh/id_ed25519 \
+            -o BatchMode=yes \
+            -o ConnectTimeout=20 \
+            "$VM_USER@$VM_HOST" \
+            "cd '$VM_APP_DIR' && php artisan tinker --execute='\
+              use App\\Models\\User;\
+              use Illuminate\\Support\\Facades\\Storage;\
+              \
+              \$path = storage_path(\"app/reports/membros-inativos-desportivamente.csv\");\
+              if (! is_dir(dirname(\$path))) { mkdir(dirname(\$path), 0775, true); }\
+              \
+              \$handle = fopen(\$path, \"w\");\
+              fwrite(\$handle, chr(239).chr(187).chr(191));\
+              fputcsv(\$handle, [\"numero_socio\", \"nome\", \"estado_geral\", \"ativo_desportivo\", \"tipo_membro\", \"escalao\"], \";\");\
+              \
+              User::query()\
+                ->where(\"ativo_desportivo\", false)\
+                ->orderBy(\"name\")\
+                ->get([\"numero_socio\", \"name\", \"estado\", \"ativo_desportivo\", \"tipo_membro\", \"escalao\"])\
+                ->each(function (\$user) use (\$handle) {\
+                  fputcsv(\$handle, [\
+                    \$user->numero_socio,\
+                    \$user->name,\
+                    \$user->estado,\
+                    \$user->ativo_desportivo ? \"Sim\" : \"Não\",\
+                    is_array(\$user->tipo_membro) ? implode(\", \", \$user->tipo_membro) : \$user->tipo_membro,\
+                    is_array(\$user->escalao) ? implode(\", \", \$user->escalao) : \$user->escalao,\
+                  ], \";\");\
+                });\
+              \
+              fclose(\$handle);\
+              echo \$path;\
+            '"
+
+          scp -i ~/.ssh/id_ed25519 \
+            -o BatchMode=yes \
+            "$VM_USER@$VM_HOST:$VM_APP_DIR/storage/app/reports/membros-inativos-desportivamente.csv" \
+            ./membros-inativos-desportivamente.csv
+
+      - name: Mostrar resumo
+        shell: bash
+        run: |
+          set -euo pipefail
+          total=$(( $(wc -l < membros-inativos-desportivamente.csv) - 1 ))
+          echo "Total de membros inativos desportivamente: $total"
+          sed -n '1,25p' membros-inativos-desportivamente.csv
+
+      - name: Publicar relatório
+        uses: actions/upload-artifact@v4
+        with:
+          name: membros-inativos-desportivamente
+          path: membros-inativos-desportivamente.csv
+          if-no-files-found: error
+          retention-days: 7
