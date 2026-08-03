@@ -1844,7 +1844,28 @@ class BankReconciliationSuggestionFlowTest extends TestCase
             'estado_pagamento' => 'vencido',
         ]);
         $statement = $this->createBankStatement(55.00, 'TRF CR INTRAB 274 DE PEDRO GONZAGA');
-        $suggestion = $this->generateSuggestion($admin, $statement, [$santiagoInvoice]);
+        $suggestion = BankReconciliationSuggestion::create([
+            'bank_statement_id' => $statement->id,
+            'user_id' => $santiago->id,
+            'family_id' => $santiago->families->first()?->id,
+            'status' => BankReconciliationSuggestion::STATUS_SUGGESTED,
+            'score' => 85,
+            'confidence_label' => BankReconciliationSuggestion::CONFIDENCE_HIGH,
+            'total_bank_amount' => 55.00,
+            'total_allocated_amount' => 30.00,
+            'unallocated_amount' => 25.00,
+            'suggested_allocations' => [[
+                'invoice_id' => $santiagoInvoice->id,
+                'amount' => 30.00,
+                'reason' => 'contexto inicial do membro sugerido',
+            ]],
+            'matched_rules' => ['manual_assisted_context_seed'],
+            'explanation' => 'Sugestao semeada para validar a inclusao manual de outra fatura elegivel.',
+            'metadata' => [
+                'allocation_signature' => $this->makeTestAllocationSignature($santiagoInvoice->id, 30.00),
+                'candidate_invoice_ids' => [$santiagoInvoice->id],
+            ],
+        ]);
 
         $this->actingAs($admin)
             ->postJson(route('financeiro.bank-reconciliation-suggestions.confirm', $suggestion), [
