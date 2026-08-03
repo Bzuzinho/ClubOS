@@ -53,8 +53,54 @@ replace_once(
 suggestion_test = "tests/Feature/Financeiro/BankReconciliationSuggestionFlowTest.php"
 replace_once(
     suggestion_test,
-    "$statement = $this->createBankStatement(55.00, 'TRF CR INTRAB 274 DE PEDRO GONZAGA');",
-    "$statement = $this->createBankStatement(55.00, 'TRF CR INTRAB 274 SANTIAGO GONZAGA');",
+    """        $santiagoInvoice = $this->createInvoice($santiago, 30.00, 'mensalidade', '2026-01-10', [
+            'mes' => '2026-01',
+            'data_fatura' => '2026-01-01',
+            'data_emissao' => '2026-01-01',
+            'estado_pagamento' => 'vencido',
+        ]);
+        $ritaInvoice = $this->createInvoice($rita, 25.00, 'mensalidade', '2026-01-10', [
+""",
+    """        $santiagoInvoice = $this->createInvoice($santiago, 30.00, 'mensalidade', '2026-01-10', [
+            'mes' => '2026-01',
+            'data_fatura' => '2026-01-01',
+            'data_emissao' => '2026-01-01',
+            'estado_pagamento' => 'vencido',
+        ]);
+        $santiagoContextInvoice = $this->createInvoice($santiago, 25.00, 'material', '2026-01-10', [
+            'data_fatura' => '2026-01-01',
+            'data_emissao' => '2026-01-01',
+            'estado_pagamento' => 'vencido',
+        ]);
+        $ritaInvoice = $this->createInvoice($rita, 25.00, 'mensalidade', '2026-01-10', [
+""",
+)
+replace_once(
+    suggestion_test,
+    "$suggestion = $this->generateSuggestion($admin, $statement, [$santiagoInvoice]);",
+    "$suggestion = $this->generateSuggestion($admin, $statement, [$santiagoInvoice, $santiagoContextInvoice]);",
+)
+replace_once(
+    suggestion_test,
+    """        $this->assertDatabaseHas('payment_allocations', [
+            'invoice_id' => $ritaInvoice->id,
+            'amount' => 25.00,
+            'status' => PaymentAllocation::STATUS_CONFIRMED,
+        ]);
+        $repositoryEntry = BankReconciliationRepository::query()
+""",
+    """        $this->assertDatabaseHas('payment_allocations', [
+            'invoice_id' => $ritaInvoice->id,
+            'amount' => 25.00,
+            'status' => PaymentAllocation::STATUS_CONFIRMED,
+        ]);
+        $this->assertDatabaseMissing('payment_allocations', [
+            'invoice_id' => $santiagoContextInvoice->id,
+            'status' => PaymentAllocation::STATUS_CONFIRMED,
+        ]);
+        $this->assertSame('vencido', $santiagoContextInvoice->fresh()->estado_pagamento);
+        $repositoryEntry = BankReconciliationRepository::query()
+""",
 )
 
 print("PR84 CI fixes applied")
