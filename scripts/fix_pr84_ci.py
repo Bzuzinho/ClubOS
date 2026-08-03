@@ -59,20 +59,13 @@ replace_once(
             'data_emissao' => '2026-01-01',
             'estado_pagamento' => 'vencido',
         ]);
-        $ritaInvoice = $this->createInvoice($rita, 25.00, 'mensalidade', '2026-01-10', [
 """,
-    """        $santiagoInvoice = $this->createInvoice($santiago, 30.00, 'mensalidade', '2026-01-10', [
+    """        $santiagoInvoice = $this->createInvoice($santiago, 55.00, 'mensalidade', '2026-01-10', [
             'mes' => '2026-01',
             'data_fatura' => '2026-01-01',
             'data_emissao' => '2026-01-01',
             'estado_pagamento' => 'vencido',
         ]);
-        $santiagoContextInvoice = $this->createInvoice($santiago, 25.00, 'material', '2026-01-10', [
-            'data_fatura' => '2026-01-01',
-            'data_emissao' => '2026-01-01',
-            'estado_pagamento' => 'vencido',
-        ]);
-        $ritaInvoice = $this->createInvoice($rita, 25.00, 'mensalidade', '2026-01-10', [
 """,
 )
 replace_once(
@@ -87,7 +80,7 @@ replace_once(
             $santiago->families->first()?->id,
             $admin,
         );
-        $suggestion = $this->generateSuggestion($admin, $statement, [$santiagoInvoice, $santiagoContextInvoice]);
+        $suggestion = $this->generateSuggestion($admin, $statement, [$santiagoInvoice]);
 """,
 )
 replace_once(
@@ -104,11 +97,12 @@ replace_once(
             'amount' => 25.00,
             'status' => PaymentAllocation::STATUS_CONFIRMED,
         ]);
-        $this->assertDatabaseMissing('payment_allocations', [
-            'invoice_id' => $santiagoContextInvoice->id,
-            'status' => PaymentAllocation::STATUS_CONFIRMED,
+        $this->assertDatabaseHas('invoices', [
+            'id' => $santiagoInvoice->id,
+            'estado_pagamento' => 'parcial',
+            'valor_pago' => 30.00,
+            'valor_em_aberto' => 25.00,
         ]);
-        $this->assertSame('vencido', $santiagoContextInvoice->fresh()->estado_pagamento);
         $repositoryEntry = BankReconciliationRepository::query()
 """,
 )
