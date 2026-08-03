@@ -1826,20 +1826,83 @@ class BankReconciliationSuggestionFlowTest extends TestCase
         ]);
     }
 
-    public function test_custom_assisted_confirmation_rejects_invoice_outside_eligible_context(): void
+    public function test_custom_assisted_confirmation_can_add_open_invoice_from_member_outside_suggested_context(): void
     {
         $admin = User::factory()->admin()->create();
-        $user = $this->createFinanceUser(['nome_completo' => 'Contexto Elegivel']);
-        $otherUser = $this->createFinanceUser(['nome_completo' => 'Contexto Invalido']);
-        $invoice = $this->createInvoice($user, 25.00);
-        $invalidInvoice = $this->createInvoice($otherUser, 25.00);
+        $santiago = $this->createFinanceUser(['nome_completo' => 'Santiago Ribeiro Santo Gonzaga']);
+        $rita = $this->createFinanceUser(['nome_completo' => 'Rita Margarida Ribeiro Santo']);
+        $santiagoInvoice = $this->createInvoice($santiago, 30.00, 'mensalidade', '2026-01-10', [
+            'mes' => '2026-01',
+            'data_fatura' => '2026-01-01',
+            'data_emissao' => '2026-01-01',
+            'estado_pagamento' => 'vencido',
+        ]);
+        $ritaInvoice = $this->createInvoice($rita, 25.00, 'mensalidade', '2026-01-10', [
+            'mes' => '2026-01',
+            'data_fatura' => '2026-01-01',
+            'data_emissao' => '2026-01-01',
+            'estado_pagamento' => 'vencido',
+        ]);
+        $statement = $this->createBankStatement(55.00, 'TRF CR INTRAB 274 DE PEDRO GONZAGA');
+        $suggestion = $this->generateSuggestion($admin, $statement, [$santiagoInvoice]);
+
+        $this->actingAs($admin)
+            ->postJson(route('financeiro.bank-reconciliation-suggestions.confirm', $suggestion), [
+                'invoices' => [
+                    [
+                        'invoice_id' => $santiagoInvoice->id,
+                        'amount' => 30.00,
+                    ],
+                    [
+                        'invoice_id' => $ritaInvoice->id,
+                        'amount' => 25.00,
+                    ],
+                ],
+            ])
+            ->assertOk()
+            ->assertJsonPath('summary.suggestion_confirmed', true)
+            ->assertJsonPath('summary.assisted_allocation', true);
+
+        $this->assertDatabaseHas('payment_allocations', [
+            'invoice_id' => $santiagoInvoice->id,
+            'amount' => 30.00,
+            'status' => PaymentAllocation::STATUS_CONFIRMED,
+        ]);
+        $this->assertDatabaseHas('payment_allocations', [
+            'invoice_id' => $ritaInvoice->id,
+            'amount' => 25.00,
+            'status' => PaymentAllocation::STATUS_CONFIRMED,
+        ]);
+        $repositoryEntry = BankReconciliationRepository::query()
+            ->get()
+            ->first(fn (BankReconciliationRepository $entry): bool =>
+                (string) data_get($entry->metadata, 'last_bank_statement_id') === (string) $statement->id
+            );
+        $this->assertNotNull($repositoryEntry);
+        $this->assertEqualsCanonicalizing(
+            [$santiago->id, $rita->id],
+            (array) $repositoryEntry->matched_user_ids,
+        );
+        $this->assertTrue($statement->fresh()->conciliado);
+    }
+
+    public function test_custom_assisted_confirmation_still_rejects_hidden_manual_invoice(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $suggestedUser = $this->createFinanceUser(['nome_completo' => 'Contexto Elegivel']);
+        $hiddenUser = $this->createFinanceUser(['nome_completo' => 'Contexto Oculto']);
+        $suggestedInvoice = $this->createInvoice($suggestedUser, 25.00);
+        $hiddenInvoice = $this->createInvoice($hiddenUser, 25.00, 'mensalidade', '2026-01-10', [
+            'data_fatura' => '2026-01-01',
+            'oculta' => true,
+        ]);
         $statement = $this->createBankStatement(25.00, 'Transferencia Contexto Elegivel');
-        $suggestion = $this->generateSuggestion($admin, $statement, [$invoice]);
+        $suggestion = $this->generateSuggestion($admin, $statement, [$suggestedInvoice]);
 
         $this->actingAs($admin)
             ->postJson(route('financeiro.bank-reconciliation-suggestions.confirm', $suggestion), [
                 'invoices' => [[
-                    'invoice_id' => $invalidInvoice->id,
+                    'invoice_id' => $hiddenInvoice->id,
                     'amount' => 25.00,
                 ]],
             ])

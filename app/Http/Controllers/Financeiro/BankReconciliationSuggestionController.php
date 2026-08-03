@@ -9,6 +9,7 @@ use App\Models\Invoice;
 use App\Models\Movement;
 use App\Models\Payment;
 use App\Services\Financeiro\BankReconciliationSuggestionService;
+use App\Services\Financeiro\CurrentAccountService;
 use App\Services\Financeiro\FinancialSettlementService;
 use App\Services\Financeiro\ReconciliationAliasService;
 use App\Models\User;
@@ -22,6 +23,7 @@ class BankReconciliationSuggestionController extends Controller
 {
     public function __construct(
         private readonly BankReconciliationSuggestionService $suggestionService,
+        private readonly CurrentAccountService $currentAccountService,
         private readonly FinancialSettlementService $financialSettlementService,
         private readonly ReconciliationAliasService $reconciliationAliasService,
     ) {
@@ -312,7 +314,38 @@ class BankReconciliationSuggestionController extends Controller
             $eligibleInvoiceIds = collect((array) data_get($assistedContext, 'eligible_invoices', []))
                 ->pluck('id')
                 ->filter()
-                ->all();
+                ->values();
+            $requestedInvoiceIds = collect($data['invoices'] ?? $data['allocations'] ?? [])
+                ->pluck('invoice_id')
+                ->filter()
+                ->unique()
+                ->values();
+
+            if ($requestedInvoiceIds->isNotEmpty()) {
+                $manuallySelectedOpenInvoiceIds = $this->currentAccountService
+                    ->openDebtInvoicesQuery()
+                    ->whereIn('invoices.id', $requestedInvoiceIds)
+                    ->get()
+                    ->map(fn (Invoice $invoice): Invoice => $this->currentAccountService->normalizeInvoiceFinancialAmounts($invoice))
+                    ->filter(fn (Invoice $invoice): bool => (float) ($invoice->valor_em_aberto ?? 0) > 0.009)
+                    ->pluck('id')
+                    ->map(fn ($invoiceId): string => (string) $invoiceId)
+                    ->values();
+                $invalidRequestedInvoiceIds = $requestedInvoiceIds
+                    ->map(fn ($invoiceId): string => (string) $invoiceId)
+                    ->diff($manuallySelectedOpenInvoiceIds);
+
+                if ($invalidRequestedInvoiceIds->isNotEmpty()) {
+                    throw ValidationException::withMessages([
+                        'invoices' => 'Uma ou mais faturas escolhidas manualmente ja nao sao dividas em aberto elegiveis.',
+                    ]);
+                }
+
+                $eligibleInvoiceIds = $eligibleInvoiceIds
+                    ->merge($manuallySelectedOpenInvoiceIds)
+                    ->unique()
+                    ->values();
+            }
             $eligibleMovementIds = collect((array) data_get($assistedContext, 'eligible_movements', []))
                 ->pluck('id')
                 ->filter()
@@ -331,7 +364,7 @@ class BankReconciliationSuggestionController extends Controller
                         'matched_rules' => (array) ($suggestion->matched_rules ?? []),
                     ],
                     'notes_fallback' => $suggestion->explanation,
-                    'eligible_invoice_ids' => $eligibleInvoiceIds,
+                    'eligible_invoice_ids' => $eligibleInvoiceIds->all(),
                     'eligible_movement_ids' => $eligibleMovementIds,
                     'require_explicit_credit_target' => true,
                 ],

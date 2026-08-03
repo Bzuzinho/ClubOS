@@ -85,6 +85,13 @@ const formatReferenceMonthLabel = (value?: string | null): string => {
   return `${month} ${match[1]}`;
 };
 
+const mergeById = <T extends { id: string }>(current: T[], incoming: T[]): T[] => {
+  const merged = new Map(current.map((item) => [item.id, item]));
+  incoming.forEach((item) => merged.set(item.id, item));
+
+  return Array.from(merged.values());
+};
+
 export function BankStatementReconciliationDialog({
   open,
   statement,
@@ -110,6 +117,7 @@ export function BankStatementReconciliationDialog({
   const [submitting, setSubmitting] = useState(false);
   const [invoiceTotal, setInvoiceTotal] = useState(0);
   const [movementTotal, setMovementTotal] = useState(0);
+  const [invoiceSearchResultIds, setInvoiceSearchResultIds] = useState<string[]>([]);
 
   useEffect(() => {
     if (!open || !statement) {
@@ -125,6 +133,7 @@ export function BankStatementReconciliationDialog({
     setCreateCredit(false);
     setCreditTarget('');
     setNotes('');
+    setInvoiceSearchResultIds([]);
 
     if (assistedContext) {
       const seededInvoices = Array.isArray(assistedContext.eligible_invoices)
@@ -180,11 +189,16 @@ export function BankStatementReconciliationDialog({
       return;
     }
 
-    if (assistedContext) {
+    if (assistedContext && searchTerm.trim().length < 2) {
       return;
     }
 
     const timeout = window.setTimeout(() => {
+      if (assistedContext) {
+        void loadOpenInvoices(searchTerm);
+        return;
+      }
+
       void Promise.all([loadOpenInvoices(searchTerm), loadOpenMovements(searchTerm)]);
     }, 300);
 
@@ -208,8 +222,43 @@ export function BankStatementReconciliationDialog({
   const status = getStatementStatus(statement);
   const visibleInvoiceCount = openInvoices.length;
   const visibleMovementCount = openMovements.length;
-  const hasMoreInvoices = invoiceTotal > visibleInvoiceCount;
+  const hasMoreInvoices = !assistedContext && invoiceTotal > visibleInvoiceCount;
   const hasMoreMovements = movementTotal > visibleMovementCount;
+
+  const invoiceMemberGroups = useMemo(() => {
+    const groups = new Map<string, {
+      userId: string;
+      userName: string;
+      familyName?: string | null;
+      invoices: OpenInvoiceListItem[];
+    }>();
+
+    openInvoices.forEach((invoice) => {
+      const existing = groups.get(invoice.user_id) ?? {
+        userId: invoice.user_id,
+        userName: invoice.user_name || 'Membro',
+        familyName: invoice.family_name,
+        invoices: [],
+      };
+      existing.invoices.push(invoice);
+      groups.set(invoice.user_id, existing);
+    });
+
+    return Array.from(groups.values()).sort((left, right) => left.userName.localeCompare(right.userName));
+  }, [openInvoices]);
+
+  const selectedInvoiceMemberGroups = useMemo(
+    () => invoiceMemberGroups.filter((group) => group.invoices.some(
+      (invoice) => toNumber(invoiceAllocations[invoice.id], 0) > 0.009,
+    )),
+    [invoiceAllocations, invoiceMemberGroups],
+  );
+
+  const invoiceSearchResultMemberGroups = useMemo(() => {
+    const resultIds = new Set(invoiceSearchResultIds);
+
+    return invoiceMemberGroups.filter((group) => group.invoices.some((invoice) => resultIds.has(invoice.id)));
+  }, [invoiceMemberGroups, invoiceSearchResultIds]);
 
   const creditTargets = useMemo<CreditTarget[]>(() => {
     const mapped = new Map<string, CreditTarget>();
@@ -260,7 +309,9 @@ export function BankStatementReconciliationDialog({
       }
 
       const payload = await response.json();
-      setOpenInvoices(Array.isArray(payload?.data) ? payload.data : []);
+      const invoices = Array.isArray(payload?.data) ? payload.data : [];
+      setInvoiceSearchResultIds(invoices.map((invoice: OpenInvoiceListItem) => invoice.id));
+      setOpenInvoices((current) => assistedContext ? mergeById(current, invoices) : invoices);
       setInvoiceTotal(toNumber(payload?.total, 0));
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Erro ao carregar faturas em aberto';
@@ -268,6 +319,42 @@ export function BankStatementReconciliationDialog({
     } finally {
       setLoadingInvoices(false);
     }
+  };
+
+  const addInvoiceMember = (userId: string) => {
+    const group = invoiceMemberGroups.find((candidate) => candidate.userId === userId);
+    if (!group) return;
+
+    setInvoiceAllocations((current) => {
+      const next = { ...current };
+      const currentInvoiceTotal = Object.values(current)
+        .reduce((sum, value) => sum + toNumber(value, 0), 0);
+      let available = Math.max(statementAvailableAmount - movementAllocatedTotal - currentInvoiceTotal, 0);
+
+      group.invoices.forEach((invoice) => {
+        if (available <= 0.009 || toNumber(next[invoice.id], 0) > 0.009) return;
+
+        const amount = Math.min(toNumber(invoice.valor_em_aberto, 0), available);
+        if (amount <= 0.009) return;
+
+        next[invoice.id] = amount.toFixed(2);
+        available = Math.max(available - amount, 0);
+      });
+
+      return next;
+    });
+  };
+
+  const removeInvoiceMember = (userId: string) => {
+    const invoiceIds = new Set(
+      invoiceMemberGroups
+        .find((candidate) => candidate.userId === userId)
+        ?.invoices.map((invoice) => invoice.id) ?? [],
+    );
+
+    setInvoiceAllocations((current) => Object.fromEntries(
+      Object.entries(current).filter(([invoiceId]) => !invoiceIds.has(invoiceId)),
+    ));
   };
 
   const loadOpenMovements = async (search: string) => {
@@ -448,9 +535,11 @@ export function BankStatementReconciliationDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="w-[calc(100vw-2rem)] min-w-0 max-w-[96vw] xl:max-w-7xl 2xl:max-w-[1500px] max-h-[92vh] overflow-x-hidden overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Conciliacao Manual</DialogTitle>
+          <DialogTitle>{assistedSuggestion ? 'Editar sugestao de conciliacao' : 'Conciliacao Manual'}</DialogTitle>
           <DialogDescription>
-            Use um unico fluxo para conciliar faturas abertas, movimentos pendentes e, se existir excedente, criar credito em conta corrente.
+            {assistedSuggestion
+              ? 'Adicione ou retire membros da sugestao e ajuste os valores antes de confirmar a conciliacao.'
+              : 'Use um unico fluxo para conciliar faturas abertas, movimentos pendentes e, se existir excedente, criar credito em conta corrente.'}
           </DialogDescription>
         </DialogHeader>
 
@@ -499,10 +588,89 @@ export function BankStatementReconciliationDialog({
               />
               <div className="text-xs text-muted-foreground">
                 {assistedContext
-                  ? 'Contexto assistido aplicado a partir da sugestao selecionada. Ajuste os valores elegiveis antes de confirmar.'
+                  ? 'Escreva pelo menos 2 caracteres para procurar qualquer membro por nome, NIF, numero de socio ou familia.'
                   : 'Pesquisa opcional com debounce e resultados paginados. Sem filtro, o dialogo carrega ate 25 faturas e 25 movimentos em aberto.'}
               </div>
             </div>
+
+            {assistedContext ? (
+              <Card className="space-y-4 p-4">
+                <div>
+                  <h3 className="font-semibold">Membros incluidos na conciliacao</h3>
+                  <p className="text-xs text-muted-foreground">
+                    Retirar um membro elimina todas as alocacoes provisórias das respetivas faturas. Nada e gravado antes da confirmacao.
+                  </p>
+                </div>
+
+                {selectedInvoiceMemberGroups.length === 0 ? (
+                  <div className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
+                    Nenhum membro esta atualmente incluido.
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {selectedInvoiceMemberGroups.map((group) => {
+                      const memberAmount = group.invoices.reduce(
+                        (sum, invoice) => sum + toNumber(invoiceAllocations[invoice.id], 0),
+                        0,
+                      );
+
+                      return (
+                        <div key={group.userId} className="flex flex-col gap-2 rounded-md border p-3 sm:flex-row sm:items-center sm:justify-between">
+                          <div>
+                            <div className="font-medium">{group.userName}</div>
+                            <div className="text-xs text-muted-foreground">
+                              {group.familyName ? `${group.familyName} · ` : ''}{formatCurrency(memberAmount)} associado
+                            </div>
+                          </div>
+                          <Button type="button" variant="outline" size="sm" onClick={() => removeInvoiceMember(group.userId)}>
+                            Retirar membro
+                          </Button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {searchTerm.trim().length >= 2 ? (
+                  <div className="space-y-2 border-t pt-4">
+                    <div className="text-sm font-medium">Resultados para adicionar</div>
+                    {loadingInvoices ? (
+                      <div className="text-sm text-muted-foreground">A procurar membros...</div>
+                    ) : invoiceSearchResultMemberGroups.length === 0 ? (
+                      <div className="text-sm text-muted-foreground">Nenhum membro com dividas em aberto encontrado.</div>
+                    ) : (
+                      invoiceSearchResultMemberGroups.map((group) => {
+                        const isSelected = selectedInvoiceMemberGroups.some((selected) => selected.userId === group.userId);
+                        const openAmount = group.invoices.reduce(
+                          (sum, invoice) => sum + toNumber(invoice.valor_em_aberto, 0),
+                          0,
+                        );
+
+                        return (
+                          <div key={group.userId} className="flex flex-col gap-2 rounded-md border p-3 sm:flex-row sm:items-center sm:justify-between">
+                            <div>
+                              <div className="font-medium">{group.userName}</div>
+                              <div className="text-xs text-muted-foreground">
+                                {group.familyName ? `${group.familyName} · ` : ''}{formatCurrency(openAmount)} em aberto
+                              </div>
+                            </div>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant={isSelected ? 'outline' : 'default'}
+                              disabled={isSelected || remainingAmount <= 0.009}
+                              onClick={() => addInvoiceMember(group.userId)}
+                            >
+                              {isSelected ? 'Ja incluido' : 'Adicionar membro'}
+                            </Button>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                ) : null}
+              </Card>
+            ) : null}
 
             <div className="space-y-4">
               <Card className="min-w-0 p-4 space-y-3">
@@ -514,7 +682,9 @@ export function BankStatementReconciliationDialog({
                         : 'Mensalidades/Faturas em aberto'}
                     </h3>
                     <p className="text-xs text-muted-foreground">
-                      {visibleInvoiceCount} de {invoiceTotal} resultado(s) carregados
+                      {assistedContext
+                        ? `${visibleInvoiceCount} fatura(s) carregada(s) para edicao`
+                        : `${visibleInvoiceCount} de ${invoiceTotal} resultado(s) carregados`}
                     </p>
                   </div>
                   <Badge variant="outline">Valor por alocar controlado</Badge>

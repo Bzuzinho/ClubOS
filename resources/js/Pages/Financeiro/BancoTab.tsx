@@ -3063,6 +3063,15 @@ export function BancoTab({
                           >
                             Rejeitar
                           </Button>
+                          {!isExpenseSuggestion && primarySuggestion.assisted_allocation_context ? (
+                            <Button
+                              variant="outline"
+                              onClick={() => openAssistedSuggestionDialog(primarySuggestion)}
+                              disabled={suggestionActionId === primarySuggestion.id}
+                            >
+                              Adicionar ou retirar membros
+                            </Button>
+                          ) : null}
                           {isDirectSuggestion(primarySuggestion) ? (
                             <Button
                               onClick={() => void handleConfirmSuggestion(primarySuggestion)}
@@ -3121,16 +3130,6 @@ export function BancoTab({
                         </div>
                       ) : null}
 
-                      {!isExpenseSuggestion && primarySuggestion.assisted_allocation_context ? (
-                        <div className="flex justify-end border-t pt-4">
-                          <Button
-                            onClick={() => openAssistedSuggestionDialog(primarySuggestion)}
-                            disabled={suggestionActionId === primarySuggestion.id}
-                          >
-                            Abrir alocacao assistida
-                          </Button>
-                        </div>
-                      ) : null}
                     </div>
                   );
                 })()
