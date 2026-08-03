@@ -474,7 +474,7 @@ class FinanceiroController extends Controller
             'documents.supplier:id,nome',
             'documents.validator:id,name,nome_completo',
             'financialEntries.bankStatement:id,data_movimento,descricao,valor,referencia,conciliado,conciliacao_status,valor_conciliado,valor_por_conciliar,lancamento_id',
-            'financialEntries.reconciliationMap:id,lancamento_id,extrato_id,descricao,created_at',
+            'financialEntries.reconciliationMap:id,lancamento_id,extrato_id,regra_usada,created_at',
         ]);
 
         $payload = [
@@ -540,7 +540,7 @@ class FinanceiroController extends Controller
                 'documents.supplier:id,nome',
                 'documents.validator:id,name,nome_completo',
                 'financialEntries.bankStatement:id,data_movimento,descricao,valor,referencia,conciliado,conciliacao_status,valor_conciliado,valor_por_conciliar,lancamento_id',
-                'financialEntries.reconciliationMap:id,lancamento_id,extrato_id,descricao,created_at',
+                'financialEntries.reconciliationMap:id,lancamento_id,extrato_id,regra_usada,created_at',
             ])),
         ]);
     }
@@ -569,7 +569,7 @@ class FinanceiroController extends Controller
                 'documents.supplier:id,nome',
                 'documents.validator:id,name,nome_completo',
                 'financialEntries.bankStatement:id,data_movimento,descricao,valor,referencia,conciliado,conciliacao_status,valor_conciliado,valor_por_conciliar,lancamento_id',
-                'financialEntries.reconciliationMap:id,lancamento_id,extrato_id,descricao,created_at',
+                'financialEntries.reconciliationMap:id,lancamento_id,extrato_id,regra_usada,created_at',
             ])),
         ]);
     }
@@ -598,7 +598,7 @@ class FinanceiroController extends Controller
                 'documents.supplier:id,nome',
                 'documents.validator:id,name,nome_completo',
                 'financialEntries.bankStatement:id,data_movimento,descricao,valor,referencia,conciliado,conciliacao_status,valor_conciliado,valor_por_conciliar,lancamento_id',
-                'financialEntries.reconciliationMap:id,lancamento_id,extrato_id,descricao,created_at',
+                'financialEntries.reconciliationMap:id,lancamento_id,extrato_id,regra_usada,created_at',
             ])),
         ]);
     }
@@ -627,7 +627,7 @@ class FinanceiroController extends Controller
                 'documents.supplier:id,nome',
                 'documents.validator:id,name,nome_completo',
                 'financialEntries.bankStatement:id,data_movimento,descricao,valor,referencia,conciliado,conciliacao_status,valor_conciliado,valor_por_conciliar,lancamento_id',
-                'financialEntries.reconciliationMap:id,lancamento_id,extrato_id,descricao,created_at',
+                'financialEntries.reconciliationMap:id,lancamento_id,extrato_id,regra_usada,created_at',
             ])),
         ]);
     }
@@ -647,7 +647,7 @@ class FinanceiroController extends Controller
                 'documents.supplier:id,nome',
                 'documents.validator:id,name,nome_completo',
                 'financialEntries.bankStatement:id,data_movimento,descricao,valor,referencia,conciliado,conciliacao_status,valor_conciliado,valor_por_conciliar,lancamento_id',
-                'financialEntries.reconciliationMap:id,lancamento_id,extrato_id,descricao,created_at',
+                'financialEntries.reconciliationMap:id,lancamento_id,extrato_id,regra_usada,created_at',
             ])),
         ]);
     }
@@ -671,7 +671,7 @@ class FinanceiroController extends Controller
                 'documents.supplier:id,nome',
                 'documents.validator:id,name,nome_completo',
                 'financialEntries.bankStatement:id,data_movimento,descricao,valor,referencia,conciliado,conciliacao_status,valor_conciliado,valor_por_conciliar,lancamento_id',
-                'financialEntries.reconciliationMap:id,lancamento_id,extrato_id,descricao,created_at',
+                'financialEntries.reconciliationMap:id,lancamento_id,extrato_id,regra_usada,created_at',
             ])),
         ]);
     }
@@ -698,7 +698,7 @@ class FinanceiroController extends Controller
                 'documents.supplier:id,nome',
                 'documents.validator:id,name,nome_completo',
                 'financialEntries.bankStatement:id,data_movimento,descricao,valor,referencia,conciliado,conciliacao_status,valor_conciliado,valor_por_conciliar,lancamento_id',
-                'financialEntries.reconciliationMap:id,lancamento_id,extrato_id,descricao,created_at',
+                'financialEntries.reconciliationMap:id,lancamento_id,extrato_id,regra_usada,created_at',
             ])),
         ]);
     }
@@ -1512,7 +1512,7 @@ class FinanceiroController extends Controller
                 ] : null,
                 'reconciliation_map' => $reconciliationMap ? [
                     'id' => (string) $reconciliationMap->id,
-                    'descricao' => $reconciliationMap->descricao,
+                    'regra_usada' => $reconciliationMap->regra_usada,
                     'created_at' => optional($reconciliationMap->created_at)?->toISOString(),
                 ] : null,
                 'estado_conciliacao' => $movement->estado_conciliacao,
@@ -2444,6 +2444,7 @@ class FinanceiroController extends Controller
         }
 
         $data = $request->validate([
+            'descricao' => ['required', 'string', 'max:255'],
             'supplier_id' => ['nullable', 'exists:suppliers,id'],
             'nome_manual' => ['nullable', 'string', 'max:255'],
             'categoria' => ['nullable', 'string', 'max:255'],
@@ -2460,9 +2461,11 @@ class FinanceiroController extends Controller
             'attachment' => ['nullable', 'file'],
         ]);
 
+        $description = trim($data['descricao']);
+
         $data = $this->normalizeManualMovementRequestData($request, array_merge($data, [
             'items' => [[
-                'descricao' => $data['notes'] ?? $extrato->descricao,
+                'descricao' => $description,
                 'quantidade' => 1,
                 'valor_unitario' => abs((float) $extrato->valor),
                 'imposto_percentual' => 0,
@@ -2471,7 +2474,7 @@ class FinanceiroController extends Controller
             ]],
             'valor_total' => abs((float) $extrato->valor),
             'metodo_pagamento' => $data['payment_method'] ?? 'transferencia',
-            'notes' => $data['notes'] ?? $extrato->descricao,
+            'notes' => $description,
         ]));
 
         $result = $this->manualExpenseService->createExpenseFromBankStatement($extrato, $data, $request->user());

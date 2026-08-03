@@ -222,6 +222,10 @@ export function BancoTab({
   const [dialogMappingOpen, setDialogMappingOpen] = useState(false);
   const [suggestionsDialogOpen, setSuggestionsDialogOpen] = useState(false);
   const [reconciliationDialogOpen, setReconciliationDialogOpen] = useState(false);
+  const [expenseDialogOpen, setExpenseDialogOpen] = useState(false);
+  const [expenseStatement, setExpenseStatement] = useState<ExtratoBancario | null>(null);
+  const [expenseDescription, setExpenseDescription] = useState('');
+  const [expenseCreating, setExpenseCreating] = useState(false);
   const [selectedExtrato, setSelectedExtrato] = useState<ExtratoBancario | null>(null);
   const [selectedSuggestionExtrato, setSelectedSuggestionExtrato] = useState<ExtratoBancario | null>(null);
   const [selectedReconciliationExtrato, setSelectedReconciliationExtrato] = useState<ExtratoBancario | null>(null);
@@ -1198,30 +1202,41 @@ export function BancoTab({
     }
   };
 
-  const handleCriarDespesaDaSaida = async (extrato: ExtratoBancario) => {
+  const openExpenseCreationDialog = (extrato: ExtratoBancario) => {
     if (!extrato.centro_custo_id) {
       toast.error('A linha bancaria precisa de centro de custo antes de criar a despesa.');
       return;
     }
 
-    const confirmed = window.confirm(
-      'Criar despesa a partir desta saida bancaria? Esta operacao cria um movimento financeiro associado e concilia o valor automaticamente.'
-    );
+    setExpenseStatement(extrato);
+    setExpenseDescription(extrato.descricao || '');
+    setSuggestionsDialogOpen(false);
+    setExpenseDialogOpen(true);
+  };
 
-    if (!confirmed) {
+  const handleCriarDespesaDaSaida = async () => {
+    if (!expenseStatement) {
       return;
     }
 
+    const description = expenseDescription.trim();
+    if (!description) {
+      toast.error('Indique a descricao da despesa.');
+      return;
+    }
+
+    setExpenseCreating(true);
+
     try {
-      const response = await fetch(route('financeiro.extratos.criar-despesa', extrato.id), {
+      const response = await fetch(route('financeiro.extratos.criar-despesa', expenseStatement.id), {
         method: 'POST',
         headers: buildJsonHeaders(),
         credentials: 'same-origin',
         body: JSON.stringify({
-          centro_custo_id: extrato.centro_custo_id,
+          centro_custo_id: expenseStatement.centro_custo_id,
           categoria: 'pagamento_bancario',
           tipo: 'servico',
-          notes: extrato.descricao,
+          descricao: description,
         }),
       });
 
@@ -1229,20 +1244,26 @@ export function BancoTab({
         const payload = await response.json().catch(() => null);
         throw new Error(
           payload?.errors?.extrato?.[0]
+          || payload?.errors?.descricao?.[0]
           || payload?.errors?.movement?.[0]
           || payload?.message
           || 'Erro ao criar despesa a partir da saida bancaria'
         );
       }
 
-      toast.success('Despesa criada a partir da saida bancaria.');
-      setSuggestionCache((current) => ({ ...current, [extrato.id]: [] }));
-      setSuggestionCounts((current) => ({ ...current, [extrato.id]: 0 }));
+      toast.success('Despesa criada, paga e conciliada. A fatura pode ser adicionada mais tarde.');
+      setSuggestionCache((current) => ({ ...current, [expenseStatement.id]: [] }));
+      setSuggestionCounts((current) => ({ ...current, [expenseStatement.id]: 0 }));
+      setExpenseDialogOpen(false);
+      setExpenseStatement(null);
+      setExpenseDescription('');
       setSuggestionsDialogOpen(false);
       refreshFinanceiroData();
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Erro ao criar despesa a partir da saida bancaria';
       toast.error(message);
+    } finally {
+      setExpenseCreating(false);
     }
   };
 
@@ -2298,7 +2319,7 @@ export function BancoTab({
                       <Button
                         size="sm"
                         variant="outline"
-                        onClick={() => void handleCriarDespesaDaSaida(extrato)}
+                        onClick={() => openExpenseCreationDialog(extrato)}
                         className="h-8 px-2"
                       >
                         Criar despesa
@@ -2459,7 +2480,7 @@ export function BancoTab({
                               <Button
                                 size="sm"
                                 variant="outline"
-                                onClick={() => void handleCriarDespesaDaSaida(extrato)}
+                                onClick={() => openExpenseCreationDialog(extrato)}
                                 className="text-[10px] md:text-xs h-7 md:h-8 px-2 md:px-3"
                                 title="Criar despesa a partir desta saida bancaria"
                               >
@@ -2947,7 +2968,7 @@ export function BancoTab({
                     Sem correspondencias para esta linha bancaria.
                   </div>
                   {toNumber(selectedSuggestionExtrato.valor) < 0 ? (
-                    <Button onClick={() => void handleCriarDespesaDaSaida(selectedSuggestionExtrato)}>
+                    <Button onClick={() => openExpenseCreationDialog(selectedSuggestionExtrato)}>
                       Criar despesa
                     </Button>
                   ) : (
@@ -3136,6 +3157,78 @@ export function BancoTab({
               )}
             </div>
           ) : null}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={expenseDialogOpen}
+        onOpenChange={(open) => {
+          if (expenseCreating) return;
+          setExpenseDialogOpen(open);
+          if (!open) {
+            setExpenseStatement(null);
+            setExpenseDescription('');
+          }
+        }}
+      >
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Criar e conciliar despesa</DialogTitle>
+            <DialogDescription>
+              Confirme a descricao. O movimento fica pago e conciliado com esta saida bancaria; a fatura pode ser anexada posteriormente.
+            </DialogDescription>
+          </DialogHeader>
+
+          {expenseStatement ? (
+            <div className="space-y-4">
+              <div className="grid gap-3 rounded-lg border bg-muted/30 p-3 text-sm sm:grid-cols-2">
+                <div>
+                  <div className="text-xs text-muted-foreground">Data</div>
+                  <div className="font-medium">{format(new Date(expenseStatement.data_movimento), 'dd/MM/yyyy')}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-muted-foreground">Valor</div>
+                  <div className="font-semibold text-red-600">€{Math.abs(toNumber(expenseStatement.valor)).toFixed(2)}</div>
+                </div>
+                <div className="sm:col-span-2">
+                  <div className="text-xs text-muted-foreground">Centro de custo</div>
+                  <div className="font-medium">{getCentroCustoName(expenseStatement.centro_custo_id)}</div>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="bank-expense-description">Descricao da despesa *</Label>
+                <Textarea
+                  id="bank-expense-description"
+                  value={expenseDescription}
+                  onChange={(event) => setExpenseDescription(event.target.value)}
+                  placeholder="Descricao da despesa"
+                  rows={3}
+                  maxLength={255}
+                  autoFocus
+                />
+                <p className="text-xs text-muted-foreground">Preenchida a partir da descricao do movimento bancario e editavel antes de criar.</p>
+              </div>
+            </div>
+          ) : null}
+
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setExpenseDialogOpen(false)}
+              disabled={expenseCreating}
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              onClick={() => void handleCriarDespesaDaSaida()}
+              disabled={expenseCreating || !expenseDescription.trim()}
+            >
+              {expenseCreating ? 'A criar...' : 'Criar e conciliar'}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

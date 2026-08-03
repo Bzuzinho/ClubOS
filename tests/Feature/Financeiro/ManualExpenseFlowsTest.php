@@ -211,16 +211,30 @@ class ManualExpenseFlowsTest extends TestCase
             'centro_custo_id' => $costCenter->id,
             'categoria' => 'agua',
             'tipo' => 'servico',
-            'notes' => 'Pagamento agua',
+            'descricao' => 'Pagamento mensal de agua da piscina',
         ]);
 
-        $response->assertOk();
+        $response
+            ->assertOk()
+            ->assertJsonPath('movimento.estado_pagamento', 'pago')
+            ->assertJsonPath('movimento.estado_conciliacao', 'conciliado')
+            ->assertJsonPath('extrato.conciliacao_status', 'reconciled');
 
         $movement = Movement::query()->where('origem_tipo', 'bank_statement')->firstOrFail();
+        $entry = FinancialEntry::query()
+            ->where('origem_tipo', 'movement')
+            ->where('origem_id', $movement->id)
+            ->firstOrFail();
 
         $this->assertSame('pago', $movement->estado_pagamento);
         $this->assertSame('conciliado', $movement->estado_conciliacao);
         $this->assertSame('falta_fatura', $movement->estado_documental);
+        $this->assertSame('Pagamento mensal de agua da piscina', $movement->observacoes);
+        $this->assertSame('Pagamento mensal de agua da piscina', $entry->descricao);
+        $this->assertDatabaseHas('movement_items', [
+            'movimento_id' => $movement->id,
+            'descricao' => 'Pagamento mensal de agua da piscina',
+        ]);
         $this->assertDatabaseHas('movement_documents', [
             'movement_id' => $movement->id,
             'document_type' => 'bank_statement_line',
@@ -228,6 +242,39 @@ class ManualExpenseFlowsTest extends TestCase
 
         $statement->refresh();
         $this->assertTrue((bool) $statement->conciliado);
+
+        $this->actingAs($admin)
+            ->getJson(route('financeiro.movimentos.show', $movement))
+            ->assertOk()
+            ->assertJsonPath('movement.id', $movement->id)
+            ->assertJsonPath('movement.estado_pagamento', 'pago')
+            ->assertJsonPath('movement.estado_documental', 'falta_fatura')
+            ->assertJsonPath('movement.estado_conciliacao', 'conciliado')
+            ->assertJsonPath('movement.conciliation.bank_statement.id', $statement->id);
+    }
+
+    public function test_bank_expense_requires_an_explicit_description_before_creating_any_record(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $costCenter = CostCenter::query()->firstOrFail();
+        $statement = BankStatement::query()->create([
+            'data_movimento' => now()->toDateString(),
+            'descricao' => 'Debito bancario sem descricao confirmada',
+            'valor' => -18.50,
+            'referencia' => 'TRX-DESC-REQUIRED',
+            'centro_custo_id' => $costCenter->id,
+            'conciliado' => false,
+        ]);
+
+        $this->actingAs($admin)
+            ->postJson(route('financeiro.extratos.criar-despesa', $statement), [
+                'centro_custo_id' => $costCenter->id,
+            ])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['descricao']);
+
+        $this->assertDatabaseCount('movements', 0);
+        $this->assertFalse((bool) $statement->fresh()->conciliado);
     }
 
     public function test_positive_bank_entry_cannot_create_an_expense(): void
@@ -245,6 +292,7 @@ class ManualExpenseFlowsTest extends TestCase
 
         $response = $this->actingAs($admin)->postJson(route('financeiro.extratos.criar-despesa', $statement->id), [
             'centro_custo_id' => $costCenter->id,
+            'descricao' => 'Receita que nao pode ser convertida em despesa',
         ]);
 
         $response

@@ -103,7 +103,7 @@ class ManualExpenseService
 
             $data['document_type'] = $data['document_type'] ?? 'bank_statement_line';
             $data['document_number'] = $data['document_number'] ?? $bankStatement->referencia;
-            $data['observacoes'] = $data['observacoes'] ?? $bankStatement->descricao;
+            $data['observacoes'] = $data['observacoes'] ?? ($data['descricao'] ?? $bankStatement->descricao);
             $data['source_type'] = 'bank_import';
             $data['source_id'] = $bankStatement->id;
             $data['document_status'] = 'valid';
@@ -115,7 +115,7 @@ class ManualExpenseService
                 'payment_date' => $data['paid_at'] ?? optional($bankStatement->data_movimento)?->toDateString() ?? now()->toDateString(),
                 'method' => $data['metodo_pagamento'] ?? 'transferencia',
                 'reference' => $bankStatement->referencia,
-                'description' => $bankStatement->descricao,
+                'description' => $data['descricao'] ?? $bankStatement->descricao,
                 'bank_statement_id' => $bankStatement->id,
                 'created_by' => $actor?->id,
                 'source' => 'bank_statement',
@@ -136,7 +136,7 @@ class ManualExpenseService
                 'issue_date' => $bankStatement->data_movimento,
                 'amount' => abs((float) $bankStatement->valor),
                 'status' => 'valid',
-                'notes' => $bankStatement->descricao,
+                'notes' => $data['descricao'] ?? $bankStatement->descricao,
             ]);
 
             $this->movementDocumentControlService->refresh($movement->fresh());

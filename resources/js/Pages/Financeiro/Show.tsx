@@ -69,7 +69,7 @@ interface ConciliationDetail {
     } | null;
     reconciliation_map: {
         id: string;
-        descricao?: string | null;
+        regra_usada?: string | null;
         created_at: string | null;
     } | null;
     estado_conciliacao: ReconciliationStatus;

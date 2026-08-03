@@ -60,6 +60,7 @@ class MovementShowFlowTest extends TestCase
             'movimento_id' => $movement->id,
             'valor_conciliado' => 120,
             'status' => 'confirmed',
+            'regra_usada' => 'bank_statement_settlement',
         ]);
 
         $response = $this->actingAs($admin)->getJson(route('financeiro.movimentos.show', $movement));
@@ -69,7 +70,8 @@ class MovementShowFlowTest extends TestCase
             ->assertJsonPath('movement.items.0.descricao', 'Piscina municipal')
             ->assertJsonPath('movement.documents.0.document_number', 'FAC-DET-1')
             ->assertJsonPath('movement.conciliation.bank_statement.id', $statement->id)
-            ->assertJsonPath('movement.conciliation.reconciliation_map.id', MapaConciliacao::query()->firstOrFail()->id);
+            ->assertJsonPath('movement.conciliation.reconciliation_map.id', MapaConciliacao::query()->firstOrFail()->id)
+            ->assertJsonPath('movement.conciliation.reconciliation_map.regra_usada', 'bank_statement_settlement');
     }
 
     public function test_attaching_invoice_recalculates_document_state(): void
