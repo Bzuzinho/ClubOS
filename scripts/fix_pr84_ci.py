@@ -77,6 +77,11 @@ replace_once(
 )
 replace_once(
     suggestion_test,
+    "$statement = $this->createBankStatement(55.00, 'TRF CR INTRAB 274 DE PEDRO GONZAGA');",
+    "$statement = $this->createBankStatement(55.00, 'TRF CR INTRAB 274 SANTIAGO RIBEIRO SANTO GONZAGA');",
+)
+replace_once(
+    suggestion_test,
     "$suggestion = $this->generateSuggestion($admin, $statement, [$santiagoInvoice]);",
     "$suggestion = $this->generateSuggestion($admin, $statement, [$santiagoInvoice, $santiagoContextInvoice]);",
 )
