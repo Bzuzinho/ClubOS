@@ -1,0 +1,90 @@
+name: Apply finance module fixes
+
+on:
+  push:
+    branches:
+      - fix/financeiro-ui-conciliacao
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, pdo_sqlite, sqlite3, intl, bcmath
+          coverage: none
+
+      - name: Apply requested fixes
+        run: python scripts/patch_finance.py
+
+      - name: Install PHP dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Prepare test environment
+        shell: bash
+        run: |
+          cp .env.example .env
+          php artisan key:generate
+          mkdir -p database
+          touch database/database.sqlite
+          cat >> .env <<EOF
+          DB_CONNECTION=sqlite
+          DB_DATABASE=${{ github.workspace }}/database/database.sqlite
+          CACHE_STORE=array
+          SESSION_DRIVER=array
+          QUEUE_CONNECTION=sync
+          MAIL_MAILER=array
+          EOF
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Validate PHP syntax
+        shell: bash
+        run: |
+          php -l app/Http/Controllers/FinanceiroController.php
+          php -l app/Services/Financeiro/FinanceDashboardService.php
+
+      - name: Run focused finance tests
+        run: php artisan test --filter='Financeiro|FinanceDashboard|Movement|BankReconciliation' --stop-on-failure
+
+      - name: Commit validated changes
+        shell: bash
+        run: |
+          rm -f scripts/patch_finance.py .github/workflows/apply-finance-fixes.yml
+          git config user.name 'ClubOS automation'
+          git config user.email 'actions@users.noreply.github.com'
+          git add -- \
+            resources/js/Pages/Financeiro/DashboardTab.tsx \
+            resources/js/Pages/Financeiro/DashboardCharts.tsx \
+            resources/js/Pages/Financeiro/FaturasTab.tsx \
+            resources/js/Pages/Financeiro/MovimentosTab.tsx \
+            resources/js/Pages/Financeiro/BancoTab.tsx \
+            resources/js/Pages/Financeiro/Show.tsx \
+            app/Services/Financeiro/FinanceDashboardService.php \
+            app/Http/Controllers/FinanceiroController.php \
+            scripts/patch_finance.py \
+            .github/workflows/apply-finance-fixes.yml
+          git diff --cached --check
+          git commit -m 'Fix finance UI and reconciliation bugs'
+          git push origin HEAD:fix/financeiro-ui-conciliacao
