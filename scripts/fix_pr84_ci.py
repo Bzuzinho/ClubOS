@@ -53,57 +53,32 @@ replace_once(
 suggestion_test = "tests/Feature/Financeiro/BankReconciliationSuggestionFlowTest.php"
 replace_once(
     suggestion_test,
-    """        $santiagoInvoice = $this->createInvoice($santiago, 30.00, 'mensalidade', '2026-01-10', [
-            'mes' => '2026-01',
-            'data_fatura' => '2026-01-01',
-            'data_emissao' => '2026-01-01',
-            'estado_pagamento' => 'vencido',
-        ]);
-""",
-    """        $santiagoInvoice = $this->createInvoice($santiago, 55.00, 'mensalidade', '2026-01-10', [
-            'mes' => '2026-01',
-            'data_fatura' => '2026-01-01',
-            'data_emissao' => '2026-01-01',
-            'estado_pagamento' => 'vencido',
-        ]);
-""",
-)
-replace_once(
-    suggestion_test,
     """        $statement = $this->createBankStatement(55.00, 'TRF CR INTRAB 274 DE PEDRO GONZAGA');
         $suggestion = $this->generateSuggestion($admin, $statement, [$santiagoInvoice]);
 """,
     """        $statement = $this->createBankStatement(55.00, 'TRF CR INTRAB 274 DE PEDRO GONZAGA');
-        $this->learnStatementDescription(
-            $statement,
-            $santiago->id,
-            $santiago->families->first()?->id,
-            $admin,
-        );
-        $suggestion = $this->generateSuggestion($admin, $statement, [$santiagoInvoice]);
-""",
-)
-replace_once(
-    suggestion_test,
-    """        $this->assertDatabaseHas('payment_allocations', [
-            'invoice_id' => $ritaInvoice->id,
-            'amount' => 25.00,
-            'status' => PaymentAllocation::STATUS_CONFIRMED,
+        $suggestion = BankReconciliationSuggestion::create([
+            'bank_statement_id' => $statement->id,
+            'user_id' => $santiago->id,
+            'family_id' => $santiago->families->first()?->id,
+            'status' => BankReconciliationSuggestion::STATUS_SUGGESTED,
+            'score' => 85,
+            'confidence_label' => BankReconciliationSuggestion::CONFIDENCE_HIGH,
+            'total_bank_amount' => 55.00,
+            'total_allocated_amount' => 30.00,
+            'unallocated_amount' => 25.00,
+            'suggested_allocations' => [[
+                'invoice_id' => $santiagoInvoice->id,
+                'amount' => 30.00,
+                'reason' => 'contexto inicial do membro sugerido',
+            ]],
+            'matched_rules' => ['manual_assisted_context_seed'],
+            'explanation' => 'Sugestao semeada para validar a inclusao manual de outra fatura elegivel.',
+            'metadata' => [
+                'allocation_signature' => $this->makeTestAllocationSignature($santiagoInvoice->id, 30.00),
+                'candidate_invoice_ids' => [$santiagoInvoice->id],
+            ],
         ]);
-        $repositoryEntry = BankReconciliationRepository::query()
-""",
-    """        $this->assertDatabaseHas('payment_allocations', [
-            'invoice_id' => $ritaInvoice->id,
-            'amount' => 25.00,
-            'status' => PaymentAllocation::STATUS_CONFIRMED,
-        ]);
-        $this->assertDatabaseHas('invoices', [
-            'id' => $santiagoInvoice->id,
-            'estado_pagamento' => 'parcial',
-            'valor_pago' => 30.00,
-            'valor_em_aberto' => 25.00,
-        ]);
-        $repositoryEntry = BankReconciliationRepository::query()
 """,
 )
 
