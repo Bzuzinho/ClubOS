@@ -34,6 +34,7 @@ interface MemberFilters {
     search?: string;
     status?: string;
     sports_status?: 'ativo' | 'inativo' | null;
+    monthly_fee_status?: 'defined' | 'undefined' | null;
     type?: string | null;
 }
 
@@ -55,6 +56,7 @@ export default function MembrosListTab({ members, membersPagination, filters, us
     const [searchTerm, setSearchTerm] = useState(filters?.search || '');
     const [statusFilter, setStatusFilter] = useState<string>(filters?.status || 'all');
     const [sportsStatusFilter, setSportsStatusFilter] = useState<string>(filters?.sports_status || 'all');
+    const [monthlyFeeStatusFilter, setMonthlyFeeStatusFilter] = useState<string>(filters?.monthly_fee_status || 'all');
     const [typeFilter, setTypeFilter] = useState<string>(filters?.type || 'all');
     const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
     const [userToDelete, setUserToDelete] = useState<User | null>(null);
@@ -63,6 +65,7 @@ export default function MembrosListTab({ members, membersPagination, filters, us
     useEffect(() => setSearchTerm(filters?.search || ''), [filters?.search]);
     useEffect(() => setStatusFilter(filters?.status || 'all'), [filters?.status]);
     useEffect(() => setSportsStatusFilter(filters?.sports_status || 'all'), [filters?.sports_status]);
+    useEffect(() => setMonthlyFeeStatusFilter(filters?.monthly_fee_status || 'all'), [filters?.monthly_fee_status]);
     useEffect(() => setTypeFilter(filters?.type || 'all'), [filters?.type]);
 
     const updateServerFilters = useCallback((updates: Record<string, string>) => {
@@ -129,6 +132,11 @@ export default function MembrosListTab({ members, membersPagination, filters, us
         updateServerFilters({ status: value });
     }, [updateServerFilters]);
 
+    const handleMonthlyFeeStatusChange = useCallback((value: string) => {
+        setMonthlyFeeStatusFilter(value);
+        updateServerFilters({ monthly_fee_status: value });
+    }, [updateServerFilters]);
+
     const handleTypeChange = useCallback((value: string) => {
         setTypeFilter(value);
         updateServerFilters({ type: value });
@@ -193,8 +201,8 @@ export default function MembrosListTab({ members, membersPagination, filters, us
             </div>
 
             <Card className="p-2.5">
-                <div className="flex flex-col gap-2 sm:flex-row">
-                    <div className="relative flex-1">
+                <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+                    <div className="relative sm:min-w-[260px] sm:flex-1">
                         <Input
                             placeholder="Pesquisar por nome, NIF, nº sócio ou email..."
                             value={searchTerm}
@@ -221,6 +229,16 @@ export default function MembrosListTab({ members, membersPagination, filters, us
                             <SelectItem value="all">Todos os estados desportivos</SelectItem>
                             <SelectItem value="ativo">Ativo</SelectItem>
                             <SelectItem value="inativo">Não ativo</SelectItem>
+                        </SelectContent>
+                    </Select>
+                    <Select value={monthlyFeeStatusFilter} onValueChange={handleMonthlyFeeStatusChange}>
+                        <SelectTrigger className="w-full sm:w-[190px] h-8 text-[11px]">
+                            <SelectValue placeholder="Mensalidade" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="all">Todas as mensalidades</SelectItem>
+                            <SelectItem value="defined">Com mensalidade definida</SelectItem>
+                            <SelectItem value="undefined">Sem mensalidade definida</SelectItem>
                         </SelectContent>
                     </Select>
                     <Select value={typeFilter} onValueChange={handleTypeChange}>
@@ -376,7 +394,7 @@ export default function MembrosListTab({ members, membersPagination, filters, us
                         <UsersIcon size={40} className="mx-auto text-muted-foreground mb-3" weight="duotone" />
                         <h3 className="text-base font-semibold mb-1.5">Nenhum membro encontrado</h3>
                         <p className="text-muted-foreground mb-3 text-xs">
-                            Ajuste os filtros de estado, estado desportivo ou tipo, ou pesquise por nome, NIF, número de sócio e email.
+                            Ajuste os filtros de estado, estado desportivo, mensalidade ou tipo, ou pesquise por nome, NIF, número de sócio e email.
                         </p>
                         <Link href={route('membros.create')}>
                             <Button size="sm" className="h-8 text-xs">

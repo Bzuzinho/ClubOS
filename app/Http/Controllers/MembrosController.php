@@ -67,6 +67,7 @@ class MembrosController extends Controller
         $search = trim((string) $request->string('search')->value());
         $status = trim((string) $request->string('status')->value());
         $sportsStatus = trim((string) $request->string('sports_status')->value());
+        $monthlyFeeStatus = trim((string) $request->string('monthly_fee_status')->value());
         $type = $this->memberTypeResolver->normalizeType(
             trim((string) $request->string('type')->value())
         );
@@ -112,6 +113,12 @@ class MembrosController extends Controller
             })
             ->when(in_array($status, ['ativo', 'inativo', 'suspenso'], true), fn ($query) => $query->where('estado', $status))
             ->when(in_array($sportsStatus, ['ativo', 'inativo'], true), fn ($query) => $query->where('ativo_desportivo', $sportsStatus === 'ativo'))
+            ->when($monthlyFeeStatus === 'defined', function ($query): void {
+                $query->whereHas('dadosFinanceiros', fn ($financeQuery) => $financeQuery->whereNotNull('mensalidade_id'));
+            })
+            ->when($monthlyFeeStatus === 'undefined', function ($query): void {
+                $query->whereDoesntHave('dadosFinanceiros', fn ($financeQuery) => $financeQuery->whereNotNull('mensalidade_id'));
+            })
             ->when($selectedUserType, function ($query) use ($selectedUserType, $type): void {
                 $query->where(function ($typeQuery) use ($selectedUserType, $type): void {
                     $typeQuery->whereHas('userTypes', fn ($userTypeQuery) => $userTypeQuery->whereKey($selectedUserType->id));
@@ -223,6 +230,7 @@ class MembrosController extends Controller
                 'search' => $search,
                 'status' => $status,
                 'sports_status' => in_array($sportsStatus, ['ativo', 'inativo'], true) ? $sportsStatus : null,
+                'monthly_fee_status' => in_array($monthlyFeeStatus, ['defined', 'undefined'], true) ? $monthlyFeeStatus : null,
                 'type' => $selectedUserType ? $type : null,
             ],
             'userTypes' => $userTypes,

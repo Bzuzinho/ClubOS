@@ -55,6 +55,7 @@ interface MemberFilters {
     search?: string;
     status?: string;
     sports_status?: 'ativo' | 'inativo' | null;
+    monthly_fee_status?: 'defined' | 'undefined' | null;
     type?: string | null;
 }
 
