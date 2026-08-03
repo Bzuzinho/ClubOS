@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests;
 
+use App\Rules\UniqueMemberNif;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -20,7 +21,7 @@ class StoreMembroRequest extends FormRequest
             'email_utilizador' => ['nullable', 'string', 'email', 'max:255', 'unique:users,email_utilizador', 'unique:users,email'],
             'password' => ['nullable', 'string', 'min:8'],
             'numero_socio' => ['nullable', 'string', 'max:50', 'unique:users,numero_socio'],
-            'nif' => ['nullable', 'string', 'max:50'],
+            'nif' => ['nullable', 'string', 'max:50', new UniqueMemberNif()],
             'contacto' => ['nullable', 'string', 'max:20'],
             'telefone' => ['nullable', 'string', 'max:20'],
             'data_nascimento' => ['nullable', 'date'],

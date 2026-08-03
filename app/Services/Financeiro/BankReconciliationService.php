@@ -25,6 +25,8 @@ class BankReconciliationService
         private readonly PaymentAllocationService $paymentAllocationService,
         private readonly FinancialBalanceService $financialBalanceService,
         private readonly FiscalDocumentRequestService $fiscalDocumentRequestService,
+        private readonly ReconciliationAliasService $reconciliationAliasService,
+        private readonly ReconciliationRepositoryService $reconciliationRepositoryService,
     ) {
     }
 
@@ -247,6 +249,11 @@ class BankReconciliationService
                 array_values($affectedInvoiceIds),
                 array_values($affectedEntryIds),
             );
+
+            foreach ($payments as $payment) {
+                $this->reconciliationAliasService->forgetFromUnreconciledPayment($bankStatement, $payment);
+                $this->reconciliationRepositoryService->forgetFromUnreconciledPayment($bankStatement, $payment);
+            }
 
             foreach ($allocations as $allocation) {
 

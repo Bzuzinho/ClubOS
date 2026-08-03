@@ -4,8 +4,10 @@ namespace App\Services\Members;
 
 use App\Models\AgeGroup;
 use App\Models\CostCenter;
+use App\Models\DadosPessoais;
 use App\Models\MonthlyFee;
 use App\Models\User;
+use App\Rules\UniqueMemberNif;
 use App\Services\Financeiro\MemberCostCenterSyncService;
 use App\Services\Financeiro\MemberMonthlyFeeSyncService;
 use Carbon\Carbon;
@@ -111,6 +113,7 @@ class MemberImportService
         $warnings = [];
         $batchEmails = [];
         $batchMemberNumbers = [];
+        $batchNifs = [];
 
         $existingEmails = User::query()
             ->whereNotNull('email_utilizador')
@@ -122,6 +125,18 @@ class MemberImportService
             ->whereNotNull('numero_socio')
             ->pluck('numero_socio')
             ->map(fn ($value) => mb_strtolower((string) $value))
+            ->flip();
+
+        $existingNifs = DadosPessoais::query()
+            ->whereNotNull('nif')
+            ->pluck('nif')
+            ->merge(
+                User::query()
+                    ->whereNotNull('nif')
+                    ->pluck('nif')
+            )
+            ->map(fn ($value) => UniqueMemberNif::normalize($value))
+            ->filter()
             ->flip();
 
         foreach (array_values($rows) as $index => $row) {
@@ -181,6 +196,17 @@ class MemberImportService
                 $batchMemberNumbers[$memberNumber] = true;
             } else {
                 $rowWarnings[] = $this->message('numero_socio', 'Numero de socio sera gerado automaticamente.');
+            }
+
+            $nif = UniqueMemberNif::normalize($normalized['nif'] ?? null);
+            if ($nif) {
+                if (isset($existingNifs[$nif])) {
+                    $rowErrors[] = $this->message('nif', 'NIF ja existe no sistema.');
+                }
+                if (isset($batchNifs[$nif])) {
+                    $rowErrors[] = $this->message('nif', 'NIF duplicado no ficheiro.');
+                }
+                $batchNifs[$nif] = true;
             }
 
             $preparedRows[] = [

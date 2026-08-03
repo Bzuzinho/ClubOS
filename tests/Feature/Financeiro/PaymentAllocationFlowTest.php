@@ -3,9 +3,12 @@
 namespace Tests\Feature\Financeiro;
 
 use App\Models\AccountCredit;
+use App\Models\BankReconciliationAlias;
+use App\Models\BankReconciliationRepository;
 use App\Models\BankReconciliationSuggestion;
 use App\Models\BankStatement;
 use App\Models\CostCenter;
+use App\Models\DadosPessoais;
 use App\Models\Familia;
 use App\Models\FiscalDocumentRequest;
 use App\Models\FinancialEntry;
@@ -2010,6 +2013,75 @@ class PaymentAllocationFlowTest extends TestCase
         $invoiceIds = collect($response->json('data') ?? [])->pluck('id')->all();
 
         $this->assertNotContains($invoice->id, $invoiceIds);
+    }
+
+    public function test_open_invoices_search_uses_canonical_member_name_and_nif(): void
+    {
+        $admin = User::factory()->admin()->create();
+        [$invoice] = $this->createInvoicesForUser([32.50]);
+        $member = $invoice->user;
+        $member->forceFill([
+            'nome_completo' => 'Nome Legacy Invisível',
+            'nif' => '111111111',
+        ])->save();
+        DadosPessoais::query()->updateOrCreate(
+            ['user_id' => $member->id],
+            [
+                'nome_completo' => 'Membro Canónico da Conciliação',
+                'nif' => '245678904',
+            ],
+        );
+
+        foreach (['Canónico da Conciliação', '245678904'] as $search) {
+            $response = $this->actingAs($admin)
+                ->getJson(route('financeiro.invoices.open', [
+                    'search' => $search,
+                    'per_page' => 25,
+                ]));
+
+            $response->assertOk();
+            $row = collect($response->json('data') ?? [])->firstWhere('id', $invoice->id);
+            $this->assertNotNull($row);
+            $this->assertSame('Membro Canónico da Conciliação', $row['user_name']);
+        }
+    }
+
+    public function test_unreconciling_forgets_learning_created_by_that_reconciliation(): void
+    {
+        $admin = User::factory()->admin()->create();
+        [$invoice] = $this->createInvoicesForUser([30.00]);
+        $statement = $this->createBankStatement(30.00);
+        $statement->forceFill([
+            'descricao' => 'TRF CR INTRAB 123 DE MEMBRO A CORRIGIR',
+            'referencia' => 'APRENDIZAGEM-ERRADA-001',
+        ])->save();
+
+        $this->actingAs($admin)->postJson(route('financeiro.bank-statements.allocate', $statement), [
+            'invoices' => [[
+                'invoice_id' => $invoice->id,
+                'amount' => 30.00,
+            ]],
+        ])->assertOk();
+
+        $this->assertTrue(BankReconciliationRepository::query()
+            ->where('primary_user_id', $invoice->user_id)
+            ->exists());
+        $this->assertTrue(BankReconciliationAlias::query()
+            ->where('user_id', $invoice->user_id)
+            ->where('source', 'learned_from_reconciliation')
+            ->exists());
+
+        $this->actingAs($admin)
+            ->postJson(route('financeiro.extratos.desconciliar', $statement))
+            ->assertOk();
+
+        $this->assertFalse(BankReconciliationRepository::query()
+            ->where('primary_user_id', $invoice->user_id)
+            ->exists());
+        $this->assertFalse(BankReconciliationAlias::query()
+            ->where('user_id', $invoice->user_id)
+            ->where('source', 'learned_from_reconciliation')
+            ->exists());
     }
 
     public function test_open_invoices_endpoint_ignores_non_payment_legacy_financial_entries(): void

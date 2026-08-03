@@ -146,11 +146,90 @@ class ReconciliationRepositoryService
             ->orderByDesc('last_reconciled_at')
             ->get();
 
-        return $query
+        $matches = $query
             ->filter(fn (BankReconciliationRepository $entry): bool =>
                 $this->entryMatchesDescription($entry, $signatureData)
             )
             ->values();
+
+        $candidateUserIds = $matches
+            ->flatMap(fn (BankReconciliationRepository $entry): array => array_merge(
+                $entry->primary_user_id ? [(string) $entry->primary_user_id] : [],
+                array_map('strval', (array) ($entry->matched_user_ids ?? [])),
+            ))
+            ->filter()
+            ->unique()
+            ->values();
+        $validUserIds = User::query()
+            ->whereIn('id', $candidateUserIds)
+            ->pluck('id')
+            ->map(fn ($id): string => (string) $id)
+            ->flip();
+        $candidateFamilyIds = $matches->pluck('family_id')->filter()->unique()->values();
+        $validFamilyIds = Familia::query()
+            ->whereIn('id', $candidateFamilyIds)
+            ->pluck('id')
+            ->map(fn ($id): string => (string) $id)
+            ->flip();
+
+        return $matches
+            ->map(function (BankReconciliationRepository $entry) use ($validUserIds, $validFamilyIds): BankReconciliationRepository {
+                $validMatchedUserIds = collect((array) ($entry->matched_user_ids ?? []))
+                    ->map(fn ($id): string => (string) $id)
+                    ->filter(fn (string $id): bool => $validUserIds->has($id))
+                    ->unique()
+                    ->values()
+                    ->all();
+
+                if ($entry->primary_user_id && !$validUserIds->has((string) $entry->primary_user_id)) {
+                    $entry->setAttribute('primary_user_id', null);
+                }
+                if ($entry->family_id && !$validFamilyIds->has((string) $entry->family_id)) {
+                    $entry->setAttribute('family_id', null);
+                }
+
+                $entry->setAttribute('matched_user_ids', $validMatchedUserIds);
+
+                return $entry;
+            })
+            ->filter(fn (BankReconciliationRepository $entry): bool =>
+                $entry->primary_user_id !== null
+                || $entry->family_id !== null
+                || (array) $entry->matched_user_ids !== []
+            )
+            ->values();
+    }
+
+    public function forgetFromUnreconciledPayment(BankStatement $bankStatement, Payment $payment): void
+    {
+        if (!Schema::hasTable('bank_reconciliation_repositories')) {
+            return;
+        }
+
+        $signatureData = $this->buildSignatureData($bankStatement);
+
+        BankReconciliationRepository::query()
+            ->get()
+            ->filter(fn (BankReconciliationRepository $entry): bool =>
+                $this->entryMatchesDescription($entry, $signatureData)
+                && (string) data_get($entry->metadata, 'last_bank_statement_id') === (string) $bankStatement->id
+                && (string) data_get($entry->metadata, 'last_payment_id') === (string) $payment->id
+            )
+            ->each(function (BankReconciliationRepository $entry): void {
+                if ((int) $entry->match_count <= 1) {
+                    $entry->delete();
+
+                    return;
+                }
+
+                $metadata = (array) ($entry->metadata ?? []);
+                unset($metadata['last_bank_statement_id'], $metadata['last_payment_id']);
+
+                $entry->forceFill([
+                    'match_count' => max((int) $entry->match_count - 1, 1),
+                    'metadata' => $metadata,
+                ])->save();
+            });
     }
 
     private function buildSignatureData(BankStatement $bankStatement): array

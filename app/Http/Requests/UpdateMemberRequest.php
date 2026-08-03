@@ -2,6 +2,8 @@
 
 namespace App\Http\Requests;
 
+use App\Models\User;
+use App\Rules\UniqueMemberNif;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -32,7 +34,7 @@ class UpdateMemberRequest extends FormRequest
                 'max:50',
                 Rule::unique('users', 'numero_socio')->ignore($this->member),
             ],
-            'nif' => ['nullable', 'string', 'max:50'],
+            'nif' => ['nullable', 'string', 'max:50', new UniqueMemberNif($this->memberId())],
             'contacto' => ['nullable', 'string', 'max:20'],
             'telefone' => ['nullable', 'string', 'max:20'],
             'data_nascimento' => ['nullable', 'date'],
@@ -112,5 +114,18 @@ class UpdateMemberRequest extends FormRequest
             'estado.required' => 'O estado é obrigatório.',
             'conta_corrente_manual.prohibited' => 'Ajustes de conta corrente devem ser feitos por Movimentos manuais.',
         ];
+    }
+
+    private function memberId(): ?string
+    {
+        $member = $this->route('member');
+
+        if ($member instanceof User) {
+            return (string) $member->getKey();
+        }
+
+        return is_scalar($member) && trim((string) $member) !== ''
+            ? trim((string) $member)
+            : null;
     }
 }

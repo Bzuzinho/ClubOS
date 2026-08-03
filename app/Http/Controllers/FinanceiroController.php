@@ -979,7 +979,12 @@ class FinanceiroController extends Controller
 
         $query = $this->currentAccountService
             ->openDebtInvoicesQuery($data)
-            ->with(['user:id,nome_completo,name', 'user.families:id,nome', 'costCenter:id,nome']);
+            ->with([
+                'user:id,nome_completo,name,numero_socio,nif',
+                'user.dadosPessoais:id,user_id,nome_completo,nif',
+                'user.families:id,nome',
+                'costCenter:id,nome',
+            ]);
 
         if ($search !== '') {
             $tokens = collect(preg_split('/\s+/', $search) ?: [])
@@ -1003,6 +1008,11 @@ class FinanceiroController extends Controller
                                 ->orWhere('name', $operator, $like)
                                 ->orWhere('numero_socio', $operator, $like)
                                 ->orWhere('nif', $operator, $like)
+                                ->orWhereHas('dadosPessoais', function ($personalQuery) use ($like, $operator): void {
+                                    $personalQuery
+                                        ->where('nome_completo', $operator, $like)
+                                        ->orWhere('nif', $operator, $like);
+                                })
                                 ->orWhereHas('families', function ($familyQuery) use ($like, $operator) {
                                     $familyQuery->where('familias.nome', $operator, $like);
                                 })
@@ -1037,7 +1047,9 @@ class FinanceiroController extends Controller
                 return [
                     'id' => $invoice->id,
                     'user_id' => $invoice->user_id,
-                    'user_name' => $invoice->user?->nome_completo ?? $invoice->user?->name,
+                    'user_name' => $invoice->user
+                        ? $this->memberFiscalDataResolver->displayName($invoice->user)
+                        : null,
                     'family_id' => $family?->id,
                     'family_name' => $family?->nome,
                     'valor_total' => (float) $invoice->valor_total,
@@ -1080,6 +1092,7 @@ class FinanceiroController extends Controller
         $query = Movement::query()
             ->with([
                 'user:id,nome_completo,name,numero_socio,nif',
+                'user.dadosPessoais:id,user_id,nome_completo,nif',
                 'user.families:id,nome',
                 'user.centrosCusto:id,nome',
                 'centroCusto:id,nome',
@@ -1123,6 +1136,11 @@ class FinanceiroController extends Controller
                             ->orWhere('name', $operator, $like)
                             ->orWhere('numero_socio', $operator, $like)
                             ->orWhere('nif', $operator, $like)
+                            ->orWhereHas('dadosPessoais', function ($personalQuery) use ($like, $operator): void {
+                                $personalQuery
+                                    ->where('nome_completo', $operator, $like)
+                                    ->orWhere('nif', $operator, $like);
+                            })
                             ->orWhereHas('families', function ($familyQuery) use ($like, $operator): void {
                                 $familyQuery->where('familias.nome', $operator, $like);
                             });
@@ -1148,7 +1166,9 @@ class FinanceiroController extends Controller
                 return [
                     'id' => $movement->id,
                     'user_id' => $movement->user_id,
-                    'user_name' => $movement->user?->nome_completo ?? $movement->user?->name ?? $movement->nome_manual,
+                    'user_name' => $movement->user
+                        ? $this->memberFiscalDataResolver->displayName($movement->user)
+                        : $movement->nome_manual,
                     'family_id' => $family?->id,
                     'family_name' => $family?->nome,
                     'financial_entry_id' => $financialEntry?->id,

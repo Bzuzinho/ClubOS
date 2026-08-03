@@ -55,6 +55,7 @@ interface MemberFilters {
     search?: string;
     status?: string;
     sports_status?: 'ativo' | 'inativo' | null;
+    type?: string | null;
 }
 
 interface MembersPagination {

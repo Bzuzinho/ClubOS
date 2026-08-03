@@ -58,6 +58,28 @@ class MemberImportCanonicalWriteContractTest extends TestCase
         }
     }
 
+    public function test_import_rejects_nif_already_used_by_an_existing_member(): void
+    {
+        $existing = User::factory()->create();
+        DadosPessoais::query()->create([
+            'user_id' => $existing->id,
+            'nome_completo' => 'Membro Existente Importação',
+            'nif' => '245678905',
+        ]);
+        $row = $this->baseImportRow([
+            'email_utilizador' => 'duplicate.import.nif@example.test',
+            'numero_socio' => 'M4F1-NIF-DUP',
+            'nif' => '245 678 905',
+        ]);
+
+        $result = app(MemberImportService::class)->import([$row], $this->mappingFor(array_keys($row)));
+
+        $this->assertSame(0, $result['created_count']);
+        $this->assertTrue(collect($result['errors'])->contains(
+            fn (array $error): bool => $error['field'] === 'nif'
+        ));
+    }
+
     public function test_import_keeps_users_limited_to_auth_and_operational_fields_and_reads_personal_and_configuration_from_canonical_tables(): void
     {
         $row = $this->baseImportRow([

@@ -214,48 +214,7 @@ class ReconciliationAliasService
         Payment $payment,
         ?string $createdBy = null,
     ): array {
-        $payment = $payment->fresh(['allocations.invoice:id,user_id', 'user.families:id']);
-        $matchedUserIds = $payment?->allocations
-            ?->pluck('invoice.user_id')
-            ->filter()
-            ->map(fn ($userId) => (string) $userId)
-            ->unique()
-            ->values()
-            ->all() ?? [];
-
-        if ($matchedUserIds === [] && $payment?->user_id) {
-            $matchedUserIds = [(string) $payment->user_id];
-        }
-
-        $familyId = $payment?->family_id ?: $payment?->user?->families?->first()?->id;
-        if (!$familyId && $matchedUserIds !== []) {
-            $commonFamilyIds = User::query()
-                ->with('families:id,responsavel_user_id')
-                ->whereIn('id', $matchedUserIds)
-                ->get()
-                ->map(fn (User $user): array => $user->families->pluck('id')->all())
-                ->reduce(
-                    fn (?array $commonIds, array $memberFamilyIds): array => $commonIds === null
-                        ? $memberFamilyIds
-                        : array_values(array_intersect($commonIds, $memberFamilyIds)),
-                    null,
-                ) ?? [];
-
-            if (count($commonFamilyIds) === 1) {
-                $familyId = (string) $commonFamilyIds[0];
-            }
-        }
-
-        $userId = $payment?->user_id;
-        if (!$userId && $familyId) {
-            $userId = Familia::query()
-                ->whereKey($familyId)
-                ->value('responsavel_user_id');
-        }
-
-        if (!$userId && count($matchedUserIds) === 1) {
-            $userId = $matchedUserIds[0];
-        }
+        ['user_id' => $userId, 'family_id' => $familyId] = $this->resolvePaymentIdentity($payment);
 
         return $this->learnFromConfirmedReconciliation(
             $bankStatement,
@@ -263,6 +222,47 @@ class ReconciliationAliasService
             $familyId,
             $createdBy,
         );
+    }
+
+    public function forgetFromUnreconciledPayment(BankStatement $bankStatement, Payment $payment): void
+    {
+        ['user_id' => $userId, 'family_id' => $familyId] = $this->resolvePaymentIdentity($payment);
+        if (!$userId && !$familyId) {
+            return;
+        }
+
+        $candidates = [
+            ['type' => 'description_text', 'value' => $bankStatement->descricao],
+            ['type' => 'mb_reference', 'value' => $bankStatement->referencia],
+        ];
+
+        foreach ($candidates as $candidate) {
+            $safeCandidate = $this->resolveSafeAliasCandidate($candidate['value'] ?? null, $candidate['type']);
+            if ($safeCandidate === null) {
+                continue;
+            }
+
+            $aliases = BankReconciliationAlias::query()
+                ->where('type', $candidate['type'])
+                ->where('normalized_value', $safeCandidate['normalized'])
+                ->where('source', 'learned_from_reconciliation')
+                ->when($userId, fn ($query) => $query->where('user_id', $userId))
+                ->when($familyId, fn ($query) => $query->where('family_id', $familyId))
+                ->get();
+
+            foreach ($aliases as $alias) {
+                if ((int) $alias->match_count <= 1) {
+                    $alias->delete();
+
+                    continue;
+                }
+
+                $alias->forceFill([
+                    'match_count' => max((int) $alias->match_count - 1, 1),
+                    'usage_count' => max((int) ($alias->usage_count ?? 0) - 1, 0),
+                ])->save();
+            }
+        }
     }
 
     public function findPossibleMatches(string $bankDescription, ?float $amount = null): Collection
@@ -373,6 +373,58 @@ class ReconciliationAliasService
         $user = User::query()->with('families:id')->find($userId);
 
         return $user?->families->first()?->id;
+    }
+
+    /** @return array{user_id: ?string, family_id: ?string} */
+    private function resolvePaymentIdentity(Payment $payment): array
+    {
+        $payment = $payment->fresh(['allocations.invoice:id,user_id', 'user.families:id']);
+        $matchedUserIds = $payment?->allocations
+            ?->pluck('invoice.user_id')
+            ->filter()
+            ->map(fn ($userId) => (string) $userId)
+            ->unique()
+            ->values()
+            ->all() ?? [];
+
+        if ($matchedUserIds === [] && $payment?->user_id) {
+            $matchedUserIds = [(string) $payment->user_id];
+        }
+
+        $familyId = $payment?->family_id ?: $payment?->user?->families?->first()?->id;
+        if (!$familyId && $matchedUserIds !== []) {
+            $commonFamilyIds = User::query()
+                ->with('families:id,responsavel_user_id')
+                ->whereIn('id', $matchedUserIds)
+                ->get()
+                ->map(fn (User $user): array => $user->families->pluck('id')->all())
+                ->reduce(
+                    fn (?array $commonIds, array $memberFamilyIds): array => $commonIds === null
+                        ? $memberFamilyIds
+                        : array_values(array_intersect($commonIds, $memberFamilyIds)),
+                    null,
+                ) ?? [];
+
+            if (count($commonFamilyIds) === 1) {
+                $familyId = (string) $commonFamilyIds[0];
+            }
+        }
+
+        $userId = $payment?->user_id;
+        if (!$userId && $familyId) {
+            $userId = Familia::query()
+                ->whereKey($familyId)
+                ->value('responsavel_user_id');
+        }
+
+        if (!$userId && count($matchedUserIds) === 1) {
+            $userId = $matchedUserIds[0];
+        }
+
+        return [
+            'user_id' => $userId ? (string) $userId : null,
+            'family_id' => $familyId ? (string) $familyId : null,
+        ];
     }
 
     private function resolveSafeAliasCandidate(mixed $value, string $type): ?array

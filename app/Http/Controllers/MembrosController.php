@@ -67,6 +67,19 @@ class MembrosController extends Controller
         $search = trim((string) $request->string('search')->value());
         $status = trim((string) $request->string('status')->value());
         $sportsStatus = trim((string) $request->string('sports_status')->value());
+        $type = $this->memberTypeResolver->normalizeType(
+            trim((string) $request->string('type')->value())
+        );
+        $operator = DB::connection()->getDriverName() === 'pgsql' ? 'ilike' : 'like';
+
+        $userTypes = Cache::remember('membros:user_types', 300, fn () =>
+            UserType::where('ativo', true)->select('id', 'codigo', 'nome')->get()
+        );
+        $selectedUserType = $userTypes->first(function (UserType $userType) use ($type): bool {
+            $candidate = (string) ($userType->codigo ?: $userType->nome);
+
+            return $type !== '' && $this->memberTypeResolver->normalizeType($candidate) === $type;
+        });
 
         $membersPaginator = User::query()
             ->with(['dadosPessoais:id,user_id,nome_completo', 'userTypes:id,codigo,nome'])
@@ -82,18 +95,33 @@ class MembrosController extends Controller
                 'escalao',
                 'created_at',
             ])
-            ->when($search !== '', function ($query) use ($search) {
-                $query->where(function ($searchQuery) use ($search) {
+            ->when($search !== '', function ($query) use ($search, $operator) {
+                $query->where(function ($searchQuery) use ($search, $operator) {
                     $searchQuery
-                        ->where('name', 'like', '%'.$search.'%')
-                        ->orWhere('nome_completo', 'like', '%'.$search.'%')
-                        ->orWhere('numero_socio', 'like', '%'.$search.'%')
-                        ->orWhere('email_utilizador', 'like', '%'.$search.'%')
-                        ->orWhereHas('dadosPessoais', fn ($personalQuery) => $personalQuery->where('nome_completo', 'like', '%'.$search.'%'));
+                        ->where('name', $operator, '%'.$search.'%')
+                        ->orWhere('nome_completo', $operator, '%'.$search.'%')
+                        ->orWhere('numero_socio', $operator, '%'.$search.'%')
+                        ->orWhere('email_utilizador', $operator, '%'.$search.'%')
+                        ->orWhere('nif', $operator, '%'.$search.'%')
+                        ->orWhereHas('dadosPessoais', function ($personalQuery) use ($search, $operator): void {
+                            $personalQuery
+                                ->where('nome_completo', $operator, '%'.$search.'%')
+                                ->orWhere('nif', $operator, '%'.$search.'%');
+                        });
                 });
             })
             ->when(in_array($status, ['ativo', 'inativo', 'suspenso'], true), fn ($query) => $query->where('estado', $status))
             ->when(in_array($sportsStatus, ['ativo', 'inativo'], true), fn ($query) => $query->where('ativo_desportivo', $sportsStatus === 'ativo'))
+            ->when($selectedUserType, function ($query) use ($selectedUserType, $type): void {
+                $query->where(function ($typeQuery) use ($selectedUserType, $type): void {
+                    $typeQuery->whereHas('userTypes', fn ($userTypeQuery) => $userTypeQuery->whereKey($selectedUserType->id));
+
+                    collect([$type, $selectedUserType->nome, $selectedUserType->codigo])
+                        ->filter(fn ($candidate): bool => is_string($candidate) && trim($candidate) !== '')
+                        ->unique()
+                        ->each(fn (string $candidate) => $typeQuery->orWhereJsonContains('tipo_membro', $candidate));
+                });
+            })
             ->orderByRaw('COALESCE(nome_completo, name)')
             ->paginate($perPage)
             ->withQueryString();
@@ -108,10 +136,6 @@ class MembrosController extends Controller
         });
 
         $members = $membersPaginator->getCollection()->values();
-
-        $userTypes = Cache::remember('membros:user_types', 300, fn () =>
-            UserType::where('ativo', true)->select('id', 'nome')->get()
-        );
 
         $ageGroups = Cache::remember('membros:age_groups', 300, fn () =>
             AgeGroup::select('id', 'nome')->get()
@@ -199,6 +223,7 @@ class MembrosController extends Controller
                 'search' => $search,
                 'status' => $status,
                 'sports_status' => in_array($sportsStatus, ['ativo', 'inativo'], true) ? $sportsStatus : null,
+                'type' => $selectedUserType ? $type : null,
             ],
             'userTypes' => $userTypes,
             'ageGroups' => $ageGroups,

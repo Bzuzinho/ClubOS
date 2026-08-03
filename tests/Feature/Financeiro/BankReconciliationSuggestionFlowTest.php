@@ -55,6 +55,45 @@ class BankReconciliationSuggestionFlowTest extends TestCase
         $this->assertNotNull($matchingSuggestion);
     }
 
+    public function test_deleted_member_repository_target_does_not_block_a_valid_alias_target(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $correctMember = $this->createFinanceUser(['nome_completo' => 'Membro Correto']);
+        $correctInvoice = $this->createInvoice($correctMember, 27.00, 'mensalidade', '2026-05-10');
+        $deletedMember = $this->createFinanceUser(['nome_completo' => 'Membro Duplicado']);
+        $statement = $this->createBankStatement(27.00, 'TRF CR INTRAB 123 DE PAGADOR PARTILHADO');
+
+        BankReconciliationRepository::query()->create([
+            'signature' => $this->makeRepositorySignature('PT50-0001', $statement->descricao),
+            'conta' => 'PT50-0001',
+            'descricao' => $statement->descricao,
+            'normalized_description' => 'PAGADOR PARTILHADO',
+            'primary_user_id' => $deletedMember->id,
+            'matched_user_ids' => [$deletedMember->id],
+            'match_count' => 1,
+            'last_reconciled_at' => now(),
+        ]);
+        app(ReconciliationAliasService::class)->learnFromConfirmedReconciliation(
+            $statement,
+            $correctMember->id,
+            $correctMember->families->first()?->id,
+            $admin->id,
+        );
+
+        $deletedMember->delete();
+
+        $response = $this->actingAs($admin)
+            ->postJson(route('financeiro.bank-statements.generate-suggestions', $statement))
+            ->assertOk();
+
+        $matchingSuggestion = collect($response->json('suggestions'))
+            ->first(fn (array $suggestion): bool => collect($suggestion['suggested_allocations'] ?? [])
+                ->pluck('invoice_id')
+                ->contains($correctInvoice->id));
+
+        $this->assertNotNull($matchingSuggestion);
+    }
+
     public function test_negative_bank_statement_never_generates_receipt_suggestions(): void
     {
         $admin = User::factory()->admin()->create();

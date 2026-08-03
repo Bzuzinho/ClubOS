@@ -51,7 +51,7 @@ final class MembrosSportsStatusFilterTest extends TestCase
         $this->assertStringContainsString('Todos os estados desportivos', $source);
         $this->assertStringContainsString('<SelectItem value="ativo">Ativo</SelectItem>', $source);
         $this->assertStringContainsString('<SelectItem value="inativo">Não ativo</SelectItem>', $source);
-        $this->assertStringContainsString("params.sports_status = value", $source);
+        $this->assertStringContainsString("updateServerFilters({ sports_status: value })", $source);
     }
 
     public function test_sports_status_filter_is_preserved_in_pagination_links(): void
