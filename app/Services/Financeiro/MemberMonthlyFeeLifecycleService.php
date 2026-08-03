@@ -14,13 +14,60 @@ use App\Models\User;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 class MemberMonthlyFeeLifecycleService
 {
     public function __construct(
         private readonly MonthlyFeeGenerationService $monthlyFeeGenerationService,
         private readonly MemberCostCenterResolver $memberCostCenterResolver,
+        private readonly InvoiceFinancialGuardService $invoiceFinancialGuardService,
     ) {
+    }
+
+    public function deleteCleanMonthlyInvoice(Invoice $invoice): void
+    {
+        $userId = null;
+
+        DB::transaction(function () use ($invoice, &$userId): void {
+            $lockedInvoice = Invoice::query()
+                ->whereKey($invoice->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            if ($lockedInvoice->tipo !== 'mensalidade') {
+                throw ValidationException::withMessages([
+                    'invoice' => 'A fatura selecionada nao e uma mensalidade.',
+                ]);
+            }
+
+            if (! in_array($lockedInvoice->estado_pagamento, ['pendente', 'vencido'], true)) {
+                throw ValidationException::withMessages([
+                    'invoice' => 'Apenas mensalidades pendentes ou vencidas, sem rasto financeiro ou fiscal, podem ser apagadas.',
+                ]);
+            }
+
+            if ($this->invoiceFinancialGuardService->hasFinancialOrFiscalTrail($lockedInvoice)) {
+                throw ValidationException::withMessages([
+                    'invoice' => 'A mensalidade tem rasto financeiro ou fiscal. Deve ser reaberta, cancelada ou anulada pelo fluxo proprio, nao apagada.',
+                ]);
+            }
+
+            if ($lockedInvoice->items()->whereNotNull('produto_id')->exists()) {
+                throw ValidationException::withMessages([
+                    'invoice' => 'A mensalidade tem artigos de stock associados e nao pode ser apagada por este fluxo.',
+                ]);
+            }
+
+            $userId = $lockedInvoice->user_id ? (string) $lockedInvoice->user_id : null;
+
+            $lockedInvoice->items()->delete();
+            $lockedInvoice->delete();
+        });
+
+        if ($userId !== null) {
+            $this->forgetUserFinanceCaches($userId);
+        }
     }
 
     /**

@@ -309,7 +309,7 @@ class ManualInvoiceServiceTest extends TestCase
         $this->assertSame(8, $product->fresh()->stock);
     }
 
-    public function test_destroy_monthly_invoice_without_financial_trail_is_blocked_without_stock_change(): void
+    public function test_destroy_monthly_invoice_with_stock_is_blocked_without_stock_change(): void
     {
         $admin = User::factory()->admin()->create();
         $product = Product::factory()->create(['stock' => 10]);
@@ -321,7 +321,8 @@ class ManualInvoiceServiceTest extends TestCase
         $this->actingAs($admin)
             ->postJson(route('financeiro.destroy.post', $invoice))
             ->assertStatus(422)
-            ->assertJsonValidationErrors(['tipo']);
+            ->assertJsonValidationErrors(['invoice'])
+            ->assertJsonPath('errors.invoice.0', 'A mensalidade tem artigos de stock associados e nao pode ser apagada por este fluxo.');
 
         $this->assertDatabaseHas('invoices', ['id' => $invoice->id, 'tipo' => 'mensalidade']);
         $this->assertDatabaseHas('invoice_items', ['fatura_id' => $invoice->id, 'produto_id' => $product->id]);

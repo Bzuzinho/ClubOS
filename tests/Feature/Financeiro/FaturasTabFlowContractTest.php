@@ -54,4 +54,15 @@ class FaturasTabFlowContractTest extends TestCase
         $this->assertStringNotContainsString('getCsrfToken()', $source);
         $this->assertStringNotContainsString('const computedEndDate', $source);
     }
+
+    public function test_invoice_deletion_surfaces_the_backend_validation_message(): void
+    {
+        $source = file_get_contents(resource_path('js/Pages/Financeiro/FaturasTab.tsx'));
+
+        $this->assertIsString($source);
+        $this->assertStringContainsString(
+            "throw new Error(getFinanceiroRequestErrorMessage(error, 'Erro ao apagar fatura'));",
+            $source,
+        );
+    }
 }

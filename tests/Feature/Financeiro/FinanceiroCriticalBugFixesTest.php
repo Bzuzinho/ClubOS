@@ -113,6 +113,25 @@ class FinanceiroCriticalBugFixesTest extends TestCase
         $this->assertDatabaseMissing('invoices', ['id' => $invoice->id]);
     }
 
+    public function test_it_allows_deleting_a_clean_pending_monthly_invoice_through_its_canonical_lifecycle(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $invoice = $this->createInvoice([
+            'tipo' => 'mensalidade',
+            'estado_pagamento' => 'pendente',
+            'valor_pago' => 0,
+            'valor_em_aberto' => 45.00,
+        ]);
+
+        $this->actingAs($admin)
+            ->postJson(route('financeiro.destroy.post', $invoice))
+            ->assertOk()
+            ->assertJsonPath('success', true);
+
+        $this->assertDatabaseMissing('invoices', ['id' => $invoice->id]);
+        $this->assertDatabaseMissing('invoice_items', ['fatura_id' => $invoice->id]);
+    }
+
     public function test_it_blocks_deleting_a_paid_invoice(): void
     {
         $admin = User::factory()->admin()->create();

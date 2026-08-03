@@ -169,7 +169,11 @@ export function FaturasTab({
   };
 
   const deleteInvoice = async (invoiceId: string) => {
-    await axios.post(route('financeiro.destroy.post', invoiceId), {}, getFinanceiroAxiosJsonConfig());
+    try {
+      await axios.post(route('financeiro.destroy.post', invoiceId), {}, getFinanceiroAxiosJsonConfig());
+    } catch (error) {
+      throw new Error(getFinanceiroRequestErrorMessage(error, 'Erro ao apagar fatura'));
+    }
   };
   const getStartOfToday = () => {
     const today = new Date();

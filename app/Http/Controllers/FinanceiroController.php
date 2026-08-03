@@ -35,6 +35,7 @@ use App\Services\Financeiro\MovementDocumentControlService;
 use App\Services\Financeiro\MonthlyInvoiceStatusService;
 use App\Services\Financeiro\MonthlyFeeGenerationService;
 use App\Services\Financeiro\MonthlyFeeSettingsService;
+use App\Services\Financeiro\MemberMonthlyFeeLifecycleService;
 use App\Services\Financeiro\MemberCostCenterResolver;
 use App\Services\Financeiro\PaymentAllocationService;
 use App\Services\Financeiro\ReconciliationAliasService;
@@ -73,6 +74,7 @@ class FinanceiroController extends Controller
         private readonly MemberFiscalDataResolver $memberFiscalDataResolver,
         private readonly MemberCostCenterResolver $memberCostCenterResolver,
         private readonly MemberMonthlyFeeResolver $memberMonthlyFeeResolver,
+        private readonly MemberMonthlyFeeLifecycleService $memberMonthlyFeeLifecycleService,
         private readonly ManualInvoiceService $manualInvoiceService,
         private readonly InvoiceFinancialGuardService $invoiceFinancialGuardService,
         private readonly StockLedgerService $stockLedgerService,
@@ -868,7 +870,11 @@ class FinanceiroController extends Controller
                 ->with('error', $message);
         }
 
-        $this->manualInvoiceService->delete($financeiro, request()->user());
+        if ($financeiro->tipo === 'mensalidade') {
+            $this->memberMonthlyFeeLifecycleService->deleteCleanMonthlyInvoice($financeiro);
+        } else {
+            $this->manualInvoiceService->delete($financeiro, request()->user());
+        }
 
         $this->invalidateFinanceiroCaches();
 
