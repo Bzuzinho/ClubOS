@@ -1,0 +1,77 @@
+name: Validate PR84 full suite
+
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: validate-pr84-full
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/financeiro-ui-conciliacao
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, pdo_sqlite, sqlite3, intl, bcmath
+          coverage: none
+
+      - name: Install PHP dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Prepare environment
+        shell: bash
+        run: |
+          cp .env.example .env
+          php artisan key:generate
+          mkdir -p database
+          touch database/database.sqlite
+          cat >> .env <<EOF
+          DB_CONNECTION=sqlite
+          DB_DATABASE=${{ github.workspace }}/database/database.sqlite
+          CACHE_STORE=array
+          SESSION_DRIVER=array
+          QUEUE_CONNECTION=sync
+          MAIL_MAILER=array
+          EOF
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Run full test suite
+        run: php artisan test
+
+      - name: Remove validation workflow
+        shell: bash
+        run: |
+          rm -f .github/workflows/validate-pr84-full.yml
+          git config user.name 'ClubOS automation'
+          git config user.email 'actions@users.noreply.github.com'
+          git add .github/workflows/validate-pr84-full.yml
+          git commit -m 'Remove temporary PR84 validation workflow'
+          git push origin HEAD:fix/financeiro-ui-conciliacao
