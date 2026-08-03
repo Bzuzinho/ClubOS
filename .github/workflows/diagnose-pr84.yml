@@ -1,0 +1,62 @@
+name: Diagnose PR84 failures
+
+on:
+  push:
+    branches:
+      - fix/financeiro-ui-conciliacao
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    strategy:
+      fail-fast: false
+      matrix:
+        ref:
+          - main
+          - fix/financeiro-ui-conciliacao
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout ${{ matrix.ref }}
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ matrix.ref }}
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, pdo_sqlite, sqlite3, intl, bcmath
+          coverage: none
+
+      - name: Install dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Prepare environment
+        shell: bash
+        run: |
+          cp .env.example .env
+          php artisan key:generate
+          mkdir -p database
+          touch database/database.sqlite
+          cat >> .env <<EOF
+          DB_CONNECTION=sqlite
+          DB_DATABASE=${{ github.workspace }}/database/database.sqlite
+          CACHE_STORE=array
+          SESSION_DRIVER=array
+          QUEUE_CONNECTION=sync
+          MAIL_MAILER=array
+          EOF
+
+      - name: Diagnose legacy reads
+        shell: bash
+        run: |
+          echo "===== REF: ${{ matrix.ref }} ====="
+          php artisan members:audit-users-legacy-read --json || true
+          php artisan members:audit-users-legacy-field-removal-readiness --json || true
+
+      - name: Run failing bank reconciliation test
+        run: php artisan test tests/Feature/Financeiro/BankReconciliationSuggestionFlowTest.php --filter=custom_assisted_confirmation_can_add_open_invoice_from_member_outside_suggested_context
