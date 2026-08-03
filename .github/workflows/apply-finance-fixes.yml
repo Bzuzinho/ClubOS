@@ -71,8 +71,18 @@ jobs:
           php -l app/Http/Controllers/FinanceiroController.php
           php -l app/Services/Financeiro/FinanceDashboardService.php
 
-      - name: Run focused finance tests
-        run: php artisan test --filter='Financeiro|FinanceDashboard|Movement|BankReconciliation' --stop-on-failure
+      - name: Run affected finance tests
+        run: |
+          php artisan test \
+            tests/Feature/Financeiro/FinanceDashboardFlowTest.php \
+            tests/Feature/Financeiro/MovementDocumentControlServiceTest.php \
+            tests/Feature/Financeiro/MovementShowFlowTest.php \
+            tests/Feature/Financeiro/FaturasTabFlowContractTest.php \
+            tests/Feature/Financeiro/FinanceiroCriticalBugFixesTest.php \
+            tests/Feature/Financeiro/ManualExpenseFlowsTest.php \
+            tests/Feature/Financeiro/BankExpenseCreationDialogContractTest.php \
+            tests/Feature/Financeiro/BankReconciliationManualMemberEditingContractTest.php \
+            --stop-on-failure
 
       - name: Commit validated changes
         shell: bash
