@@ -447,7 +447,7 @@ export default function FinanceiroShowPage({
             <div className={moduleViewportClass}>
                 <Tabs value={activeTab} onValueChange={setActiveTab} className={moduleTabsClass}>
                     <div className="w-full space-y-3">
-                        <div className="flex flex-col gap-3 rounded-xl border bg-card p-4">
+                        <div className="flex flex-col gap-2 rounded-xl border bg-card p-3">
                             <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                                 <div className="space-y-2">
                                     <div className="flex flex-wrap items-center gap-2">
@@ -491,11 +491,11 @@ export default function FinanceiroShowPage({
                                 </div>
                             )}
 
-                            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+                            <div className="grid gap-1.5 sm:grid-cols-2 xl:grid-cols-4">
                                 {summaryCards.map((item) => (
-                                    <Card key={item.label} className="p-3">
+                                    <Card key={item.label} className="p-2">
                                         <div className="text-xs text-muted-foreground">{item.label}</div>
-                                        <div className="mt-1 text-sm font-semibold">{item.value}</div>
+                                        <div className="mt-0.5 text-sm font-semibold">{item.value}</div>
                                     </Card>
                                 ))}
                             </div>

@@ -1107,7 +1107,7 @@ class FinanceiroController extends Controller
                     ->orderBy('origem_id')
                     ->orderByDesc('created_at'),
             ])
-            ->whereIn('estado_pagamento', ['pendente', 'parcial']);
+            ->whereIn('estado_pagamento', ['pendente', 'por_pagar', 'vencido', 'parcial', 'pago_parcial']);
 
         if ($userId) {
             $query->where('user_id', $userId);
@@ -1493,7 +1493,7 @@ class FinanceiroController extends Controller
             'document_requirement' => $evaluation['requirement'],
             'items' => $movement->items->map(fn (MovementItem $item): array => [
                 'id' => (string) $item->id,
-                'descricao' => $item->descricao,
+                'descricao' => preg_replace('/^\[ATLETA:[^\]]+\]\s*/i', '', (string) $item->descricao),
                 'quantidade' => (int) $item->quantidade,
                 'valor_unitario' => (float) $item->valor_unitario,
                 'imposto_percentual' => (float) ($item->imposto_percentual ?? 0),
@@ -1568,15 +1568,26 @@ class FinanceiroController extends Controller
      */
     private function serializeAvailableBankStatementsForMovement(Movement $movement): array
     {
-        return BankStatement::query()
-            ->where('centro_custo_id', $movement->centro_custo_id)
+        $query = BankStatement::query()
             ->where(function ($query): void {
                 $query->where('conciliado', false)
                     ->orWhereIn('conciliacao_status', ['unreconciled', 'partial'])
                     ->orWhereNull('conciliacao_status');
-            })
+            });
+
+        if ($movement->classificacao === 'despesa') {
+            $query->where('valor', '<', 0);
+        } else {
+            $query->where('valor', '>', 0);
+        }
+
+        if ($movement->centro_custo_id) {
+            $query->orderByRaw('case when centro_custo_id = ? then 0 else 1 end', [$movement->centro_custo_id]);
+        }
+
+        return $query
             ->orderByDesc('data_movimento')
-            ->limit(25)
+            ->limit(50)
             ->get()
             ->map(fn (BankStatement $statement): array => [
                 'id' => (string) $statement->id,
@@ -1617,6 +1628,15 @@ class FinanceiroController extends Controller
             ],
         ]);
 
+        if (filled($movement->observacoes)) {
+            $events->push([
+                'type' => 'movement_note',
+                'label' => 'Nota do movimento',
+                'at' => optional($movement->updated_at ?? $movement->created_at)?->toISOString(),
+                'details' => $movement->observacoes,
+            ]);
+        }
+
         foreach ($movement->documents as $document) {
             $events->push([
                 'type' => 'document_attached',
@@ -1656,11 +1676,13 @@ class FinanceiroController extends Controller
     {
         $firstItemDescription = $movement->items->first()?->descricao;
 
-        return (string) ($movement->referencia_pagamento
+        $description = (string) ($movement->referencia_pagamento
             ?? $firstItemDescription
             ?? $movement->categoria
             ?? $movement->nome_manual
             ?? 'Movimento financeiro');
+
+        return preg_replace('/^\[ATLETA:[^\]]+\]\s*/i', '', $description) ?: 'Movimento financeiro';
     }
 
     private function canManageMovementDocuments(?User $user): bool

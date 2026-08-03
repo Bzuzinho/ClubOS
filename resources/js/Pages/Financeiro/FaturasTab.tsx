@@ -8,6 +8,7 @@ import { Card } from '@/Components/ui/card';
 import { Input } from '@/Components/ui/input';
 import { Label } from '@/Components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/Components/ui/select';
+import { Popover, PopoverContent, PopoverTrigger } from '@/Components/ui/popover';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger, DialogFooter } from '@/Components/ui/dialog';
 import { Badge } from '@/Components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/Components/ui/table';
@@ -58,6 +59,11 @@ export function FaturasTab({
 }: FaturasTabProps) {
   const [estadoFilter, setEstadoFilter] = useState<string>('all');
   const [viewMode, setViewMode] = useState<'card' | 'table'>('table');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [manualUserPickerOpen, setManualUserPickerOpen] = useState(false);
+  const [manualUserSearch, setManualUserSearch] = useState('');
   const toNumber = (value: unknown, fallback = 0): number => {
     if (typeof value === 'number' && !Number.isNaN(value)) return value;
     if (typeof value === 'string' && value.trim() !== '') {
@@ -333,6 +339,22 @@ export function FaturasTab({
     }>
   >([{ descricao: '', valor_unitario: 0, quantidade: 1, imposto_percentual: 0 }]);
 
+  const selectedManualUser = useMemo(
+    () => (users || []).find((user) => user.id === formData.user_id) || null,
+    [formData.user_id, users],
+  );
+
+  const filteredManualUsers = useMemo(() => {
+    const term = manualUserSearch.trim().toLowerCase();
+    if (!term) return users || [];
+
+    return (users || []).filter((user) => [
+      user.nome_completo,
+      user.numero_socio,
+      user.nif,
+    ].some((value) => String(value || '').toLowerCase().includes(term)));
+  }, [manualUserSearch, users]);
+
   const filteredFaturas = useMemo(() => {
     return (faturas || [])
       .map((fatura) => {
@@ -344,6 +366,23 @@ export function FaturasTab({
         return normalized;
       })
       .filter((fatura) => {
+        const ownerName = (fatura as Fatura & { owner_name?: string | null }).owner_name
+          || (users || []).find((user) => user.id === fatura.user_id)?.nome_completo
+          || '';
+        const normalizedSearch = searchTerm.trim().toLowerCase();
+        const searchMatch = !normalizedSearch || [
+          ownerName,
+          fatura.mes,
+          fatura.tipo,
+          fatura.referencia_pagamento,
+        ].some((value) => String(value || '').toLowerCase().includes(normalizedSearch));
+
+        if (!searchMatch) return false;
+
+        const invoiceDate = String(fatura.data_fatura || fatura.data_emissao || '').slice(0, 10);
+        if (dateFrom && invoiceDate && invoiceDate < dateFrom) return false;
+        if (dateTo && invoiceDate && invoiceDate > dateTo) return false;
+
         const futureInvoice = isFutureInvoice(fatura) || !!fatura.oculta;
 
         if (estadoFilter === 'future') {
@@ -368,7 +407,7 @@ export function FaturasTab({
             return true;
         }
       });
-  }, [faturas, estadoFilter, showFutureInvoices]);
+  }, [faturas, estadoFilter, showFutureInvoices, searchTerm, dateFrom, dateTo, users]);
 
   const paymentInvoices = useMemo(() => {
     const ids = selectedFaturaId ? [selectedFaturaId] : Array.from(selectedFaturas);
@@ -1218,6 +1257,8 @@ export function FaturasTab({
     });
     setLinhas([{ descricao: '', valor_unitario: 0, quantidade: 1, imposto_percentual: 0 }]);
     setEditingFaturaId(null);
+    setManualUserPickerOpen(false);
+    setManualUserSearch('');
   };
 
   const handleEditarFatura = (faturaId: string) => {
@@ -1307,7 +1348,15 @@ export function FaturasTab({
   return (
     <div className="space-y-4 sm:space-y-6">
       <div className="flex flex-col gap-3 sm:gap-4 md:flex-row md:items-center md:justify-between">
-        <div className="flex gap-2 items-center w-full sm:w-auto">
+        <div className="grid w-full grid-cols-1 items-center gap-2 sm:grid-cols-2 xl:grid-cols-[minmax(220px,1fr)_150px_150px_200px_auto_auto]">
+          <Input
+            value={searchTerm}
+            onChange={(event) => setSearchTerm(event.target.value)}
+            placeholder="Pesquisar utilizador"
+            className="h-9"
+          />
+          <Input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} className="h-9" aria-label="Data inicial" />
+          <Input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} className="h-9" aria-label="Data final" />
           <Select value={estadoFilter} onValueChange={setEstadoFilter}>
             <SelectTrigger className="w-full sm:w-[200px]">
               <SelectValue placeholder="Estado" />
@@ -1549,18 +1598,47 @@ export function FaturasTab({
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label className="text-sm">Utilizador *</Label>
-                    <Select value={formData.user_id} onValueChange={(v) => setFormData({ ...formData, user_id: v })}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Selecionar" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {(users || []).map((user) => (
-                          <SelectItem key={user.id} value={user.id}>
-                            {user.nome_completo} - {user.numero_socio}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <Popover open={manualUserPickerOpen} onOpenChange={setManualUserPickerOpen}>
+                      <PopoverTrigger asChild>
+                        <Button type="button" variant="outline" role="combobox" className="w-full justify-between font-normal">
+                          <span className="truncate">
+                            {selectedManualUser
+                              ? `${selectedManualUser.nome_completo} - ${selectedManualUser.numero_socio}`
+                              : 'Selecionar utilizador'}
+                          </span>
+                          <span className="ml-2 shrink-0 text-xs text-muted-foreground">Pesquisar</span>
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+                        <div className="border-b p-2">
+                          <Input
+                            value={manualUserSearch}
+                            onChange={(event) => setManualUserSearch(event.target.value)}
+                            placeholder="Nome, número de sócio ou NIF"
+                            className="h-9"
+                            autoFocus
+                          />
+                        </div>
+                        <div className="max-h-60 overflow-y-auto p-1">
+                          {filteredManualUsers.length === 0 ? (
+                            <div className="px-2 py-4 text-sm text-muted-foreground">Nenhum utilizador encontrado.</div>
+                          ) : filteredManualUsers.map((user) => (
+                            <button
+                              key={user.id}
+                              type="button"
+                              className={`flex w-full items-center justify-between rounded-sm px-2 py-2 text-left text-sm hover:bg-muted ${formData.user_id === user.id ? 'bg-muted' : ''}`}
+                              onClick={() => {
+                                setFormData((current) => ({ ...current, user_id: user.id }));
+                                setManualUserPickerOpen(false);
+                              }}
+                            >
+                              <span className="min-w-0 truncate pr-2">{user.nome_completo} - {user.numero_socio}</span>
+                              {formData.user_id === user.id ? <Check size={14} /> : null}
+                            </button>
+                          ))}
+                        </div>
+                      </PopoverContent>
+                    </Popover>
                   </div>
 
                   <div className="space-y-2">

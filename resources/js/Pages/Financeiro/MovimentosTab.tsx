@@ -225,10 +225,14 @@ export function MovimentosTab({
     const nomeAtleta = atleta?.nome_completo || 'Atleta';
 
     if (cleanDescricao.length === 0) {
-      return `[ATLETA:${linha.atleta_id}] ${nomeAtleta}`;
+      return nomeAtleta;
     }
 
-    return `[ATLETA:${linha.atleta_id}] ${cleanDescricao}`;
+    if (cleanDescricao.toLowerCase().startsWith(nomeAtleta.toLowerCase())) {
+      return cleanDescricao;
+    }
+
+    return `${nomeAtleta} — ${cleanDescricao}`;
   };
 
   const [linhas, setLinhas] = useState<LinhaMovimento[]>([
@@ -519,6 +523,7 @@ export function MovimentosTab({
       );
 
       toast.success(`${movimentosParaApagar.length} movimento(s) apagado(s) com sucesso`);
+      refreshMovimentos();
       setDialogDeleteOpen(false);
       setSelectedMovimentos(new Set());
     } catch (error) {
@@ -536,6 +541,7 @@ export function MovimentosTab({
       setMovimentos((current) => (current || []).filter((m) => m.id !== movimentoId));
       setMovimentoItens((current) => (current || []).filter((item) => item.movimento_id !== movimentoId));
       toast.success('Movimento apagado com sucesso');
+      refreshMovimentos();
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Erro ao apagar movimento';
       toast.error(message);
@@ -728,7 +734,7 @@ export function MovimentosTab({
     if (itens.length > 0) {
       setLinhas(
         itens.map((item) => ({
-          descricao: item.descricao,
+          descricao: stripAtletaMarker(item.descricao),
           valor_unitario: item.valor_unitario,
           quantidade: item.quantidade,
           imposto_percentual: item.imposto_percentual,
@@ -848,24 +854,24 @@ export function MovimentosTab({
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-        <div className="flex gap-2 items-center">
+        <div className="grid w-full grid-cols-2 items-center gap-2 lg:grid-cols-4">
           <Select value={classificacaoFilter} onValueChange={setClassificacaoFilter}>
-            <SelectTrigger className="w-[200px]">
+            <SelectTrigger className="w-full min-w-0">
               <SelectValue placeholder="Classificacao" />
             </SelectTrigger>
             <SelectContent className={scrollableSelectContentClassName}>
-              <SelectItem value="all">Todas Classificacoes</SelectItem>
+              <SelectItem value="all">Todas</SelectItem>
               <SelectItem value="receita">Receita</SelectItem>
               <SelectItem value="despesa">Despesa</SelectItem>
             </SelectContent>
           </Select>
 
           <Select value={estadoFilter} onValueChange={setEstadoFilter}>
-            <SelectTrigger className="w-[200px]">
+            <SelectTrigger className="w-full min-w-0">
               <SelectValue placeholder="Estado" />
             </SelectTrigger>
             <SelectContent className={scrollableSelectContentClassName}>
-              <SelectItem value="all">Todos os Estados</SelectItem>
+              <SelectItem value="all">Todos</SelectItem>
               <SelectItem value="pendente">Pendente</SelectItem>
               <SelectItem value="por_pagar">Por pagar</SelectItem>
               <SelectItem value="pago">Pago</SelectItem>
@@ -878,11 +884,11 @@ export function MovimentosTab({
           </Select>
 
           <Select value={documentalFilter} onValueChange={setDocumentalFilter}>
-            <SelectTrigger className="w-[220px]">
+            <SelectTrigger className="w-full min-w-0">
               <SelectValue placeholder="Estado documental" />
             </SelectTrigger>
             <SelectContent className={scrollableSelectContentClassName}>
-              <SelectItem value="all">Todos os documentos</SelectItem>
+              <SelectItem value="all">Todos</SelectItem>
               <SelectItem value="falta_fatura">Falta fatura</SelectItem>
               <SelectItem value="falta_recibo">Falta recibo</SelectItem>
               <SelectItem value="falta_comprovativo_pagamento">Falta comprovativo</SelectItem>
@@ -893,11 +899,11 @@ export function MovimentosTab({
           </Select>
 
           <Select value={conciliacaoFilter} onValueChange={setConciliacaoFilter}>
-            <SelectTrigger className="w-[220px]">
+            <SelectTrigger className="w-full min-w-0">
               <SelectValue placeholder="Conciliacao" />
             </SelectTrigger>
             <SelectContent className={scrollableSelectContentClassName}>
-              <SelectItem value="all">Toda a conciliacao</SelectItem>
+              <SelectItem value="all">Todas</SelectItem>
               <SelectItem value="nao_conciliado">Nao conciliado</SelectItem>
               <SelectItem value="sugerido">Sugerido</SelectItem>
               <SelectItem value="conciliado">Conciliado</SelectItem>
@@ -1463,8 +1469,8 @@ export function MovimentosTab({
               const openAmount = getOpenAmount(movimento);
 
               return (
-                <Card key={movimento.id} className="p-3">
-                  <div className="space-y-3">
+                <Card key={movimento.id} className="p-2.5">
+                  <div className="space-y-2">
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
                         <div className="truncate text-sm font-semibold">{getNomeDisplay(movimento)}</div>
