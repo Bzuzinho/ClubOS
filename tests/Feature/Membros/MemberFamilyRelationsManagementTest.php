@@ -174,7 +174,12 @@ class MemberFamilyRelationsManagementTest extends TestCase
         $this->assertStringContainsString('Encarregados de educação', $familySource);
         $this->assertStringContainsString('membros.familia.encarregados.store', $familySource);
         $this->assertStringContainsString('membros.familia.membros.update', $familySource);
+        $this->assertStringNotContainsString('<h3 className="text-sm font-semibold">Educandos</h3>', $familySource);
+        $this->assertStringContainsString('Educandos associados', $familySource);
+        $this->assertStringContainsString('ungroupedDependents', $familySource);
+        $this->assertStringContainsString('[memberId, ...linkedGuardianIds, ...linkedDependentIds]', $familySource);
+        $this->assertStringContainsString('Retirar responsabilidade', $familySource);
         $this->assertStringContainsString('Editar ficha', $familySource);
-        $this->assertStringContainsString('Remover', $familySource);
+        $this->assertStringContainsString('Remover do agregado', $familySource);
     }
 }

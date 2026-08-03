@@ -137,6 +137,16 @@ export function FamilyTab({ memberId, familyContext, allUsers, onOpenMember }: F
 
   const linkedGuardianIds = useMemo(() => new Set(context.guardians.map((guardian) => guardian.id)), [context.guardians]);
   const linkedDependentIds = useMemo(() => new Set(context.dependents.map((dependent) => dependent.id)), [context.dependents]);
+  const familyMemberIds = useMemo(
+    () => new Set(context.families.flatMap((family) => family.members.map((familyMember) => familyMember.id))),
+    [context.families],
+  );
+  const ungroupedDependents = useMemo(
+    () => context.dependents.filter((dependent) => !familyMemberIds.has(dependent.id)),
+    [context.dependents, familyMemberIds],
+  );
+  const canManageDependents = context.can_manage_family_relations
+    && (context.is_guardian_profile || context.dependents.length > 0);
 
   const relationCandidates = useMemo(() => {
     if (!relationMode) return [];
@@ -153,7 +163,10 @@ export function FamilyTab({ memberId, familyContext, allUsers, onOpenMember }: F
   const selectedFamily = selectedFamilyId
     ? context.families.find((family) => family.id === selectedFamilyId)
     : null;
-  const selectedFamilyMemberIds = new Set(selectedFamily?.members.map((member) => member.id) ?? [memberId]);
+  const selectedFamilyMemberIds = new Set(
+    selectedFamily?.members.map((member) => member.id)
+      ?? [memberId, ...linkedGuardianIds, ...linkedDependentIds],
+  );
   const familyCandidates = allUsers
     .filter((candidate) => candidate.id !== memberId && !selectedFamilyMemberIds.has(candidate.id))
     .sort((left, right) => left.nome_completo.localeCompare(right.nome_completo, 'pt'));
@@ -316,61 +329,27 @@ export function FamilyTab({ memberId, familyContext, allUsers, onOpenMember }: F
         )}
       </Card>
 
-      {(context.is_guardian_profile || context.dependents.length > 0) && (
-        <Card className="p-3">
-          <div className="flex flex-wrap items-start justify-between gap-2">
-            <div>
-              <h3 className="text-sm font-semibold">Educandos</h3>
-              <p className="mt-1 text-xs text-muted-foreground">Membros pelos quais este encarregado é responsável.</p>
-            </div>
-            {context.can_manage_family_relations && (
-              <Button type="button" size="sm" className="h-7 text-xs" onClick={() => openRelationDialog('dependent')} disabled={processing}>
-                <Plus className="mr-1 h-3.5 w-3.5" /> Adicionar
-              </Button>
-            )}
-          </div>
-          {context.dependents.length === 0 ? (
-            <p className="mt-3 rounded border border-dashed p-3 text-sm text-muted-foreground">Sem educandos associados.</p>
-          ) : (
-            <div className="mt-3 grid gap-2 lg:grid-cols-2">
-              {context.dependents.map((dependent) => (
-                <div key={dependent.id} className="rounded border p-3">
-                  <p className="text-sm font-semibold">{dependent.nome_completo}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {dependent.numero_socio ? `Sócio #${dependent.numero_socio}` : 'Sem número de sócio'} · {dependent.estado || 'Sem estado'}
-                  </p>
-                  <p className="text-xs text-muted-foreground">Tipo: {formatMemberType(dependent.tipo_membro)}</p>
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    <Button type="button" variant="outline" size="sm" className="h-7 text-xs" onClick={() => onOpenMember(dependent.id)}>
-                      <Pencil className="mr-1 h-3.5 w-3.5" /> Editar ficha
-                    </Button>
-                    {context.can_manage_family_relations && (
-                      <Button type="button" variant="outline" size="sm" className="h-7 text-xs text-destructive hover:text-destructive" onClick={() => removeDependent(dependent)} disabled={processing}>
-                        <Trash2 className="mr-1 h-3.5 w-3.5" /> Remover
-                      </Button>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </Card>
-      )}
-
       <Card className="p-3">
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div>
             <h3 className="text-sm font-semibold">Família</h3>
-            <p className="mt-1 text-xs text-muted-foreground">Agregado familiar e papel de cada membro.</p>
+            <p className="mt-1 text-xs text-muted-foreground">Agregado familiar, educandos e papel de cada membro.</p>
           </div>
-          {context.can_manage_family_relations && context.families.length === 0 && (
-            <Button type="button" size="sm" className="h-7 text-xs" onClick={() => openFamilyDialog(null)} disabled={processing}>
-              <Plus className="mr-1 h-3.5 w-3.5" /> Adicionar membro
-            </Button>
-          )}
+          <div className="flex flex-wrap gap-1.5">
+            {canManageDependents && (
+              <Button type="button" variant="outline" size="sm" className="h-7 text-xs" onClick={() => openRelationDialog('dependent')} disabled={processing}>
+                <Plus className="mr-1 h-3.5 w-3.5" /> Adicionar educando
+              </Button>
+            )}
+            {context.can_manage_family_relations && context.families.length === 0 && (
+              <Button type="button" size="sm" className="h-7 text-xs" onClick={() => openFamilyDialog(null)} disabled={processing}>
+                <Plus className="mr-1 h-3.5 w-3.5" /> Adicionar membro
+              </Button>
+            )}
+          </div>
         </div>
 
-        {context.families.length === 0 ? (
+        {context.families.length === 0 && ungroupedDependents.length === 0 ? (
           <p className="mt-3 rounded border border-dashed p-3 text-sm text-muted-foreground">Sem família agregada para este membro.</p>
         ) : (
           <div className="mt-3 space-y-3">
@@ -395,6 +374,9 @@ export function FamilyTab({ memberId, familyContext, allUsers, onOpenMember }: F
                         {familyMember.numero_socio ? `Sócio #${familyMember.numero_socio}` : 'Sem número de sócio'} · {familyMember.estado || 'Sem estado'}
                       </p>
                       <p className="text-xs text-muted-foreground">Relação: {FAMILY_ROLE_LABELS[normalizeFamilyRole(familyMember.papel_na_familia)]}</p>
+                      {linkedDependentIds.has(familyMember.id) && (
+                        <p className="text-xs text-muted-foreground">Responsabilidade direta: educando associado</p>
+                      )}
                       <div className="mt-2 flex flex-wrap gap-1.5">
                         <Button type="button" variant="outline" size="sm" className="h-7 text-xs" onClick={() => onOpenMember(familyMember.id)}>
                           <Pencil className="mr-1 h-3.5 w-3.5" /> Editar ficha
@@ -404,9 +386,14 @@ export function FamilyTab({ memberId, familyContext, allUsers, onOpenMember }: F
                             Editar relação
                           </Button>
                         )}
+                        {context.can_manage_family_relations && linkedDependentIds.has(familyMember.id) && (
+                          <Button type="button" variant="outline" size="sm" className="h-7 text-xs text-destructive hover:text-destructive" onClick={() => removeDependent(familyMember)} disabled={processing}>
+                            <Trash2 className="mr-1 h-3.5 w-3.5" /> Retirar responsabilidade
+                          </Button>
+                        )}
                         {context.can_manage_family_relations && familyMember.id !== memberId && (
                           <Button type="button" variant="outline" size="sm" className="h-7 text-xs text-destructive hover:text-destructive" onClick={() => removeFamilyMember(family, familyMember)} disabled={processing}>
-                            <Trash2 className="mr-1 h-3.5 w-3.5" /> Remover
+                            <Trash2 className="mr-1 h-3.5 w-3.5" /> Remover do agregado
                           </Button>
                         )}
                       </div>
@@ -415,6 +402,37 @@ export function FamilyTab({ memberId, familyContext, allUsers, onOpenMember }: F
                 </div>
               </div>
             ))}
+
+            {ungroupedDependents.length > 0 && (
+              <div className="rounded border p-3">
+                <div>
+                  <p className="text-sm font-semibold">Educandos associados</p>
+                  <p className="text-xs text-muted-foreground">Relações diretas que ainda não constam de um agregado familiar.</p>
+                </div>
+                <div className="mt-3 grid gap-2 lg:grid-cols-2">
+                  {ungroupedDependents.map((dependent) => (
+                    <div key={dependent.id} className="rounded border bg-muted/20 p-3">
+                      <p className="text-sm font-medium">{dependent.nome_completo}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {dependent.numero_socio ? `Sócio #${dependent.numero_socio}` : 'Sem número de sócio'} · {dependent.estado || 'Sem estado'}
+                      </p>
+                      <p className="text-xs text-muted-foreground">Tipo: {formatMemberType(dependent.tipo_membro)}</p>
+                      <p className="text-xs text-muted-foreground">Relação: Educando associado diretamente</p>
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        <Button type="button" variant="outline" size="sm" className="h-7 text-xs" onClick={() => onOpenMember(dependent.id)}>
+                          <Pencil className="mr-1 h-3.5 w-3.5" /> Editar ficha
+                        </Button>
+                        {context.can_manage_family_relations && (
+                          <Button type="button" variant="outline" size="sm" className="h-7 text-xs text-destructive hover:text-destructive" onClick={() => removeDependent(dependent)} disabled={processing}>
+                            <Trash2 className="mr-1 h-3.5 w-3.5" /> Retirar responsabilidade
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </Card>
