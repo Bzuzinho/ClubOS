@@ -5,13 +5,13 @@ namespace App\Services\Financeiro;
 use App\Models\Movement;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\Schema;
 
 class FinanceDashboardService
 {
     public function __construct(
         private readonly FinanceReportQueryService $queryService,
         private readonly FinancialReportingFactService $financialReportingFactService,
+        private readonly MovementDocumentControlService $movementDocumentControlService,
     ) {
     }
 
@@ -57,45 +57,56 @@ class FinanceDashboardService
 
     private function buildExpenseAlerts(Carbon $referenceDate): array
     {
-        if (!$this->supportsMovementDocumentAlerts()) {
-            return [
-                'paid_without_invoice' => 0,
-                'paid_without_receipt' => 0,
-                'missing_payment_proof' => 0,
-                'overdue_unpaid' => Movement::query()
-                    ->where('classificacao', 'despesa')
-                    ->whereIn('estado_pagamento', ['pendente', 'por_pagar'])
-                    ->whereDate('data_vencimento', '<', $referenceDate->toDateString())
-                    ->count(),
-                'amount_mismatch' => 0,
-                'stock_without_document' => 0,
-            ];
-        }
+        $expenseMovements = Movement::query()
+            ->where('classificacao', 'despesa')
+            ->with('documents')
+            ->get();
 
-        $expenseMovements = Movement::query()->where('classificacao', 'despesa');
+        $evaluated = $expenseMovements->map(function (Movement $movement): array {
+            return [
+                'movement' => $movement,
+                'evaluation' => $this->movementDocumentControlService->evaluate($movement),
+            ];
+        });
+
+        $isPaid = static fn (Movement $movement): bool => in_array(
+            (string) $movement->estado_pagamento,
+            ['pago', 'parcial', 'pago_parcial'],
+            true,
+        );
 
         return [
-            'paid_without_invoice' => (clone $expenseMovements)->where('estado_pagamento', 'pago')->where('estado_documental', 'falta_fatura')->count(),
-            'paid_without_receipt' => (clone $expenseMovements)->where('estado_pagamento', 'pago')->where('estado_documental', 'falta_recibo')->count(),
-            'missing_payment_proof' => (clone $expenseMovements)->where('estado_documental', 'falta_comprovativo_pagamento')->count(),
-            'overdue_unpaid' => (clone $expenseMovements)
-                ->whereIn('estado_pagamento', ['pendente', 'por_pagar'])
-                ->whereDate('data_vencimento', '<', $referenceDate->toDateString())
-                ->count(),
-            'amount_mismatch' => (clone $expenseMovements)->where('estado_documental', 'inconsistente')->count(),
-            'stock_without_document' => (clone $expenseMovements)
-                ->where('origem_tipo', 'stock')
-                ->whereIn('estado_documental', ['sem_documentos', 'falta_fatura', 'pendente_validacao'])
-                ->count(),
-        ];
-    }
+            'paid_without_invoice' => $evaluated->filter(fn (array $row): bool =>
+                $isPaid($row['movement'])
+                && in_array('invoice', $row['evaluation']['missing_documents'], true)
+            )->count(),
+            'paid_without_receipt' => $evaluated->filter(fn (array $row): bool =>
+                $isPaid($row['movement'])
+                && in_array('receipt', $row['evaluation']['missing_documents'], true)
+            )->count(),
+            'missing_payment_proof' => $evaluated->filter(fn (array $row): bool =>
+                in_array('payment_proof', $row['evaluation']['missing_documents'], true)
+            )->count(),
+            'overdue_unpaid' => $expenseMovements->filter(function (Movement $movement) use ($referenceDate): bool {
+                if (!in_array((string) $movement->estado_pagamento, ['pendente', 'por_pagar', 'vencido'], true)) {
+                    return false;
+                }
 
-    private function supportsMovementDocumentAlerts(): bool
-    {
-        return Schema::hasColumns('movements', [
-            'estado_documental',
-            'estado_conciliacao',
-        ]);
+                return $movement->data_vencimento !== null
+                    && Carbon::parse($movement->data_vencimento)->lt($referenceDate->copy()->startOfDay());
+            })->count(),
+            'amount_mismatch' => $evaluated->filter(fn (array $row): bool =>
+                (bool) ($row['evaluation']['has_amount_mismatch'] ?? false)
+            )->count(),
+            'stock_without_document' => $evaluated->filter(fn (array $row): bool =>
+                $row['movement']->origem_tipo === 'stock'
+                && in_array(
+                    (string) ($row['evaluation']['estado_documental'] ?? ''),
+                    ['sem_documentos', 'falta_fatura', 'falta_recibo', 'falta_comprovativo_pagamento', 'pendente_validacao'],
+                    true,
+                )
+            )->count(),
+        ];
     }
 
     private function buildDistributionByType(Collection $facts): array
