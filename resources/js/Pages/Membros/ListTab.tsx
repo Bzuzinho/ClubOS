@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, router } from '@inertiajs/react';
 import { ListBullets, Plus, SquaresFour, Trash, Users as UsersIcon } from '@phosphor-icons/react';
 
@@ -26,7 +26,14 @@ interface User {
 interface Props {
     members: User[];
     membersPagination?: MembersPagination;
+    filters?: MemberFilters;
     userTypes: any[];
+}
+
+interface MemberFilters {
+    search?: string;
+    status?: string;
+    sports_status?: 'ativo' | 'inativo' | null;
 }
 
 interface MembersPagination {
@@ -43,13 +50,18 @@ interface MembersPagination {
     }>;
 }
 
-export default function MembrosListTab({ members, membersPagination, userTypes }: Props) {
+export default function MembrosListTab({ members, membersPagination, filters, userTypes }: Props) {
     const [searchTerm, setSearchTerm] = useState('');
     const [statusFilter, setStatusFilter] = useState<string>('all');
+    const [sportsStatusFilter, setSportsStatusFilter] = useState<string>(filters?.sports_status || 'all');
     const [typeFilter, setTypeFilter] = useState<string>('all');
     const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
     const [userToDelete, setUserToDelete] = useState<User | null>(null);
     const [viewMode, setViewMode] = useState<'card' | 'table'>('card');
+
+    useEffect(() => {
+        setSportsStatusFilter(filters?.sports_status || 'all');
+    }, [filters?.sports_status]);
 
     const filteredUsers = useMemo(() => {
         return members.filter((user) => {
@@ -84,6 +96,27 @@ export default function MembrosListTab({ members, membersPagination, userTypes }
         event.stopPropagation();
         setUserToDelete(user);
         setDeleteDialogOpen(true);
+    }, []);
+
+    const handleSportsStatusChange = useCallback((value: string) => {
+        setSportsStatusFilter(value);
+
+        const params = Object.fromEntries(new URLSearchParams(window.location.search).entries()) as Record<string, string>;
+        params.tab = 'list';
+        delete params.page;
+
+        if (value === 'all') {
+            delete params.sports_status;
+        } else {
+            params.sports_status = value;
+        }
+
+        router.get(route('membros.index'), params, {
+            only: ['members', 'membersPagination', 'filters'],
+            preserveScroll: true,
+            preserveState: true,
+            replace: true,
+        });
     }, []);
 
     const confirmDelete = useCallback(() => {
@@ -163,6 +196,16 @@ export default function MembrosListTab({ members, membersPagination, userTypes }
                             <SelectItem value="ativo">Ativo</SelectItem>
                             <SelectItem value="inativo">Inativo</SelectItem>
                             <SelectItem value="suspenso">Suspenso</SelectItem>
+                        </SelectContent>
+                    </Select>
+                    <Select value={sportsStatusFilter} onValueChange={handleSportsStatusChange}>
+                        <SelectTrigger className="w-full sm:w-[160px] h-8 text-[11px]">
+                            <SelectValue placeholder="Estado desportivo" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="all">Todos os estados desportivos</SelectItem>
+                            <SelectItem value="ativo">Ativo</SelectItem>
+                            <SelectItem value="inativo">Não ativo</SelectItem>
                         </SelectContent>
                     </Select>
                     <Select value={typeFilter} onValueChange={setTypeFilter}>
@@ -327,7 +370,7 @@ export default function MembrosListTab({ members, membersPagination, userTypes }
                         <UsersIcon size={40} className="mx-auto text-muted-foreground mb-3" weight="duotone" />
                         <h3 className="text-base font-semibold mb-1.5">Nenhum membro encontrado</h3>
                         <p className="text-muted-foreground mb-3 text-xs">
-                            Ajuste os filtros de estado/tipo ou pesquise por nome, número de sócio e email.
+                            Ajuste os filtros de estado, estado desportivo ou tipo, ou pesquise por nome, número de sócio e email.
                         </p>
                         <Link href={route('membros.create')}>
                             <Button size="sm" className="h-8 text-xs">

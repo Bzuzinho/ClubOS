@@ -66,6 +66,7 @@ class MembrosController extends Controller
         $perPage = min(max((int) $request->integer('per_page', 50), 10), 100);
         $search = trim((string) $request->string('search')->value());
         $status = trim((string) $request->string('status')->value());
+        $sportsStatus = trim((string) $request->string('sports_status')->value());
 
         $membersPaginator = User::query()
             ->with(['dadosPessoais:id,user_id,nome_completo', 'userTypes:id,codigo,nome'])
@@ -92,6 +93,7 @@ class MembrosController extends Controller
                 });
             })
             ->when(in_array($status, ['ativo', 'inativo', 'suspenso'], true), fn ($query) => $query->where('estado', $status))
+            ->when(in_array($sportsStatus, ['ativo', 'inativo'], true), fn ($query) => $query->where('ativo_desportivo', $sportsStatus === 'ativo'))
             ->orderByRaw('COALESCE(nome_completo, name)')
             ->paginate($perPage)
             ->withQueryString();
@@ -192,6 +194,11 @@ class MembrosController extends Controller
                 'from' => $membersPaginator->firstItem(),
                 'to' => $membersPaginator->lastItem(),
                 'links' => $membersPaginator->linkCollection()->toArray(),
+            ],
+            'filters' => [
+                'search' => $search,
+                'status' => $status,
+                'sports_status' => in_array($sportsStatus, ['ativo', 'inativo'], true) ? $sportsStatus : null,
             ],
             'userTypes' => $userTypes,
             'ageGroups' => $ageGroups,

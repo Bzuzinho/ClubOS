@@ -40,6 +40,7 @@ interface EscalaoStat {
 interface Props {
     members: User[];
     membersPagination?: MembersPagination;
+    filters?: MemberFilters;
     userTypes: any[];
     ageGroups: any[];
     stats: Stats;
@@ -48,6 +49,12 @@ interface Props {
     communicationState?: {
         initialTab?: string;
     };
+}
+
+interface MemberFilters {
+    search?: string;
+    status?: string;
+    sports_status?: 'ativo' | 'inativo' | null;
 }
 
 interface MembersPagination {
@@ -71,7 +78,7 @@ function TabLoadingState() {
     return <div className="min-h-[240px] rounded-lg border border-dashed border-border bg-background" />;
 }
 
-export default function MembrosIndex({ members, membersPagination, userTypes, ageGroups, stats, tipoMembrosStats, escaloesStats, communicationState }: Props) {
+export default function MembrosIndex({ members, membersPagination, filters, userTypes, ageGroups, stats, tipoMembrosStats, escaloesStats, communicationState }: Props) {
     const [activeTab, setActiveTab] = useState(() => {
         if (typeof window !== 'undefined') {
             const queryTab = new URLSearchParams(window.location.search).get('tab');
@@ -122,7 +129,7 @@ export default function MembrosIndex({ members, membersPagination, userTypes, ag
 
                 <TabsContent value="list" className={moduleTabbedContentClass}>
                     <Suspense fallback={<TabLoadingState />}>
-                        <MembrosListTab members={members} membersPagination={membersPagination} userTypes={userTypes} />
+                        <MembrosListTab members={members} membersPagination={membersPagination} filters={filters} userTypes={userTypes} />
                     </Suspense>
                 </TabsContent>
 
