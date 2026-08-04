@@ -6,6 +6,9 @@ on:
       - main
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   validate:
     runs-on: ubuntu-latest
@@ -100,3 +103,76 @@ jobs:
 
       - name: Run PostgreSQL concurrency test
         run: php artisan test tests/Feature/Financeiro/PostgresMixedBankReconciliationConcurrencyTest.php
+
+  deploy-production:
+    name: Deploy production to Oracle VM
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs:
+      - validate
+      - postgres-concurrency
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    concurrency:
+      group: clubos-production-deploy
+      cancel-in-progress: false
+
+    env:
+      VM_USER: ${{ secrets.ORACLE_VM_USER || 'ubuntu' }}
+      VM_HOST: ${{ secrets.ORACLE_VM_HOST || '129.159.13.211' }}
+      VM_APP_DIR: ${{ secrets.ORACLE_VM_APP_DIR || '/var/www/clubmanager' }}
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Configure SSH access
+        shell: bash
+        env:
+          ORACLE_VM_SSH_KEY: ${{ secrets.ORACLE_VM_SSH_KEY }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${ORACLE_VM_SSH_KEY}" ]]; then
+            echo "::error::Missing GitHub secret ORACLE_VM_SSH_KEY"
+            exit 1
+          fi
+
+          mkdir -p "${HOME}/.ssh"
+          chmod 700 "${HOME}/.ssh"
+          printf '%s\n' "${ORACLE_VM_SSH_KEY}" | tr -d '\r' > "${HOME}/.ssh/id_ed25519"
+          chmod 600 "${HOME}/.ssh/id_ed25519"
+
+          ssh-keygen -y -f "${HOME}/.ssh/id_ed25519" > /dev/null
+          ssh-keyscan -H "${VM_HOST}" >> "${HOME}/.ssh/known_hosts"
+          chmod 644 "${HOME}/.ssh/known_hosts"
+
+          ssh \
+            -o BatchMode=yes \
+            -o ConnectTimeout=15 \
+            "${VM_USER}@${VM_HOST}" \
+            'echo SSH_OK'
+
+      - name: Deploy main to production
+        run: npm run deploy:vm
+
+      - name: Deployment summary
+        if: success()
+        shell: bash
+        run: |
+          {
+            echo '## ClubOS production deploy'
+            echo ''
+            echo "- Commit: \`${GITHUB_SHA}\`"
+            echo "- Target: \`${VM_USER}@${VM_HOST}:${VM_APP_DIR}\`"
+            echo '- Validation: CI and PostgreSQL concurrency passed'
+            echo '- Result: successful'
+          } >> "${GITHUB_STEP_SUMMARY}"
