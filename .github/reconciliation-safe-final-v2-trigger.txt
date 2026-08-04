@@ -1,1 +1,1 @@
-Trigger the scoped CI reconciliation correction job.
+Run the scoped CI reconciliation correction job now.
