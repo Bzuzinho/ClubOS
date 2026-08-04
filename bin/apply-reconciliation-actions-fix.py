@@ -90,8 +90,8 @@ class BankReconciliationExactAllocationActionsContractTest extends TestCase
         $this->assertStringNotContainsString('suggestion.score === 100', $bankTab);
         $this->assertStringNotContainsString('(int) $suggestion->score === 100', $controller);
         $this->assertStringNotContainsString('(int) $suggestion->score !== 100', $service);
-        $this->assertStringContainsString("round((float) $suggestion->unallocated_amount, 2) <= 0.009", $controller);
-        $this->assertStringContainsString("collect((array) $suggestion->suggested_allocations)->isNotEmpty()", $controller);
+        $this->assertStringContainsString('round((float) $suggestion->unallocated_amount, 2) <= 0.009', $controller);
+        $this->assertStringContainsString('collect((array) $suggestion->suggested_allocations)->isNotEmpty()', $controller);
         $this->assertStringContainsString('Abrir conciliação manual', $bankTab);
     }
 }
