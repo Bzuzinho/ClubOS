@@ -30,6 +30,11 @@ jobs:
           node-version: '20'
           cache: npm
 
+      - name: Validate deployment scripts
+        run: |
+          node --check bin/deploy-vm.mjs
+          bash -n bin/remote-deploy-backend.sh
+
       - name: Install Composer dependencies
         run: composer install --no-interaction --prefer-dist
 
