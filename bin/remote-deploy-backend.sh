@@ -68,6 +68,13 @@ REMOTE_HEAD="$(run_git rev-parse origin/main)"
 [[ "${LOCAL_HEAD}" == "${REMOTE_HEAD}" ]] || fail "HEAD local não corresponde a origin/main"
 log "git sincronizado em ${LOCAL_HEAD}"
 
+[[ -f "${WORK_TREE}/.env" ]] || fail "ficheiro .env não encontrado"
+usermod -a -G "${RUNTIME_GROUP}" "${DEPLOY_USER}"
+chgrp "${RUNTIME_GROUP}" "${WORK_TREE}/.env"
+chmod 640 "${WORK_TREE}/.env"
+run_as_deploy test -r "${WORK_TREE}/.env" || fail "${DEPLOY_USER} não consegue ler o .env"
+run_as_runtime test -r "${WORK_TREE}/.env" || fail "${RUNTIME_USER} não consegue ler o .env"
+
 log "composer install como ${DEPLOY_USER}"
 run_as_deploy composer --working-dir="${WORK_TREE}" install \
   --no-dev \
@@ -91,9 +98,6 @@ install -d -o "${RUNTIME_USER}" -g "${RUNTIME_GROUP}" -m 775 \
 chown -R "${RUNTIME_USER}:${RUNTIME_GROUP}" "${WORK_TREE}/storage" "${WORK_TREE}/bootstrap/cache"
 find "${WORK_TREE}/storage" "${WORK_TREE}/bootstrap/cache" -type d -exec chmod 775 {} +
 find "${WORK_TREE}/storage" "${WORK_TREE}/bootstrap/cache" -type f -exec chmod 664 {} +
-
-[[ -f "${WORK_TREE}/.env" ]] || fail "ficheiro .env não encontrado"
-run_as_runtime test -r "${WORK_TREE}/.env" || fail "${RUNTIME_USER} não consegue ler o .env"
 
 log "Laravel migrations e caches como ${RUNTIME_USER}"
 run_as_deploy php "${WORK_TREE}/artisan" storage:link || true
