@@ -1,0 +1,63 @@
+name: Verify production deploy
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  deploy-and-verify:
+    if: github.head_ref == 'verify/production-deploy-05208ad'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      VM_USER: ${{ secrets.ORACLE_VM_USER || 'ubuntu' }}
+      VM_HOST: ${{ secrets.ORACLE_VM_HOST || '129.159.13.211' }}
+      VM_APP_DIR: ${{ secrets.ORACLE_VM_APP_DIR || '/var/www/clubmanager' }}
+
+    steps:
+      - name: Checkout current main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Configure SSH access
+        shell: bash
+        env:
+          ORACLE_VM_SSH_KEY: ${{ secrets.ORACLE_VM_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "${ORACLE_VM_SSH_KEY}"
+          mkdir -p "${HOME}/.ssh"
+          chmod 700 "${HOME}/.ssh"
+          printf '%s\n' "${ORACLE_VM_SSH_KEY}" | tr -d '\r' > "${HOME}/.ssh/id_ed25519"
+          chmod 600 "${HOME}/.ssh/id_ed25519"
+          ssh-keygen -y -f "${HOME}/.ssh/id_ed25519" > /dev/null
+          ssh-keyscan -H "${VM_HOST}" >> "${HOME}/.ssh/known_hosts"
+          chmod 644 "${HOME}/.ssh/known_hosts"
+          ssh -o BatchMode=yes -o ConnectTimeout=15 "${VM_USER}@${VM_HOST}" 'echo SSH_OK'
+
+      - name: Deploy current main
+        run: npm run deploy:vm
+
+      - name: Verify production commit and health
+        shell: bash
+        run: |
+          set -euo pipefail
+          EXPECTED_SHA="$(git rev-parse HEAD)"
+          DEPLOYED_SHA="$(ssh "${VM_USER}@${VM_HOST}" "sudo -u ${VM_USER} -H git -C '${VM_APP_DIR}' rev-parse HEAD")"
+          echo "Expected: ${EXPECTED_SHA}"
+          echo "Deployed: ${DEPLOYED_SHA}"
+          test "${DEPLOYED_SHA}" = "${EXPECTED_SHA}"
+          ssh "${VM_USER}@${VM_HOST}" "/usr/local/bin/clubmanager-healthcheck.sh '${VM_APP_DIR}'"
