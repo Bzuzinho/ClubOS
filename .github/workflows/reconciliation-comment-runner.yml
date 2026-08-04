@@ -1,0 +1,147 @@
+name: Reconciliation comment runner
+
+on:
+  issue_comment:
+    types:
+      - created
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  patch:
+    if: >-
+      github.event.issue.pull_request &&
+      github.event.issue.number == 91 &&
+      github.event.comment.body == '/apply-reconciliation-fix' &&
+      github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout correction branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: fix/reconciliation-actions-score-final
+          token: ${{ github.token }}
+
+      - name: Update branch from main
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git fetch origin main
+          git merge --no-edit origin/main
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, xml, curl, zip, intl, bcmath, pdo, pdo_pgsql, sqlite3, pdo_sqlite
+          coverage: none
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: |
+          composer install --no-interaction --prefer-dist --no-progress
+          npm ci
+
+      - name: Apply targeted correction
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              file = Path(path)
+              text = file.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"Expected exactly one match in {path}, found {count}: {old[:100]!r}")
+              file.write_text(text.replace(old, new, 1))
+
+          replace_once(
+              'resources/js/Pages/Financeiro/BancoTab.tsx',
+              """      && suggestion.is_directly_reconcilable\n      && suggestion.score === 100\n      && toNumber(suggestion.unallocated_amount) <= 0.009\n""",
+              """      && suggestion.is_directly_reconcilable\n      && toNumber(suggestion.unallocated_amount) <= 0.009\n""",
+          )
+
+          replace_once(
+              'resources/js/Pages/Financeiro/BancoTab.tsx',
+              "      toast.error('A conciliacao direta so esta disponivel para sugestoes com score de 100%.');\n",
+              "      toast.error('A conciliacao direta exige que o valor esteja totalmente atribuido.');\n",
+          )
+
+          replace_once(
+              'resources/js/Pages/Financeiro/BancoTab.tsx',
+              '                              Adicionar ou retirar membros\n',
+              '                              Abrir conciliação manual\n',
+          )
+
+          replace_once(
+              'app/Http/Controllers/Financeiro/BankReconciliationSuggestionController.php',
+              """        $payload['is_directly_reconcilable'] = (int) $suggestion->score === 100\n            && round((float) $suggestion->unallocated_amount, 2) <= 0.009\n            && collect((array) $suggestion->suggested_allocations)->isNotEmpty();\n""",
+              """        $payload['is_directly_reconcilable'] = round((float) $suggestion->unallocated_amount, 2) <= 0.009\n            && collect((array) $suggestion->suggested_allocations)->isNotEmpty();\n""",
+          )
+
+          replace_once(
+              'app/Services/Financeiro/BankReconciliationSuggestionService.php',
+              """            if (\n                (int) $suggestion->score !== 100\n                || round((float) $suggestion->unallocated_amount, 2) > 0.009\n            ) {\n                throw ValidationException::withMessages([\n                    'suggestion' => 'A conciliacao direta exige uma sugestao exata com score de 100%. Use a alocacao assistida.',\n                ]);\n            }\n""",
+              """            if (\n                round((float) $suggestion->unallocated_amount, 2) > 0.009\n                || collect((array) $suggestion->suggested_allocations)->isEmpty()\n            ) {\n                throw ValidationException::withMessages([\n                    'suggestion' => 'A conciliacao direta exige que o valor esteja totalmente atribuido e tenha alocacoes validas. Use a alocacao assistida.',\n                ]);\n            }\n""",
+          )
+
+          replace_once(
+              'tests/Feature/Financeiro/BankReconciliationManualMemberEditingContractTest.php',
+              "        $this->assertStringContainsString('Adicionar ou retirar membros', $bankTab);\n",
+              "        $this->assertStringContainsString('Abrir conciliação manual', $bankTab);\n",
+          )
+
+          Path('tests/Feature/Financeiro/BankReconciliationExactAllocationActionsContractTest.php').write_text("""<?php
+
+namespace Tests\\Feature\\Financeiro;
+
+use Tests\\TestCase;
+
+class BankReconciliationExactAllocationActionsContractTest extends TestCase
+{
+    public function test_fully_allocated_suggestion_is_not_blocked_by_confidence_score(): void
+    {
+        $bankTab = file_get_contents(resource_path('js/Pages/Financeiro/BancoTab.tsx'));
+        $controller = file_get_contents(app_path('Http/Controllers/Financeiro/BankReconciliationSuggestionController.php'));
+        $service = file_get_contents(app_path('Services/Financeiro/BankReconciliationSuggestionService.php'));
+
+        $this->assertStringNotContainsString('suggestion.score === 100', $bankTab);
+        $this->assertStringNotContainsString('(int) $suggestion->score === 100', $controller);
+        $this->assertStringNotContainsString('(int) $suggestion->score !== 100', $service);
+        $this->assertStringContainsString("round((float) $suggestion->unallocated_amount, 2) <= 0.009", $controller);
+        $this->assertStringContainsString("collect((array) $suggestion->suggested_allocations)->isNotEmpty()", $controller);
+        $this->assertStringContainsString('Abrir conciliação manual', $bankTab);
+    }
+}
+""")
+
+          Path('.github/reconciliation-patch-request.txt').unlink(missing_ok=True)
+          Path('.github/workflows/reconciliation-patch-runner.yml').unlink(missing_ok=True)
+          Path('.github/workflows/reconciliation-comment-runner.yml').unlink(missing_ok=True)
+          PY
+
+      - name: Validate correction
+        run: |
+          php -l app/Http/Controllers/Financeiro/BankReconciliationSuggestionController.php
+          php -l app/Services/Financeiro/BankReconciliationSuggestionService.php
+          php artisan test \
+            tests/Feature/Financeiro/BankReconciliationManualMemberEditingContractTest.php \
+            tests/Feature/Financeiro/BankReconciliationExactAllocationActionsContractTest.php
+          npm run build
+
+      - name: Commit correction
+        run: |
+          git add -A
+          git commit -m 'Fix reconciliation actions for fully allocated suggestions'
+          git push origin HEAD:fix/reconciliation-actions-score-final
