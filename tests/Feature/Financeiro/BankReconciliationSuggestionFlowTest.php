@@ -1309,7 +1309,7 @@ class BankReconciliationSuggestionFlowTest extends TestCase
         ]);
     }
 
-    public function test_equal_invoice_and_billed_movement_require_assisted_choice(): void
+    public function test_equal_invoice_and_billed_movement_remain_non_direct_for_operator_review(): void
     {
         $admin = User::factory()->admin()->create();
         $user = $this->createFinanceUser([
@@ -1348,7 +1348,7 @@ class BankReconciliationSuggestionFlowTest extends TestCase
         });
     }
 
-    public function test_multiple_equal_expenses_never_expose_direct_reconciliation(): void
+    public function test_multiple_equal_expenses_remain_non_direct_for_operator_review(): void
     {
         $admin = User::factory()->admin()->create();
         $costCenter = CostCenter::query()->firstOrCreate(
