@@ -1,0 +1,54 @@
+name: Verify normal main deploy
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    if: github.head_ref == 'verify/normal-deploy-de01a485'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      VM_USER: ${{ secrets.ORACLE_VM_USER || 'ubuntu' }}
+      VM_HOST: ${{ secrets.ORACLE_VM_HOST || '129.159.13.211' }}
+      VM_APP_DIR: ${{ secrets.ORACLE_VM_APP_DIR || '/var/www/clubmanager' }}
+      EXPECTED_SHA: de01a4855a185e6adcbf3a2b13aa865cc549abd6
+
+    steps:
+      - name: Configure SSH
+        shell: bash
+        env:
+          ORACLE_VM_SSH_KEY: ${{ secrets.ORACLE_VM_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.ssh"
+          chmod 700 "$HOME/.ssh"
+          printf '%s\n' "$ORACLE_VM_SSH_KEY" | tr -d '\r' > "$HOME/.ssh/id_ed25519"
+          chmod 600 "$HOME/.ssh/id_ed25519"
+          ssh-keyscan -H "$VM_HOST" >> "$HOME/.ssh/known_hosts"
+
+      - name: Wait for normal main deployment
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 24); do
+            installed_sha="$(ssh -o BatchMode=yes "$VM_USER@$VM_HOST" "git -C '$VM_APP_DIR' rev-parse HEAD" 2>/dev/null || true)"
+            echo "Attempt $attempt: installed=$installed_sha expected=$EXPECTED_SHA"
+            if [[ "$installed_sha" == "$EXPECTED_SHA" ]]; then
+              exit 0
+            fi
+            sleep 25
+          done
+          echo '::error::The normal main deployment did not install the expected commit within 10 minutes.'
+          exit 1
+
+      - name: Verify production health
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh -o BatchMode=yes "$VM_USER@$VM_HOST" "curl --fail --silent --show-error --max-time 20 http://127.0.0.1/ >/dev/null"
