@@ -44,6 +44,8 @@ use App\Http\Controllers\Financeiro\FiscalDocumentRequestController;
 use App\Http\Controllers\Financeiro\ReceiptImportController;
 use App\Http\Controllers\PortalTrainingController;
 use App\Http\Controllers\PortalEventController;
+use App\Http\Controllers\PublicFormSubmissionController;
+use App\Http\Controllers\PublicSiteController;
 use App\Http\Controllers\MembrosEquipaController;
 use App\Http\Controllers\SessoesFormacaoController;
 use App\Http\Controllers\ConvocatoriasController;
@@ -87,9 +89,16 @@ Route::get('/icons/{asset}', function (string $asset) {
     ]);
 })->where('asset', '[A-Za-z0-9._-]+')->name('pwa.icon');
 
-Route::get('/', function () {
-    return redirect()->route('dashboard');
-});
+Route::get('/', [PublicSiteController::class, 'home'])->name('public.home');
+Route::get('/{page}', [PublicSiteController::class, 'show'])
+    ->whereIn('page', ['clube', 'competicao', 'treinos', 'noticias', 'calendario', 'parceiros', 'contactos', 'junta-te', 'inscricao', 'privacidade'])
+    ->name('public.page');
+Route::post('/junta-te', [PublicFormSubmissionController::class, 'contact'])
+    ->middleware('throttle:5,1')
+    ->name('public.contact.store');
+Route::post('/inscricao', [PublicFormSubmissionController::class, 'registration'])
+    ->middleware('throttle:5,1')
+    ->name('public.registration.store');
 
 Route::middleware(['auth', 'verified'])->group(function () {
     // Dashboard — gate handled inside DashboardController (athlete vs admin dispatch).
