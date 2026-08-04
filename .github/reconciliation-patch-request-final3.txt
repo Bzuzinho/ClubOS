@@ -1,1 +1,1 @@
-Apply the reconciliation action correction from the synchronized pull request workflow.
+Apply the reconciliation action correction after fixing the generated contract test.
