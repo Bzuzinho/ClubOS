@@ -1,8 +1,9 @@
-name: Reconciliation synchronize runner
+name: Reconciliation final runner
 
 on:
   pull_request:
     types:
+      - opened
       - synchronize
     branches:
       - main
@@ -14,7 +15,7 @@ jobs:
   patch:
     if: >-
       github.event.pull_request.head.repo.full_name == github.repository &&
-      github.event.pull_request.head.ref == 'fix/reconciliation-actions-score-final3' &&
+      github.event.pull_request.head.ref == 'fix/reconciliation-actions-safe-final' &&
       github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -24,7 +25,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          ref: fix/reconciliation-actions-score-final3
+          ref: fix/reconciliation-actions-safe-final
           token: ${{ github.token }}
 
       - name: Load safe patch from main
@@ -68,4 +69,4 @@ jobs:
         run: |
           git add -A
           git commit -m 'Fix reconciliation actions for fully allocated suggestions'
-          git push origin HEAD:fix/reconciliation-actions-score-final3
+          git push origin HEAD:fix/reconciliation-actions-safe-final
