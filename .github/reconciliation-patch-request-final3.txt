@@ -1,0 +1,1 @@
+Align legacy reconciliation tests with the fully allocated confirmation rule.
