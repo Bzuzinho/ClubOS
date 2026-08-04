@@ -25,7 +25,7 @@ class ManualExpenseService
             $data = $this->prepareData($data);
 
             $movement = Movement::query()->create([
-                'user_id' => null,
+                'user_id' => $data['user_id'] ?? null,
                 'supplier_id' => $data['supplier_id'] ?? null,
                 'nome_manual' => $data['nome_manual'] ?? null,
                 'nif_manual' => $data['nif_manual'] ?? null,

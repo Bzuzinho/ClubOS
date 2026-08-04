@@ -33,7 +33,7 @@ class LojaController extends Controller
         return Inertia::render('Store/StoreHomePage', [
             'heroItems' => $this->heroItemsPayload(),
             'categories' => $this->categoriesPayload(),
-            'featuredProducts' => $this->productsPayload($request, true),
+            'featuredProducts' => $this->highlightedProductsPayload($request),
             'products' => $this->productsPayload($request, false),
             'filters' => [
                 'search' => trim((string) $request->query('search', '')),
@@ -106,6 +106,42 @@ class LojaController extends Controller
             $request->query('categoria'),
             $onlyFeatured,
         );
+    }
+
+    private function highlightedProductsPayload(Request $request): array
+    {
+        $search = trim((string) $request->query('search', ''));
+        $categoryId = $request->query('categoria');
+
+        return $this->heroService->activeItems()
+            ->map(fn ($item) => $item->article)
+            ->filter(fn ($product) => $product
+                && $product->ativo
+                && $product->visible_in_store
+                && $product->allow_sale)
+            ->when(filled($categoryId), fn ($products) => $products->filter(
+                fn ($product) => (string) $product->categoria_id === (string) $categoryId
+            ))
+            ->when($search !== '', fn ($products) => $products->filter(function ($product) use ($search): bool {
+                $haystack = mb_strtolower(implode(' ', array_filter([
+                    $product->nome,
+                    $product->codigo,
+                    $product->descricao,
+                ])));
+
+                return str_contains($haystack, mb_strtolower($search));
+            }))
+            ->unique('id')
+            ->map(function ($product): array {
+                $product->loadMissing([
+                    'category:id,nome',
+                    'variants' => fn ($query) => $query->active()->orderBy('nome')->orderBy('tamanho')->orderBy('cor'),
+                ]);
+
+                return $this->catalogService->serializeProduct($product);
+            })
+            ->values()
+            ->all();
     }
 
     private function cartPayload(User $user): array

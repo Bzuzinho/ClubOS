@@ -6,6 +6,7 @@ use App\Models\ItemCategory;
 use App\Models\LojaHeroItem;
 use App\Models\Product;
 use App\Models\User;
+use App\Http\Middleware\HandleInertiaRequests;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -119,12 +120,11 @@ class AdminStoreCanonicalCatalogTest extends TestCase
             'ativo' => true,
             'visible_in_store' => true,
             'allow_sale' => true,
+            'imagem' => '/storage/destaque.png',
         ]);
 
         $this->actingAs($admin)
             ->postJson('/api/admin/loja/hero', [
-                'titulo_principal' => 'Destaque principal',
-                'tipo_destino' => LojaHeroItem::DESTINO_PRODUTO,
                 'produto_id' => $product->id,
                 'ativo' => true,
                 'ordem' => 1,
@@ -132,11 +132,12 @@ class AdminStoreCanonicalCatalogTest extends TestCase
             ->assertCreated()
             ->assertJsonPath('produto_id', $product->id)
             ->assertJsonPath('produto.id', $product->id)
-            ->assertJsonPath('produto.nome', 'Hero Canónico Admin');
+            ->assertJsonPath('produto.nome', 'Hero Canónico Admin')
+            ->assertJsonPath('produto.imagem_principal_path', '/storage/destaque.png');
 
         $this->assertDatabaseHas('loja_hero_items', [
             'article_id' => $product->id,
-            'titulo_principal' => 'Destaque principal',
+            'titulo_principal' => 'Hero Canónico Admin',
         ]);
 
         $this->actingAs($admin)
@@ -146,5 +147,18 @@ class AdminStoreCanonicalCatalogTest extends TestCase
             ->assertJsonPath('0.produto_id', $product->id)
             ->assertJsonPath('0.produto.id', $product->id)
             ->assertJsonPath('0.produto.nome', 'Hero Canónico Admin');
+
+        $inertiaVersion = app(HandleInertiaRequests::class)->version(request());
+
+        $this->actingAs($admin)
+            ->withHeaders([
+                'X-Inertia' => 'true',
+                'X-Requested-With' => 'XMLHttpRequest',
+                'X-Inertia-Version' => (string) $inertiaVersion,
+            ])
+            ->get('/loja')
+            ->assertOk()
+            ->assertJsonPath('props.featuredProducts.0.id', $product->id)
+            ->assertJsonPath('props.featuredProducts.0.nome', 'Hero Canónico Admin');
     }
 }

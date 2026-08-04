@@ -189,13 +189,9 @@ export function BankStatementReconciliationDialog({
       return;
     }
 
-    if (assistedContext && searchTerm.trim().length < 2) {
-      return;
-    }
-
     const timeout = window.setTimeout(() => {
       if (assistedContext) {
-        void loadOpenInvoices(searchTerm);
+        void Promise.all([loadOpenInvoices(searchTerm), loadOpenMovements(searchTerm)]);
         return;
       }
 
@@ -381,7 +377,7 @@ export function BankStatementReconciliationDialog({
 
       const payload = await response.json();
       const movements = Array.isArray(payload?.data) ? payload.data : [];
-      setOpenMovements(movements);
+      setOpenMovements((current) => assistedContext ? mergeById(current, movements) : movements);
       setMovementCostCenters((current) => {
         const next = { ...current };
         movements.forEach((movement: OpenMovementListItem) => {

@@ -1579,10 +1579,14 @@ export function FaturasTab({
 
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             <DialogTrigger asChild>
-              <Button onClick={resetForm} className="w-full sm:w-auto text-xs sm:text-sm" size="sm">
-                <Plus className="mr-1 sm:mr-2" size={16} />
-                <span className="hidden sm:inline">Mensalidade Manual</span>
-                <span className="sm:hidden">Manual</span>
+              <Button
+                onClick={resetForm}
+                className="h-9 w-9 shrink-0 p-0"
+                size="icon"
+                aria-label="Adicionar mensalidade manual"
+                title="Adicionar mensalidade manual"
+              >
+                <Plus size={18} />
               </Button>
             </DialogTrigger>
             <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto w-[95vw] sm:w-full">

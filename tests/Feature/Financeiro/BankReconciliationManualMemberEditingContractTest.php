@@ -12,7 +12,8 @@ class BankReconciliationManualMemberEditingContractTest extends TestCase
         $dialog = file_get_contents(resource_path('js/Pages/Financeiro/BankStatementReconciliationDialog.tsx'));
 
         $this->assertStringContainsString('Abrir conciliação manual', $bankTab);
-        $this->assertStringContainsString('void loadOpenInvoices(searchTerm)', $dialog);
+        $this->assertStringContainsString('Promise.all([loadOpenInvoices(searchTerm), loadOpenMovements(searchTerm)])', $dialog);
+        $this->assertStringContainsString('assistedContext ? mergeById(current, movements) : movements', $dialog);
         $this->assertStringContainsString('Adicionar membro', $dialog);
         $this->assertStringContainsString('Retirar membro', $dialog);
         $this->assertStringContainsString('removeInvoiceMember(group.userId)', $dialog);

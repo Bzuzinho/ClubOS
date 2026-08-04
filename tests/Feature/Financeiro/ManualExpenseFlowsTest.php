@@ -86,6 +86,93 @@ class ManualExpenseFlowsTest extends TestCase
         $this->assertSame('despesa', $entry->tipo);
     }
 
+    public function test_manual_expense_preserves_athlete_and_is_available_for_manual_reconciliation(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $athlete = User::factory()->create([
+            'nome_completo' => 'Atleta Movimento Manual',
+            'numero_socio' => 'MM-101',
+        ]);
+        $costCenter = CostCenter::query()->firstOrFail();
+
+        $response = $this->actingAs($admin)->postJson(route('financeiro.movimentos.store'), [
+            'user_id' => $athlete->id,
+            'classificacao' => 'despesa',
+            'categoria' => 'deslocacao',
+            'data_emissao' => now()->toDateString(),
+            'data_vencimento' => now()->addDays(5)->toDateString(),
+            'valor_total' => 30.00,
+            'estado_pagamento' => 'por_pagar',
+            'centro_custo_id' => $costCenter->id,
+            'tipo' => 'servico',
+            'observacoes' => 'Deslocacao do atleta',
+            'items' => [[
+                'descricao' => 'Transporte',
+                'quantidade' => 1,
+                'valor_unitario' => 30.00,
+                'imposto_percentual' => 0,
+                'total_linha' => 30.00,
+                'centro_custo_id' => $costCenter->id,
+            ]],
+        ]);
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('movimento.user_id', $athlete->id)
+            ->assertJsonPath('movimento.user_name', 'Atleta Movimento Manual');
+
+        $movementId = (string) $response->json('movimento.id');
+
+        $this->assertDatabaseHas('movements', [
+            'id' => $movementId,
+            'user_id' => $athlete->id,
+        ]);
+
+        $this->actingAs($admin)
+            ->getJson(route('financeiro.movements.open', ['search' => 'Atleta Movimento']))
+            ->assertOk()
+            ->assertJsonPath('data.0.id', $movementId)
+            ->assertJsonPath('data.0.user_name', 'Atleta Movimento Manual');
+    }
+
+    public function test_deleting_clean_pending_manual_expense_removes_its_financial_entry(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $costCenter = CostCenter::query()->firstOrFail();
+
+        $result = app(\App\Services\Financeiro\ManualExpenseService::class)->createSimpleExpense([
+            'nome_manual' => 'Fornecedor eliminavel',
+            'classificacao' => 'despesa',
+            'categoria' => 'servico',
+            'data_emissao' => now()->toDateString(),
+            'data_vencimento' => now()->addDays(5)->toDateString(),
+            'valor_total' => 20.00,
+            'estado_pagamento' => 'por_pagar',
+            'estado_conciliacao' => 'nao_conciliado',
+            'centro_custo_id' => $costCenter->id,
+            'tipo' => 'servico',
+            'items' => [[
+                'descricao' => 'Servico',
+                'quantidade' => 1,
+                'valor_unitario' => 20.00,
+                'imposto_percentual' => 0,
+                'total_linha' => 20.00,
+            ]],
+        ], $admin);
+
+        $movement = $result['movement'];
+        $entry = $result['financial_entry'];
+
+        $this->actingAs($admin)
+            ->deleteJson(route('financeiro.movimentos.destroy', $movement))
+            ->assertOk()
+            ->assertJsonPath('success', true);
+
+        $this->assertDatabaseMissing('movements', ['id' => $movement->id]);
+        $this->assertDatabaseMissing('financial_entries', ['id' => $entry->id]);
+        $this->assertDatabaseMissing('movement_items', ['movimento_id' => $movement->id]);
+    }
+
     public function test_creating_movement_accepts_multipart_form_data_and_returns_json(): void
     {
         $admin = User::factory()->admin()->create();

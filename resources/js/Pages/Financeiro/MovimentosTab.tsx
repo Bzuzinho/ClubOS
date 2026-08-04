@@ -803,6 +803,9 @@ export function MovimentosTab({
   };
 
   const getNomeDisplay = (movimento: Movimento) => {
+    if (movimento.user_name) {
+      return movimento.user_name;
+    }
     if (movimento.user_id) {
       const user = (users || []).find((u) => u.id === movimento.user_id);
       return user ? user.nome_completo : 'Utilizador desconhecido';
@@ -854,9 +857,9 @@ export function MovimentosTab({
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-        <div className="grid w-full grid-cols-2 items-center gap-2 lg:grid-cols-4">
+        <div className="grid w-full min-w-0 grid-cols-2 items-center gap-2 lg:grid-cols-4">
           <Select value={classificacaoFilter} onValueChange={setClassificacaoFilter}>
-            <SelectTrigger className="w-full min-w-0">
+            <SelectTrigger className="w-full min-w-0 overflow-hidden px-2 sm:px-3 [&>span]:truncate">
               <SelectValue placeholder="Classificacao" />
             </SelectTrigger>
             <SelectContent className={scrollableSelectContentClassName}>
@@ -867,7 +870,7 @@ export function MovimentosTab({
           </Select>
 
           <Select value={estadoFilter} onValueChange={setEstadoFilter}>
-            <SelectTrigger className="w-full min-w-0">
+            <SelectTrigger className="w-full min-w-0 overflow-hidden px-2 sm:px-3 [&>span]:truncate">
               <SelectValue placeholder="Estado" />
             </SelectTrigger>
             <SelectContent className={scrollableSelectContentClassName}>
@@ -884,8 +887,8 @@ export function MovimentosTab({
           </Select>
 
           <Select value={documentalFilter} onValueChange={setDocumentalFilter}>
-            <SelectTrigger className="w-full min-w-0">
-              <SelectValue placeholder="Estado documental" />
+            <SelectTrigger className="w-full min-w-0 overflow-hidden px-2 sm:px-3 [&>span]:truncate" title="Estado documental">
+              <SelectValue placeholder="Documentos" />
             </SelectTrigger>
             <SelectContent className={scrollableSelectContentClassName}>
               <SelectItem value="all">Todos</SelectItem>
@@ -899,8 +902,8 @@ export function MovimentosTab({
           </Select>
 
           <Select value={conciliacaoFilter} onValueChange={setConciliacaoFilter}>
-            <SelectTrigger className="w-full min-w-0">
-              <SelectValue placeholder="Conciliacao" />
+            <SelectTrigger className="w-full min-w-0 overflow-hidden px-2 sm:px-3 [&>span]:truncate" title="Conciliação bancária">
+              <SelectValue placeholder="Conciliação" />
             </SelectTrigger>
             <SelectContent className={scrollableSelectContentClassName}>
               <SelectItem value="all">Todas</SelectItem>
@@ -912,7 +915,7 @@ export function MovimentosTab({
           </Select>
         </div>
 
-        <div className="flex gap-2">
+        <div className="flex max-w-full flex-wrap gap-2 md:justify-end">
           {selectedMovimentos.size > 0 && (
             <>
               <Button variant="outline" onClick={() => handleAbrirDialogoRecibo()}>

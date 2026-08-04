@@ -18,7 +18,7 @@ interface DashboardOrder {
     target_user?: string | null;
 }
 
-interface AdminStoreDashboardProps {
+interface AdminStoreDashboardProps extends Record<string, unknown> {
     dashboard: {
         total_produtos_ativos: number;
         produtos_sem_stock: number;
@@ -151,7 +151,7 @@ export default function AdminStoreDashboard() {
                                     <ArrowRight className="h-4 w-4" />
                                 </Button>
                                 <Button type="button" variant="outline" className="justify-between" onClick={() => router.visit('/admin/loja/hero')}>
-                                    Gerir hero
+                                    Gerir destaques
                                     <ArrowRight className="h-4 w-4" />
                                 </Button>
                                 <Button type="button" variant="outline" className="justify-between" onClick={() => router.visit('/admin/loja/encomendas')}>
@@ -166,7 +166,7 @@ export default function AdminStoreDashboard() {
                                 <CardTitle className="text-sm text-white">Loja integrada no portal</CardTitle>
                             </CardHeader>
                             <CardContent className="space-y-2 text-xs text-blue-100">
-                                <p>Hero, catálogo, carrinho e encomendas usam a mesma lógica de dados do utilizador autenticado.</p>
+                                <p>Destaques, catálogo, carrinho e encomendas usam a mesma lógica de dados do utilizador autenticado.</p>
                                 <p>Esta área mantém gestão administrativa sem abrir uma loja externa ao ClubOS.</p>
                             </CardContent>
                         </Card>

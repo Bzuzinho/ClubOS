@@ -23,7 +23,7 @@ const tabs: Array<{
 }> = [
     { value: 'dashboard', label: 'Dashboard', href: '/admin/loja', icon: LayoutDashboard },
     { value: 'produtos', label: 'Produtos', href: '/admin/loja/produtos', icon: Package },
-    { value: 'hero', label: 'Hero', href: '/admin/loja/hero', icon: ImageIcon },
+    { value: 'hero', label: 'Destaques', href: '/admin/loja/hero', icon: ImageIcon },
     { value: 'encomendas', label: 'Encomendas', href: '/admin/loja/encomendas', icon: ShoppingBag },
 ];
 

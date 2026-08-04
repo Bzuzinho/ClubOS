@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\ItemCategory;
 use App\Models\LojaHeroItem;
 use App\Models\Product;
 use App\Services\Loja\LojaHeroService;
@@ -37,7 +36,6 @@ class AdminLojaHeroController extends Controller
         return Inertia::render('Admin/Store/AdminHeroForm', [
             'item' => null,
             'products' => $this->productsPayload(),
-            'categories' => $this->categoriesPayload(),
         ]);
     }
 
@@ -53,7 +51,6 @@ class AdminLojaHeroController extends Controller
         return Inertia::render('Admin/Store/AdminHeroForm', [
             'item' => $this->serializeHeroItem($item->load(['article', 'categoria'])),
             'products' => $this->productsPayload(),
-            'categories' => $this->categoriesPayload(),
         ]);
     }
 
@@ -68,7 +65,7 @@ class AdminLojaHeroController extends Controller
     {
         $item->delete();
 
-        return response()->json(['message' => 'Hero removido com sucesso.']);
+        return response()->json(['message' => 'Destaque removido com sucesso.']);
     }
 
     public function toggle(LojaHeroItem $item): JsonResponse
@@ -85,29 +82,21 @@ class AdminLojaHeroController extends Controller
 
         $this->heroService->reorder($validated['ids']);
 
-        return response()->json(['message' => 'Hero reordenado com sucesso.']);
+        return response()->json(['message' => 'Destaques reordenados com sucesso.']);
     }
 
     private function validatePayload(Request $request, ?LojaHeroItem $item = null): array
     {
         return $request->validate([
-            'titulo_curto' => ['nullable', 'string', 'max:255'],
-            'titulo_principal' => ['required', 'string', 'max:255'],
-            'descricao' => ['nullable', 'string'],
-            'texto_botao' => ['nullable', 'string', 'max:255'],
-            'tipo_destino' => ['nullable', Rule::in([
-                LojaHeroItem::DESTINO_PRODUTO,
-                LojaHeroItem::DESTINO_CATEGORIA,
-                LojaHeroItem::DESTINO_URL,
-                LojaHeroItem::DESTINO_NENHUM,
-            ])],
-            'produto_id' => ['nullable', 'uuid', 'exists:products,id'],
-            'categoria_id' => ['nullable', 'uuid', 'exists:item_categories,id'],
-            'url_destino' => ['nullable', 'url'],
-            'imagem_desktop_path' => ['nullable', 'string', 'max:255'],
-            'imagem_tablet_path' => ['nullable', 'string', 'max:255'],
-            'imagem_mobile_path' => ['nullable', 'string', 'max:255'],
-            'cor_fundo' => ['nullable', 'string', 'max:20'],
+            'produto_id' => [
+                'required',
+                'uuid',
+                Rule::exists('products', 'id')->where(fn ($query) => $query
+                    ->where('ativo', true)
+                    ->where('visible_in_store', true)
+                    ->where('allow_sale', true)),
+                Rule::unique('loja_hero_items', 'article_id')->ignore($item?->id),
+            ],
             'ativo' => ['required', 'boolean'],
             'ordem' => ['nullable', 'integer'],
             'data_inicio' => ['nullable', 'date'],
@@ -117,14 +106,26 @@ class AdminLojaHeroController extends Controller
 
     private function normalizePayload(array $validated): array
     {
-        $canonicalProductId = $validated['tipo_destino'] === LojaHeroItem::DESTINO_PRODUTO
-            ? ($validated['produto_id'] ?? null)
-            : null;
+        $product = Product::query()->findOrFail($validated['produto_id']);
 
-        $validated['article_id'] = $canonicalProductId;
-        unset($validated['produto_id']);
-
-        return $validated;
+        return [
+            'article_id' => $product->id,
+            'titulo_curto' => 'Destaque',
+            'titulo_principal' => $product->nome,
+            'descricao' => $product->descricao,
+            'texto_botao' => 'Ver artigo',
+            'tipo_destino' => LojaHeroItem::DESTINO_PRODUTO,
+            'categoria_id' => null,
+            'url_destino' => null,
+            'imagem_desktop_path' => null,
+            'imagem_tablet_path' => null,
+            'imagem_mobile_path' => null,
+            'cor_fundo' => null,
+            'ativo' => $validated['ativo'],
+            'ordem' => $validated['ordem'] ?? 0,
+            'data_inicio' => $validated['data_inicio'] ?? null,
+            'data_fim' => $validated['data_fim'] ?? null,
+        ];
     }
 
     private function serializeHeroItem(LojaHeroItem $item): array
@@ -152,6 +153,7 @@ class AdminLojaHeroController extends Controller
             'produto' => $product ? [
                 'id' => $product->id,
                 'nome' => $product->nome,
+                'imagem_principal_path' => $product->imagem,
             ] : null,
             'categoria' => $item->categoria ? [
                 'id' => $item->categoria->id,
@@ -167,12 +169,7 @@ class AdminLojaHeroController extends Controller
             ->visibleInStore()
             ->allowSale()
             ->ordered()
-            ->get(['id', 'nome', 'slug'])
+            ->get(['id', 'nome', 'slug', 'imagem'])
             ->toArray();
-    }
-
-    private function categoriesPayload(): array
-    {
-        return ItemCategory::query()->active()->forContext('loja')->orderBy('nome')->get(['id', 'nome'])->toArray();
     }
 }

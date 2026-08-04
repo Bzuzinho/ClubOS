@@ -4,22 +4,18 @@ import { toast } from 'sonner';
 import CategoryScroller from '@/Components/Store/CategoryScroller';
 import ProductCard from '@/Components/Store/ProductCard';
 import StoreHeader from '@/Components/Store/StoreHeader';
-import StoreHeroCarousel from '@/Components/Store/StoreHeroCarousel';
 import PortalLayout from '@/Layouts/PortalLayout';
 import type { PageProps as SharedPageProps } from '@/types';
 import {
-    formatStoreCurrency,
     type StoreCart,
     type StoreCategory,
-    type StoreHeroItem,
     type StoreProduct,
     type StoreProfileOption,
     storeRequest,
     visitStoreProduct,
 } from '@/lib/storeApi';
 
-interface StoreHomePageProps {
-    heroItems: StoreHeroItem[];
+interface StoreHomePageProps extends Record<string, unknown> {
     categories: StoreCategory[];
     featuredProducts: StoreProduct[];
     products: StoreProduct[];
@@ -39,7 +35,7 @@ type PageProps = SharedPageProps<StoreHomePageProps> & {
 
 export default function StoreHomePage() {
     const { props } = usePage<PageProps>();
-    const { auth, clubSettings, accessControl, heroItems, categories, featuredProducts, products, filters, cart, profiles } = props;
+    const { auth, clubSettings, accessControl, categories, featuredProducts, products, filters, cart, profiles } = props;
     const [search, setSearch] = useState(filters.search || '');
     const [activeCategoryId, setActiveCategoryId] = useState(filters.categoria || 'all');
     const [localCart, setLocalCart] = useState<StoreCart>(cart);
@@ -94,23 +90,6 @@ export default function StoreHomePage() {
         }
     };
 
-    const handleHeroNavigation = (item: StoreHeroItem) => {
-        if (item.tipo_destino === 'produto' && item.produto?.slug) {
-            visitStoreProduct(item.produto.slug);
-            return;
-        }
-
-        if (item.tipo_destino === 'categoria' && item.categoria?.id) {
-            setActiveCategoryId(item.categoria.id);
-            router.get('/loja', { categoria: item.categoria.id }, { preserveState: true, replace: true });
-            return;
-        }
-
-        if (item.tipo_destino === 'url' && item.url_destino) {
-            window.open(item.url_destino, '_blank', 'noopener,noreferrer');
-        }
-    };
-
     return (
         <>
             <Head title="Loja" />
@@ -122,16 +101,11 @@ export default function StoreHomePage() {
                 hasFamily={hasFamily}
             >
                 <StoreHeader
-                    search={search}
-                    onSearchChange={setSearch}
-                    onSubmitSearch={applyFilters}
                     cartCount={localCart.count}
                     onOpenCart={() => router.visit('/loja/carrinho')}
                 />
 
-                <StoreHeroCarousel items={heroItems} onNavigate={handleHeroNavigation} />
-
-                <CategoryScroller categories={categories} activeCategoryId={activeCategoryId} onSelect={(categoryId) => {
+                <CategoryScroller search={search} onSearchChange={setSearch} onSubmitSearch={applyFilters} categories={categories} activeCategoryId={activeCategoryId} onSelect={(categoryId) => {
                     setActiveCategoryId(categoryId);
                     router.get('/loja', {
                         search: search || undefined,
@@ -142,7 +116,7 @@ export default function StoreHomePage() {
                     });
                 }} />
 
-                <section className="grid gap-4 lg:grid-cols-[minmax(0,1.5fr)_minmax(280px,0.7fr)]">
+                <section>
                     <div className="space-y-4">
                         <section className="rounded-[24px] border border-slate-200 bg-white p-4 shadow-[0_10px_24px_rgba(15,23,42,0.05)]">
                             <div className="flex items-center justify-between gap-3">
@@ -188,58 +162,6 @@ export default function StoreHomePage() {
                         </section>
                     </div>
 
-                    <aside className="space-y-4">
-                        <section className="rounded-[24px] border border-slate-200 bg-white p-4 shadow-[0_10px_24px_rgba(15,23,42,0.05)]">
-                            <h2 className="text-base font-semibold text-slate-900">Carrinho rapido</h2>
-                            <p className="mt-1 text-sm text-slate-500">Resumo do pedido do utilizador autenticado.</p>
-
-                            <div className="mt-4 grid gap-3 sm:grid-cols-3 lg:grid-cols-1">
-                                <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-                                    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Artigos</p>
-                                    <p className="mt-2 text-2xl font-semibold text-slate-900">{localCart.count}</p>
-                                </div>
-                                <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-                                    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Subtotal</p>
-                                    <p className="mt-2 text-xl font-semibold text-blue-700">{formatStoreCurrency(localCart.subtotal)}</p>
-                                </div>
-                                <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-                                    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Comprar para</p>
-                                    <p className="mt-2 text-sm font-semibold text-slate-900">{profiles.length > 1 ? `${profiles.length} perfis disponíveis` : 'O proprio utilizador'}</p>
-                                </div>
-                            </div>
-
-                            <div className="mt-4 space-y-3">
-                                {localCart.items.slice(0, 3).map((item) => (
-                                    <div key={item.id} className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
-                                        <div className="flex items-center justify-between gap-3">
-                                            <div>
-                                                <p className="text-sm font-semibold text-slate-900">{item.produto?.nome}</p>
-                                                <p className="mt-1 text-xs text-slate-500">{item.quantidade} x {formatStoreCurrency(item.preco_unitario)}</p>
-                                            </div>
-                                            <p className="text-sm font-semibold text-blue-700">{formatStoreCurrency(item.total_linha)}</p>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-
-                            <div className="mt-4 grid gap-2">
-                                <button
-                                    type="button"
-                                    onClick={() => router.visit('/loja/carrinho')}
-                                    className="rounded-2xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700"
-                                >
-                                    Abrir carrinho
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => router.visit('/loja/historico')}
-                                    className="rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-                                >
-                                    Ver historico
-                                </button>
-                            </div>
-                        </section>
-                    </aside>
                 </section>
             </PortalLayout>
         </>

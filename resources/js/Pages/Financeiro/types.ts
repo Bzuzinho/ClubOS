@@ -314,6 +314,7 @@ export interface OpenMovementListItem {
 export interface Movimento {
   id: string;
   user_id?: string | null;
+  user_name?: string | null;
   supplier_id?: string | null;
   nome_manual?: string | null;
   nif_manual?: string | null;

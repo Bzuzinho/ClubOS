@@ -148,7 +148,8 @@ class FinanceiroController extends Controller
 
         try {
             $movimentos = Cache::remember('financeiro:movimentos', 60, fn () =>
-                Movement::orderBy('data_emissao', 'desc')->limit(1000)->get()->map(function ($movimento) {
+                Movement::with(['user:id,name,nome_completo', 'user.dadosPessoais:id,user_id,nome_completo'])
+                    ->orderBy('data_emissao', 'desc')->limit(1000)->get()->map(function ($movimento) {
                     $movimento->valor_total = (float) $movimento->valor_total;
 
                     return $this->decorateMovementForResponse($movimento);
@@ -170,7 +171,11 @@ class FinanceiroController extends Controller
 
         try {
             $lancamentos = Cache::remember('financeiro:lancamentos', 60, fn () =>
-                FinancialEntry::with('bankStatement:id,conciliado,conciliacao_status')
+                FinancialEntry::with([
+                    'bankStatement:id,conciliado,conciliacao_status',
+                    'usuario:id,name,nome_completo',
+                    'usuario.dadosPessoais:id,user_id,nome_completo',
+                ])
                     ->orderBy('data', 'desc')
                     ->limit(1000)
                     ->get()
@@ -1102,6 +1107,7 @@ class FinanceiroController extends Controller
                 'user.families:id,nome',
                 'user.centrosCusto:id,nome',
                 'centroCusto:id,nome',
+                'items:id,movimento_id,descricao',
                 'financialEntries' => fn ($financialEntriesQuery) => $financialEntriesQuery
                     ->select('id', 'origem_id', 'origem_tipo', 'valor_em_aberto', 'valor_pago', 'estado', 'centro_custo_id', 'created_at')
                     ->orderBy('origem_id')
@@ -1131,7 +1137,9 @@ class FinanceiroController extends Controller
                     ->orWhere('nome_manual', $operator, "%{$search}%")
                     ->orWhere('nif_manual', $operator, "%{$search}%")
                     ->orWhere('numero_recibo', $operator, "%{$search}%")
-                    ->orWhere('referencia_pagamento', $operator, "%{$search}%");
+                    ->orWhere('referencia_pagamento', $operator, "%{$search}%")
+                    ->orWhereHas('items', fn ($itemsQuery) => $itemsQuery
+                        ->where('descricao', $operator, "%{$search}%"));
 
                 foreach ($tokens as $token) {
                     $like = "%{$token}%";
@@ -1178,7 +1186,10 @@ class FinanceiroController extends Controller
                     'family_id' => $family?->id,
                     'family_name' => $family?->nome,
                     'financial_entry_id' => $financialEntry?->id,
-                    'descricao' => $movement->observacoes ?: $movement->nome_manual ?: ('Movimento ' . $movement->tipo),
+                    'descricao' => $movement->observacoes
+                        ?: $movement->items->first()?->descricao
+                        ?: $movement->nome_manual
+                        ?: ('Movimento ' . $movement->tipo),
                     'tipo' => $movement->tipo,
                     'classificacao' => $movement->classificacao,
                     'valor_total' => (float) $movement->valor_total,
@@ -1294,6 +1305,9 @@ class FinanceiroController extends Controller
             'source_kind' => $movement ? 'movement' : 'financial_entry',
             'read_only' => $movement === null,
             'user_id' => $movement?->user_id ?? $entry->user_id,
+            'user_name' => $movement?->user
+                ? $this->memberFiscalDataResolver->displayName($movement->user)
+                : ($entry->usuario ? $this->memberFiscalDataResolver->displayName($entry->usuario) : null),
             'nome_manual' => $movement?->nome_manual ?? $entry->entidade_nome ?? $entry->descricao,
             'nif_manual' => $movement?->nif_manual,
             'morada_manual' => $movement?->morada_manual,
@@ -1347,6 +1361,9 @@ class FinanceiroController extends Controller
             'source_kind' => 'movement',
             'read_only' => false,
             'user_id' => $movement->user_id,
+            'user_name' => $movement->user
+                ? $this->memberFiscalDataResolver->displayName($movement->user)
+                : null,
             'nome_manual' => $movement->nome_manual,
             'nif_manual' => $movement->nif_manual,
             'morada_manual' => $movement->morada_manual,
@@ -1376,6 +1393,10 @@ class FinanceiroController extends Controller
 
     private function decorateMovementForResponse(Movement $movement): Movement
     {
+        $movement->loadMissing(['user:id,name,nome_completo', 'user.dadosPessoais:id,user_id,nome_completo']);
+        $movement->setAttribute('user_name', $movement->user
+            ? $this->memberFiscalDataResolver->displayName($movement->user)
+            : null);
         $movement->origem_id = $this->resolveMovementOriginDisplayId($movement->origem_id, $movement->observacoes);
         $movement->observacoes = $this->stripMovementOriginReference($movement->observacoes);
 
@@ -2382,15 +2403,76 @@ class FinanceiroController extends Controller
 
     public function destroyMovimento(Movement $movimento)
     {
-        if ($movimento->documento_original) {
-            Storage::disk('public')->delete($movimento->documento_original);
-        }
-        if ($movimento->comprovativo) {
-            Storage::disk('public')->delete($movimento->comprovativo);
+        if (!in_array($movimento->origem_tipo, [null, 'manual'], true)) {
+            throw ValidationException::withMessages([
+                'movimento' => 'Este movimento foi criado por outro modulo e deve ser removido na respetiva origem.',
+            ]);
         }
 
-        MovementItem::where('movimento_id', $movimento->id)->delete();
-        $movimento->delete();
+        if (in_array($movimento->estado_pagamento, ['pago', 'parcial', 'pago_parcial'], true)
+            || $movimento->estado_conciliacao === 'conciliado') {
+            throw ValidationException::withMessages([
+                'movimento' => 'Nao e possivel apagar um movimento liquidado ou conciliado.',
+            ]);
+        }
+
+        DB::transaction(function () use ($movimento): void {
+            $lockedMovement = Movement::query()->lockForUpdate()->findOrFail($movimento->id);
+
+            if (!in_array($lockedMovement->origem_tipo, [null, 'manual'], true)
+                || in_array($lockedMovement->estado_pagamento, ['pago', 'parcial', 'pago_parcial'], true)
+                || $lockedMovement->estado_conciliacao === 'conciliado') {
+                throw ValidationException::withMessages([
+                    'movimento' => 'O movimento deixou de reunir as condicoes de eliminacao segura.',
+                ]);
+            }
+
+            $entries = FinancialEntry::query()
+                ->where('origem_tipo', 'movement')
+                ->where('origem_id', $lockedMovement->id)
+                ->lockForUpdate()
+                ->get();
+
+            foreach ($entries as $entry) {
+                $hasConfirmedAllocation = PaymentAllocation::withTrashed()
+                    ->where('financial_entry_id', $entry->id)
+                    ->where('status', PaymentAllocation::STATUS_CONFIRMED)
+                    ->exists();
+                $hasReconciliation = MapaConciliacao::query()
+                    ->where(function ($query) use ($entry, $lockedMovement): void {
+                        $query->where('lancamento_id', $entry->id)
+                            ->orWhere('movimento_id', $lockedMovement->id);
+                    })
+                    ->exists();
+                $hasIssuedFiscalDocument = FiscalDocumentRequest::withTrashed()
+                    ->where('financial_entry_id', $entry->id)
+                    ->where(function ($query): void {
+                        $query->whereNotNull('external_document_id')
+                            ->orWhereNotNull('external_document_number')
+                            ->orWhere('status', FiscalDocumentRequest::STATUS_ISSUED);
+                    })
+                    ->exists();
+
+                if ($entry->payment_id || $entry->bank_statement_id || $hasConfirmedAllocation || $hasReconciliation || $hasIssuedFiscalDocument) {
+                    throw ValidationException::withMessages([
+                        'movimento' => 'Nao e possivel apagar um movimento com pagamentos, conciliacao ou documento fiscal associado.',
+                    ]);
+                }
+
+                FiscalDocumentRequest::query()
+                    ->where('financial_entry_id', $entry->id)
+                    ->delete();
+                $entry->delete();
+            }
+
+            foreach ([$lockedMovement->documento_original, $lockedMovement->comprovativo] as $path) {
+                if ($path) {
+                    Storage::disk('public')->delete($path);
+                }
+            }
+
+            $lockedMovement->delete();
+        });
 
         $this->invalidateFinanceiroCaches();
 

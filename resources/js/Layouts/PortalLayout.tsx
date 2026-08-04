@@ -3,6 +3,7 @@ import { ArrowLeft } from 'lucide-react';
 import { router, usePage } from '@inertiajs/react';
 import PortalBottomNav from '@/Components/Portal/PortalBottomNav';
 import PortalHeader from '@/Components/Portal/PortalHeader';
+import PortalSidebarNav from '@/Components/Portal/PortalSidebarNav';
 import { getPortalBottomNavItems, portalNavLabels, portalRoutes, type PortalNavKey } from '@/lib/portalRoutes';
 import type { ClubSettingsProps, PageProps, User } from '@/types';
 
@@ -70,21 +71,30 @@ export default function PortalLayout({
 
     return (
         <div className="min-h-screen bg-slate-50 text-slate-900">
-            <div className="mx-auto w-full max-w-screen-2xl px-4 pb-28 pt-4 sm:px-6 lg:px-8 xl:px-10">
+            <div className="mx-auto w-full max-w-screen-2xl px-4 pb-28 pt-4 sm:px-6 lg:px-8 lg:pb-10 xl:px-10">
                 {resolvedHeader}
-                {activeNav !== 'dashboard' ? (
-                    <div className="mt-4 hidden md:flex">
-                        <button
-                            type="button"
-                            onClick={() => router.visit(portalRoutes.dashboard)}
-                            className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3.5 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-blue-200 hover:text-blue-700"
-                        >
-                            <ArrowLeft className="h-4 w-4" />
-                            Voltar ao dashboard
-                        </button>
+                <div className="mt-5 lg:grid lg:grid-cols-[240px_minmax(0,1fr)] lg:items-start lg:gap-6">
+                    <PortalSidebarNav
+                        activeKey={activeNav}
+                        hasFamily={hasFamily}
+                        onNavigate={(href) => router.visit(href)}
+                    />
+                    <div className="min-w-0">
+                        {activeNav !== 'dashboard' ? (
+                            <div className="mb-4 hidden md:flex lg:hidden">
+                                <button
+                                    type="button"
+                                    onClick={() => router.visit(portalRoutes.dashboard)}
+                                    className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3.5 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-blue-200 hover:text-blue-700"
+                                >
+                                    <ArrowLeft className="h-4 w-4" />
+                                    Voltar ao dashboard
+                                </button>
+                            </div>
+                        ) : null}
+                        <main className="space-y-5">{children}</main>
                     </div>
-                ) : null}
-                <main className="mt-5 space-y-5">{children}</main>
+                </div>
             </div>
 
             {resolvedBottomNav}

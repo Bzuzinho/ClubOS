@@ -102,7 +102,7 @@ interface AccessControlProps {
     } | null;
 }
 
-interface DashboardProps {
+interface DashboardProps extends Record<string, unknown> {
     user?: UserSummary;
     athlete: Athlete;
     proximo_treino?: ProximoTreino | null;
@@ -326,30 +326,34 @@ export default function Atleta() {
         },
     ];
 
-    const kpis: Array<{ label: string; value: string; helper: string; icon: LucideIcon }> = [
+    const kpis: Array<{ label: string; value: string; helper: string; icon: LucideIcon; href: string }> = [
+        {
+            label: 'Conta Corrente',
+            value: formatSignedCurrency(currentBalance, 'debt'),
+            helper: 'Saldo atual',
+            icon: CreditCard,
+            href: paymentsHref,
+        },
         {
             label: 'Treinos',
             value: String(resumo?.treinos_mes ?? 0),
             helper: 'Este mês',
             icon: Dumbbell,
+            href: trainingsHref,
         },
         {
             label: 'Eventos',
             value: String(resumo?.eventos_proximos ?? proximos_eventos.length),
             helper: 'Próximos',
             icon: CalendarDays,
-        },
-        {
-            label: 'Conta Corrente',
-            value: formatSignedCurrency(currentBalance, 'debt'),
-            helper: 'Saldo atual',
-            icon: CreditCard,
+            href: convocationsHref,
         },
         {
             label: 'Assiduidade',
             value: resumo?.assiduidade_percent !== null && resumo?.assiduidade_percent !== undefined ? `${resumo.assiduidade_percent}%` : '—',
             helper: 'Este mês',
             icon: Trophy,
+            href: trainingsHref,
         },
     ];
 
@@ -410,19 +414,18 @@ export default function Atleta() {
                     </div>
                 </section>
 
-                <section className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)] xl:items-start">
-                    <div>
-                        <div className="mb-3">
-                            <h2 className="text-[1.25rem] font-semibold leading-tight text-slate-900">Resumo rápido</h2>
-                        </div>
-                        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-                            {kpis.map((item) => (
-                                <PortalKpiCard key={item.label} label={item.label} value={item.value} valueClassName={item.label === 'Conta Corrente' ? amountToneClass(currentBalance, 'debt') : undefined} helper={item.helper} icon={item.icon} />
-                            ))}
-                        </div>
+                <section>
+                    <div className="mb-3">
+                        <h2 className="text-[1.25rem] font-semibold leading-tight text-slate-900">Resumo rápido</h2>
                     </div>
+                    <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+                        {kpis.map((item) => (
+                            <PortalKpiCard key={item.label} label={item.label} value={item.value} valueClassName={item.label === 'Conta Corrente' ? amountToneClass(currentBalance, 'debt') : undefined} helper={item.helper} icon={item.icon} onClick={() => handleVisit(item.href)} />
+                        ))}
+                    </div>
+                </section>
 
-                    <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-2">
+                <section className="grid grid-cols-1 gap-4 lg:grid-cols-2">
                         <PortalSection
                             title="Comunicados recentes"
                             description=""
@@ -479,23 +482,7 @@ export default function Atleta() {
                                 )}
                             </div>
                         </PortalSection>
-                    </div>
                 </section>
-
-                <PortalSection title="Acesso rápido" description="">
-                    <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-                        {quickAccessItems.map((item) => (
-                            <PortalCard
-                                key={item.key}
-                                title={item.title}
-                                description={item.description}
-                                icon={item.icon}
-                                accentClass={item.accentClass}
-                                onClick={() => handleVisit(item.href)}
-                            />
-                        ))}
-                    </div>
-                </PortalSection>
 
                 <PortalSection
                     title="Últimos resultados"
@@ -524,6 +511,22 @@ export default function Atleta() {
                                 Sem resultados recentes.
                             </div>
                         )}
+                    </div>
+                </PortalSection>
+
+                <PortalSection title="Acesso rápido" description="">
+                    <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4">
+                        {quickAccessItems.map((item) => (
+                            <PortalCard
+                                key={item.key}
+                                title={item.title}
+                                description={item.description}
+                                icon={item.icon}
+                                accentClass={item.accentClass}
+                                onClick={() => handleVisit(item.href)}
+                                compact
+                            />
+                        ))}
                     </div>
                 </PortalSection>
             </PortalLayout>

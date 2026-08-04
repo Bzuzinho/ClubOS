@@ -5,6 +5,7 @@ namespace Tests\Feature\Portal;
 use App\Http\Middleware\HandleInertiaRequests;
 use App\Models\DadosFinanceiros;
 use App\Models\Invoice;
+use App\Models\InvoiceItem;
 use App\Models\MonthlyFee;
 use App\Models\Payment;
 use App\Models\PaymentAllocation;
@@ -72,7 +73,7 @@ class PortalPaymentsTest extends TestCase
             'tipo_membro' => ['socio'],
         ]);
 
-        Invoice::create([
+        $invoice = Invoice::create([
             'user_id' => $user->id,
             'data_fatura' => now()->subDays(15)->toDateString(),
             'mes' => 'Fevereiro 2026',
@@ -83,6 +84,15 @@ class PortalPaymentsTest extends TestCase
             'referencia_pagamento' => 'REF-ABC-123',
             'tipo' => 'mensalidade',
             'oculta' => false,
+        ]);
+
+        InvoiceItem::query()->create([
+            'fatura_id' => $invoice->id,
+            'descricao' => 'Mensalidade de fevereiro',
+            'quantidade' => 1,
+            'valor_unitario' => 42.5,
+            'imposto_percentual' => 0,
+            'total_linha' => 42.5,
         ]);
 
         Invoice::create([
@@ -104,6 +114,9 @@ class PortalPaymentsTest extends TestCase
         $response->assertJsonPath('props.kpis.outstanding_value', 42.5);
         $response->assertJsonPath('props.account_current.overdue_invoices', 1);
         $response->assertJsonPath('props.movements.0.reference', 'REF-ABC-123');
+        $response->assertJsonPath('props.movements.0.type_label', 'Mensalidade');
+        $response->assertJsonPath('props.movements.0.detail.period', 'Fevereiro 2026');
+        $response->assertJsonPath('props.movements.0.detail.items.0.description', 'Mensalidade de fevereiro');
         $this->assertCount(1, $response->json('props.movements'));
     }
 

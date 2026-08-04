@@ -7,6 +7,7 @@ import {
     CircleDot,
     Clock3,
     FileText,
+    MapPin,
     Megaphone,
     ShieldAlert,
     Trophy,
@@ -91,7 +92,7 @@ interface EventCard {
     response_date: string | null;
 }
 
-interface PortalEventsProps {
+interface PortalEventsProps extends Record<string, unknown> {
     user: PortalUserSummary;
     view_mode: 'personal' | 'family';
     selected_profile: SelectedProfile;
@@ -333,6 +334,7 @@ export default function Events() {
                                                             <DetailItem label="Observações" value={card.details.notes || 'Sem observações adicionais'} />
                                                             <DetailItem label="Estado" value={card.status.label} />
                                                         </dl>
+                                                        <EventFiles card={card} />
 
                                                         {card.justification ? (
                                                             <p className="mt-3 rounded-2xl bg-amber-50 px-3 py-2 text-sm text-amber-800">
@@ -402,23 +404,47 @@ export default function Events() {
                             </div>
                         </PortalSection>
 
-                        <PortalSection title="Histórico recente" description="Eventos passados e respetivo estado de participação.">
+                        <PortalSection title="Histórico de convocatórias e eventos" description="Consulta de todos os eventos passados e respetivos detalhes.">
                             {recent_history.length > 0 ? (
                                 <div className="space-y-2">
-                                    {recent_history.map((card) => (
-                                        <div key={card.id} className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
-                                            <div className="flex items-start justify-between gap-3">
-                                                <div>
-                                                    <p className="text-sm font-semibold text-slate-900">{card.title}</p>
-                                                    {view_mode === 'family' ? (
-                                                        <p className="mt-1 text-xs font-medium text-slate-500">{card.subtitle}</p>
-                                                    ) : null}
-                                                    <p className="mt-1 text-xs text-slate-500">{card.date.full_label} · {card.location.name}</p>
+                                    {recent_history.map((card) => {
+                                        const isExpanded = expandedCardId === card.id;
+
+                                        return (
+                                            <article key={card.id} className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
+                                                <div className="flex items-start justify-between gap-3">
+                                                    <div>
+                                                        <p className="text-sm font-semibold text-slate-900">{card.title}</p>
+                                                        {view_mode === 'family' ? (
+                                                            <p className="mt-1 text-xs font-medium text-slate-500">{card.subtitle}</p>
+                                                        ) : null}
+                                                        <p className="mt-1 text-xs text-slate-500">{card.date.full_label} · {card.location.name}</p>
+                                                    </div>
+                                                    <StatusBadge status={card.status} compact />
                                                 </div>
-                                                <StatusBadge status={card.status} compact />
-                                            </div>
-                                        </div>
-                                    ))}
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setExpandedCardId(isExpanded ? null : card.id)}
+                                                    className="mt-3 text-xs font-semibold text-blue-700"
+                                                >
+                                                    {isExpanded ? 'Ocultar detalhes' : 'Ver detalhes'}
+                                                </button>
+                                                {isExpanded ? (
+                                                    <div className="mt-3 rounded-2xl border border-slate-200 bg-white p-3">
+                                                        <dl className="grid gap-3 sm:grid-cols-2">
+                                                            <DetailItem label="Data e hora" value={`${card.date.full_label} · ${card.details.time}`} />
+                                                            <DetailItem label="Local" value={card.details.location} />
+                                                            <DetailItem label="Ponto de encontro" value={card.details.meeting_point || 'Não definido'} />
+                                                            <DetailItem label="Transporte" value={card.details.transport || 'Sem transporte definido'} />
+                                                            <DetailItem label="Material" value={card.details.material || 'Sem indicação adicional'} />
+                                                            <DetailItem label="Observações" value={card.details.notes || 'Sem observações adicionais'} />
+                                                        </dl>
+                                                        <EventFiles card={card} />
+                                                    </div>
+                                                ) : null}
+                                            </article>
+                                        );
+                                    })}
                                 </div>
                             ) : (
                                 <EmptyState icon={FileText} label="Sem histórico recente." />
@@ -462,6 +488,42 @@ function DetailItem({ label, value }: { label: string; value: string }) {
         <div>
             <dt className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">{label}</dt>
             <dd className="mt-1 text-sm text-slate-700">{value}</dd>
+        </div>
+    );
+}
+
+function resolveEventFileUrl(path: string): string {
+    if (/^https?:\/\//i.test(path) || path.startsWith('/')) {
+        return path;
+    }
+
+    return `/storage/${path.replace(/^storage\//, '')}`;
+}
+
+function EventFiles({ card }: { card: EventCard }) {
+    const files = [
+        card.details.convocatoria_file ? { label: 'Abrir convocatória', path: card.details.convocatoria_file } : null,
+        card.details.regulation_file ? { label: 'Abrir regulamento', path: card.details.regulation_file } : null,
+    ].filter((file): file is { label: string; path: string } => file !== null);
+
+    if (files.length === 0) {
+        return null;
+    }
+
+    return (
+        <div className="mt-3 flex flex-wrap gap-2">
+            {files.map((file) => (
+                <a
+                    key={file.label}
+                    href={resolveEventFileUrl(file.path)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700 hover:bg-blue-100"
+                >
+                    <FileText className="h-3.5 w-3.5" />
+                    {file.label}
+                </a>
+            ))}
         </div>
     );
 }

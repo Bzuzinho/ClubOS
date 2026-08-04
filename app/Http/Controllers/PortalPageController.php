@@ -393,10 +393,12 @@ class PortalPageController extends Controller
         $openInvoices = collect($accountSummary['breakdown']['invoices'] ?? []);
         $openFinancialMovements = collect($accountSummary['breakdown']['movements'] ?? []);
         $visibleInvoices = Invoice::query()
+            ->with('items:id,fatura_id,descricao,quantidade,valor_unitario,total_linha')
             ->whereIn('id', $openInvoices->pluck('id')->filter()->all())
             ->get()
             ->keyBy('id');
         $visibleFinanceMovements = Movement::query()
+            ->with('items:id,movimento_id,descricao,quantidade,valor_unitario,total_linha')
             ->whereIn('id', $openFinancialMovements->pluck('id')->filter()->all())
             ->get()
             ->keyBy('id');
@@ -562,11 +564,23 @@ class PortalPageController extends Controller
             'nominal_amount' => round((float) ($invoice['valor_total'] ?? 0), 2),
             'paid_amount' => round((float) ($invoice['valor_pago'] ?? 0), 2),
             'amount_label' => 'Em aberto',
-            'type_label' => 'Fatura',
+            'type_label' => ($invoice['tipo'] ?? null) === 'mensalidade' ? 'Mensalidade' : 'Fatura',
             'status' => $this->normalizeStatus((string) ($invoice['estado_pagamento'] ?? ''), $invoice['data_vencimento'] ?? null, $today),
             'reference' => $visibleInvoice?->referencia_pagamento,
             'receipt_number' => $visibleInvoice?->numero_recibo,
             'payment_method' => null,
+            'detail' => [
+                'kind' => 'invoice',
+                'period' => $invoice['mes'] ?? $visibleInvoice?->mes,
+                'notes' => $visibleInvoice?->observacoes,
+                'items' => $visibleInvoice?->items->map(fn ($item) => [
+                    'id' => (string) $item->id,
+                    'description' => (string) $item->descricao,
+                    'quantity' => (int) $item->quantidade,
+                    'unit_amount' => round((float) $item->valor_unitario, 2),
+                    'total_amount' => round((float) $item->total_linha, 2),
+                ])->values()->all() ?? [],
+            ],
             'actions' => [
                 'can_view_receipt' => filled($visibleInvoice?->numero_recibo),
                 'can_view_detail' => true,
@@ -601,6 +615,18 @@ class PortalPageController extends Controller
             'reference' => $visibleMovement?->referencia_pagamento,
             'receipt_number' => $visibleMovement?->numero_recibo,
             'payment_method' => $visibleMovement?->metodo_pagamento,
+            'detail' => [
+                'kind' => 'movement',
+                'period' => null,
+                'notes' => $visibleMovement?->observacoes,
+                'items' => $visibleMovement?->items->map(fn ($item) => [
+                    'id' => (string) $item->id,
+                    'description' => (string) $item->descricao,
+                    'quantity' => (int) $item->quantidade,
+                    'unit_amount' => round((float) $item->valor_unitario, 2),
+                    'total_amount' => round((float) $item->total_linha, 2),
+                ])->values()->all() ?? [],
+            ],
             'actions' => [
                 'can_view_receipt' => filled($visibleMovement?->numero_recibo),
                 'can_view_detail' => true,

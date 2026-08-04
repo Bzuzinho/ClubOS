@@ -72,12 +72,10 @@ class PortalEventController extends Controller
 
         $activeItems = $cards
             ->filter(fn (array $card) => $card['is_upcoming'])
-            ->take(8)
             ->values();
 
         $history = $cards
             ->filter(fn (array $card) => ! $card['is_upcoming'])
-            ->take(6)
             ->values();
 
         $pendingItems = $activeItems

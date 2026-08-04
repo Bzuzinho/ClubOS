@@ -30,7 +30,7 @@ class LojaHeroService
         }
 
         return LojaHeroItem::query()
-            ->with(['article:id,nome,slug', 'categoria:id,nome'])
+            ->with(['article:id,nome,slug,imagem', 'categoria:id,nome'])
             ->ordered()
             ->get();
     }

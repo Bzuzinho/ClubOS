@@ -10,16 +10,8 @@ interface ProductCardProps {
 }
 
 function stockLabel(product: StoreProduct): { label: string; className: string } {
-    if (!product.gere_stock) {
-        return { label: 'Disponivel', className: 'border-emerald-200 bg-emerald-50 text-emerald-700' };
-    }
-
     if (product.stock_atual <= 0) {
-        return { label: 'Sem stock', className: 'border-rose-200 bg-rose-50 text-rose-700' };
-    }
-
-    if (product.tem_stock_baixo) {
-        return { label: 'Stock baixo', className: 'border-amber-200 bg-amber-50 text-amber-700' };
+        return { label: '0 em stock', className: 'border-rose-200 bg-rose-50 text-rose-700' };
     }
 
     return { label: `${product.stock_atual} em stock`, className: 'border-sky-200 bg-sky-50 text-sky-700' };
@@ -52,19 +44,20 @@ export default function ProductCard({ product, onView, onAdd }: ProductCardProps
                 <p className="mt-3 text-lg font-semibold text-blue-700">{formatStoreCurrency(product.preco)}</p>
                 <p className="mt-2 line-clamp-2 text-sm text-slate-500">{product.descricao || 'Artigo oficial do clube com recolha e acompanhamento via portal.'}</p>
 
-                <div className="mt-4 grid grid-cols-2 gap-2">
-                    <Button type="button" variant="outline" className="rounded-2xl" onClick={() => onView(product)}>
-                        <Eye className="mr-2 h-4 w-4" />
-                        Ver artigo
+                <div className="mt-4 flex justify-end gap-2">
+                    <Button type="button" size="icon" variant="outline" className="rounded-2xl" onClick={() => onView(product)} aria-label={`Ver ${product.nome}`} title="Ver artigo">
+                        <Eye className="h-4 w-4" />
                     </Button>
                     <Button
                         type="button"
+                        size="icon"
                         className="rounded-2xl bg-blue-600 hover:bg-blue-700"
                         disabled={product.gere_stock && product.stock_atual <= 0}
                         onClick={() => onAdd(product)}
+                        aria-label={`Comprar ${product.nome}`}
+                        title="Comprar"
                     >
-                        <ShoppingBag className="mr-2 h-4 w-4" />
-                        Comprar
+                        <ShoppingBag className="h-4 w-4" />
                     </Button>
                 </div>
             </div>
