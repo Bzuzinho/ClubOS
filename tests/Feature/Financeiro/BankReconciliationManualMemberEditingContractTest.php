@@ -11,7 +11,7 @@ class BankReconciliationManualMemberEditingContractTest extends TestCase
         $bankTab = file_get_contents(resource_path('js/Pages/Financeiro/BancoTab.tsx'));
         $dialog = file_get_contents(resource_path('js/Pages/Financeiro/BankStatementReconciliationDialog.tsx'));
 
-        $this->assertStringContainsString('Adicionar ou retirar membros', $bankTab);
+        $this->assertStringContainsString('Abrir conciliação manual', $bankTab);
         $this->assertStringContainsString('void loadOpenInvoices(searchTerm)', $dialog);
         $this->assertStringContainsString('Adicionar membro', $dialog);
         $this->assertStringContainsString('Retirar membro', $dialog);
