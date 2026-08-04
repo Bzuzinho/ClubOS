@@ -729,8 +729,7 @@ class BankReconciliationSuggestionController extends Controller
         $payload['assisted_allocation_context'] = $isExpenseSuggestion
             ? null
             : $this->suggestionService->buildAssistedAllocationContext($suggestion);
-        $payload['is_directly_reconcilable'] = (int) $suggestion->score === 100
-            && round((float) $suggestion->unallocated_amount, 2) <= 0.009
+        $payload['is_directly_reconcilable'] = round((float) $suggestion->unallocated_amount, 2) <= 0.009
             && collect((array) $suggestion->suggested_allocations)->isNotEmpty();
 
         return $payload;

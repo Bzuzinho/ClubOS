@@ -757,7 +757,7 @@ export function BancoTab({
     }
 
     if (!suggestion.is_directly_reconcilable) {
-      toast.error('A conciliacao direta so esta disponivel para sugestoes com score de 100%.');
+      toast.error('A conciliacao direta exige que o valor esteja totalmente atribuido.');
       return;
     }
 
@@ -918,7 +918,6 @@ export function BancoTab({
     return Boolean(
       suggestion
       && suggestion.is_directly_reconcilable
-      && suggestion.score === 100
       && toNumber(suggestion.unallocated_amount) <= 0.009
       && (suggestion.suggested_allocations || []).length > 0
     );
@@ -3076,7 +3075,7 @@ export function BancoTab({
                               onClick={() => openAssistedSuggestionDialog(primarySuggestion)}
                               disabled={suggestionActionId === primarySuggestion.id}
                             >
-                              Adicionar ou retirar membros
+                              Abrir conciliação manual
                             </Button>
                           ) : null}
                           {isDirectSuggestion(primarySuggestion) ? (
