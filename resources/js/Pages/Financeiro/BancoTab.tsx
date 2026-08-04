@@ -751,15 +751,37 @@ export function BancoTab({
   };
 
   const handleConfirmSuggestion = async (suggestion: BankReconciliationSuggestion) => {
-    if (suggestion.assisted_allocation_context && !suggestion.is_directly_reconcilable) {
-      openAssistedSuggestionDialog(suggestion);
+    const allocations = suggestion.suggested_allocations || [];
+    const isFullyAllocated = toNumber(suggestion.unallocated_amount) <= 0.009 && allocations.length > 0;
+
+    if (!isFullyAllocated) {
+      if (suggestion.assisted_allocation_context) {
+        openAssistedSuggestionDialog(suggestion);
+      } else {
+        toast.error('A conciliacao exige que o valor esteja totalmente atribuido.');
+      }
       return;
     }
 
-    if (!suggestion.is_directly_reconcilable) {
-      toast.error('A conciliacao direta exige que o valor esteja totalmente atribuido.');
-      return;
-    }
+    const confirmationPayload = suggestion.is_directly_reconcilable
+      ? { create_credit: false }
+      : {
+          invoices: allocations
+            .filter((allocation) => Boolean(allocation.invoice_id))
+            .map((allocation) => ({
+              invoice_id: allocation.invoice_id,
+              amount: toNumber(allocation.amount),
+              notes: allocation.reason ?? suggestion.explanation,
+            })),
+          movements: allocations
+            .filter((allocation) => Boolean(allocation.movement_id))
+            .map((allocation) => ({
+              movement_id: allocation.movement_id,
+              amount: toNumber(allocation.amount),
+              centro_custo_id: allocation.movement?.centro_custo_id ?? null,
+              notes: allocation.reason ?? suggestion.explanation,
+            })),
+        };
 
     setSuggestionActionId(suggestion.id);
 
@@ -768,9 +790,7 @@ export function BancoTab({
         method: 'POST',
         headers: buildJsonHeaders(),
         credentials: 'same-origin',
-        body: JSON.stringify({
-          create_credit: suggestion.unallocated_amount > 0.009,
-        }),
+        body: JSON.stringify(confirmationPayload),
       });
 
       if (!response.ok) {
@@ -917,7 +937,6 @@ export function BancoTab({
   const isDirectSuggestion = (suggestion?: BankReconciliationSuggestion | null) => {
     return Boolean(
       suggestion
-      && suggestion.is_directly_reconcilable
       && toNumber(suggestion.unallocated_amount) <= 0.009
       && (suggestion.suggested_allocations || []).length > 0
     );

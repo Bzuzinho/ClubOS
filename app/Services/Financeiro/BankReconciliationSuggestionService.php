@@ -611,11 +611,11 @@ class BankReconciliationSuggestionService
             }
 
             if (
-                round((float) $suggestion->unallocated_amount, 2) > 0.009
-                || collect((array) $suggestion->suggested_allocations)->isEmpty()
+                (int) $suggestion->score !== 100
+                || round((float) $suggestion->unallocated_amount, 2) > 0.009
             ) {
                 throw ValidationException::withMessages([
-                    'suggestion' => 'A conciliacao direta exige que o valor esteja totalmente atribuido e tenha alocacoes validas. Use a alocacao assistida.',
+                    'suggestion' => 'A conciliacao direta exige uma sugestao exata com score de 100%. Use a alocacao assistida.',
                 ]);
             }
 
