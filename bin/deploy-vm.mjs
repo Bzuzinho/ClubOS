@@ -97,8 +97,19 @@ if (!existsSync('public/build/manifest.json')) {
 console.log('\n==> Normalizar permissões do repositório na VM');
 const prepareRemoteRepository = [
     `test -d '${VM_APP_DIR}/.git'`,
-    `sudo find '${VM_APP_DIR}' -xdev ! -path '${VM_APP_DIR}/.env' -exec chown www-data:www-data {} +`,
-    `sudo find '${VM_APP_DIR}' -xdev ! -path '${VM_APP_DIR}/.env' -exec chmod u+rwX {} +`,
+    `GIT_DIR="$(sudo git -C '${VM_APP_DIR}' rev-parse --absolute-git-dir)"`,
+    `WORK_TREE="$(sudo git -C '${VM_APP_DIR}' rev-parse --show-toplevel)"`,
+    `test -n "$GIT_DIR"`,
+    `test -d "$GIT_DIR"`,
+    `test -n "$WORK_TREE"`,
+    `sudo find "$WORK_TREE" -xdev ! -path "$WORK_TREE/.env" -exec chown www-data:www-data {} +`,
+    `sudo find "$WORK_TREE" -xdev ! -path "$WORK_TREE/.env" -exec chmod u+rwX {} +`,
+    `sudo chown -R www-data:www-data "$GIT_DIR"`,
+    `sudo chmod -R u+rwX "$GIT_DIR"`,
+    `sudo rm -f "$GIT_DIR/index.lock" "$GIT_DIR/FETCH_HEAD.lock"`,
+    `sudo rm -f "$GIT_DIR/FETCH_HEAD"`,
+    `sudo -u www-data -H sh -c "umask 0022; : > '$GIT_DIR/FETCH_HEAD'; test -w '$GIT_DIR/FETCH_HEAD'"`,
+    `sudo -u www-data -H git -C "$WORK_TREE" rev-parse --is-inside-work-tree | grep -qx true`,
 ].join(' && ');
 run('ssh', [remote, prepareRemoteRepository]);
 
