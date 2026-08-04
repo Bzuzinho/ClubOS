@@ -6,6 +6,7 @@ import { spawnSync } from 'node:child_process';
 const VM_USER = process.env.VM_USER || 'ubuntu';
 const VM_HOST = process.env.VM_HOST || '129.159.13.211';
 const VM_APP_DIR = process.env.VM_APP_DIR || '/var/www/clubmanager';
+const REMOTE_BACKEND_SCRIPT = 'bin/remote-deploy-backend.sh';
 const remote = `${VM_USER}@${VM_HOST}`;
 const npmCli = process.env.npm_execpath;
 
@@ -55,6 +56,10 @@ function runNpm(args, options = {}) {
     run(process.execPath, [npmCli, ...args], options);
 }
 
+function shellQuote(value) {
+    return `'${String(value).replaceAll("'", `'"'"'`)}'`;
+}
+
 console.log('==> ClubOS deploy VM');
 console.log(`    Repo: ${process.cwd()}`);
 console.log(`    VM:   ${remote}:${VM_APP_DIR}`);
@@ -94,30 +99,29 @@ if (!existsSync('public/build/manifest.json')) {
     process.exit(1);
 }
 
-console.log('\n==> Normalizar permissões do repositório na VM');
-const prepareRemoteRepository = [
-    `test -d '${VM_APP_DIR}/.git'`,
-    `GIT_DIR="$(sudo git -C '${VM_APP_DIR}' rev-parse --absolute-git-dir)"`,
-    `WORK_TREE="$(sudo git -C '${VM_APP_DIR}' rev-parse --show-toplevel)"`,
-    `test -n "$GIT_DIR"`,
-    `test -d "$GIT_DIR"`,
-    `test -n "$WORK_TREE"`,
-    `sudo find "$WORK_TREE" -xdev ! -path "$WORK_TREE/.env" -exec chown www-data:www-data {} +`,
-    `sudo find "$WORK_TREE" -xdev ! -path "$WORK_TREE/.env" -exec chmod u+rwX {} +`,
-    `sudo chown -R www-data:www-data "$GIT_DIR"`,
-    `sudo chmod -R u+rwX "$GIT_DIR"`,
-    `sudo rm -f "$GIT_DIR/index.lock" "$GIT_DIR/FETCH_HEAD.lock"`,
-    `sudo rm -f "$GIT_DIR/FETCH_HEAD"`,
-    `sudo -u www-data -H sh -c "umask 0022; : > '$GIT_DIR/FETCH_HEAD'; test -w '$GIT_DIR/FETCH_HEAD'"`,
-    `sudo -u www-data -H git -C "$WORK_TREE" rev-parse --is-inside-work-tree | grep -qx true`,
-].join(' && ');
-run('ssh', [remote, prepareRemoteRepository]);
+if (!existsSync(REMOTE_BACKEND_SCRIPT)) {
+    console.error(`\n❌ Script de backend não encontrado: ${REMOTE_BACKEND_SCRIPT}`);
+    process.exit(1);
+}
 
-console.log('\n==> Deploy backend');
-run('ssh', [
-    remote,
-    `/usr/local/bin/clubmanager-deploy-backend.sh '${VM_APP_DIR}'`,
-]);
+const tempBackendScript = `/tmp/clubos-backend-deploy-${process.pid}.sh`;
+
+console.log('\n==> Deploy backend versionado');
+run('scp', [REMOTE_BACKEND_SCRIPT, `${remote}:${tempBackendScript}`]);
+
+const executeBackend = [
+    `chmod 700 ${shellQuote(tempBackendScript)}`,
+    `sudo bash ${shellQuote(tempBackendScript)} ${shellQuote(VM_APP_DIR)} ${shellQuote(VM_USER)} 'www-data' 'www-data'`,
+].join(' && ');
+
+const executeAndCleanup = [
+    executeBackend,
+    'status=$?',
+    `rm -f ${shellQuote(tempBackendScript)}`,
+    'exit $status',
+].join('; ');
+
+run('ssh', [remote, executeAndCleanup]);
 
 const tempBuildDir = `/tmp/clubos-build-${process.pid}`;
 
