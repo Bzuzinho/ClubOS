@@ -94,6 +94,14 @@ if (!existsSync('public/build/manifest.json')) {
     process.exit(1);
 }
 
+console.log('\n==> Normalizar permissões do repositório na VM');
+const prepareRemoteRepository = [
+    `test -d '${VM_APP_DIR}/.git'`,
+    `sudo find '${VM_APP_DIR}' -xdev ! -path '${VM_APP_DIR}/.env' -exec chown www-data:www-data {} +`,
+    `sudo find '${VM_APP_DIR}' -xdev ! -path '${VM_APP_DIR}/.env' -exec chmod u+rwX {} +`,
+].join(' && ');
+run('ssh', [remote, prepareRemoteRepository]);
+
 console.log('\n==> Deploy backend');
 run('ssh', [
     remote,
