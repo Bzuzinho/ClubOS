@@ -1,9 +1,9 @@
 name: Apply reconciliation action fix
 
 on:
-  push:
+  pull_request:
     branches:
-      - fix/reconciliation-actions-score
+      - main
 
 permissions:
   contents: write
@@ -43,6 +43,12 @@ jobs:
               'resources/js/Pages/Financeiro/BancoTab.tsx',
               '                              Adicionar ou retirar membros\n',
               '                              Abrir conciliação manual\n',
+          )
+
+          replace_once(
+              'resources/js/Pages/Financeiro/BancoTab.tsx',
+              "      toast.error('A conciliacao direta so esta disponivel para sugestoes com score de 100%.');\n",
+              "      toast.error('A conciliacao direta exige que o valor esteja totalmente atribuido.');\n",
           )
 
           replace_once(
