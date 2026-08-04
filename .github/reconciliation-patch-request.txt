@@ -1,0 +1,1 @@
+Apply the scoped reconciliation action correction for PR validation.
