@@ -1,0 +1,111 @@
+#!/usr/bin/env python3
+from pathlib import Path
+
+
+def replace_once(path: str, old: str, new: str) -> None:
+    file = Path(path)
+    text = file.read_text()
+    count = text.count(old)
+    if count != 1:
+        raise SystemExit(f"Expected exactly one match in {path}, found {count}: {old[:100]!r}")
+    file.write_text(text.replace(old, new, 1))
+
+
+replace_once(
+    'resources/js/Pages/Financeiro/BancoTab.tsx',
+    """      && suggestion.is_directly_reconcilable
+      && suggestion.score === 100
+      && toNumber(suggestion.unallocated_amount) <= 0.009
+""",
+    """      && suggestion.is_directly_reconcilable
+      && toNumber(suggestion.unallocated_amount) <= 0.009
+""",
+)
+
+replace_once(
+    'resources/js/Pages/Financeiro/BancoTab.tsx',
+    "      toast.error('A conciliacao direta so esta disponivel para sugestoes com score de 100%.');\n",
+    "      toast.error('A conciliacao direta exige que o valor esteja totalmente atribuido.');\n",
+)
+
+replace_once(
+    'resources/js/Pages/Financeiro/BancoTab.tsx',
+    '                              Adicionar ou retirar membros\n',
+    '                              Abrir conciliação manual\n',
+)
+
+replace_once(
+    'app/Http/Controllers/Financeiro/BankReconciliationSuggestionController.php',
+    """        $payload['is_directly_reconcilable'] = (int) $suggestion->score === 100
+            && round((float) $suggestion->unallocated_amount, 2) <= 0.009
+            && collect((array) $suggestion->suggested_allocations)->isNotEmpty();
+""",
+    """        $payload['is_directly_reconcilable'] = round((float) $suggestion->unallocated_amount, 2) <= 0.009
+            && collect((array) $suggestion->suggested_allocations)->isNotEmpty();
+""",
+)
+
+replace_once(
+    'app/Services/Financeiro/BankReconciliationSuggestionService.php',
+    """            if (
+                (int) $suggestion->score !== 100
+                || round((float) $suggestion->unallocated_amount, 2) > 0.009
+            ) {
+                throw ValidationException::withMessages([
+                    'suggestion' => 'A conciliacao direta exige uma sugestao exata com score de 100%. Use a alocacao assistida.',
+                ]);
+            }
+""",
+    """            if (
+                round((float) $suggestion->unallocated_amount, 2) > 0.009
+                || collect((array) $suggestion->suggested_allocations)->isEmpty()
+            ) {
+                throw ValidationException::withMessages([
+                    'suggestion' => 'A conciliacao direta exige que o valor esteja totalmente atribuido e tenha alocacoes validas. Use a alocacao assistida.',
+                ]);
+            }
+""",
+)
+
+replace_once(
+    'tests/Feature/Financeiro/BankReconciliationManualMemberEditingContractTest.php',
+    "        $this->assertStringContainsString('Adicionar ou retirar membros', $bankTab);\n",
+    "        $this->assertStringContainsString('Abrir conciliação manual', $bankTab);\n",
+)
+
+Path('tests/Feature/Financeiro/BankReconciliationExactAllocationActionsContractTest.php').write_text("""<?php
+
+namespace Tests\\Feature\\Financeiro;
+
+use Tests\\TestCase;
+
+class BankReconciliationExactAllocationActionsContractTest extends TestCase
+{
+    public function test_fully_allocated_suggestion_is_not_blocked_by_confidence_score(): void
+    {
+        $bankTab = file_get_contents(resource_path('js/Pages/Financeiro/BancoTab.tsx'));
+        $controller = file_get_contents(app_path('Http/Controllers/Financeiro/BankReconciliationSuggestionController.php'));
+        $service = file_get_contents(app_path('Services/Financeiro/BankReconciliationSuggestionService.php'));
+
+        $this->assertStringNotContainsString('suggestion.score === 100', $bankTab);
+        $this->assertStringNotContainsString('(int) $suggestion->score === 100', $controller);
+        $this->assertStringNotContainsString('(int) $suggestion->score !== 100', $service);
+        $this->assertStringContainsString('round((float) $suggestion->unallocated_amount, 2) <= 0.009', $controller);
+        $this->assertStringContainsString('collect((array) $suggestion->suggested_allocations)->isNotEmpty()', $controller);
+        $this->assertStringContainsString('Abrir conciliação manual', $bankTab);
+    }
+}
+""")
+
+for path in [
+    '.github/reconciliation-patch-request.txt',
+    '.github/reconciliation-patch-request-final.txt',
+    '.github/reconciliation-patch-request-final3.txt',
+    '.github/workflows/reconciliation-patch-runner.yml',
+    '.github/workflows/reconciliation-comment-runner.yml',
+    '.github/workflows/reconciliation-opened-runner.yml',
+    '.github/workflows/reconciliation-pr-runner.yml',
+    '.github/workflows/reconciliation-sync-runner.yml',
+    'bin/apply-reconciliation-actions-fix.py',
+]:
+    Path(path).unlink(missing_ok=True)
