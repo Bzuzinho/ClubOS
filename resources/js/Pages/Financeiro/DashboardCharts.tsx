@@ -21,6 +21,8 @@ interface DashboardChartsProps {
   monthlyData: Array<{ mes: string; receitas: number; despesas: number }>;
   centrosCustoData: Array<{ nome: string; despesas: number; receitas: number }>;
   colors: string[];
+  summaryLeft: ReactNode;
+  summaryRight: ReactNode;
 }
 
 function ChartMountGuard({
@@ -70,23 +72,25 @@ export default function DashboardCharts({
   monthlyData,
   centrosCustoData,
   colors,
+  summaryLeft,
+  summaryRight,
 }: DashboardChartsProps) {
   return (
     <>
-      <div className="grid gap-2 sm:gap-3 grid-cols-1 lg:grid-cols-2">
-        <Card className="p-2 sm:p-2.5">
-          <h3 className="font-semibold text-xs sm:text-sm mb-1.5">Distribuição de Faturas por Tipo</h3>
-          <ChartMountGuard className="h-[120px] sm:h-[140px]">
+      <div className="grid grid-cols-1 items-stretch gap-2 md:grid-cols-3 sm:gap-3">
+        {summaryLeft}
+        <Card className="flex h-full min-w-0 flex-col p-2 sm:p-2.5">
+          <h3 className="mb-0.5 text-xs font-semibold leading-tight sm:text-sm">Distribuição de Faturas por Tipo</h3>
+          <ChartMountGuard className="h-[150px] min-h-[150px] flex-1">
             {tiposFaturaData.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={120} initialDimension={{ width: 1, height: 120 }}>
+              <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={150} initialDimension={{ width: 1, height: 150 }}>
                 <PieChart>
                   <Pie
                     data={tiposFaturaData}
-                    cx="50%"
+                    cx="38%"
                     cy="50%"
                     labelLine={false}
-                    label={(entry) => entry.name}
-                    outerRadius={45}
+                    outerRadius={42}
                     fill="#8884d8"
                     dataKey="value"
                   >
@@ -94,7 +98,8 @@ export default function DashboardCharts({
                       <Cell key={`${entry.name}-${index}`} fill={colors[index % colors.length]} />
                     ))}
                   </Pie>
-                  <Tooltip />
+                  <Tooltip formatter={(value) => `€${Number(value).toFixed(2)}`} contentStyle={{ fontSize: '11px' }} />
+                  <Legend layout="vertical" verticalAlign="middle" align="right" wrapperStyle={{ fontSize: '10px', lineHeight: '14px' }} />
                 </PieChart>
               </ResponsiveContainer>
             ) : (
@@ -104,6 +109,7 @@ export default function DashboardCharts({
             )}
           </ChartMountGuard>
         </Card>
+        {summaryRight}
       </div>
 
       <div className="grid gap-2 sm:gap-3 grid-cols-1 lg:grid-cols-2">

@@ -15,6 +15,7 @@ use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Throwable;
 
@@ -127,14 +128,20 @@ class MemberImportService
             ->map(fn ($value) => mb_strtolower((string) $value))
             ->flip();
 
-        $existingNifs = DadosPessoais::query()
+        $canonicalNifs = DadosPessoais::query()
             ->whereNotNull('nif')
-            ->pluck('nif')
-            ->merge(
-                User::query()
-                    ->whereNotNull('nif')
-                    ->pluck('nif')
-            )
+            ->get(['nif'])
+            ->map(fn (DadosPessoais $personalData) => $personalData->getAttribute('nif'));
+
+        $legacyNifs = Schema::hasColumn('users', 'nif')
+            ? User::query()
+                ->whereNotNull('nif')
+                ->get(['nif'])
+                ->map(fn (User $legacyUser) => $legacyUser->getAttribute('nif'))
+            : collect();
+
+        $existingNifs = $canonicalNifs
+            ->merge($legacyNifs)
             ->map(fn ($value) => UniqueMemberNif::normalize($value))
             ->filter()
             ->flip();

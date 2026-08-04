@@ -1833,7 +1833,7 @@ export function BancoTab({
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+      <Card className="flex flex-col gap-3 p-3 md:flex-row md:items-center md:justify-between">
         <div className="flex w-full flex-col gap-2 md:w-auto md:flex-row md:items-center">
           <Input
             value={extratoSearchTerm}
@@ -1854,7 +1854,16 @@ export function BancoTab({
           </Select>
         </div>
 
-        <div className="flex w-full flex-col gap-2 sm:flex-row md:w-auto">
+        <div className="flex w-full flex-wrap gap-2 md:w-auto md:justify-end">
+          <Button type="button" onClick={() => void handleGenerateSuggestionsBatch()} disabled={bulkGeneratingSuggestions} className="min-w-[108px]">
+            <Gear size={16} className="mr-1.5" />
+            {bulkGeneratingSuggestions ? 'A conciliar...' : 'Conciliar'}
+          </Button>
+          {bulkGeneratingSuggestions ? (
+            <Button type="button" variant="outline" onClick={handleCancelBulkSuggestionGeneration} title="Cancelar conciliação" aria-label="Cancelar conciliação">
+              <X size={16} />
+            </Button>
+          ) : null}
           <Dialog
             open={dialogImportOpen}
             onOpenChange={(open) => {
@@ -1866,8 +1875,8 @@ export function BancoTab({
           >
             <DialogTrigger asChild>
               <Button variant="outline" onClick={resetImportData} className="w-full sm:w-auto">
-                <FileArrowUp className="mr-2" />
-                Importar Extrato XLS
+                <FileArrowUp className="mr-1.5" />
+                XLS
               </Button>
             </DialogTrigger>
             <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
@@ -2043,10 +2052,11 @@ export function BancoTab({
                   resetForm();
                   setBankStatementFormError(null);
                 }}
-                className="w-full sm:w-auto"
+                className="h-10 w-10 p-0"
+                title="Adicionar movimento"
+                aria-label="Adicionar movimento"
               >
-                <Plus className="mr-2" />
-                Adicionar Movimento
+                <Plus />
               </Button>
             </DialogTrigger>
             <DialogContent>
@@ -2142,85 +2152,61 @@ export function BancoTab({
             </DialogContent>
           </Dialog>
         </div>
-      </div>
+      </Card>
 
-      <div className="grid gap-3 md:gap-4 grid-cols-2 md:grid-cols-4">
-        <Card className="p-3 md:p-4">
+      <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+        <Card className="p-2">
           <div className="flex items-start justify-between">
             <div>
               <p className="text-[10px] md:text-xs text-muted-foreground font-medium">Total Movimentos</p>
-              <p className="text-xl md:text-2xl font-bold mt-1">{(extratos || []).length}</p>
+              <p className="text-lg md:text-xl font-bold mt-1">{(extratos || []).length}</p>
             </div>
-            <div className="p-1.5 md:p-2 rounded-lg bg-blue-50">
+            <div className="p-1 rounded-lg bg-blue-50">
               <Bank className="text-blue-600" size={16} weight="bold" />
             </div>
           </div>
         </Card>
 
-        <Card className="p-3 md:p-4">
+        <Card className="p-2">
           <div className="flex items-start justify-between">
             <div>
               <p className="text-[10px] md:text-xs text-muted-foreground font-medium">Conciliados</p>
-              <p className="text-xl md:text-2xl font-bold text-green-600 mt-1">€{toNumber(totalConciliado).toFixed(2)}</p>
+              <p className="text-lg md:text-xl font-bold text-green-600 mt-1">€{toNumber(totalConciliado).toFixed(2)}</p>
             </div>
-            <div className="p-1.5 md:p-2 rounded-lg bg-green-50">
+            <div className="p-1 rounded-lg bg-green-50">
               <Check className="text-green-600" size={16} weight="bold" />
             </div>
           </div>
         </Card>
 
-        <Card className="p-3 md:p-4">
+        <Card className="p-2">
           <div className="flex items-start justify-between">
             <div>
               <p className="text-[10px] md:text-xs text-muted-foreground font-medium">Por Conciliar</p>
-              <p className="text-xl md:text-2xl font-bold text-orange-600 mt-1">€{toNumber(totalNaoConciliado).toFixed(2)}</p>
+              <p className="text-lg md:text-xl font-bold text-orange-600 mt-1">€{toNumber(totalNaoConciliado).toFixed(2)}</p>
             </div>
-            <div className="p-1.5 md:p-2 rounded-lg bg-orange-50">
+            <div className="p-1 rounded-lg bg-orange-50">
               <ArrowsLeftRight className="text-orange-600" size={16} weight="bold" />
             </div>
           </div>
         </Card>
 
-        <Card className="p-3 md:p-4">
+        <Card className="p-2">
           <div className="flex items-start justify-between">
             <div>
               <p className="text-[10px] md:text-xs text-muted-foreground font-medium">Saldo da Conta</p>
-              <p className={`text-xl md:text-2xl font-bold mt-1 ${saldoConta >= 0 ? 'text-blue-600' : 'text-red-600'}`}>
+              <p className={`text-lg md:text-xl font-bold mt-1 ${saldoConta >= 0 ? 'text-blue-600' : 'text-red-600'}`}>
                 €{toNumber(saldoConta).toFixed(2)}
               </p>
             </div>
-            <div className={`p-1.5 md:p-2 rounded-lg ${saldoConta >= 0 ? 'bg-blue-50' : 'bg-red-50'}`}>
+            <div className={`p-1 rounded-lg ${saldoConta >= 0 ? 'bg-blue-50' : 'bg-red-50'}`}>
               <Bank className={saldoConta >= 0 ? 'text-blue-600' : 'text-red-600'} size={16} weight="bold" />
             </div>
           </div>
         </Card>
       </div>
 
-      <div className="flex flex-col gap-2 rounded-lg border bg-card p-3 md:flex-row md:items-center md:justify-between">
-        <div>
-          <p className="text-sm font-medium">Sugestoes bancarias</p>
-          <p className="text-xs text-muted-foreground">
-            Analisa entradas e saidas por conciliar e prepara correspondencias para revisao.
-          </p>
-          {bulkSuggestionSummary && (
-            <p className="mt-1 text-xs text-muted-foreground">
-              {bulkSuggestionSummary.analyzed_count} analisadas, {bulkSuggestionSummary.suggestions_created} sugestoes, {bulkSuggestionSummary.unmatched_count} sem correspondencia e {bulkSuggestionSummary.errors} erros.
-            </p>
-          )}
-        </div>
-        <div className="flex flex-col gap-2 sm:flex-row">
-          <Button type="button" onClick={() => void handleGenerateSuggestionsBatch()} disabled={bulkGeneratingSuggestions}>
-            <Gear size={16} className="mr-2" />
-            {bulkGeneratingSuggestions ? 'A gerar sugestões...' : 'Gerar sugestões de conciliação'}
-          </Button>
-          {bulkGeneratingSuggestions && (
-            <Button type="button" variant="outline" onClick={handleCancelBulkSuggestionGeneration}>
-              <X size={16} className="mr-2" />
-              Cancelar
-            </Button>
-          )}
-        </div>
-      </div>
+
 
       <Card className="overflow-hidden">
         <div className="space-y-3 p-3 md:hidden">

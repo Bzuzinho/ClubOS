@@ -68,6 +68,43 @@ export function DashboardTab({ dashboardData }: DashboardTabProps) {
     'oklch(0.5 0.12 300)',
   ];
 
+  const saldoCard = (
+    <Card className="h-full p-2 sm:p-2.5">
+      <div className="mb-1 flex items-center justify-between">
+        <h3 className="text-xs font-semibold sm:text-sm">Saldo Atual</h3>
+        <Wallet size={16} className="text-primary" />
+      </div>
+      <div className="space-y-1.5">
+        <div className="flex items-center justify-between rounded-lg bg-muted/50 p-1.5">
+          <span className="text-xs font-medium">Saldo Total</span>
+          <span className={`text-base font-bold sm:text-lg ${normalizedDashboard.totalGeral >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+            €{normalizedDashboard.totalGeral.toFixed(2)}
+          </span>
+        </div>
+        <div className="flex items-center justify-between rounded-lg bg-muted/50 p-1.5">
+          <span className="text-xs font-medium">Saldo do Mês</span>
+          <span className={`text-base font-bold sm:text-lg ${saldoMes >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+            €{saldoMes.toFixed(2)}
+          </span>
+        </div>
+      </div>
+    </Card>
+  );
+
+  const alertsCard = (
+    <Card className="h-full p-2 sm:p-2.5">
+      <div className="mb-1 text-xs font-semibold sm:text-sm">Alertas documentais</div>
+      <div className="grid gap-1 text-xs">
+        <div className="flex items-center justify-between rounded-md border px-2 py-1"><span>Pagos sem fatura</span><span className="font-semibold">{normalizedDashboard.alerts.paidWithoutInvoice}</span></div>
+        <div className="flex items-center justify-between rounded-md border px-2 py-1"><span>Pagos sem recibo</span><span className="font-semibold">{normalizedDashboard.alerts.paidWithoutReceipt}</span></div>
+        <div className="flex items-center justify-between rounded-md border px-2 py-1"><span>Sem comprovativo</span><span className="font-semibold">{normalizedDashboard.alerts.missingPaymentProof}</span></div>
+        <div className="flex items-center justify-between rounded-md border px-2 py-1"><span>Vencidas por pagar</span><span className="font-semibold">{normalizedDashboard.alerts.overdueUnpaid}</span></div>
+        <div className="flex items-center justify-between rounded-md border px-2 py-1"><span>Valor divergente</span><span className="font-semibold">{normalizedDashboard.alerts.amountMismatch}</span></div>
+        <div className="flex items-center justify-between rounded-md border px-2 py-1"><span>Stock sem documento</span><span className="font-semibold">{normalizedDashboard.alerts.stockWithoutDocument}</span></div>
+      </div>
+    </Card>
+  );
+
   return (
     <div className="space-y-2 sm:space-y-3">
       <div className="grid gap-2 grid-cols-2 lg:grid-cols-5">
@@ -142,58 +179,15 @@ export function DashboardTab({ dashboardData }: DashboardTabProps) {
         </Card>
       </div>
 
-      <div className="grid gap-2 sm:gap-3 grid-cols-1 lg:grid-cols-2">
-        <Card className="p-2 sm:p-2.5">
-          <div className="flex items-center justify-between mb-1.5">
-            <h3 className="font-semibold text-xs sm:text-sm">Saldo Atual</h3>
-            <Wallet size={16} className="text-primary" />
-          </div>
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between p-1.5 bg-muted/50 rounded-lg">
-              <span className="text-xs font-medium">Saldo Total</span>
-              <span
-                className={`text-base sm:text-lg font-bold ${
-                  normalizedDashboard.totalGeral >= 0 ? 'text-green-600' : 'text-red-600'
-                }`}
-              >
-                €{normalizedDashboard.totalGeral.toFixed(2)}
-              </span>
-            </div>
-            <div className="flex items-center justify-between p-1.5 bg-muted/50 rounded-lg">
-              <span className="text-xs font-medium">Saldo do Mês</span>
-              <span
-                className={`text-base sm:text-lg font-bold ${
-                  saldoMes >= 0 ? 'text-green-600' : 'text-red-600'
-                }`}
-              >
-                €{saldoMes.toFixed(2)}
-              </span>
-            </div>
-          </div>
-        </Card>
-
-        <Card className="p-4 text-xs text-muted-foreground">
-          <div className="space-y-2">
-            <div className="text-sm font-semibold text-foreground">Alertas documentais</div>
-            <div className="grid gap-2 text-xs">
-              <div className="flex items-center justify-between rounded-lg border p-2"><span>Pagos sem fatura</span><span className="font-semibold">{normalizedDashboard.alerts.paidWithoutInvoice}</span></div>
-              <div className="flex items-center justify-between rounded-lg border p-2"><span>Pagos sem recibo</span><span className="font-semibold">{normalizedDashboard.alerts.paidWithoutReceipt}</span></div>
-              <div className="flex items-center justify-between rounded-lg border p-2"><span>Sem comprovativo</span><span className="font-semibold">{normalizedDashboard.alerts.missingPaymentProof}</span></div>
-              <div className="flex items-center justify-between rounded-lg border p-2"><span>Vencidas por pagar</span><span className="font-semibold">{normalizedDashboard.alerts.overdueUnpaid}</span></div>
-              <div className="flex items-center justify-between rounded-lg border p-2"><span>Valor divergente</span><span className="font-semibold">{normalizedDashboard.alerts.amountMismatch}</span></div>
-              <div className="flex items-center justify-between rounded-lg border p-2"><span>Compras stock sem documento</span><span className="font-semibold">{normalizedDashboard.alerts.stockWithoutDocument}</span></div>
-            </div>
-          </div>
-        </Card>
-      </div>
-
       {showCharts ? (
-        <Suspense fallback={<div className="grid gap-2 sm:gap-3 grid-cols-1 lg:grid-cols-2"><Card className="p-4 text-xs text-muted-foreground">A carregar gráficos...</Card></div>}>
+        <Suspense fallback={<div className="grid grid-cols-1 gap-2 md:grid-cols-3"><Card className="p-3 text-xs text-muted-foreground md:col-span-3">A carregar gráficos...</Card></div>}>
           <DashboardCharts
             tiposFaturaData={normalizedDashboard.distribuicaoPorTipo}
             monthlyData={normalizedDashboard.evolucaoMensal}
             centrosCustoData={normalizedDashboard.centrosCusto}
             colors={COLORS}
+            summaryLeft={saldoCard}
+            summaryRight={alertsCard}
           />
         </Suspense>
       ) : null}
