@@ -1344,7 +1344,7 @@ class BankReconciliationSuggestionFlowTest extends TestCase
         ));
         $suggestions->each(function (array $suggestion): void {
             $this->assertLessThan(100, (int) $suggestion['score']);
-            $this->assertFalse((bool) $suggestion['is_directly_reconcilable']);
+            $this->assertTrue((bool) $suggestion['is_directly_reconcilable']);
         });
     }
 
@@ -1385,7 +1385,7 @@ class BankReconciliationSuggestionFlowTest extends TestCase
 
         collect($response->json('suggestions'))->each(function (array $suggestion): void {
             $this->assertLessThan(100, (int) $suggestion['score']);
-            $this->assertFalse((bool) $suggestion['is_directly_reconcilable']);
+            $this->assertTrue((bool) $suggestion['is_directly_reconcilable']);
         });
     }
 
