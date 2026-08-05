@@ -34,12 +34,23 @@ class CommunicationAutomationService
 
         $invoice->loadMissing('user');
 
-        $subject = sprintf('Nova fatura emitida - %s', $invoice->mes ?: $invoice->tipo);
-        $message = sprintf(
-            'Foi emitida uma nova fatura no valor de %s com vencimento em %s.',
-            number_format((float) $invoice->valor_total, 2, ',', '.'),
-            optional($invoice->data_vencimento)->format('Y-m-d') ?: 'data por definir'
-        );
+        $isMonthlyFee = $invoice->tipo === 'mensalidade';
+        $period = $invoice->mes ?: optional($invoice->data_fatura)->format('Y-m');
+        $subject = $isMonthlyFee
+            ? sprintf('Mensalidade de %s disponível', $period ?: 'período atual')
+            : sprintf('Nova fatura disponível - %s', $period ?: $invoice->tipo);
+        $message = $isMonthlyFee
+            ? sprintf(
+                'A mensalidade de %s, no valor de %s, já está disponível para pagamento. Data de vencimento: %s.',
+                $period ?: 'período atual',
+                number_format((float) $invoice->valor_total, 2, ',', '.'),
+                optional($invoice->data_vencimento)->format('Y-m-d') ?: 'data por definir'
+            )
+            : sprintf(
+                'Foi disponibilizada uma nova fatura no valor de %s com vencimento em %s.',
+                number_format((float) $invoice->valor_total, 2, ',', '.'),
+                optional($invoice->data_vencimento)->format('Y-m-d') ?: 'data por definir'
+            );
 
         $this->dispatch([
             'title' => $subject,
@@ -61,10 +72,21 @@ class CommunicationAutomationService
             return 0;
         }
 
+        $today = now()->startOfDay();
+
+        Invoice::query()
+            ->where('tipo', 'mensalidade')
+            ->where('oculta', true)
+            ->where('estado_pagamento', '!=', 'cancelado')
+            ->whereDate('data_fatura', '<=', $today)
+            ->update(['oculta' => false]);
+
         $released = 0;
 
         Invoice::query()
             ->whereNotNull('user_id')
+            ->where('oculta', false)
+            ->where('estado_pagamento', '!=', 'cancelado')
             ->orderBy('data_fatura')
             ->chunkById(100, function (Collection $invoices) use (&$released) {
                 foreach ($invoices as $invoice) {
@@ -72,12 +94,21 @@ class CommunicationAutomationService
                         continue;
                     }
 
-                    $this->triggerInvoiceIssued($invoice);
-                    $released++;
+                    if ($this->triggerInvoiceAndReportDispatch($invoice)) {
+                        $released++;
+                    }
                 }
             }, 'id');
 
         return $released;
+    }
+
+    private function triggerInvoiceAndReportDispatch(Invoice $invoice): bool
+    {
+        $before = $this->invoiceCommunicationAlreadyDispatched($invoice);
+        $this->triggerInvoiceIssued($invoice);
+
+        return !$before && $this->invoiceCommunicationAlreadyDispatched($invoice);
     }
 
     public function triggerMovementIssued(Movement $movement): void
@@ -195,20 +226,14 @@ class CommunicationAutomationService
 
         $statusLabel = $statusLabels[$toStatus] ?? $toStatus;
         $subject = sprintf('Requisição logística %s', $statusLabel);
-        $message = sprintf(
-            'A tua requisição logística mudou de %s para %s.',
-            $fromStatus,
-            $toStatus
-        );
-
-        $alertType = $toStatus === 'approved' ? 'success' : 'info';
+        $message = sprintf('A tua requisição logística mudou de %s para %s.', $fromStatus, $toStatus);
 
         $this->dispatch([
             'title' => $subject,
             'alert_category' => 'geral',
             'alert_title' => sprintf('Requisição %s', $statusLabel),
             'alert_message' => $message,
-            'alert_type' => $alertType,
+            'alert_type' => $toStatus === 'approved' ? 'success' : 'info',
             'recipient_user_ids' => [$request->requester_user_id],
             'channels' => $this->buildChannels('geral', $subject, $message, [
                 'email' => ['Automação Logística - Requisição Email'],
@@ -313,6 +338,15 @@ class CommunicationAutomationService
 
     private function dispatch(array $payload, string $originType, string $originId): void
     {
+        if (empty($payload['channels'])) {
+            Log::info('Communication automation skipped because all configured channels are disabled.', [
+                'origin_type' => $originType,
+                'origin_id' => $originId,
+            ]);
+
+            return;
+        }
+
         try {
             $campaign = $this->campaignService->sendIndividualCommunication($payload);
 
@@ -330,11 +364,19 @@ class CommunicationAutomationService
 
     private function invoiceCommunicationShouldBeVisible(Invoice $invoice): bool
     {
+        if ((bool) $invoice->oculta) {
+            return false;
+        }
+
+        if ($invoice->estado_pagamento === 'cancelado') {
+            return false;
+        }
+
         if (!$invoice->data_fatura) {
             return true;
         }
 
-        return $invoice->data_fatura->startOfDay()->lte(now()->startOfDay());
+        return $invoice->data_fatura->copy()->startOfDay()->lte(now()->startOfDay());
     }
 
     private function invoiceCommunicationAlreadyDispatched(Invoice $invoice): bool
