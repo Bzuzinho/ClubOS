@@ -110,6 +110,7 @@ final class AccessControlCatalog
                 'base_pages' => [
                     ['key' => 'website_redes_dashboard', 'label' => 'Visão geral', 'route' => '/website-redes'],
                     ['key' => 'website_redes_pedidos', 'label' => 'Pedidos', 'route' => '/website-redes?tab=pedidos'],
+                    ['key' => 'website_redes_paginas', 'label' => 'Páginas', 'route' => '/website-redes/paginas'],
                 ],
             ],
             [

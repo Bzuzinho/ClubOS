@@ -165,9 +165,12 @@ export default function WebsiteRedesIndex({ summary, submissions, selectedSubmis
                         <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary">Gestão editorial e captação</p>
                         <h1 className="text-2xl font-semibold text-foreground">Website & Redes</h1>
                     </div>
-                    <Button asChild variant="outline" size="sm">
-                        <a href="/" target="_blank" rel="noreferrer">Abrir website <ArrowSquareOut className="ml-2" /></a>
-                    </Button>
+                    <div className="flex flex-wrap gap-2">
+                        <Button asChild variant="outline" size="sm"><Link href="/website-redes/paginas">Gerir páginas</Link></Button>
+                        <Button asChild variant="outline" size="sm">
+                            <a href="/" target="_blank" rel="noreferrer">Abrir website <ArrowSquareOut className="ml-2" /></a>
+                        </Button>
+                    </div>
                 </div>
             }
         >

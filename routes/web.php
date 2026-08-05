@@ -46,6 +46,8 @@ use App\Http\Controllers\PortalTrainingController;
 use App\Http\Controllers\PortalEventController;
 use App\Http\Controllers\PublicFormSubmissionController;
 use App\Http\Controllers\PublicSiteController;
+use App\Http\Controllers\WebsiteMediaController;
+use App\Http\Controllers\WebsitePageController;
 use App\Http\Controllers\WebsiteRedesController;
 use App\Http\Controllers\MembrosEquipaController;
 use App\Http\Controllers\SessoesFormacaoController;
@@ -120,6 +122,39 @@ Route::middleware(['auth', 'verified'])->group(function () {
             Route::patch('/pedidos/{submission}/estado', [WebsiteRedesController::class, 'updateStatus'])
                 ->middleware('permission.access:website_redes.pedidos,edit')
                 ->name('website-redes.submissions.status');
+            Route::get('/paginas', [WebsitePageController::class, 'index'])
+                ->middleware('permission.access:website_redes.paginas,view')
+                ->name('website-redes.pages.index');
+            Route::post('/paginas', [WebsitePageController::class, 'store'])
+                ->middleware('permission.access:website_redes.paginas,create')
+                ->name('website-redes.pages.store');
+            Route::get('/paginas/{page}/editar', [WebsitePageController::class, 'edit'])
+                ->middleware('permission.access:website_redes.paginas,view')
+                ->name('website-redes.pages.edit');
+            Route::post('/paginas/{page}/importar', [WebsitePageController::class, 'import'])
+                ->middleware('permission.access:website_redes.paginas,edit')
+                ->name('website-redes.pages.import');
+            Route::patch('/paginas/{page}', [WebsitePageController::class, 'update'])
+                ->middleware('permission.access:website_redes.paginas,edit')
+                ->name('website-redes.pages.update');
+            Route::delete('/paginas/{page}', [WebsitePageController::class, 'destroy'])
+                ->middleware('permission.access:website_redes.paginas,delete')
+                ->name('website-redes.pages.destroy');
+            Route::get('/paginas/{page}/previsualizar', [WebsitePageController::class, 'preview'])
+                ->middleware('permission.access:website_redes.paginas,view')
+                ->name('website-redes.pages.preview');
+            Route::post('/paginas/{page}/versoes/{version}/recuperar', [WebsitePageController::class, 'restore'])
+                ->middleware('permission.access:website_redes.paginas,edit')
+                ->name('website-redes.pages.versions.restore');
+            Route::post('/media', [WebsiteMediaController::class, 'store'])
+                ->middleware('permission.access:website_redes.paginas,edit')
+                ->name('website-redes.media.store');
+            Route::patch('/media/{media}', [WebsiteMediaController::class, 'update'])
+                ->middleware('permission.access:website_redes.paginas,edit')
+                ->name('website-redes.media.update');
+            Route::delete('/media/{media}', [WebsiteMediaController::class, 'destroy'])
+                ->middleware('permission.access:website_redes.paginas,delete')
+                ->name('website-redes.media.destroy');
         });
 
     Route::get('/portal/perfil', [PortalProfileController::class, 'show'])
@@ -708,3 +743,8 @@ Route::middleware('auth')->group(function () {
 });
 
 require __DIR__.'/auth.php';
+
+// Public custom pages must remain the final route so application and auth routes win first.
+Route::get('/{page}', [PublicSiteController::class, 'custom'])
+    ->where('page', '[a-z0-9]+(?:-[a-z0-9]+)*')
+    ->name('public.custom-page');
