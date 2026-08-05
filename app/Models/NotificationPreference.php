@@ -11,6 +11,7 @@ class NotificationPreference extends Model
 
     protected $fillable = [
         'email_notificacoes',
+        'alertas_aplicacao',
         'alertas_pagamento',
         'alertas_atividade',
         'automacoes_financeiro',
@@ -25,6 +26,7 @@ class NotificationPreference extends Model
 
     protected $casts = [
         'email_notificacoes' => 'boolean',
+        'alertas_aplicacao' => 'boolean',
         'alertas_pagamento' => 'boolean',
         'alertas_atividade' => 'boolean',
         'automacoes_financeiro' => 'boolean',
