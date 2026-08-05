@@ -30,10 +30,6 @@ final class PublicFormWorkflowService
     ) {
     }
 
-    /**
-     * @param  array<string, mixed>  $data
-     * @param  array{ip_hash: ?string, user_agent: ?string}  $requestMetadata
-     */
     public function submitContact(array $data, array $requestMetadata): PublicFormSubmission
     {
         $submission = DB::transaction(fn (): PublicFormSubmission => $this->createSubmission(
@@ -47,15 +43,10 @@ final class PublicFormWorkflowService
         return $submission->refresh();
     }
 
-    /**
-     * @param  array<string, mixed>  $data
-     * @param  array{ip_hash: ?string, user_agent: ?string}  $requestMetadata
-     */
     public function submitRegistration(array $data, array $requestMetadata): PublicFormSubmission
     {
         $fingerprint = $this->identityFingerprint((string) $data['athleteName'], (string) $data['birthDate']);
 
-        /** @var PublicFormSubmission $submission */
         $submission = Cache::lock('website-registration:'.$fingerprint, 15)->block(5, function () use ($data, $requestMetadata, $fingerprint): PublicFormSubmission {
             return DB::transaction(function () use ($data, $requestMetadata, $fingerprint): PublicFormSubmission {
                 $identity = PublicRegistrationIdentity::query()
@@ -96,10 +87,6 @@ final class PublicFormWorkflowService
         return $submission->refresh();
     }
 
-    /**
-     * @param  array<string, mixed>  $data
-     * @param  array{ip_hash: ?string, user_agent: ?string}  $requestMetadata
-     */
     private function createSubmission(
         string $type,
         array $data,
@@ -132,7 +119,6 @@ final class PublicFormWorkflowService
         ]);
     }
 
-    /** @param array<string, mixed> $data */
     private function findExistingCanonicalMember(array $data): ?User
     {
         $normalizedName = $this->normalizeIdentityValue((string) $data['athleteName']);
@@ -148,7 +134,6 @@ final class PublicFormWorkflowService
         return $matches->count() === 1 ? $matches->first() : null;
     }
 
-    /** @param array<string, mixed> $data */
     private function createPreRegistrationMember(array $data, PublicFormSubmission $submission): User
     {
         $birthDate = Carbon::parse((string) $data['birthDate']);
@@ -201,7 +186,7 @@ final class PublicFormWorkflowService
             $this->queueOperationalEmail($submission);
         }
 
-        if ($this->preferenceEnabled('alertas_atividade')) {
+        if ($this->preferenceEnabled('alertas_aplicacao') && $this->preferenceEnabled('alertas_atividade')) {
             $this->createOperationalAppAlerts($submission);
         }
     }
@@ -266,7 +251,6 @@ final class PublicFormWorkflowService
         return filter_var($attributes[$field], FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) === true;
     }
 
-    /** @param array<string, mixed> $data */
     private function preRegistrationNotes(array $data): string
     {
         return collect([
@@ -295,7 +279,6 @@ final class PublicFormWorkflowService
             ->value();
     }
 
-    /** @param array<string, mixed> $data */
     private function nullable(array $data, string $key): ?string
     {
         $value = trim((string) ($data[$key] ?? ''));

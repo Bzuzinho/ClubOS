@@ -6,6 +6,7 @@ import { createRoot } from 'react-dom/client';
 import { createInertiaApp } from '@inertiajs/react';
 import { resolvePageComponent } from 'laravel-vite-plugin/inertia-helpers';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { InAppNotificationChannelControl } from '@/Components/Configuracoes/InAppNotificationChannelControl';
 
 const appName = import.meta.env.VITE_APP_NAME || 'ClubOS';
 const Devtools = import.meta.env.DEV
@@ -35,6 +36,7 @@ createInertiaApp({
         root.render(
             <QueryClientProvider client={queryClient}>
                 <App {...props} />
+                <InAppNotificationChannelControl />
                 {Devtools ? (
                     <Suspense fallback={null}>
                         <Devtools initialIsOpen={false} />

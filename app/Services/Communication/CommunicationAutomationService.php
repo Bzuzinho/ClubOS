@@ -32,8 +32,6 @@ class CommunicationAutomationService
             return;
         }
 
-        $invoice->loadMissing('user');
-
         $isMonthlyFee = $invoice->tipo === 'mensalidade';
         $period = $invoice->mes ?: optional($invoice->data_fatura)->format('Y-m');
         $subject = $isMonthlyFee
@@ -94,7 +92,10 @@ class CommunicationAutomationService
                         continue;
                     }
 
-                    if ($this->triggerInvoiceAndReportDispatch($invoice)) {
+                    $before = $this->invoiceCommunicationAlreadyDispatched($invoice);
+                    $this->triggerInvoiceIssued($invoice);
+
+                    if (!$before && $this->invoiceCommunicationAlreadyDispatched($invoice)) {
                         $released++;
                     }
                 }
@@ -103,21 +104,11 @@ class CommunicationAutomationService
         return $released;
     }
 
-    private function triggerInvoiceAndReportDispatch(Invoice $invoice): bool
-    {
-        $before = $this->invoiceCommunicationAlreadyDispatched($invoice);
-        $this->triggerInvoiceIssued($invoice);
-
-        return !$before && $this->invoiceCommunicationAlreadyDispatched($invoice);
-    }
-
     public function triggerMovementIssued(Movement $movement): void
     {
         if (!$this->canRun() || !$movement->user_id || !$this->canSendFinancialMovementAutomation()) {
             return;
         }
-
-        $movement->loadMissing('user');
 
         $movementLabel = $movement->classificacao === 'despesa' ? 'despesa' : 'movimento';
         $subject = sprintf('Novo %s financeiro registado', $movementLabel);
@@ -148,8 +139,7 @@ class CommunicationAutomationService
             return;
         }
 
-        $convocation->loadMissing('event', 'user');
-
+        $convocation->loadMissing('event');
         if (!$convocation->event) {
             return;
         }
@@ -159,7 +149,7 @@ class CommunicationAutomationService
             'Foi criada uma convocatória para o evento %s em %s%s.',
             $convocation->event->titulo,
             optional($convocation->event->data_inicio)->format('Y-m-d') ?: 'data por definir',
-            $convocation->event->local ? ' no local ' . $convocation->event->local : ''
+            $convocation->event->local ? ' no local '.$convocation->event->local : ''
         );
 
         $this->dispatch([
@@ -182,8 +172,6 @@ class CommunicationAutomationService
         if (!$this->canRun() || !$request->requester_user_id || !$this->canSendLogisticsRequestAutomation()) {
             return;
         }
-
-        $request->loadMissing('requester');
 
         $subject = 'Nova requisição logística registada';
         $message = sprintf(
@@ -216,22 +204,15 @@ class CommunicationAutomationService
             return;
         }
 
-        $request->loadMissing('requester');
-
-        $statusLabels = [
-            'approved' => 'aprovada',
-            'invoiced' => 'faturada',
-            'delivered' => 'entregue',
-        ];
-
-        $statusLabel = $statusLabels[$toStatus] ?? $toStatus;
-        $subject = sprintf('Requisição logística %s', $statusLabel);
+        $labels = ['approved' => 'aprovada', 'invoiced' => 'faturada', 'delivered' => 'entregue'];
+        $label = $labels[$toStatus] ?? $toStatus;
+        $subject = sprintf('Requisição logística %s', $label);
         $message = sprintf('A tua requisição logística mudou de %s para %s.', $fromStatus, $toStatus);
 
         $this->dispatch([
             'title' => $subject,
             'alert_category' => 'geral',
-            'alert_title' => sprintf('Requisição %s', $statusLabel),
+            'alert_title' => sprintf('Requisição %s', $label),
             'alert_message' => $message,
             'alert_type' => $toStatus === 'approved' ? 'success' : 'info',
             'recipient_user_ids' => [$request->requester_user_id],
@@ -239,7 +220,7 @@ class CommunicationAutomationService
                 'email' => ['Automação Logística - Requisição Email'],
                 'alert_app' => ['Automação Logística - Requisição App'],
             ]),
-        ], 'logistics_request_status', $request->id . ':' . $toStatus);
+        ], 'logistics_request_status', $request->id.':'.$toStatus);
     }
 
     public function triggerSupplierPurchaseCreated(SupplierPurchase $purchase): void
@@ -252,8 +233,6 @@ class CommunicationAutomationService
         if ($recipientIds === []) {
             return;
         }
-
-        $purchase->loadMissing('supplier', 'creator');
 
         $subject = sprintf('Compra de fornecedor registada - %s', $purchase->supplier_name_snapshot);
         $message = sprintf(
@@ -293,7 +272,7 @@ class CommunicationAutomationService
             ]);
         }
 
-        if (in_array('alert_app', $allowedChannels, true)) {
+        if (in_array('alert_app', $allowedChannels, true) && $this->automationEnabled('alertas_aplicacao')) {
             $channels->push([
                 'channel' => 'alert_app',
                 'is_enabled' => true,
@@ -318,7 +297,6 @@ class CommunicationAutomationService
                 ->where('status', 'ativo')
                 ->where('channel', $channel)
                 ->whereIn('name', $preferredNames)
-                ->orderByRaw('case ' . collect($preferredNames)->values()->map(fn (string $name, int $index) => "when name = '" . str_replace("'", "''", $name) . "' then {$index}")->implode(' ') . ' else 999 end')
                 ->value('id');
 
             if ($preferred) {
@@ -332,26 +310,20 @@ class CommunicationAutomationService
             ->where(function ($query) use ($category) {
                 $query->where('category', $category)->orWhere('category', 'geral');
             })
-            ->orderByRaw("case when category = ? then 0 else 1 end", [$category])
+            ->orderByRaw('case when category = ? then 0 else 1 end', [$category])
             ->value('id');
     }
 
     private function dispatch(array $payload, string $originType, string $originId): void
     {
         if (empty($payload['channels'])) {
-            Log::info('Communication automation skipped because all configured channels are disabled.', [
-                'origin_type' => $originType,
-                'origin_id' => $originId,
-            ]);
-
             return;
         }
 
         try {
             $campaign = $this->campaignService->sendIndividualCommunication($payload);
-
             $campaign->update([
-                'notes' => trim(($campaign->notes ? $campaign->notes . ' | ' : '') . sprintf('origem: %s:%s', $originType, $originId)),
+                'notes' => trim(($campaign->notes ? $campaign->notes.' | ' : '').sprintf('origem: %s:%s', $originType, $originId)),
             ]);
         } catch (\Throwable $exception) {
             Log::error('CommunicationAutomationService dispatch failed', [
@@ -364,19 +336,11 @@ class CommunicationAutomationService
 
     private function invoiceCommunicationShouldBeVisible(Invoice $invoice): bool
     {
-        if ((bool) $invoice->oculta) {
+        if ((bool) $invoice->oculta || $invoice->estado_pagamento === 'cancelado') {
             return false;
         }
 
-        if ($invoice->estado_pagamento === 'cancelado') {
-            return false;
-        }
-
-        if (!$invoice->data_fatura) {
-            return true;
-        }
-
-        return $invoice->data_fatura->copy()->startOfDay()->lte(now()->startOfDay());
+        return !$invoice->data_fatura || $invoice->data_fatura->copy()->startOfDay()->lte(now()->startOfDay());
     }
 
     private function invoiceCommunicationAlreadyDispatched(Invoice $invoice): bool
@@ -433,13 +397,11 @@ class CommunicationAutomationService
         }
 
         $prefs = NotificationPreference::query()->first();
-
         if (!$prefs) {
             return false;
         }
 
         $attributes = $prefs->getAttributes();
-
         if (!array_key_exists($field, $attributes) || $attributes[$field] === null) {
             return false;
         }

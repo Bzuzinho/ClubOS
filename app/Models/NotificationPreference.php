@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Http\Request;
 
 class NotificationPreference extends Model
 {
@@ -11,6 +12,7 @@ class NotificationPreference extends Model
 
     protected $fillable = [
         'email_notificacoes',
+        'alertas_aplicacao',
         'alertas_pagamento',
         'alertas_atividade',
         'automacoes_financeiro',
@@ -25,6 +27,7 @@ class NotificationPreference extends Model
 
     protected $casts = [
         'email_notificacoes' => 'boolean',
+        'alertas_aplicacao' => 'boolean',
         'alertas_pagamento' => 'boolean',
         'alertas_atividade' => 'boolean',
         'automacoes_financeiro' => 'boolean',
@@ -36,4 +39,22 @@ class NotificationPreference extends Model
         'automacoes_requisicoes_logistica' => 'boolean',
         'automacoes_alertas_operacionais' => 'boolean',
     ];
+
+    protected static function booted(): void
+    {
+        static::saved(function (NotificationPreference $preferences): void {
+            /** @var Request $request */
+            $request = request();
+
+            if (!$request->routeIs('configuracoes.notificacoes.update') || !$request->has('alertas_aplicacao')) {
+                return;
+            }
+
+            $enabled = $request->boolean('alertas_aplicacao');
+
+            if ((bool) $preferences->alertas_aplicacao !== $enabled) {
+                $preferences->forceFill(['alertas_aplicacao' => $enabled])->saveQuietly();
+            }
+        });
+    }
 }
