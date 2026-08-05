@@ -645,19 +645,19 @@ class EventosKeyValueService
                     );
                 }
 
-                ResultProva::updateOrCreate(
-                    ['id' => $id],
-                    [
-                        'atleta_id' => $item['atleta_id'] ?? null,
-                        'evento_id' => $eventId,
-                        'evento_nome' => $item['evento_nome'] ?? null,
-                        'prova' => $item['prova'] ?? '',
-                        'local' => $item['local'] ?? '',
-                        'data' => $item['data'] ?? null,
-                        'piscina' => $item['piscina'] ?? 'piscina_25m',
-                        'tempo_final' => $item['tempo_final'] ?? '',
-                    ]
-                );
+                $result = $existingResult ?? new ResultProva();
+                $result->id = $id;
+                $result->fill([
+                    'atleta_id' => $item['atleta_id'] ?? null,
+                    'evento_id' => $eventId,
+                    'evento_nome' => $item['evento_nome'] ?? null,
+                    'prova' => $item['prova'] ?? '',
+                    'local' => $item['local'] ?? '',
+                    'data' => $item['data'] ?? null,
+                    'piscina' => $item['piscina'] ?? 'piscina_25m',
+                    'tempo_final' => $item['tempo_final'] ?? '',
+                ]);
+                $result->save();
             }
 
             if (count($ids) === 0) {
