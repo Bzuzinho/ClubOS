@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class PublicFormSubmission extends Model
 {
@@ -27,6 +28,12 @@ class PublicFormSubmission extends Model
         'guardian_phone',
         'notes',
         'status',
+        'user_id',
+        'processed_by',
+        'identity_fingerprint',
+        'processed_at',
+        'email_queued_at',
+        'admin_notified_at',
         'privacy_consent_at',
         'ip_hash',
         'user_agent',
@@ -35,7 +42,20 @@ class PublicFormSubmission extends Model
 
     protected $casts = [
         'birth_date' => 'date',
+        'processed_at' => 'datetime',
+        'email_queued_at' => 'datetime',
+        'admin_notified_at' => 'datetime',
         'privacy_consent_at' => 'datetime',
         'payload' => 'array',
     ];
+
+    public function user(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'user_id');
+    }
+
+    public function processedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'processed_by');
+    }
 }

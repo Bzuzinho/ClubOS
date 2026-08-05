@@ -17,6 +17,7 @@ final class AccessControlCatalog
             ['key' => 'patrocinios', 'label' => 'Patrocínios', 'route' => '/patrocinios'],
             ['key' => 'comunicacao', 'label' => 'Comunicação', 'route' => '/comunicacao'],
             ['key' => 'marketing', 'label' => 'Marketing', 'route' => '/campanhas-marketing'],
+            ['key' => 'website_redes', 'label' => 'Website & Redes', 'route' => '/website-redes'],
             ['key' => 'configuracoes', 'label' => 'Configurações', 'route' => '/configuracoes'],
         ];
     }
@@ -101,6 +102,14 @@ final class AccessControlCatalog
                 'module_label' => 'Marketing',
                 'base_pages' => [
                     ['key' => 'marketing_campanhas', 'label' => 'Campanhas', 'route' => '/campanhas-marketing'],
+                ],
+            ],
+            [
+                'module_key' => 'website_redes',
+                'module_label' => 'Website & Redes',
+                'base_pages' => [
+                    ['key' => 'website_redes_dashboard', 'label' => 'Visão geral', 'route' => '/website-redes'],
+                    ['key' => 'website_redes_pedidos', 'label' => 'Pedidos', 'route' => '/website-redes?tab=pedidos'],
                 ],
             ],
             [
@@ -238,6 +247,19 @@ final class AccessControlCatalog
                     ['key' => 'financeiro.banco', 'label' => 'Banco', 'node_type' => 'submodule', 'module_key' => 'financeiro', 'children' => []],
                     ['key' => 'financeiro.importacao_recibos', 'label' => 'Importação de Recibos', 'node_type' => 'submodule', 'module_key' => 'financeiro', 'children' => []],
                     ['key' => 'financeiro.relatorios', 'label' => 'Relatórios', 'node_type' => 'submodule', 'module_key' => 'financeiro', 'children' => []],
+                ],
+            ],
+            [
+                'key' => 'website_redes',
+                'label' => 'Website & Redes',
+                'node_type' => 'module',
+                'module_key' => 'website_redes',
+                'children' => [
+                    ['key' => 'website_redes.dashboard', 'label' => 'Visão geral', 'node_type' => 'submodule', 'module_key' => 'website_redes', 'children' => []],
+                    ['key' => 'website_redes.pedidos', 'label' => 'Pedidos', 'node_type' => 'submodule', 'module_key' => 'website_redes', 'children' => []],
+                    ['key' => 'website_redes.paginas', 'label' => 'Páginas', 'node_type' => 'submodule', 'module_key' => 'website_redes', 'children' => []],
+                    ['key' => 'website_redes.publicacoes', 'label' => 'Notícias e redes sociais', 'node_type' => 'submodule', 'module_key' => 'website_redes', 'children' => []],
+                    ['key' => 'website_redes.integracoes', 'label' => 'Integrações', 'node_type' => 'submodule', 'module_key' => 'website_redes', 'children' => []],
                 ],
             ],
             [
