@@ -78,7 +78,7 @@ class EventosStatusDisplayTest extends TestCase
     public function test_eventos_users_partial_payload_uses_canonical_display_names(): void
     {
         $admin = User::factory()->admin()->create();
-        $member = User::factory()->create([
+        $member = User::factory()->athlete()->create([
             'name' => 'Nome de autenticação',
             'nome_completo' => 'Nome legado',
             'estado' => 'ativo',

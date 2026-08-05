@@ -34,19 +34,38 @@ import {
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { toast } from 'sonner';
+import axios from 'axios';
 
 interface Event {
   id: string;
   titulo: string;
   data_inicio: string;
   hora_inicio?: string;
+  data_fim?: string;
+  hora_fim?: string;
   local: string;
+  local_detalhes?: string;
   tipo: string;
+  tipo_piscina?: string;
+  visibilidade?: string;
   estado: string;
   criado_por?: string;
   escaloes_elegiveis?: string[];
   descricao?: string;
   centro_custo_id?: string;
+  transporte_necessario?: boolean;
+  transporte_detalhes?: string;
+  hora_partida?: string;
+  local_partida?: string;
+  taxa_inscricao?: string | number | null;
+  custo_inscricao_por_prova?: string | number | null;
+  custo_inscricao_por_salto?: string | number | null;
+  custo_inscricao_estafeta?: string | number | null;
+  observacoes?: string;
+  recorrente?: boolean;
+  recorrencia_data_inicio?: string;
+  recorrencia_data_fim?: string;
+  recorrencia_dias_semana?: string[];
 }
 
 interface CostCenter {
@@ -67,24 +86,27 @@ interface AgeGroup {
 interface EventType {
   id: string;
   nome: string;
+  categoria?: string;
   visibilidade_default?: string;
+  requer_transporte?: boolean;
   ativo?: boolean;
 }
 
 interface EventosListProps {
   events: Event[];
-  users?: any[];
   costCenters?: CostCenter[];
   eventTypes?: EventType[];
   ageGroups?: AgeGroup[];
+  canEdit?: boolean;
+  canDelete?: boolean;
 }
 
 const defaultEventTypeOptions = [
-  { value: 'treino', label: 'Treino', visibilidade_default: 'publico' },
-  { value: 'prova', label: 'Prova', visibilidade_default: 'publico' },
-  { value: 'competicao', label: 'Competição', visibilidade_default: 'publico' },
-  { value: 'evento_interno', label: 'Evento Interno', visibilidade_default: 'publico' },
-  { value: 'reuniao', label: 'Reunião', visibilidade_default: 'publico' },
+  { value: 'treino', label: 'Treino', categoria: 'treino', visibilidade_default: 'publico', requer_transporte: false },
+  { value: 'prova', label: 'Prova', categoria: 'prova', visibilidade_default: 'publico', requer_transporte: false },
+  { value: 'competicao', label: 'Competição', categoria: 'competicao', visibilidade_default: 'publico', requer_transporte: false },
+  { value: 'evento_interno', label: 'Evento Interno', categoria: 'evento', visibilidade_default: 'publico', requer_transporte: false },
+  { value: 'reuniao', label: 'Reunião', categoria: 'evento', visibilidade_default: 'publico', requer_transporte: false },
 ];
 
 const normalizeEventTypeValue = (value: string): string => {
@@ -114,10 +136,11 @@ const daysOfWeek = [
 
 export function EventosList({
   events = [],
-  users = [],
   costCenters = [],
   eventTypes = [],
   ageGroups = [],
+  canEdit = false,
+  canDelete = false,
 }: EventosListProps) {
   const resolveEscalaoIds = (escaloes: string[]) => {
     if (!Array.isArray(escaloes)) return [] as string[];
@@ -144,7 +167,9 @@ export function EventosList({
       .map((type) => ({
         value: normalizeEventTypeValue(type.nome),
         label: type.nome,
+        categoria: normalizeEventTypeValue(type.categoria || type.nome),
         visibilidade_default: type.visibilidade_default || 'publico',
+        requer_transporte: type.requer_transporte || false,
       }));
 
     const options = optionsFromSettings.length > 0 ? optionsFromSettings : defaultEventTypeOptions;
@@ -156,7 +181,9 @@ export function EventosList({
       .map((tipo) => ({
         value: tipo,
         label: formatEventTypeLabel(tipo),
+        categoria: normalizeEventTypeValue(tipo),
         visibilidade_default: 'publico',
+        requer_transporte: false,
       }));
 
     return [...options, ...missingFromExistingEvents];
@@ -168,6 +195,7 @@ export function EventosList({
   );
 
   const defaultEventTypeValue = eventTypeOptions[0]?.value || 'evento_interno';
+  const defaultEventType = eventTypeOptions[0];
 
   const [formData, setFormData] = useState({
     titulo: '',
@@ -180,9 +208,9 @@ export function EventosList({
     local_detalhes: '',
     tipo: defaultEventTypeValue,
     tipo_piscina: '',
-    visibilidade: 'publico',
+    visibilidade: defaultEventType?.visibilidade_default || 'publico',
     escaloes_elegiveis: [] as string[],
-    transporte_necessario: false,
+    transporte_necessario: defaultEventType?.requer_transporte || false,
     transporte_detalhes: '',
     hora_partida: '',
     local_partida: '',
@@ -204,9 +232,15 @@ export function EventosList({
       setFormData((prev) => ({
         ...prev,
         tipo: defaultEventTypeValue,
+        visibilidade: defaultEventType?.visibilidade_default || 'publico',
+        transporte_necessario: defaultEventType?.requer_transporte || false,
       }));
     }
-  }, [eventTypeOptions, defaultEventTypeValue, formData.tipo]);
+  }, [eventTypeOptions, defaultEventType, defaultEventTypeValue, formData.tipo]);
+
+  const selectedEventType = eventTypeOptions.find((option) => option.value === formData.tipo);
+  const selectedEventCategory = selectedEventType?.categoria || normalizeEventTypeValue(formData.tipo);
+  const isCompetitionEventType = ['prova', 'competicao'].includes(selectedEventCategory);
 
   const filteredEvents = useMemo(() => {
     return events
@@ -223,7 +257,13 @@ export function EventosList({
       .sort((a, b) => new Date(b.data_inicio).getTime() - new Date(a.data_inicio).getTime());
   }, [events, searchTerm, typeFilter, statusFilter]);
 
-  const handleSave = async () => {
+  const validationErrorMessage = (errors: Record<string, unknown>, fallback: string) => {
+    const message = Object.values(errors).flat().find((value) => typeof value === 'string');
+
+    return typeof message === 'string' ? message : fallback;
+  };
+
+  const handleSave = () => {
     if (!formData.titulo.trim()) {
       toast.error('Preencha o título do evento');
       return;
@@ -236,39 +276,40 @@ export function EventosList({
 
     setIsSubmitting(true);
 
-    try {
-      const payload = {
-        ...formData,
-        recorrencia_dias_semana: formData.recorrente ? formData.recorrencia_dias_semana : [],
-      };
+    const payload = {
+      ...formData,
+      visibilidade: formData.visibilidade === 'interno' ? 'restrito' : formData.visibilidade,
+      recorrencia_data_inicio: formData.recorrente ? formData.recorrencia_data_inicio : null,
+      recorrencia_data_fim: formData.recorrente ? formData.recorrencia_data_fim : null,
+      recorrencia_dias_semana: formData.recorrente ? formData.recorrencia_dias_semana : [],
+    };
 
-      if (editingEvent) {
-        router.put(`/eventos/${editingEvent.id}`, payload, {
+    if (editingEvent) {
+      router.put(`/eventos/${editingEvent.id}`, payload, {
           onSuccess: () => {
             toast.success('Evento atualizado com sucesso!');
             setDialogOpen(false);
             resetForm();
           },
           onError: (err: any) => {
-            toast.error('Erro ao atualizar evento');
+            toast.error(validationErrorMessage(err, 'Erro ao atualizar evento'));
             console.error(err);
           },
+          onFinish: () => setIsSubmitting(false),
         });
-      } else {
-        router.post('/eventos', payload, {
+    } else {
+      router.post('/eventos', payload, {
           onSuccess: () => {
             toast.success('Evento criado com sucesso!');
             setDialogOpen(false);
             resetForm();
           },
           onError: (err: any) => {
-            toast.error('Erro ao criar evento');
+            toast.error(validationErrorMessage(err, 'Erro ao criar evento'));
             console.error(err);
           },
+          onFinish: () => setIsSubmitting(false),
         });
-      }
-    } finally {
-      setIsSubmitting(false);
     }
   };
 
@@ -278,8 +319,8 @@ export function EventosList({
         onSuccess: () => {
           toast.success('Evento eliminado com sucesso!');
         },
-        onError: () => {
-          toast.error('Erro ao eliminar evento');
+        onError: (errors) => {
+          toast.error(validationErrorMessage(errors, 'Erro ao eliminar evento'));
         },
       });
     }
@@ -297,9 +338,9 @@ export function EventosList({
       local_detalhes: '',
       tipo: defaultEventTypeValue,
       tipo_piscina: '',
-      visibilidade: 'publico',
+      visibilidade: defaultEventType?.visibilidade_default || 'publico',
       escaloes_elegiveis: [],
-      transporte_necessario: false,
+      transporte_necessario: defaultEventType?.requer_transporte || false,
       transporte_detalhes: '',
       hora_partida: '',
       local_partida: '',
@@ -345,21 +386,20 @@ export function EventosList({
 
     setIsBulkDeleting(true);
     try {
-      const promises = Array.from(selectedEvents).map((id) =>
-        router.delete(`/eventos/${id}`, {
-          preserveState: true,
-          preserveScroll: true,
-          only: ['events'],
-        })
-      );
+      const promises = Array.from(selectedEvents).map((id) => axios.delete(`/eventos/${id}`));
 
       await Promise.all(promises);
       toast.success(`${selectedEvents.size} evento(s) eliminado(s) com sucesso!`);
       setSelectedEvents(new Set());
       setIsBulkDeleteDialogOpen(false);
+      router.reload({ only: ['eventos', 'stats'] });
     } catch (error: any) {
       console.error('Erro ao eliminar eventos:', error);
-      toast.error('Erro ao eliminar eventos');
+      const responseErrors = error?.response?.data?.errors;
+      const message = responseErrors && typeof responseErrors === 'object'
+        ? Object.values(responseErrors).flat().find((value) => typeof value === 'string')
+        : error?.response?.data?.message;
+      toast.error(typeof message === 'string' ? message : 'Erro ao eliminar eventos');
     } finally {
       setIsBulkDeleting(false);
     }
@@ -382,22 +422,7 @@ export function EventosList({
   };
 
   const getEventTypeLabel = (tipo: string) => {
-    switch (tipo) {
-      case 'prova':
-        return 'Prova';
-      case 'treino':
-        return 'Treino';
-      case 'estagio':
-        return 'Estágio';
-      case 'reuniao':
-        return 'Reunião';
-      case 'evento_interno':
-        return 'Evento Interno';
-      case 'competicao':
-        return 'Competição';
-      default:
-        return 'Outro';
-    }
+    return eventTypeLabelMap.get(tipo) || formatEventTypeLabel(tipo || 'outro');
   };
 
   const getEventStatusClass = (estado: string) => {
@@ -440,7 +465,7 @@ export function EventosList({
         </div>
 
         <div className="flex gap-2">
-          {selectedEvents.size > 0 && (
+          {canDelete && selectedEvents.size > 0 && (
             <Button
               variant="destructive"
               onClick={() => setIsBulkDeleteDialogOpen(true)}
@@ -450,7 +475,7 @@ export function EventosList({
               Eliminar ({selectedEvents.size})
             </Button>
           )}
-          <Button
+          {canEdit ? <Button
             onClick={() => {
               resetForm();
               setDialogOpen(true);
@@ -459,7 +484,7 @@ export function EventosList({
           >
             <Plus size={14} className="mr-1.5" />
             Novo Evento
-          </Button>
+          </Button> : null}
 
           {dialogOpen ? (
             <div
@@ -508,13 +533,18 @@ export function EventosList({
                     <select
                       id="tipo"
                       value={formData.tipo}
-                      onChange={(event) =>
+                      onChange={(event) => {
+                        const nextType = eventTypeOptions.find((option) => option.value === event.target.value);
+                        const nextCategory = nextType?.categoria || normalizeEventTypeValue(event.target.value);
+
                         setFormData({
                           ...formData,
                           tipo: event.target.value,
-                          tipo_piscina: event.target.value === 'prova' ? formData.tipo_piscina : '',
-                        })
-                      }
+                          tipo_piscina: ['prova', 'competicao'].includes(nextCategory) ? formData.tipo_piscina : '',
+                          visibilidade: nextType?.visibilidade_default || formData.visibilidade,
+                          transporte_necessario: nextType?.requer_transporte || false,
+                        });
+                      }}
                       className="flex h-9 w-full rounded-md border border-input bg-white px-3 py-2 text-sm shadow-xs outline-none"
                     >
                       {eventTypeOptions.map((option) => (
@@ -646,7 +676,7 @@ export function EventosList({
                     />
                   </div>
 
-                  {formData.tipo === 'prova' && (
+                  {isCompetitionEventType && (
                     <div className="space-y-2">
                       <Label htmlFor="tipo_piscina">Tipo de Piscina</Label>
                       <select
@@ -791,7 +821,7 @@ export function EventosList({
               </div>
 
               {/* Custos (apenas para provas/competições) */}
-              {(formData.tipo === 'prova' || formData.tipo === 'competicao') && (
+              {isCompetitionEventType && (
                 <div className="space-y-4">
                   <h3 className="text-sm font-semibold border-b pb-2">Custos de Inscrição</h3>
                   
@@ -887,7 +917,7 @@ export function EventosList({
                     >
                       <option value="publico">Público</option>
                       <option value="privado">Privado</option>
-                      <option value="interno">Interno</option>
+                      <option value="restrito">Restrito</option>
                     </select>
                   </div>
                   <div className="space-y-2">
@@ -1052,6 +1082,7 @@ export function EventosList({
                 className="h-7 w-full bg-transparent text-xs text-foreground outline-none"
               >
                 <option value="todos">Todos os Estados</option>
+                <option value="rascunho">Rascunho</option>
                 <option value="agendado">Agendado</option>
                 <option value="em_curso">A decorrer</option>
                 <option value="concluido">Concluído</option>
@@ -1060,7 +1091,7 @@ export function EventosList({
             </label>
           </div>
 
-          {filteredEvents.length > 0 && (
+          {filteredEvents.length > 0 && canDelete && (
             <div className="flex items-center gap-2 border-t pt-1.5">
               <Button variant="outline" onClick={toggleSelectAll} className="h-7 text-xs">
                 <CheckSquare size={14} className="mr-1.5" />
@@ -1099,7 +1130,9 @@ export function EventosList({
           <div className="text-center">
             <CalendarBlank className="mx-auto mb-2 text-muted-foreground" size={34} weight="thin" />
             <h3 className="text-sm font-semibold">Nenhum evento encontrado</h3>
-            <p className="text-xs text-muted-foreground">Crie o seu primeiro evento para começar.</p>
+            <p className="text-xs text-muted-foreground">
+              {canEdit ? 'Crie o seu primeiro evento para começar.' : 'Não existem eventos para apresentar.'}
+            </p>
           </div>
         </Card>
       ) : viewMode === 'card' ? (
@@ -1111,15 +1144,15 @@ export function EventosList({
                 selectedEvents.has(event.id) ? 'border-primary bg-primary/5' : ''
               }`}
             >
-              <div className="absolute left-2 top-2">
+              {canDelete ? <div className="absolute left-2 top-2">
                 <Checkbox
                   checked={selectedEvents.has(event.id)}
                   onCheckedChange={() => toggleEventSelection(event.id)}
                   aria-label={`Selecionar ${event.titulo}`}
                 />
-              </div>
+              </div> : null}
 
-              <div className="space-y-1 pl-6">
+              <div className={`space-y-1 ${canDelete ? 'pl-6' : ''}`}>
                 <div className="flex items-start justify-between gap-1.5">
                   <h3 className="line-clamp-2 text-[13px] font-semibold leading-4">{event.titulo}</h3>
                   <Badge className={`${getEventTypeClass(event.tipo)} text-xs`}>{getEventTypeLabel(event.tipo)}</Badge>
@@ -1154,7 +1187,7 @@ export function EventosList({
                 </div>
 
                 <div className="flex items-center justify-end gap-0.5 pt-0.5">
-                  <Button
+                  {canEdit ? <Button
                     variant="ghost"
                     className="h-5 px-1"
                     onClick={() => {
@@ -1162,11 +1195,11 @@ export function EventosList({
                       setFormData({
                         titulo: event.titulo,
                         descricao: event.descricao || '',
-                        data_inicio: event.data_inicio,
-                        hora_inicio: event.hora_inicio || '',
-                        data_fim: (event as any).data_fim || '',
-                        hora_fim: (event as any).hora_fim || '',
-                        local: event.local,
+                        data_inicio: (event.data_inicio || '').slice(0, 10),
+                        hora_inicio: (event.hora_inicio || '').slice(0, 5),
+                        data_fim: (event.data_fim || '').slice(0, 10),
+                        hora_fim: (event.hora_fim || '').slice(0, 5),
+                        local: event.local || '',
                         local_detalhes: (event as any).local_detalhes || '',
                         tipo: event.tipo,
                         tipo_piscina: (event as any).tipo_piscina || '',
@@ -1184,22 +1217,22 @@ export function EventosList({
                         observacoes: (event as any).observacoes || '',
                         estado: event.estado,
                         recorrente: (event as any).recorrente || false,
-                        recorrencia_data_inicio: (event as any).recorrencia_data_inicio || '',
-                        recorrencia_data_fim: (event as any).recorrencia_data_fim || '',
+                        recorrencia_data_inicio: (event.recorrencia_data_inicio || '').slice(0, 10),
+                        recorrencia_data_fim: (event.recorrencia_data_fim || '').slice(0, 10),
                         recorrencia_dias_semana: (event as any).recorrencia_dias_semana || [],
                       });
                       setDialogOpen(true);
                     }}
                   >
                     <Pencil size={12} />
-                  </Button>
-                  <Button
+                  </Button> : null}
+                  {canDelete ? <Button
                     variant="ghost"
                     className="h-5 px-1"
                     onClick={() => handleDelete(event.id)}
                   >
                     <Trash size={12} className="text-red-500" />
-                  </Button>
+                  </Button> : null}
                 </div>
               </div>
             </Card>
@@ -1211,29 +1244,29 @@ export function EventosList({
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-12">
+                  {canDelete ? <TableHead className="w-12">
                     <Checkbox
                       checked={selectedEvents.size === filteredEvents.length && filteredEvents.length > 0}
                       onCheckedChange={toggleSelectAll}
                     />
-                  </TableHead>
+                  </TableHead> : null}
                   <TableHead className="flex-1 min-w-[180px]">Título</TableHead>
                   <TableHead className="hidden md:table-cell min-w-[120px]">Data</TableHead>
                   <TableHead className="hidden lg:table-cell min-w-[130px]">Local</TableHead>
                   <TableHead className="hidden sm:table-cell w-24">Tipo</TableHead>
                   <TableHead className="hidden md:table-cell w-20 text-center">Estado</TableHead>
-                  <TableHead className="w-16 text-right">Ações</TableHead>
+                  {canEdit || canDelete ? <TableHead className="w-16 text-right">Ações</TableHead> : null}
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filteredEvents.map((event) => (
                   <TableRow key={event.id} className={selectedEvents.has(event.id) ? 'bg-primary/5' : ''}>
-                    <TableCell>
+                    {canDelete ? <TableCell>
                       <Checkbox
                         checked={selectedEvents.has(event.id)}
                         onCheckedChange={() => toggleEventSelection(event.id)}
                       />
-                    </TableCell>
+                    </TableCell> : null}
                     <TableCell className="font-medium text-xs max-w-[180px] truncate">{event.titulo}</TableCell>
                     <TableCell className="hidden md:table-cell text-xs">{format(new Date(event.data_inicio), 'dd/MM/yyyy', { locale: ptBR })}</TableCell>
                     <TableCell className="hidden lg:table-cell text-xs max-w-[130px] truncate">{event.local || '-'}</TableCell>
@@ -1247,9 +1280,9 @@ export function EventosList({
                         {getEventStatusLabel(event.estado)}
                       </Badge>
                     </TableCell>
-                    <TableCell className="text-right">
+                    {canEdit || canDelete ? <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-1">
-                        <Button
+                        {canEdit ? <Button
                           variant="ghost"
                           size="sm"
                           className="h-7 w-7 p-0"
@@ -1258,11 +1291,11 @@ export function EventosList({
                             setFormData({
                               titulo: event.titulo,
                               descricao: event.descricao || '',
-                              data_inicio: event.data_inicio,
-                              hora_inicio: event.hora_inicio || '',
-                              data_fim: (event as any).data_fim || '',
-                              hora_fim: (event as any).hora_fim || '',
-                              local: event.local,
+                              data_inicio: (event.data_inicio || '').slice(0, 10),
+                              hora_inicio: (event.hora_inicio || '').slice(0, 5),
+                              data_fim: (event.data_fim || '').slice(0, 10),
+                              hora_fim: (event.hora_fim || '').slice(0, 5),
+                              local: event.local || '',
                               local_detalhes: (event as any).local_detalhes || '',
                               tipo: event.tipo,
                               tipo_piscina: (event as any).tipo_piscina || '',
@@ -1280,8 +1313,8 @@ export function EventosList({
                               observacoes: (event as any).observacoes || '',
                               estado: event.estado,
                               recorrente: (event as any).recorrente || false,
-                              recorrencia_data_inicio: (event as any).recorrencia_data_inicio || '',
-                              recorrencia_data_fim: (event as any).recorrencia_data_fim || '',
+                              recorrencia_data_inicio: (event.recorrencia_data_inicio || '').slice(0, 10),
+                              recorrencia_data_fim: (event.recorrencia_data_fim || '').slice(0, 10),
                               recorrencia_dias_semana: (event as any).recorrencia_dias_semana || [],
                             });
                             setDialogOpen(true);
@@ -1289,8 +1322,8 @@ export function EventosList({
                           title="Editar"
                         >
                           <Pencil size={14} />
-                        </Button>
-                        <button
+                        </Button> : null}
+                        {canDelete ? <button
                           type="button"
                           className="inline-flex h-7 px-2 items-center justify-center rounded-md hover:bg-accent"
                           onClick={() => {
@@ -1300,9 +1333,9 @@ export function EventosList({
                           title="Apagar"
                         >
                           <Trash size={14} />
-                        </button>
+                        </button> : null}
                       </div>
-                    </TableCell>
+                    </TableCell> : null}
                   </TableRow>
                 ))}
               </TableBody>
@@ -1312,7 +1345,7 @@ export function EventosList({
       )}
 
       {/* AlertDialog - Confirmação de Eliminação em Massa */}
-      <ConfirmDialog open={isBulkDeleteDialogOpen} onOpenChange={setIsBulkDeleteDialogOpen}>
+      {canDelete ? <ConfirmDialog open={isBulkDeleteDialogOpen} onOpenChange={setIsBulkDeleteDialogOpen}>
         <ConfirmDialogContent>
           <ConfirmDialogHeader>
             <ConfirmDialogTitle>Confirmar Eliminação em Massa</ConfirmDialogTitle>
@@ -1332,7 +1365,7 @@ export function EventosList({
             </ConfirmDialogAction>
           </ConfirmDialogFooter>
         </ConfirmDialogContent>
-      </ConfirmDialog>
+      </ConfirmDialog> : null}
     </div>
   );
 }

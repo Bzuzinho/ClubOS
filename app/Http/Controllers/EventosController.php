@@ -5,7 +5,6 @@ namespace App\Http\Controllers;
 use App\Http\Requests\StoreEventRequest;
 use App\Http\Requests\UpdateEventRequest;
 use App\Models\Event;
-use App\Models\EventTypeConfig;
 use App\Models\EventType;
 use App\Models\EventConvocation;
 use App\Models\ConvocationGroup;
@@ -16,7 +15,11 @@ use App\Models\Result;
 use App\Models\CostCenter;
 use App\Models\AgeGroup;
 use App\Models\User;
+use App\Services\AccessControl\UserTypeAccessControlService;
+use App\Services\Eventos\EventLifecycleService;
+use App\Services\Eventos\EventParticipantEligibilityService;
 use App\Services\Members\MemberIdentityDisplayResolver;
+use App\Services\Members\MemberTypeResolver;
 use Inertia\Inertia;
 use Inertia\Response;
 use Illuminate\Http\RedirectResponse;
@@ -24,13 +27,27 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Carbon\Carbon;
-use Carbon\CarbonPeriod;
 
 class EventosController extends Controller
 {
+    public function __construct(
+        private readonly EventLifecycleService $eventLifecycleService,
+        private readonly EventParticipantEligibilityService $participantEligibilityService,
+        private readonly MemberTypeResolver $memberTypeResolver,
+        private readonly UserTypeAccessControlService $accessControlService,
+    ) {
+    }
+
     public function index(Request $request): Response
     {
         $useDefaultCache = $this->shouldUseIndexCache($request);
+        $permissions = [
+            'calendario' => $this->accessControlService->canAccessPermission($request->user(), 'eventos.calendario', 'view'),
+            'calendario_editar' => $this->accessControlService->canAccessPermission($request->user(), 'eventos.calendario', 'edit'),
+            'calendario_eliminar' => $this->accessControlService->canAccessPermission($request->user(), 'eventos.calendario', 'delete'),
+            'convocatorias' => $this->accessControlService->canAccessPermission($request->user(), 'eventos.convocatorias', 'view'),
+            'resultados' => $this->accessControlService->canAccessPermission($request->user(), 'eventos.resultados', 'view'),
+        ];
 
         $basePayload = $useDefaultCache
             ? Cache::remember('eventos:index', now()->addSeconds(60), fn () => $this->buildIndexPayload(false))
@@ -38,10 +55,27 @@ class EventosController extends Controller
 
         return Inertia::render('Eventos/Index', [
             ...$basePayload,
-            'users' => Inertia::lazy(fn () => $this->buildUsersPayload($useDefaultCache)),
-            'convocations' => Inertia::lazy(fn () => $this->buildConvocationsPayload($useDefaultCache)),
-            'attendances' => Inertia::lazy(fn () => $this->buildAttendancesPayload($useDefaultCache)),
-            'results' => Inertia::lazy(fn () => $this->buildResultsPayload($useDefaultCache)),
+            'permissions' => $permissions,
+            'users' => Inertia::lazy(function () use ($permissions, $useDefaultCache) {
+                abort_unless($permissions['convocatorias'] || $permissions['resultados'], 403);
+
+                return $this->buildUsersPayload($useDefaultCache);
+            }),
+            'convocations' => Inertia::lazy(function () use ($permissions, $useDefaultCache) {
+                abort_unless($permissions['convocatorias'], 403);
+
+                return $this->buildConvocationsPayload($useDefaultCache);
+            }),
+            'attendances' => Inertia::lazy(function () use ($permissions, $useDefaultCache) {
+                abort_unless($permissions['resultados'], 403);
+
+                return $this->buildAttendancesPayload($useDefaultCache);
+            }),
+            'results' => Inertia::lazy(function () use ($permissions, $useDefaultCache) {
+                abort_unless($permissions['resultados'], 403);
+
+                return $this->buildResultsPayload($useDefaultCache);
+            }),
         ]);
     }
 
@@ -70,8 +104,9 @@ class EventosController extends Controller
                     ->filter(fn (Event $event) => $event->data_inicio?->year === $now->year)
                     ->filter(fn (Event $event) => $event->estado === 'concluido')
                     ->count(),
-                'activeConvocatorias' => EventConvocation::whereHas('event', function ($query) use ($now) {
-                    $query->where('data_inicio', '>=', $now);
+                'activeConvocatorias' => ConvocationGroup::whereHas('evento', function ($query) use ($now) {
+                    $query->whereDate('data_inicio', '>=', $now->toDateString())
+                        ->where('estado', '!=', 'cancelado');
                 })->count(),
                 'treinos' => $eventos->filter(fn (Event $event) => $event->tipo === 'treino')->count(),
                 'provas' => $eventos->filter(fn (Event $event) => $event->tipo === 'prova')->count(),
@@ -88,7 +123,10 @@ class EventosController extends Controller
         );
 
         $eventTypes = Cache::remember('eventos:event_types', 300, fn () =>
-            EventType::where('ativo', true)->orderBy('nome')->get(['id', 'nome', 'visibilidade_default', 'ativo'])
+            EventType::where('ativo', true)->orderBy('nome')->get([
+                'id', 'nome', 'categoria', 'cor', 'visibilidade_default',
+                'permite_convocatoria', 'gera_presencas', 'requer_transporte', 'ativo',
+            ])
         );
 
         return [
@@ -115,10 +153,18 @@ class EventosController extends Controller
             ->select(
                 'id', 'titulo', 'descricao', 'data_inicio', 'hora_inicio',
                 'data_fim', 'hora_fim', 'estado', 'local', 'tipo', 'visibilidade',
-                'criado_por', 'created_at', 'tipo_config_id', 'centro_custo_id'
+                'local_detalhes', 'tipo_piscina', 'transporte_necessario',
+                'transporte_detalhes', 'hora_partida', 'local_partida',
+                'taxa_inscricao', 'custo_inscricao_por_prova',
+                'custo_inscricao_por_salto', 'custo_inscricao_estafeta',
+                'observacoes', 'convocatoria_ficheiro', 'regulamento_ficheiro',
+                'recorrente', 'recorrencia_data_inicio', 'recorrencia_data_fim',
+                'recorrencia_dias_semana', 'evento_pai_id', 'criado_por',
+                'created_at', 'tipo_config_id', 'centro_custo_id'
             )
             ->orderBy('data_inicio', 'desc')
-            ->get();
+            ->get()
+            ->each(fn (Event $event) => $event->append('escaloes_elegiveis'));
     }
 
     private function buildResultsPayload(bool $useDefaultCache = true)
@@ -135,7 +181,8 @@ class EventosController extends Controller
 
         $eventResults = EventResult::with([
             'event:id,titulo,estado',
-            'user:id,nome_completo',
+            'user:id,name,nome_completo',
+            'user.dadosPessoais:id,user_id,nome_completo',
             'ageGroup:id,nome',
         ])
             ->get()
@@ -146,7 +193,8 @@ class EventosController extends Controller
             'prova:id,competicao_id,distancia_m,estilo',
             'prova.competition:id,evento_id',
             'prova.competition.evento:id,titulo,estado',
-            'athlete:id,nome_completo',
+            'athlete:id,name,nome_completo',
+            'athlete.dadosPessoais:id,user_id,nome_completo',
         ])
             ->get()
             ->map(function (Result $result) {
@@ -167,14 +215,22 @@ class EventosController extends Controller
                     ] : null,
                     'user' => $result->athlete ? [
                         'id' => $result->athlete->id,
-                        'nome_completo' => $result->athlete->nome_completo,
+                        'nome_completo' => app(MemberIdentityDisplayResolver::class)->displayNameOrFallback($result->athlete, 'Atleta'),
                     ] : null,
                 ];
             })
             ->values();
 
         return $eventResults
-            ->map(fn (EventResult $result) => $result->toArray())
+            ->map(function (EventResult $result) {
+                $payload = $result->toArray();
+                if ($result->user) {
+                    $payload['user']['nome_completo'] = app(MemberIdentityDisplayResolver::class)
+                        ->displayNameOrFallback($result->user, 'Atleta');
+                }
+
+                return $payload;
+            })
             ->concat($legacyCompetitionResults)
             ->values();
     }
@@ -190,9 +246,15 @@ class EventosController extends Controller
         return User::with([
             'athleteSportsData:id,user_id,escalao_id',
             'dadosPessoais:id,user_id,nome_completo',
+            'userTypes:id,codigo,nome',
         ])
             ->where('estado', 'ativo')
+            ->where(function ($query) {
+                $query->whereNull('ativo_desportivo')
+                    ->orWhere('ativo_desportivo', true);
+            })
             ->get(['id', 'name', 'nome_completo', 'perfil', 'email', 'numero_socio', 'estado', 'tipo_membro', 'escalao'])
+            ->filter(fn (User $user) => $this->memberTypeResolver->isAthlete($user))
             ->map(function (User $user) use ($identityResolver) {
                 if ((!is_array($user->escalao) || count($user->escalao) === 0) && $user->athleteSportsData?->escalao_id) {
                     $user->escalao = [(string) $user->athleteSportsData->escalao_id];
@@ -200,7 +262,7 @@ class EventosController extends Controller
 
                 $user->nome_completo = $identityResolver->displayNameOrFallback($user, 'Utilizador');
 
-                unset($user->athleteSportsData, $user->dadosPessoais);
+                unset($user->athleteSportsData, $user->dadosPessoais, $user->userTypes);
 
                 return $user;
             });
@@ -212,7 +274,21 @@ class EventosController extends Controller
             return Cache::remember('eventos:convocations', 60, fn () => $this->buildConvocationsPayload(false));
         }
 
-        return EventConvocation::with(['event:id,titulo,data_inicio', 'user:id,nome_completo'])->get();
+        $identityResolver = app(MemberIdentityDisplayResolver::class);
+
+        return EventConvocation::with([
+            'event:id,titulo,data_inicio',
+            'user:id,name,nome_completo',
+            'user.dadosPessoais:id,user_id,nome_completo',
+        ])->get()->each(function (EventConvocation $convocation) use ($identityResolver): void {
+            if ($convocation->user) {
+                $convocation->user->setAttribute(
+                    'nome_completo',
+                    $identityResolver->displayNameOrFallback($convocation->user, 'Atleta')
+                );
+                unset($convocation->user->dadosPessoais);
+            }
+        });
     }
 
     private function buildAttendancesPayload(bool $useDefaultCache = true)
@@ -221,10 +297,21 @@ class EventosController extends Controller
             return Cache::remember('eventos:attendances', 60, fn () => $this->buildAttendancesPayload(false));
         }
 
+        $identityResolver = app(MemberIdentityDisplayResolver::class);
+
         return EventAttendance::with([
             'event:id,titulo,data_inicio,estado',
-            'user:id,nome_completo,numero_socio',
-        ])->get();
+            'user:id,name,nome_completo,numero_socio',
+            'user.dadosPessoais:id,user_id,nome_completo',
+        ])->get()->each(function (EventAttendance $attendance) use ($identityResolver): void {
+            if ($attendance->user) {
+                $attendance->user->setAttribute(
+                    'nome_completo',
+                    $identityResolver->displayNameOrFallback($attendance->user, 'Atleta')
+                );
+                unset($attendance->user->dadosPessoais);
+            }
+        });
     }
 
     private function shouldUseIndexCache(Request $request): bool
@@ -233,6 +320,23 @@ class EventosController extends Controller
             && ! $request->session()->has('success')
             && ! $request->session()->has('error')
             && ! $request->session()->has('warning');
+    }
+
+    public function store(StoreEventRequest $request): RedirectResponse
+    {
+        $data = $request->validated();
+        $ageGroupIds = $this->normalizeEscaloesToIds($data['escaloes_elegiveis'] ?? []);
+
+        unset($data['escaloes_elegiveis'], $data['evento_pai_id']);
+
+        $data['criado_por'] = $request->user()->id;
+        $data['descricao'] = $data['descricao'] ?? '';
+        $data['estado'] = $data['estado'] ?? 'rascunho';
+
+        $this->eventLifecycleService->create($data, $ageGroupIds);
+
+        return redirect()->route('eventos.index')
+            ->with('success', 'Evento criado com sucesso!');
     }
 
     public function show(Event $evento): Response
@@ -251,8 +355,8 @@ class EventosController extends Controller
     public function edit(Event $evento): Response
     {
         return Inertia::render('Eventos/Edit', [
-            'event' => $evento->load(['tipoConfig']),
-            'eventTypes' => EventTypeConfig::where('ativo', true)->get(),
+            'event' => $evento->load(['tipoConfig', 'ageGroups'])->append('escaloes_elegiveis'),
+            'eventTypes' => EventType::where('ativo', true)->orderBy('nome')->get(),
             'users' => User::where('estado', 'ativo')->get(),
         ]);
     }
@@ -263,31 +367,11 @@ class EventosController extends Controller
         
         // ✅ Extrair escaloes_elegiveis para sync posterior
         $escaloesElegiveis = $this->normalizeEscaloesToIds($data['escaloes_elegiveis'] ?? []);
-        unset($data['escaloes_elegiveis']); // Remover do array (não é campo da tabela)
+        unset($data['escaloes_elegiveis'], $data['criado_por'], $data['evento_pai_id']);
         
         $data['descricao'] = $data['descricao'] ?? $evento->descricao ?? '';
-        
-        // If this is a parent recurring event, handle updates
-        if ($evento->recorrente && ($data['recorrente'] ?? false)) {
-            // Delete old child events and regenerate
-            $evento->childEvents()->delete();
-            $evento->update($data);
-            
-            // ✅ Sync escalões e atualizar presenças
-            $evento->syncAgeGroups($escaloesElegiveis);
-            
-            $this->generateRecurringEvents($evento, $data, $escaloesElegiveis);
-        } else {
-            $evento->update($data);
-            
-            // ✅ Sync escalões e atualizar presenças
-            $evento->syncAgeGroups($escaloesElegiveis);
-        }
 
-        Cache::forget('eventos:list');
-        Cache::forget('eventos:stats:' . now()->format('Y-m'));
-        Cache::forget('eventos:results');
-        Cache::forget('dashboard:recent_events');
+        $this->eventLifecycleService->update($evento, $data, $escaloesElegiveis);
 
         return redirect()->route('eventos.index')
             ->with('success', 'Evento atualizado com sucesso!');
@@ -295,19 +379,7 @@ class EventosController extends Controller
 
     public function destroy(Event $evento): RedirectResponse
     {
-        // If this is a parent event, also delete child events
-        if ($evento->recorrente) {
-            $evento->childEvents()->delete();
-        }
-
-        $evento->delete();
-
-        Cache::forget('eventos:list');
-        Cache::forget('eventos:stats:' . now()->format('Y-m'));
-        Cache::forget('eventos:results');
-        Cache::forget('dashboard:stats');
-        Cache::forget('dashboard:recent_events');
-        Cache::forget('dashboard:recent_activity');
+        $this->eventLifecycleService->delete($evento);
 
         return redirect()->route('eventos.index')
             ->with('success', 'Evento eliminado com sucesso!');
@@ -339,6 +411,9 @@ class EventosController extends Controller
         ]);
 
         $estadoConfirmacao = $request->input('estado_confirmacao', $request->input('status', 'pendente'));
+
+        $participant = User::query()->findOrFail($request->string('user_id')->value());
+        $this->participantEligibilityService->assertEligible($event, $participant);
 
         // Check if participant already exists
         $existing = EventConvocation::where('evento_id', $event->id)

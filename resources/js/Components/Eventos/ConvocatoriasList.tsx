@@ -109,7 +109,7 @@ export function ConvocatoriasList({
   ageGroups = [],
   costCenters = [],
 }: ConvocationProps) {
-  // ✅ Carregar TUDO de convocationGroups - é a fonte única de verdade
+  // Os grupos guardam logística/custos; event_convocations guarda a resposta canónica do membro.
   const [kvConvocationGroups, setKvConvocationGroups] = useKV<any[]>('club-convocatorias-grupo', []);
   const [kvConvocationAthletes, setKvConvocationAthletes] = useKV<any[]>('club-convocatorias-atleta', []);
   
@@ -122,22 +122,24 @@ export function ConvocatoriasList({
   const [deletingGroup, setDeletingGroup] = useState<ConvocationGroup | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
-  // ✅ Converter grupos em convocações para o formato esperado
+  // Combinar os grupos com as respostas canónicas devolvidas pelo backend.
   const convocations: Convocation[] = useMemo(() => {
     return kvConvocationGroups
       .flatMap((group: any) => {
-        // Para cada atleta do grupo, criar uma convocação
         return (group.atletas_ids || []).map((athleteId: string) => {
           const athlete = users.find((u: any) => u.id === athleteId);
           const event = events.find((e: any) => e.id === group.evento_id);
+          const canonical = initialConvocations.find(
+            (convocation) => convocation.evento_id === group.evento_id && convocation.user_id === athleteId
+          );
           
           return {
-            id: `${group.id}-${athleteId}`, // ID único baseado no grupo e atleta
+            id: canonical?.id || `${group.id}-${athleteId}`,
             evento_id: group.evento_id,
             user_id: athleteId,
-            data_convocatoria: group.data_criacao || new Date().toISOString(),
-            estado_confirmacao: 'pendente',
-            transporte_clube: false,
+            data_convocatoria: canonical?.data_convocatoria || group.data_criacao || new Date().toISOString(),
+            estado_confirmacao: canonical?.estado_confirmacao || 'pendente',
+            transporte_clube: canonical?.transporte_clube || false,
             event: event ? {
               id: event.id,
               titulo: event.titulo,
@@ -154,29 +156,28 @@ export function ConvocatoriasList({
           };
         });
       });
-  }, [kvConvocationGroups, users, events]);
+  }, [kvConvocationGroups, initialConvocations, users, events]);
 
   const allConvocationGroups: ConvocationGroup[] = useMemo(() => {
-    return events
-      .filter((event) => convocations.some((conv) => conv.evento_id === event.id))
-      .map((event) => {
-        // Fetch additional data from KV store if available
-        const kvGroup = kvConvocationGroups.find((g: any) => g.evento_id === event.id);
-        
+    return kvConvocationGroups
+      .map((kvGroup: any) => {
+        const event = events.find((item: any) => item.id === kvGroup.evento_id);
+
         return {
-          id: kvGroup?.id || event.id,
-          evento_id: event.id,
-          evento_titulo: event.titulo,
-          evento_data: event.data_inicio,
-          evento_tipo: event.tipo,
-          convocations: convocations.filter((conv) => conv.evento_id === event.id),
-          // Include KV store data
-          local_encontro: kvGroup?.local_encontro || undefined,
-          hora_encontro: kvGroup?.hora_encontro || undefined,
-          observacoes: kvGroup?.observacoes || undefined,
-          centro_custo_id: kvGroup?.centro_custo_id || undefined,
-          valor_inscricao_calculado: kvGroup?.valor_inscricao_calculado || undefined,
-          atletas_ids: kvGroup?.atletas_ids || undefined,
+          id: kvGroup.id,
+          evento_id: kvGroup.evento_id,
+          evento_titulo: event?.titulo || 'Evento indisponível',
+          evento_data: event?.data_inicio || kvGroup.data_criacao,
+          evento_tipo: event?.tipo || 'evento',
+          convocations: convocations.filter(
+            (conv) => conv.evento_id === kvGroup.evento_id && (kvGroup.atletas_ids || []).includes(conv.user_id)
+          ),
+          local_encontro: kvGroup.local_encontro || undefined,
+          hora_encontro: kvGroup.hora_encontro || undefined,
+          observacoes: kvGroup.observacoes || undefined,
+          centro_custo_id: kvGroup.centro_custo_id || undefined,
+          valor_inscricao_calculado: kvGroup.valor_inscricao_calculado || undefined,
+          atletas_ids: kvGroup.atletas_ids || [],
         };
       })
       .sort((a, b) => new Date(b.evento_data).getTime() - new Date(a.evento_data).getTime());
@@ -215,11 +216,9 @@ export function ConvocatoriasList({
     setIsLoading(true);
     try {
       // Eliminar do KV store
-      const eventId = deletingGroup.evento_id;
       const groupId = deletingGroup.id;
       
-      // Remove from convocations grupo
-      await setKvConvocationGroups(current => (current || []).filter(g => g.evento_id !== eventId));
+      await setKvConvocationGroups(current => (current || []).filter(g => g.id !== groupId));
       if (groupId) {
         await setKvConvocationAthletes(current => (current || []).filter(a => a.convocatoria_grupo_id !== groupId));
       }
@@ -229,7 +228,11 @@ export function ConvocatoriasList({
       setDeletingGroup(null);
     } catch (error: any) {
       console.error('Erro ao eliminar convocatória:', error);
-      toast.error('Erro ao eliminar convocatória');
+      const errors = error?.response?.data?.errors;
+      const message = errors && typeof errors === 'object'
+        ? Object.values(errors).flat().find((value) => typeof value === 'string')
+        : error?.response?.data?.message;
+      toast.error(typeof message === 'string' ? message : 'Erro ao eliminar convocatória');
     } finally {
       setIsLoading(false);
     }
@@ -460,7 +463,7 @@ export function ConvocatoriasList({
             const stats = getEstadoStats(group);
 
             return (
-              <Card key={group.evento_id} className="p-2.5">
+            <Card key={group.id || group.evento_id} className="p-2.5">
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
@@ -560,4 +563,3 @@ export function ConvocatoriasList({
     </div>
   );
 }
-

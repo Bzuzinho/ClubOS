@@ -16,7 +16,7 @@ export function useKV<T>(
   key: string,
   defaultValue: T,
   options: UseKVOptions = {}
-): [T, (value: T | ((prev: T) => T)) => void] {
+): [T, (value: T | ((prev: T) => T)) => Promise<void>] {
   const { scope = 'global' } = options;
   const queryClient = useQueryClient();
 

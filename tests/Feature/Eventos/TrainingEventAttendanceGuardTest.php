@@ -14,8 +14,8 @@ class TrainingEventAttendanceGuardTest extends TestCase
 
     public function test_add_participant_is_blocked_for_training_event(): void
     {
-        $admin = User::factory()->create();
-        $athlete = User::factory()->create();
+        $admin = User::factory()->admin()->create();
+        $athlete = User::factory()->athlete()->create();
 
         $trainingEvent = Event::create([
             'titulo' => 'Treino de teste',
@@ -46,8 +46,8 @@ class TrainingEventAttendanceGuardTest extends TestCase
 
     public function test_update_participant_status_is_blocked_for_training_event(): void
     {
-        $admin = User::factory()->create();
-        $athlete = User::factory()->create();
+        $admin = User::factory()->admin()->create();
+        $athlete = User::factory()->athlete()->create();
 
         $trainingEvent = Event::create([
             'titulo' => 'Treino de teste',
@@ -78,8 +78,8 @@ class TrainingEventAttendanceGuardTest extends TestCase
 
     public function test_add_participant_is_allowed_for_non_training_event(): void
     {
-        $admin = User::factory()->create();
-        $athlete = User::factory()->create();
+        $admin = User::factory()->admin()->create();
+        $athlete = User::factory()->athlete()->create();
 
         $event = Event::create([
             'titulo' => 'Prova de teste',

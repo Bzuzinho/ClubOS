@@ -3,16 +3,23 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Models\AgeGroup;
+use App\Models\Event;
 use App\Models\EventResult;
+use App\Models\User;
+use App\Services\Eventos\EventParticipantEligibilityService;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 
 class EventResultsController extends Controller
 {
+    public function __construct(
+        private readonly EventParticipantEligibilityService $participantEligibilityService,
+    ) {
+    }
+
     public function index(Request $request): JsonResponse
     {
-        $query = EventResult::with(['event', 'athlete.ageGroup', 'registeredBy', 'ageGroupSnapshot']); // ✅ Carregar snapshot
+        $query = EventResult::with(['event', 'athlete.athleteSportsData.escalao', 'registeredBy', 'ageGroupSnapshot']);
 
         // Filter by event
         if ($request->has('evento_id')) {
@@ -33,9 +40,12 @@ class EventResultsController extends Controller
         if ($request->filled('age_group_id')) {
             $query->where(function($q) use ($request) {
                 $q->where('age_group_snapshot_id', $request->string('age_group_id'))
-                  ->orWhereHas('athlete', function($q2) use ($request) {
-                      $q2->whereJsonContains('escalao', $request->string('age_group_id'));
-                  });
+                    ->orWhereHas('athlete.athleteSportsData', function ($sportsDataQuery) use ($request) {
+                        $sportsDataQuery->where('escalao_id', $request->string('age_group_id'));
+                    })
+                    ->orWhereHas('athlete', function($q2) use ($request) {
+                        $q2->whereJsonContains('escalao', $request->string('age_group_id'));
+                    });
             });
         }
 
@@ -78,10 +88,15 @@ class EventResultsController extends Controller
         $validated['registado_por'] = $validated['registado_por'] ?? auth()->id();
         $validated['registado_em'] = $validated['registado_em'] ?? now();
 
+        $this->participantEligibilityService->assertEligible(
+            Event::query()->findOrFail($validated['evento_id']),
+            User::query()->with('athleteSportsData:id,user_id,escalao_id')->findOrFail($validated['user_id'])
+        );
+
         $result = EventResult::create($validated);
         
         return response()->json(
-            $result->load(['event', 'athlete.ageGroup', 'registeredBy', 'ageGroupSnapshot']), 
+            $result->load(['event', 'athlete.athleteSportsData.escalao', 'registeredBy', 'ageGroupSnapshot']),
             201
         );
     }
@@ -109,9 +124,19 @@ class EventResultsController extends Controller
             'epoca' => 'nullable|string|max:255',
         ]);
 
+        $eventId = $validated['evento_id'] ?? $result->evento_id;
+        $userId = $validated['user_id'] ?? $result->user_id;
+        if ((string) $eventId !== (string) $result->evento_id
+            || (string) $userId !== (string) $result->user_id) {
+            $this->participantEligibilityService->assertEligible(
+                Event::query()->findOrFail($eventId),
+                User::query()->with('athleteSportsData:id,user_id,escalao_id')->findOrFail($userId)
+            );
+        }
+
         $result->update($validated);
         return response()->json(
-            $result->load(['event', 'athlete.ageGroup', 'registeredBy', 'ageGroupSnapshot'])
+            $result->load(['event', 'athlete.athleteSportsData.escalao', 'registeredBy', 'ageGroupSnapshot'])
         );
     }
 
@@ -136,15 +161,13 @@ class EventResultsController extends Controller
             $query->where('epoca', $request->get('epoca'));
         }
 
-        $totalResultados = $query->count();
-        
-        $podios = $query->whereIn('classificacao', [1, 2, 3])->count();
-        
-        $primeirosLugares = $query->where('classificacao', 1)->count();
-        $segundosLugares = $query->where('classificacao', 2)->count();
-        $terceirosLugares = $query->where('classificacao', 3)->count();
+        $totalResultados = (clone $query)->count();
+        $podios = (clone $query)->whereIn('classificacao', [1, 2, 3])->count();
+        $primeirosLugares = (clone $query)->where('classificacao', 1)->count();
+        $segundosLugares = (clone $query)->where('classificacao', 2)->count();
+        $terceirosLugares = (clone $query)->where('classificacao', 3)->count();
 
-        $resultadosPorProva = EventResult::selectRaw('prova, count(*) as total')
+        $resultadosPorProva = (clone $query)->selectRaw('prova, count(*) as total')
             ->groupBy('prova')
             ->orderByDesc('total')
             ->limit(10)
@@ -160,21 +183,4 @@ class EventResultsController extends Controller
         ]);
     }
 
-    private function resolveAgeGroupId(?string $value): ?string
-    {
-        if (!$value) {
-            return null;
-        }
-
-        $trimmedValue = trim($value);
-        if ($trimmedValue === '') {
-            return null;
-        }
-
-        if (AgeGroup::where('id', $trimmedValue)->exists()) {
-            return $trimmedValue;
-        }
-
-        return AgeGroup::whereRaw('LOWER(nome) = ?', [mb_strtolower($trimmedValue)])->value('id');
-    }
 }

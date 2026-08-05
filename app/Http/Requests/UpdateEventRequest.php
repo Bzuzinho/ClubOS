@@ -41,9 +41,10 @@ class UpdateEventRequest extends FormRequest
             'estado' => ['nullable', 'in:rascunho,agendado,em_curso,concluido,cancelado'],
             'criado_por' => ['nullable', 'exists:users,id'],
             'recorrente' => ['nullable', 'boolean'],
-            'recorrencia_data_inicio' => ['nullable', 'date', 'required_if:recorrente,true'],
-            'recorrencia_data_fim' => ['nullable', 'date', 'after_or_equal:recorrencia_data_inicio'],
-            'recorrencia_dias_semana' => ['nullable', 'array'],
+            'recorrencia_data_inicio' => ['nullable', 'date', 'required_if:recorrente,true', 'after_or_equal:data_inicio'],
+            'recorrencia_data_fim' => ['nullable', 'date', 'required_if:recorrente,true', 'after_or_equal:recorrencia_data_inicio'],
+            'recorrencia_dias_semana' => ['nullable', 'array', 'required_if:recorrente,true', 'min:1'],
+            'recorrencia_dias_semana.*' => ['string', 'distinct', 'in:0,1,2,3,4,5,6'],
             'evento_pai_id' => ['nullable', 'exists:events,id'],
         ];
     }

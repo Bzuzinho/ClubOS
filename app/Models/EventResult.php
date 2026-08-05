@@ -80,7 +80,12 @@ class EventResult extends Model
             return $this->ageGroupSnapshot->nome;
         }
         
-        // Se não há snapshot, tentar pegar do user
+        $canonicalAgeGroupId = $this->athlete?->athleteSportsData?->escalao_id;
+        if ($canonicalAgeGroupId) {
+            return AgeGroup::query()->find($canonicalAgeGroupId)?->nome;
+        }
+
+        // Compatibilidade temporária com o escalão legacy em users.
         if ($this->athlete && !empty($this->athlete->escalao)) {
             $escaloes = is_array($this->athlete->escalao) ? $this->athlete->escalao : [$this->athlete->escalao];
             if (!empty($escaloes[0])) {
@@ -101,9 +106,11 @@ class EventResult extends Model
          */
         static::creating(function (EventResult $result) {
             if (!$result->age_group_snapshot_id && $result->user_id) {
-                $user = User::find($result->user_id);
-                
-                if ($user && !empty($user->escalao)) {
+                $user = User::with('athleteSportsData:id,user_id,escalao_id')->find($result->user_id);
+
+                if ($user?->athleteSportsData?->escalao_id) {
+                    $result->age_group_snapshot_id = $user->athleteSportsData->escalao_id;
+                } elseif ($user && !empty($user->escalao)) {
                     // Pegar primeiro escalão do array JSON
                     $escaloes = is_array($user->escalao) ? $user->escalao : [$user->escalao];
                     if (!empty($escaloes[0])) {

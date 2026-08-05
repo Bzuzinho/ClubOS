@@ -15,6 +15,7 @@ interface Event {
   id: string;
   titulo: string;
   data_inicio: string;
+  hora_inicio?: string;
   tipo: string;
   estado: string;
   local?: string;
@@ -70,11 +71,13 @@ export function EventosDashboard({
   const proximosEventos = useMemo(() => {
     const now = new Date();
     const seteDiasFrente = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+    const todayKey = format(now, 'yyyy-MM-dd');
+    const limitKey = format(seteDiasFrente, 'yyyy-MM-dd');
 
     return events
       .filter((e) => {
-        const dataInicio = new Date(e.data_inicio);
-        return dataInicio >= now && dataInicio <= seteDiasFrente;
+        const dataInicio = e.data_inicio.slice(0, 10);
+        return dataInicio >= todayKey && dataInicio <= limitKey && e.estado !== 'cancelado';
       })
       .sort(
         (a, b) =>
@@ -200,11 +203,8 @@ export function EventosDashboard({
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium truncate">{evento.titulo}</p>
                       <p className="text-xs text-muted-foreground">
-                        {format(
-                          new Date(evento.data_inicio),
-                          "d 'de' MMM 'às' HH:mm",
-                          { locale: ptBR }
-                        )}
+                        {format(new Date(evento.data_inicio), "d 'de' MMM", { locale: ptBR })}
+                        {evento.hora_inicio ? ` às ${evento.hora_inicio.slice(0, 5)}` : ''}
                       </p>
                     </div>
                     <span

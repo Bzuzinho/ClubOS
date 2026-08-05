@@ -11,18 +11,27 @@ use App\Models\Event;
 use App\Models\EventAttendance;
 use App\Models\EventConvocation;
 use App\Models\EventResult;
-use App\Models\EventTypeConfig;
+use App\Models\EventType;
 use App\Models\ResultProva;
 use App\Models\User;
 use App\Services\Eventos\DeleteConvocationGroupAction;
+use App\Services\Eventos\EventParticipantEligibilityService;
 use App\Services\Eventos\SyncConvocationGroupFinancialMovementAction;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 class EventosKeyValueService
 {
+    public function __construct(
+        private readonly SyncConvocationGroupFinancialMovementAction $financialSyncAction,
+        private readonly DeleteConvocationGroupAction $deleteConvocationGroupAction,
+        private readonly EventParticipantEligibilityService $participantEligibilityService,
+    ) {
+    }
+
     private const CONVOCATION_GROUP_FINANCIAL_FIELDS = [
         'atletas_ids',
         'tipo_custo',
@@ -75,15 +84,15 @@ class EventosKeyValueService
         $items = $this->normalizeArray($value);
 
         match ($key) {
-            'club-events' => $this->syncEvents($items, $userId),
+            'club-events' => $this->rejectLegacyLifecycleWrite('Os eventos são geridos pelo CRUD transacional do módulo de Eventos.'),
             'club-eventos-tipos' => $this->syncEventTypeConfigs($items),
             'club-presencas' => $this->syncAttendances($items, $userId),
             'club-resultados' => $this->syncEventResults($items, $userId),
             'club-resultados-provas' => $this->syncResultProvas($items),
-            'club-convocatorias' => $this->syncEventConvocations($items),
+            'club-convocatorias' => $this->rejectDirectEventConvocationWrite(),
             'club-convocatorias-grupo' => $this->syncConvocationGroups($items, $userId),
             'club-convocatorias-atleta' => $this->syncConvocationAthletes($items),
-            'movimentos-convocatoria' => $this->syncConvocationMovements($items),
+            'movimentos-convocatoria' => $this->rejectLegacyLifecycleWrite('Os movimentos de convocatória são geridos pelo fluxo financeiro canónico.'),
             default => null,
         };
     }
@@ -91,15 +100,15 @@ class EventosKeyValueService
     public function delete(string $key, ?string $userId): void
     {
         match ($key) {
-            'club-events' => Event::query()->delete(),
-            'club-eventos-tipos' => EventTypeConfig::query()->delete(),
+            'club-events' => $this->rejectLegacyLifecycleWrite('Os eventos são eliminados pelo CRUD transacional do módulo de Eventos.'),
+            'club-eventos-tipos' => EventType::query()->delete(),
             'club-presencas' => EventAttendance::query()->delete(),
             'club-resultados' => EventResult::query()->delete(),
             'club-resultados-provas' => ResultProva::query()->delete(),
-            'club-convocatorias' => EventConvocation::query()->delete(),
+            'club-convocatorias' => $this->rejectDirectEventConvocationWrite(),
             'club-convocatorias-grupo' => $this->deleteConvocationGroups(),
             'club-convocatorias-atleta' => ConvocationAthlete::query()->delete(),
-            'movimentos-convocatoria' => $this->deleteConvocationMovements(),
+            'movimentos-convocatoria' => $this->rejectLegacyLifecycleWrite('Os movimentos de convocatória são geridos pelo fluxo financeiro canónico.'),
             default => null,
         };
     }
@@ -201,10 +210,10 @@ class EventosKeyValueService
 
     private function getEventTypeConfigs(): array
     {
-        return EventTypeConfig::query()
+        return EventType::query()
             ->orderBy('nome')
             ->get()
-            ->map(function (EventTypeConfig $type) {
+            ->map(function (EventType $type) {
                 return [
                     'id' => $type->id,
                     'nome' => $type->nome,
@@ -212,7 +221,9 @@ class EventosKeyValueService
                     'icon' => $type->icon,
                     'ativo' => $type->ativo,
                     'gera_taxa' => $type->gera_taxa,
-                    'requer_convocatoria' => $type->requer_convocatoria,
+                    'permite_convocatoria' => $type->permite_convocatoria,
+                    'requer_convocatoria' => $type->permite_convocatoria,
+                    'gera_presencas' => $type->gera_presencas,
                     'requer_transporte' => $type->requer_transporte,
                     'visibilidade_default' => $type->visibilidade_default,
                     'created_at' => $this->formatDateTime($type->created_at),
@@ -262,7 +273,7 @@ class EventosKeyValueService
                     'tempo' => $result->tempo,
                     'classificacao' => $result->classificacao,
                     'piscina' => $result->piscina,
-                    'age_group_id' => $result->age_group_id,
+                    'age_group_id' => $result->age_group_snapshot_id,
                     'escalao' => $result->ageGroup?->nome ?? $result->escalao,
                     'observacoes' => $result->observacoes,
                     'epoca' => $result->epoca,
@@ -466,15 +477,18 @@ class EventosKeyValueService
                 $id = $item['id'] ?? (string) Str::uuid();
                 $ids[] = $id;
 
-                EventTypeConfig::updateOrCreate(
+                EventType::updateOrCreate(
                     ['id' => $id],
                     [
                         'nome' => $item['nome'] ?? '',
+                        'descricao' => $item['descricao'] ?? null,
+                        'categoria' => $item['categoria'] ?? null,
                         'cor' => $item['cor'] ?? '#3b82f6',
                         'icon' => $item['icon'] ?? 'flag',
                         'ativo' => $item['ativo'] ?? true,
                         'gera_taxa' => $item['gera_taxa'] ?? false,
-                        'requer_convocatoria' => $item['requer_convocatoria'] ?? false,
+                        'permite_convocatoria' => $item['permite_convocatoria'] ?? $item['requer_convocatoria'] ?? false,
+                        'gera_presencas' => $item['gera_presencas'] ?? false,
                         'requer_transporte' => $item['requer_transporte'] ?? false,
                         'visibilidade_default' => $item['visibilidade_default'] ?? 'restrito',
                     ]
@@ -482,11 +496,11 @@ class EventosKeyValueService
             }
 
             if (count($ids) === 0) {
-                EventTypeConfig::query()->delete();
+                EventType::query()->delete();
                 return;
             }
 
-            EventTypeConfig::whereNotIn('id', $ids)->delete();
+            EventType::whereNotIn('id', $ids)->delete();
         });
     }
 
@@ -494,6 +508,7 @@ class EventosKeyValueService
     {
         DB::transaction(function () use ($items, $userId) {
             $ids = [];
+            $eligibilityService = $this->participantEligibilityService;
 
             foreach ($items as $item) {
                 if (!is_array($item)) {
@@ -502,6 +517,22 @@ class EventosKeyValueService
 
                 $id = $item['id'] ?? (string) Str::uuid();
                 $ids[] = $id;
+                $event = Event::query()->with('trainings')->findOrFail($item['evento_id'] ?? null);
+                if (! $event->canEditAttendances()) {
+                    throw ValidationException::withMessages([
+                        'evento_id' => 'As presenças deste treino são geridas no módulo Desportivo.',
+                    ]);
+                }
+
+                $existingAttendance = EventAttendance::query()->find($id);
+                if (! $existingAttendance
+                    || (string) $existingAttendance->evento_id !== (string) $event->id
+                    || (string) $existingAttendance->user_id !== (string) ($item['user_id'] ?? '')) {
+                    $athlete = User::query()
+                        ->with('athleteSportsData:id,user_id,escalao_id')
+                        ->findOrFail($item['user_id'] ?? null);
+                    $eligibilityService->assertEligible($event, $athlete);
+                }
 
                 EventAttendance::updateOrCreate(
                     ['id' => $id],
@@ -530,6 +561,7 @@ class EventosKeyValueService
     {
         DB::transaction(function () use ($items, $userId) {
             $ids = [];
+            $eligibilityService = $this->participantEligibilityService;
 
             foreach ($items as $item) {
                 if (!is_array($item)) {
@@ -538,6 +570,20 @@ class EventosKeyValueService
 
                 $id = $item['id'] ?? (string) Str::uuid();
                 $ids[] = $id;
+                $event = Event::query()->findOrFail($item['evento_id'] ?? null);
+                $athlete = User::query()
+                    ->with('athleteSportsData:id,user_id,escalao_id')
+                    ->findOrFail($item['user_id'] ?? null);
+                $existingResult = EventResult::query()->find($id);
+                if (! $existingResult
+                    || (string) $existingResult->evento_id !== (string) $event->id
+                    || (string) $existingResult->user_id !== (string) $athlete->id) {
+                    $eligibilityService->assertEligible($event, $athlete);
+                }
+
+                $snapshotId = $existingResult?->age_group_snapshot_id
+                    ?? $this->resolveAgeGroupId($item['age_group_id'] ?? $item['escalao'] ?? null)
+                    ?? $athlete->athleteSportsData?->escalao_id;
 
                 EventResult::updateOrCreate(
                     ['id' => $id],
@@ -548,10 +594,7 @@ class EventosKeyValueService
                         'tempo' => $item['tempo'] ?? null,
                         'classificacao' => $item['classificacao'] ?? null,
                         'piscina' => $item['piscina'] ?? null,
-                        'age_group_id' => $this->resolveAgeGroupId(
-                            $item['age_group_id'] ?? $item['escalao'] ?? null
-                        ),
-                        'escalao' => $item['escalao'] ?? null,
+                        'age_group_snapshot_id' => $snapshotId,
                         'observacoes' => $item['observacoes'] ?? null,
                         'epoca' => $item['epoca'] ?? null,
                         'registado_por' => $this->resolveUserId($item['registado_por'] ?? null, $userId),
@@ -573,6 +616,7 @@ class EventosKeyValueService
     {
         DB::transaction(function () use ($items) {
             $ids = [];
+            $eligibilityService = $this->participantEligibilityService;
 
             foreach ($items as $item) {
                 if (!is_array($item)) {
@@ -581,20 +625,39 @@ class EventosKeyValueService
 
                 $id = $item['id'] ?? (string) Str::uuid();
                 $ids[] = $id;
+                $existingResult = ResultProva::query()->find($id);
+                $athlete = User::query()
+                    ->with('athleteSportsData:id,user_id,escalao_id')
+                    ->findOrFail($item['atleta_id'] ?? null);
+                $eventId = filled($item['evento_id'] ?? null) ? $item['evento_id'] : null;
+                $athleteChanged = ! $existingResult
+                    || (string) $existingResult->atleta_id !== (string) $athlete->id;
+                $eventChanged = (string) ($existingResult?->evento_id ?? '') !== (string) ($eventId ?? '');
 
-                ResultProva::updateOrCreate(
-                    ['id' => $id],
-                    [
-                        'atleta_id' => $item['atleta_id'] ?? null,
-                        'evento_id' => $item['evento_id'] ?? null,
-                        'evento_nome' => $item['evento_nome'] ?? null,
-                        'prova' => $item['prova'] ?? '',
-                        'local' => $item['local'] ?? '',
-                        'data' => $item['data'] ?? null,
-                        'piscina' => $item['piscina'] ?? 'piscina_25m',
-                        'tempo_final' => $item['tempo_final'] ?? '',
-                    ]
-                );
+                if ($athleteChanged || $eventChanged) {
+                    $eligibilityService->assertActiveAthlete($athlete);
+                }
+
+                if ($eventId !== null && ($athleteChanged || $eventChanged)) {
+                    $eligibilityService->assertEligible(
+                        Event::query()->findOrFail($eventId),
+                        $athlete
+                    );
+                }
+
+                $result = $existingResult ?? new ResultProva();
+                $result->id = $id;
+                $result->fill([
+                    'atleta_id' => $item['atleta_id'] ?? null,
+                    'evento_id' => $eventId,
+                    'evento_nome' => $item['evento_nome'] ?? null,
+                    'prova' => $item['prova'] ?? '',
+                    'local' => $item['local'] ?? '',
+                    'data' => $item['data'] ?? null,
+                    'piscina' => $item['piscina'] ?? 'piscina_25m',
+                    'tempo_final' => $item['tempo_final'] ?? '',
+                ]);
+                $result->save();
             }
 
             if (count($ids) === 0) {
@@ -647,9 +710,15 @@ class EventosKeyValueService
     {
         DB::transaction(function () use ($items, $userId) {
             $ids = [];
+            $affectedEventIds = ConvocationGroup::query()
+                ->pluck('evento_id')
+                ->filter()
+                ->map(fn ($id) => (string) $id)
+                ->all();
             $groupsNeedingFinancialSync = [];
-            $financialSyncAction = app(SyncConvocationGroupFinancialMovementAction::class);
-            $deleteAction = app(DeleteConvocationGroupAction::class);
+            $financialSyncAction = $this->financialSyncAction;
+            $deleteAction = $this->deleteConvocationGroupAction;
+            $eligibilityService = $this->participantEligibilityService;
 
             foreach ($items as $item) {
                 if (!is_array($item)) {
@@ -659,13 +728,46 @@ class EventosKeyValueService
                 $id = $item['id'] ?? (string) Str::uuid();
                 $ids[] = $id;
 
+                $event = Event::query()->findOrFail($item['evento_id'] ?? null);
+                $affectedEventIds[] = (string) $event->id;
                 $existingGroup = ConvocationGroup::query()->find($id);
+
+                $athleteIds = collect($item['atletas_ids'] ?? [])
+                    ->filter(fn ($athleteId) => is_string($athleteId) && $athleteId !== '')
+                    ->unique()
+                    ->values();
+
+                if ($athleteIds->isEmpty()) {
+                    throw ValidationException::withMessages([
+                        'atletas_ids' => 'A convocatória tem de incluir pelo menos um atleta.',
+                    ]);
+                }
+
+                $athletesToValidate = $existingGroup
+                    && (string) $existingGroup->evento_id === (string) $event->id
+                    ? $athleteIds->diff(collect($existingGroup->atletas_ids ?? [])->map(fn ($athleteId) => (string) $athleteId))
+                    : $athleteIds;
+
+                User::query()
+                    ->with([
+                        'athleteSportsData:id,user_id,escalao_id',
+                        'userTypes:id,codigo,nome',
+                    ])
+                    ->whereIn('id', $athletesToValidate)
+                    ->get()
+                    ->each(fn (User $athlete) => $eligibilityService->assertEligible($event, $athlete));
+
+                if (User::query()->whereIn('id', $athleteIds)->count() !== $athleteIds->count()) {
+                    throw ValidationException::withMessages([
+                        'atletas_ids' => 'A convocatória contém membros inexistentes.',
+                    ]);
+                }
 
                 $payload = [
                     'evento_id' => $item['evento_id'] ?? null,
                     'data_criacao' => $item['data_criacao'] ?? now(),
                     'criado_por' => $this->resolveUserId($item['criado_por'] ?? null, $userId),
-                    'atletas_ids' => $item['atletas_ids'] ?? [],
+                    'atletas_ids' => $athleteIds->all(),
                     'hora_encontro' => $item['hora_encontro'] ?? null,
                     'local_encontro' => $item['local_encontro'] ?? null,
                     'observacoes' => $item['observacoes'] ?? null,
@@ -689,6 +791,26 @@ class EventosKeyValueService
                     $payload
                 );
 
+                foreach ($athleteIds as $athleteId) {
+                    ConvocationAthlete::query()->firstOrCreate(
+                        [
+                            'convocatoria_grupo_id' => $group->id,
+                            'atleta_id' => $athleteId,
+                        ],
+                        [
+                            'provas' => [],
+                            'estafetas' => 0,
+                            'presente' => false,
+                            'confirmado' => false,
+                        ]
+                    );
+                }
+
+                ConvocationAthlete::query()
+                    ->where('convocatoria_grupo_id', $group->id)
+                    ->whereNotIn('atleta_id', $athleteIds)
+                    ->delete();
+
                 if (!$existingGroup || $hasFinancialChange) {
                     $groupsNeedingFinancialSync[] = (string) $group->id;
                 }
@@ -698,6 +820,7 @@ class EventosKeyValueService
                 ConvocationGroup::query()
                     ->get()
                     ->each(fn (ConvocationGroup $group) => $deleteAction->execute($group));
+                $this->syncCanonicalEventConvocations($affectedEventIds);
                 return;
             }
 
@@ -712,13 +835,15 @@ class EventosKeyValueService
                     ->get()
                     ->each(fn (ConvocationGroup $group) => $financialSyncAction->execute($group));
             }
+
+            $this->syncCanonicalEventConvocations($affectedEventIds);
         });
     }
 
     private function syncConvocationAthletes(array $items): void
     {
         DB::transaction(function () use ($items) {
-            $financialSyncAction = app(SyncConvocationGroupFinancialMovementAction::class);
+            $financialSyncAction = $this->financialSyncAction;
 
             if (count($items) === 0) {
                 ConvocationAthlete::query()->delete();
@@ -739,8 +864,16 @@ class EventosKeyValueService
             foreach ($grouped as $groupId => $athletes) {
                 $athleteIds = $athletes->pluck('atleta_id')->filter()->values();
                 $updatedGroupIds[] = (string) $groupId;
+                $group = ConvocationGroup::query()->findOrFail($groupId);
+                $groupAthleteIds = collect($group->atletas_ids ?? [])->map(fn ($id) => (string) $id);
 
                 foreach ($athletes as $item) {
+                    if (! $groupAthleteIds->contains((string) ($item['atleta_id'] ?? ''))) {
+                        throw ValidationException::withMessages([
+                            'atleta_id' => 'O atleta não pertence ao grupo de convocatória selecionado.',
+                        ]);
+                    }
+
                     // Delete existing record first
                     ConvocationAthlete::where('convocatoria_grupo_id', $item['convocatoria_grupo_id'])
                         ->where('atleta_id', $item['atleta_id'])
@@ -765,10 +898,6 @@ class EventosKeyValueService
             $groupIds = $grouped->keys()->filter()->values();
             if ($groupIds->isNotEmpty()) {
                 ConvocationAthlete::whereNotIn('convocatoria_grupo_id', $groupIds)->delete();
-
-                ConvocationGroup::whereIn('id', $groupIds)
-                    ->get()
-                    ->each(fn (ConvocationGroup $group) => $financialSyncAction->execute($group));
             }
 
             if (!empty($updatedGroupIds)) {
@@ -890,13 +1019,76 @@ class EventosKeyValueService
 
     private function deleteConvocationGroups(): void
     {
-        $deleteAction = app(DeleteConvocationGroupAction::class);
+        $deleteAction = $this->deleteConvocationGroupAction;
 
         DB::transaction(function () use ($deleteAction): void {
+            $affectedEventIds = ConvocationGroup::query()
+                ->pluck('evento_id')
+                ->filter()
+                ->map(fn ($id) => (string) $id)
+                ->all();
+
             ConvocationGroup::query()
                 ->get()
                 ->each(fn (ConvocationGroup $group) => $deleteAction->execute($group));
+
+            $this->syncCanonicalEventConvocations($affectedEventIds);
         });
+    }
+
+    /**
+     * @param list<string> $eventIds
+     */
+    private function syncCanonicalEventConvocations(array $eventIds): void
+    {
+        collect($eventIds)
+            ->filter()
+            ->unique()
+            ->each(function (string $eventId): void {
+                $athleteIds = ConvocationGroup::query()
+                    ->where('evento_id', $eventId)
+                    ->get(['atletas_ids'])
+                    ->flatMap(fn (ConvocationGroup $group) => $group->atletas_ids ?? [])
+                    ->filter(fn ($id) => is_string($id) && $id !== '')
+                    ->unique()
+                    ->values();
+
+                foreach ($athleteIds as $athleteId) {
+                    EventConvocation::query()->firstOrCreate(
+                        [
+                            'evento_id' => $eventId,
+                            'user_id' => $athleteId,
+                        ],
+                        [
+                            'data_convocatoria' => now()->toDateString(),
+                            'estado_confirmacao' => 'pendente',
+                            'transporte_clube' => false,
+                        ]
+                    );
+                }
+
+                EventConvocation::query()
+                    ->where('evento_id', $eventId)
+                    ->when(
+                        $athleteIds->isNotEmpty(),
+                        fn ($query) => $query->whereNotIn('user_id', $athleteIds),
+                    )
+                    ->delete();
+            });
+    }
+
+    private function rejectDirectEventConvocationWrite(): never
+    {
+        throw ValidationException::withMessages([
+            'value' => 'As convocatórias são geridas pelos grupos para manter a ligação aos membros sincronizada.',
+        ]);
+    }
+
+    private function rejectLegacyLifecycleWrite(string $message): never
+    {
+        throw ValidationException::withMessages([
+            'value' => $message,
+        ]);
     }
 
     private function isConvocationFinancialPayloadChanged(ConvocationGroup $group, array $payload): bool

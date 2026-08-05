@@ -287,10 +287,10 @@ Route::middleware(['auth', 'verified'])->group(function () {
     
     Route::resource('eventos', EventosController::class)
         ->middleware('module.access:eventos')
-        ->middlewareFor(['index', 'show'], 'permission.access:eventos.calendario,view')
-        ->middlewareFor(['store', 'edit', 'update'], 'permission.access:eventos.calendario,edit')
+        ->middlewareFor(['index'], 'permission.access:eventos.calendario,view')
+        ->middlewareFor(['store', 'update'], 'permission.access:eventos.calendario,edit')
         ->middlewareFor(['destroy'], 'permission.access:eventos.calendario,delete')
-        ->except(['create']);
+        ->only(['index', 'store', 'update', 'destroy']);
     
     // Event participant management routes
     Route::post('eventos/{event}/participantes', [EventosController::class, 'addParticipant'])
@@ -723,7 +723,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
 Route::redirect('/members', '/membros', 301);
 Route::redirect('/members/{id}', '/membros/{id}', 301);
 Route::redirect('/events', '/eventos', 301);
-Route::redirect('/events/{id}', '/eventos/{id}', 301);
+Route::redirect('/events/{id}', '/eventos', 301);
 Route::redirect('/sports', '/desportivo', 301);
 Route::redirect('/sports/{id}', '/desportivo/{id}', 301);
 Route::redirect('/financial', '/financeiro', 301);

@@ -13,6 +13,9 @@ import {
   startOfWeek,
   endOfWeek,
   format,
+  isWithinInterval,
+  startOfDay,
+  endOfDay,
 } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { CalendarBlank, CaretLeft, CaretRight, Clock, MapPin } from '@phosphor-icons/react';
@@ -21,6 +24,7 @@ interface Event {
   id: string;
   titulo: string;
   data_inicio: string;
+  data_fim?: string;
   hora_inicio?: string;
   local: string;
   tipo: string;
@@ -74,9 +78,12 @@ export function EventosCalendar({ events = [], ageGroups = [], isActive = true }
   }, [events, typeFilter]);
 
   const getEventsForDay = (day: Date) => {
-    return filteredEvents.filter((event) =>
-      isSameDay(new Date(event.data_inicio), day)
-    );
+    return filteredEvents.filter((event) => {
+      const start = startOfDay(new Date(event.data_inicio));
+      const end = endOfDay(new Date(event.data_fim || event.data_inicio));
+
+      return isWithinInterval(day, { start, end });
+    });
   };
 
   const getEventTypeClass = (tipo: string) => {
@@ -118,21 +125,47 @@ export function EventosCalendar({ events = [], ageGroups = [], isActive = true }
       case 'competição':
         return 'Competição';
       default:
-        return 'Outro';
+        return (tipo || 'outro')
+          .replace(/_/g, ' ')
+          .replace(/\b\w/g, (letter) => letter.toUpperCase());
     }
   };
+
+  const getEventTypeDotClass = (tipo: string) => {
+    switch (tipo) {
+      case 'prova':
+        return 'bg-red-500';
+      case 'estagio':
+      case 'estágio':
+      case 'competicao':
+      case 'competição':
+        return 'bg-blue-500';
+      case 'reuniao':
+      case 'reunião':
+        return 'bg-amber-500';
+      case 'evento_interno':
+        return 'bg-purple-500';
+      case 'treino':
+        return 'bg-emerald-500';
+      default:
+        return 'bg-gray-500';
+    }
+  };
+
+  const eventTypeOptions = useMemo(() => {
+    return Array.from(new Set(events.map((event) => event.tipo).filter(Boolean)))
+      .sort((left, right) => getEventTypeLabel(left).localeCompare(getEventTypeLabel(right)))
+      .map((value) => ({ value, label: getEventTypeLabel(value) }));
+  }, [events]);
 
   const weekDays = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab', 'Dom'];
   const dayEvents = selectedDay ? getEventsForDay(selectedDay) : [];
 
-  const legendItems = [
-    { key: 'prova', label: 'Prova', color: 'bg-red-500' },
-    { key: 'estagio', label: 'Estágio', color: 'bg-blue-500' },
-    { key: 'reuniao', label: 'Reunião', color: 'bg-amber-500' },
-    { key: 'evento_interno', label: 'Evento Interno', color: 'bg-purple-500' },
-    { key: 'treino', label: 'Treino', color: 'bg-emerald-500' },
-    { key: 'outro', label: 'Outro', color: 'bg-gray-500' },
-  ];
+  const legendItems = eventTypeOptions.map((option) => ({
+    key: option.value,
+    label: option.label,
+    color: getEventTypeDotClass(option.value),
+  }));
 
   return (
     <div className="space-y-3">
@@ -175,12 +208,9 @@ export function EventosCalendar({ events = [], ageGroups = [], isActive = true }
             className="h-8 w-full rounded-md border border-input bg-white px-3 text-sm shadow-sm outline-none focus:ring-2 focus:ring-ring"
           >
             <option value="todos">Todos os Tipos</option>
-            <option value="prova">Prova</option>
-            <option value="estagio">Estágio</option>
-            <option value="reuniao">Reunião</option>
-            <option value="evento_interno">Evento Interno</option>
-            <option value="treino">Treino</option>
-            <option value="outro">Outro</option>
+            {eventTypeOptions.map((option) => (
+              <option key={option.value} value={option.value}>{option.label}</option>
+            ))}
           </select>
         </label>
       </div>
