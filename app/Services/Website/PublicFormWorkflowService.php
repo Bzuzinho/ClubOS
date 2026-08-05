@@ -7,6 +7,7 @@ namespace App\Services\Website;
 use App\Mail\PublicFormSubmissionReceived;
 use App\Models\DadosConfiguracao;
 use App\Models\DadosPessoais;
+use App\Models\NotificationPreference;
 use App\Models\PublicFormSubmission;
 use App\Models\PublicRegistrationIdentity;
 use App\Models\User;
@@ -17,6 +18,7 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Throwable;
 
@@ -195,7 +197,21 @@ final class PublicFormWorkflowService
 
     private function dispatchOperationalNotifications(PublicFormSubmission $submission): void
     {
-        $recipient = (string) config('public_website.submissions_recipient');
+        if ($this->preferenceEnabled('email_notificacoes')) {
+            $this->queueOperationalEmail($submission);
+        }
+
+        if ($this->preferenceEnabled('alertas_atividade')) {
+            $this->createOperationalAppAlerts($submission);
+        }
+    }
+
+    private function queueOperationalEmail(PublicFormSubmission $submission): void
+    {
+        $recipient = trim((string) config('public_website.submissions_recipient'));
+        if ($recipient === '') {
+            return;
+        }
 
         try {
             Mail::to($recipient)->queue(new PublicFormSubmissionReceived($submission));
@@ -203,7 +219,10 @@ final class PublicFormWorkflowService
         } catch (Throwable $exception) {
             report($exception);
         }
+    }
 
+    private function createOperationalAppAlerts(PublicFormSubmission $submission): void
+    {
         try {
             $administrators = User::query()
                 ->where(function ($query) {
@@ -226,6 +245,25 @@ final class PublicFormWorkflowService
         } catch (Throwable $exception) {
             report($exception);
         }
+    }
+
+    private function preferenceEnabled(string $field): bool
+    {
+        if (!Schema::hasTable('notification_preferences')) {
+            return false;
+        }
+
+        $preferences = NotificationPreference::query()->first();
+        if (!$preferences) {
+            return false;
+        }
+
+        $attributes = $preferences->getAttributes();
+        if (!array_key_exists($field, $attributes) || $attributes[$field] === null) {
+            return false;
+        }
+
+        return filter_var($attributes[$field], FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) === true;
     }
 
     /** @param array<string, mixed> $data */

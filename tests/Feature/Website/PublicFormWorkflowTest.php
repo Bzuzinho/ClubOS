@@ -6,6 +6,7 @@ use App\Mail\PublicFormSubmissionReceived;
 use App\Models\DadosConfiguracao;
 use App\Models\DadosPessoais;
 use App\Models\InAppAlert;
+use App\Models\NotificationPreference;
 use App\Models\PublicFormSubmission;
 use App\Models\PublicRegistrationIdentity;
 use App\Models\User;
@@ -17,6 +18,25 @@ use Tests\TestCase;
 class PublicFormWorkflowTest extends TestCase
 {
     use RefreshDatabase;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        NotificationPreference::query()->create([
+            'email_notificacoes' => true,
+            'alertas_pagamento' => false,
+            'alertas_atividade' => true,
+            'automacoes_financeiro' => false,
+            'automacoes_eventos' => false,
+            'automacoes_logistica' => false,
+            'automacoes_faturas_financeiras' => false,
+            'automacoes_movimentos_financeiros' => false,
+            'automacoes_convocatorias_eventos' => false,
+            'automacoes_requisicoes_logistica' => false,
+            'automacoes_alertas_operacionais' => false,
+        ]);
+    }
 
     public function test_contact_request_queues_club_email_and_creates_admin_alert(): void
     {
@@ -40,6 +60,53 @@ class PublicFormWorkflowTest extends TestCase
             'is_read' => false,
         ]);
         $this->assertNotNull($submission->fresh()->admin_notified_at);
+    }
+
+    public function test_disabling_email_notifications_keeps_submission_without_queueing_email(): void
+    {
+        Mail::fake();
+        User::factory()->create(['perfil' => 'admin']);
+        NotificationPreference::query()->firstOrFail()->update(['email_notificacoes' => false]);
+
+        $this->post('/junta-te', $this->contactPayload())->assertRedirect();
+
+        $submission = PublicFormSubmission::query()->sole();
+        Mail::assertNothingQueued();
+        $this->assertNull($submission->email_queued_at);
+        $this->assertNotNull($submission->admin_notified_at);
+    }
+
+    public function test_disabling_activity_alerts_keeps_submission_without_creating_admin_alert(): void
+    {
+        Mail::fake();
+        User::factory()->create(['perfil' => 'admin']);
+        NotificationPreference::query()->firstOrFail()->update(['alertas_atividade' => false]);
+
+        $this->post('/junta-te', $this->contactPayload())->assertRedirect();
+
+        $submission = PublicFormSubmission::query()->sole();
+        Mail::assertQueued(PublicFormSubmissionReceived::class);
+        $this->assertDatabaseCount('in_app_alerts', 0);
+        $this->assertNotNull($submission->email_queued_at);
+        $this->assertNull($submission->admin_notified_at);
+    }
+
+    public function test_disabling_both_channels_persists_submission_without_operational_notifications(): void
+    {
+        Mail::fake();
+        User::factory()->create(['perfil' => 'admin']);
+        NotificationPreference::query()->firstOrFail()->update([
+            'email_notificacoes' => false,
+            'alertas_atividade' => false,
+        ]);
+
+        $this->post('/junta-te', $this->contactPayload())->assertRedirect();
+
+        $submission = PublicFormSubmission::query()->sole();
+        Mail::assertNothingQueued();
+        $this->assertDatabaseCount('in_app_alerts', 0);
+        $this->assertNull($submission->email_queued_at);
+        $this->assertNull($submission->admin_notified_at);
     }
 
     public function test_registration_creates_inactive_canonical_member_without_platform_or_financial_access(): void
