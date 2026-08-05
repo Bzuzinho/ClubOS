@@ -56,7 +56,7 @@ export default function WebsitePagesIndex({ pages, summary }: { pages: WebsitePa
 
     const submit = (event: FormEvent) => {
         event.preventDefault();
-        form.post('/website-redes/paginas', { onSuccess: () => form.reset() });
+        form.post('/website/paginas', { onSuccess: () => form.reset() });
     };
 
     return (
@@ -64,16 +64,16 @@ export default function WebsitePagesIndex({ pages, summary }: { pages: WebsitePa
             fullWidth
             header={
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                    <div><p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary">Website & Redes</p><h1 className="text-2xl font-semibold">Páginas</h1></div>
+                    <div><p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary">Website</p><h1 className="text-2xl font-semibold">Estrutura do website</h1></div>
                     <div className="flex flex-wrap gap-2">
-                        <Button asChild variant="outline" size="sm"><Link href="/website-redes">Pedidos</Link></Button>
+                        <Button asChild variant="outline" size="sm"><Link href="/website">Dashboard</Link></Button>
                         <Button asChild variant="outline" size="sm"><a href="/" target="_blank" rel="noreferrer">Abrir website <ArrowSquareOut className="ml-2" /></a></Button>
                         <Button size="sm" onClick={() => setCreating((value) => !value)}><Plus className="mr-2" /> Nova página</Button>
                     </div>
                 </div>
             }
         >
-            <Head title="Páginas — Website & Redes" />
+            <Head title="Estrutura do website" />
             <div className="space-y-4">
                 <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                     {[

@@ -9,8 +9,13 @@ use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 use Inertia\Response;
 
-class WebsiteRedesController extends Controller
+class WebsiteController extends Controller
 {
+    public function legacyRedirect(?string $path = null): RedirectResponse
+    {
+        return redirect('/website'.($path ? '/'.$path : ''), 301);
+    }
+
     public function index(Request $request): Response
     {
         return $this->renderIndex($request);
@@ -70,7 +75,7 @@ class WebsiteRedesController extends Controller
             $selectedPayload = $this->submissionPayload($selected, includePayload: true);
         }
 
-        return Inertia::render('WebsiteRedes/Index', [
+        return Inertia::render('Website/Index', [
             'summary' => [
                 'new' => PublicFormSubmission::query()->where('status', 'new')->count(),
                 'in_review' => PublicFormSubmission::query()->where('status', 'in_review')->count(),
@@ -83,11 +88,6 @@ class WebsiteRedesController extends Controller
                 'type' => $filters['type'] ?? '',
                 'status' => $filters['status'] ?? '',
                 'search' => $filters['search'] ?? '',
-            ],
-            'channels' => [
-                'website' => 'active',
-                'facebook' => 'pending',
-                'instagram' => 'pending',
             ],
         ]);
     }

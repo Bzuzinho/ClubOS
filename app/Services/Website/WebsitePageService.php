@@ -24,6 +24,7 @@ class WebsitePageService
         return DB::transaction(function () use ($data, $actor): WebsitePage {
             $page = WebsitePage::query()->create([
                 ...Arr::only($data, ['slug', 'title', 'navigation_label', 'show_in_navigation', 'sort_order', 'meta_title', 'meta_description']),
+                'design_settings' => $this->normalizeDesignSettings($data['design_settings'] ?? []),
                 'status' => 'draft',
                 'is_system' => false,
                 'created_by' => $actor->id,
@@ -74,6 +75,7 @@ class WebsitePageService
             $attributes = Arr::only($data, [
                 'title', 'navigation_label', 'show_in_navigation', 'sort_order', 'meta_title', 'meta_description',
             ]);
+            $attributes['design_settings'] = $this->normalizeDesignSettings($data['design_settings'] ?? []);
             if (! $locked->is_system) {
                 $attributes['slug'] = $data['slug'];
             }
@@ -119,7 +121,7 @@ class WebsitePageService
         return DB::transaction(function () use ($page, $version, $actor): WebsitePage {
             $locked = WebsitePage::query()->lockForUpdate()->findOrFail($page->id);
             $snapshot = $version->snapshot;
-            $metadata = Arr::only($snapshot, ['title', 'navigation_label', 'show_in_navigation', 'sort_order', 'meta_title', 'meta_description']);
+            $metadata = Arr::only($snapshot, ['title', 'navigation_label', 'show_in_navigation', 'sort_order', 'meta_title', 'meta_description', 'design_settings']);
 
             if (! $locked->is_system && ! $locked->published_snapshot && isset($snapshot['slug'])) {
                 $metadata['slug'] = $snapshot['slug'];
@@ -161,6 +163,7 @@ class WebsitePageService
             'sort_order' => (int) $page->sort_order,
             'meta_title' => $page->meta_title,
             'meta_description' => $page->meta_description,
+            'design_settings' => $this->normalizeDesignSettings($page->design_settings ?? []),
             'blocks' => $page->blocks->map(fn ($block): array => [
                 'id' => $block->id,
                 'block_key' => $block->block_key,
@@ -168,6 +171,8 @@ class WebsitePageService
                 'sort_order' => (int) $block->sort_order,
                 'is_visible' => (bool) $block->is_visible,
                 'content' => $block->content,
+                'style' => $this->normalizeBlockStyle($block->style ?? [], $block->type),
+                'settings' => $this->normalizeBlockSettings($block->settings ?? []),
             ])->values()->all(),
         ];
     }
@@ -251,9 +256,73 @@ class WebsitePageService
                     'sort_order' => $index,
                     'is_visible' => (bool) ($block['is_visible'] ?? true),
                     'content' => $this->normalizeContent($block['content'] ?? []),
+                    'style' => $this->normalizeBlockStyle($block['style'] ?? [], $block['type'] ?? null),
+                    'settings' => $this->normalizeBlockSettings($block['settings'] ?? []),
                 ]
             );
         }
+    }
+
+    /** @param array<string, mixed> $settings */
+    private function normalizeDesignSettings(array $settings): array
+    {
+        return [
+            'background_color' => $settings['background_color'] ?? '#ffffff',
+            'text_color' => $settings['text_color'] ?? '#102c44',
+            'heading_color' => $settings['heading_color'] ?? '#062b54',
+            'accent_color' => $settings['accent_color'] ?? '#f2e613',
+            'heading_font' => $settings['heading_font'] ?? 'inter',
+            'body_font' => $settings['body_font'] ?? 'inter',
+            'base_font_size' => (int) ($settings['base_font_size'] ?? 16),
+            'content_width' => $settings['content_width'] ?? 'standard',
+        ];
+    }
+
+    /** @param array<string, mixed> $style */
+    private function normalizeBlockStyle(array $style, ?string $type = null): array
+    {
+        [$paddingTop, $paddingBottom] = match ($type) {
+            'hero' => [18, 0],
+            'rich_text', 'cards', 'news_feed', 'events_feed' => [68, 72],
+            'stats' => [0, 0],
+            'cta' => [66, 78],
+            'contact_form' => [75, 90],
+            'registration_form' => [70, 92],
+            default => [64, 64],
+        };
+
+        return [
+            'background_color' => $style['background_color'] ?? null,
+            'text_color' => $style['text_color'] ?? null,
+            'heading_color' => $style['heading_color'] ?? null,
+            'accent_color' => $style['accent_color'] ?? null,
+            'padding_top' => (int) ($style['padding_top'] ?? $paddingTop),
+            'padding_bottom' => (int) ($style['padding_bottom'] ?? $paddingBottom),
+            'content_width' => $style['content_width'] ?? 'page',
+            'text_align' => $style['text_align'] ?? 'left',
+            'heading_size' => (int) ($style['heading_size'] ?? 32),
+            'body_size' => (int) ($style['body_size'] ?? 14),
+            'border_radius' => (int) ($style['border_radius'] ?? 0),
+            'shadow' => $style['shadow'] ?? 'none',
+            'card_background' => $style['card_background'] ?? null,
+            'card_border_color' => $style['card_border_color'] ?? null,
+            'card_radius' => (int) ($style['card_radius'] ?? 15),
+            'card_shadow' => $style['card_shadow'] ?? 'soft',
+            'card_gap' => (int) ($style['card_gap'] ?? 14),
+        ];
+    }
+
+    /** @param array<string, mixed> $settings */
+    private function normalizeBlockSettings(array $settings): array
+    {
+        return [
+            'anchor_id' => $settings['anchor_id'] ?? null,
+            'animation' => $settings['animation'] ?? 'none',
+            'animation_delay' => (int) ($settings['animation_delay'] ?? 0),
+            'hide_mobile' => (bool) ($settings['hide_mobile'] ?? false),
+            'hide_desktop' => (bool) ($settings['hide_desktop'] ?? false),
+            'open_links_new_tab' => (bool) ($settings['open_links_new_tab'] ?? false),
+        ];
     }
 
     /** @return array<string, mixed> */
@@ -277,11 +346,17 @@ class WebsitePageService
     /** @param array<string, mixed>|null $snapshot */
     private function recordVersion(WebsitePage $page, string $action, User $actor, ?array $snapshot = null): void
     {
+        $snapshot ??= $this->draftSnapshot($page->fresh('blocks'));
+        $latest = $page->versions()->orderByDesc('version')->first();
+        if ($action === 'autosave' && $latest && $latest->snapshot === $snapshot) {
+            return;
+        }
+
         $nextVersion = ((int) $page->versions()->max('version')) + 1;
         $page->versions()->create([
             'version' => $nextVersion,
             'action' => $action,
-            'snapshot' => $snapshot ?? $this->draftSnapshot($page->fresh('blocks')),
+            'snapshot' => $snapshot,
             'created_by' => $actor->id,
         ]);
     }

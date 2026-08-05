@@ -5,9 +5,6 @@ import {
     CheckCircle,
     Clock,
     EnvelopeSimple,
-    GlobeHemisphereWest,
-    InstagramLogo,
-    MetaLogo,
     UserCircle,
 } from '@phosphor-icons/react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
@@ -80,11 +77,6 @@ interface Props {
         status?: string;
         search?: string;
     };
-    channels: {
-        website: 'active' | 'pending';
-        facebook: 'active' | 'pending';
-        instagram: 'active' | 'pending';
-    };
 }
 
 const statusLabels: Record<SubmissionStatus, string> = {
@@ -131,7 +123,7 @@ function DetailRow({ label, value }: { label: string; value?: string | null }) {
     );
 }
 
-export default function WebsiteRedesIndex({ summary, submissions, selectedSubmission, filters, channels }: Props) {
+export default function WebsiteIndex({ summary, submissions, selectedSubmission, filters }: Props) {
     const [search, setSearch] = useState(filters.search ?? '');
     const [type, setType] = useState(filters.type || 'all');
     const [status, setStatus] = useState(filters.status || 'all');
@@ -139,7 +131,7 @@ export default function WebsiteRedesIndex({ summary, submissions, selectedSubmis
 
     const applyFilters = (event: FormEvent) => {
         event.preventDefault();
-        router.get('/website-redes', {
+        router.get('/website', {
             search: search || undefined,
             type: type === 'all' ? undefined : type,
             status: status === 'all' ? undefined : status,
@@ -150,7 +142,7 @@ export default function WebsiteRedesIndex({ summary, submissions, selectedSubmis
         if (!selectedSubmission) return;
 
         setUpdatingStatus(true);
-        router.patch(`/website-redes/pedidos/${selectedSubmission.id}/estado`, { status: nextStatus }, {
+        router.patch(`/website/pedidos/${selectedSubmission.id}/estado`, { status: nextStatus }, {
             preserveScroll: true,
             onFinish: () => setUpdatingStatus(false),
         });
@@ -162,11 +154,11 @@ export default function WebsiteRedesIndex({ summary, submissions, selectedSubmis
             header={
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div>
-                        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary">Gestão editorial e captação</p>
-                        <h1 className="text-2xl font-semibold text-foreground">Website & Redes</h1>
+                        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary">Gestão do website</p>
+                        <h1 className="text-2xl font-semibold text-foreground">Website</h1>
                     </div>
                     <div className="flex flex-wrap gap-2">
-                        <Button asChild variant="outline" size="sm"><Link href="/website-redes/paginas">Gerir páginas</Link></Button>
+                        <Button asChild variant="outline" size="sm"><Link href="/website/paginas">Gerir páginas</Link></Button>
                         <Button asChild variant="outline" size="sm">
                             <a href="/" target="_blank" rel="noreferrer">Abrir website <ArrowSquareOut className="ml-2" /></a>
                         </Button>
@@ -174,7 +166,7 @@ export default function WebsiteRedesIndex({ summary, submissions, selectedSubmis
                 </div>
             }
         >
-            <Head title="Website & Redes" />
+            <Head title="Website" />
 
             <div className="space-y-4">
                 <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -193,7 +185,7 @@ export default function WebsiteRedesIndex({ summary, submissions, selectedSubmis
                     ))}
                 </div>
 
-                <div className="grid gap-4 xl:grid-cols-[minmax(0,1.6fr)_minmax(360px,0.8fr)]">
+                <div className={`grid gap-4 ${selectedSubmission ? 'xl:grid-cols-[minmax(0,1.6fr)_minmax(360px,0.8fr)]' : ''}`}>
                     <Card>
                         <CardHeader className="space-y-3 pb-3">
                             <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
@@ -225,7 +217,7 @@ export default function WebsiteRedesIndex({ summary, submissions, selectedSubmis
                                 {submissions.data.map((submission) => (
                                     <Link
                                         key={submission.id}
-                                        href={`/website-redes/pedidos/${submission.id}`}
+                                        href={`/website/pedidos/${submission.id}`}
                                         preserveScroll
                                         className={`block px-4 py-3 transition hover:bg-muted/50 ${selectedSubmission?.id === submission.id ? 'bg-primary/5' : ''}`}
                                     >
@@ -261,7 +253,7 @@ export default function WebsiteRedesIndex({ summary, submissions, selectedSubmis
                         </CardContent>
                     </Card>
 
-                    {selectedSubmission ? (
+                    {selectedSubmission && (
                         <Card className="h-fit xl:sticky xl:top-4">
                             <CardHeader className="space-y-3">
                                 <div className="flex flex-wrap items-start justify-between gap-2">
@@ -310,32 +302,6 @@ export default function WebsiteRedesIndex({ summary, submissions, selectedSubmis
                                 </div>
                             </CardContent>
                         </Card>
-                    ) : (
-                        <div className="space-y-4">
-                            <Card>
-                                <CardHeader><CardTitle>Canais</CardTitle></CardHeader>
-                                <CardContent className="space-y-2">
-                                    {[
-                                        { label: 'Website', state: channels.website, icon: GlobeHemisphereWest },
-                                        { label: 'Facebook', state: channels.facebook, icon: MetaLogo },
-                                        { label: 'Instagram', state: channels.instagram, icon: InstagramLogo },
-                                    ].map(({ label, state, icon: Icon }) => (
-                                        <div key={label} className="flex items-center justify-between rounded-lg border p-3">
-                                            <span className="flex items-center gap-2 text-sm font-medium"><Icon size={20} /> {label}</span>
-                                            <Badge variant={state === 'active' ? 'default' : 'secondary'}>{state === 'active' ? 'Ativo' : 'Fase seguinte'}</Badge>
-                                        </div>
-                                    ))}
-                                </CardContent>
-                            </Card>
-                            <Card>
-                                <CardHeader><CardTitle>Próximas entregas</CardTitle></CardHeader>
-                                <CardContent className="space-y-3 text-sm text-muted-foreground">
-                                    <p><strong className="text-foreground">Editor de páginas:</strong> textos, cards, imagens, ordem e histórico de versões.</p>
-                                    <p><strong className="text-foreground">Publicação multicanal:</strong> website, Facebook e Instagram com agendamento e estado por canal.</p>
-                                    <p><strong className="text-foreground">Biblioteca multimédia:</strong> imagens reutilizáveis, texto alternativo e rastreio de utilização.</p>
-                                </CardContent>
-                            </Card>
-                        </div>
                     )}
                 </div>
             </div>

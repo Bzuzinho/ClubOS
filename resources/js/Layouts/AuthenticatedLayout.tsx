@@ -93,7 +93,7 @@ const mainMenuItems = [
     { id: 'patrocinios', moduleKey: 'patrocinios', label: 'Patrocínios', icon: Handshake, route: '/patrocinios' },
     { id: 'comunicacao', moduleKey: 'comunicacao', label: 'Comunicação', icon: Envelope, route: '/comunicacao' },
     { id: 'marketing', moduleKey: 'marketing', label: 'Marketing', icon: MegaphoneSimple, route: '/campanhas-marketing' },
-    { id: 'website-redes', moduleKey: 'website_redes', label: 'Website & Redes', icon: GlobeHemisphereWest, route: '/website-redes' },
+    { id: 'website', moduleKey: 'website', label: 'Website', icon: GlobeHemisphereWest, route: '/website' },
 ];
 
 const settingsMenuItems = [

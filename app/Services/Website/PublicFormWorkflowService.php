@@ -216,7 +216,7 @@ final class PublicFormWorkflowService
             $created = $this->inAppAlertService->createAlerts([
                 'title' => $submission->type === 'registration' ? 'Nova pré-inscrição no website' : 'Novo pedido de contacto no website',
                 'message' => $submission->athlete_name.' · '.$submission->email.' · '.$submission->phone,
-                'link' => '/website-redes/pedidos/'.$submission->id,
+                'link' => '/website/pedidos/'.$submission->id,
                 'type' => 'info',
             ], $administrators);
 

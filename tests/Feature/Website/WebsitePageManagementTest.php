@@ -33,13 +33,13 @@ class WebsitePageManagementTest extends TestCase
         $admin = User::factory()->create(['perfil' => 'admin']);
         $page = WebsitePage::query()->where('slug', 'clube')->sole();
 
-        $this->actingAs($admin)->post("/website-redes/paginas/{$page->id}/importar")
+        $this->actingAs($admin)->post("/website/paginas/{$page->id}/importar")
             ->assertRedirect();
 
         $this->assertGreaterThan(0, $page->blocks()->count());
         $this->get('/clube')->assertInertia(fn (Assert $response) => $response->component('PublicSite/Clube'));
 
-        $this->actingAs($admin)->get("/website-redes/paginas/{$page->id}/previsualizar")
+        $this->actingAs($admin)->get("/website/paginas/{$page->id}/previsualizar")
             ->assertOk()
             ->assertInertia(fn (Assert $response) => $response
                 ->component('PublicSite/ManagedPage')
@@ -52,7 +52,7 @@ class WebsitePageManagementTest extends TestCase
     {
         $admin = User::factory()->create(['perfil' => 'admin']);
 
-        $this->actingAs($admin)->post('/website-redes/paginas', [
+        $this->actingAs($admin)->post('/website/paginas', [
             'title' => 'Projeto futuro',
             'slug' => 'projeto-futuro',
             'navigation_label' => 'Projeto',
@@ -68,7 +68,7 @@ class WebsitePageManagementTest extends TestCase
         $payload = $this->pagePayload($page, 'publish');
         $payload['blocks'][0]['content']['title'] = 'Um projeto publicado';
 
-        $this->actingAs($admin)->patch("/website-redes/paginas/{$page->id}", $payload)
+        $this->actingAs($admin)->patch("/website/paginas/{$page->id}", $payload)
             ->assertRedirect();
 
         $this->get('/projeto-futuro')
@@ -100,12 +100,12 @@ class WebsitePageManagementTest extends TestCase
 
         $published = $this->pagePayload($page, 'publish');
         $published['blocks'][0]['content']['title'] = 'Versão atual';
-        $this->actingAs($admin)->patch("/website-redes/paginas/{$page->id}", $published)->assertRedirect();
+        $this->actingAs($admin)->patch("/website/paginas/{$page->id}", $published)->assertRedirect();
 
         $scheduled = $this->pagePayload($page->fresh(), 'schedule');
         $scheduled['scheduled_for'] = now()->addDay()->toDateTimeString();
         $scheduled['blocks'][0]['content']['title'] = 'Versão futura';
-        $this->actingAs($admin)->patch("/website-redes/paginas/{$page->id}", $scheduled)->assertRedirect();
+        $this->actingAs($admin)->patch("/website/paginas/{$page->id}", $scheduled)->assertRedirect();
 
         $this->get('/pagina-teste')->assertInertia(fn (Assert $response) => $response
             ->where('page.blocks.0.content.title', 'Versão atual')
@@ -126,13 +126,13 @@ class WebsitePageManagementTest extends TestCase
         $published['show_in_navigation'] = true;
         $published['navigation_label'] = 'Menu publicado';
         $published['sort_order'] = 5;
-        $this->actingAs($admin)->patch("/website-redes/paginas/{$page->id}", $published)->assertRedirect();
+        $this->actingAs($admin)->patch("/website/paginas/{$page->id}", $published)->assertRedirect();
 
         $draft = $this->pagePayload($page->fresh(), 'save_draft');
         $draft['show_in_navigation'] = false;
         $draft['navigation_label'] = 'Menu em rascunho';
         $draft['sort_order'] = 999;
-        $this->actingAs($admin)->patch("/website-redes/paginas/{$page->id}", $draft)->assertRedirect();
+        $this->actingAs($admin)->patch("/website/paginas/{$page->id}", $draft)->assertRedirect();
 
         $this->get('/pagina-teste')->assertInertia(fn (Assert $response) => $response
             ->where('publicNavigation', fn ($navigation) => collect($navigation)->contains(fn ($item) => $item['label'] === 'Menu publicado' && $item['href'] === '/pagina-teste'))
@@ -144,13 +144,13 @@ class WebsitePageManagementTest extends TestCase
         $admin = User::factory()->create(['perfil' => 'admin']);
         $page = $this->createCustomPage($admin);
 
-        $this->actingAs($admin)->patch("/website-redes/paginas/{$page->id}", $this->pagePayload($page, 'publish'))
+        $this->actingAs($admin)->patch("/website/paginas/{$page->id}", $this->pagePayload($page, 'publish'))
             ->assertRedirect();
 
         $draft = $this->pagePayload($page->fresh(), 'save_draft');
         $draft['slug'] = 'endereco-novo';
 
-        $this->actingAs($admin)->patch("/website-redes/paginas/{$page->id}", $draft)
+        $this->actingAs($admin)->patch("/website/paginas/{$page->id}", $draft)
             ->assertRedirect()
             ->assertSessionHasErrors('slug');
 
@@ -164,7 +164,7 @@ class WebsitePageManagementTest extends TestCase
         $admin = User::factory()->create(['perfil' => 'admin']);
         $page = WebsitePage::query()->where('slug', 'inscricao')->sole();
 
-        $this->actingAs($admin)->delete("/website-redes/paginas/{$page->id}")
+        $this->actingAs($admin)->delete("/website/paginas/{$page->id}")
             ->assertRedirect()
             ->assertSessionHasErrors('page');
 
@@ -175,16 +175,48 @@ class WebsitePageManagementTest extends TestCase
     {
         $admin = User::factory()->create(['perfil' => 'admin']);
         $page = WebsitePage::query()->where('slug', 'inscricao')->sole();
-        $this->actingAs($admin)->post("/website-redes/paginas/{$page->id}/importar")->assertRedirect();
+        $this->actingAs($admin)->post("/website/paginas/{$page->id}/importar")->assertRedirect();
 
         $payload = $this->pagePayload($page->fresh(), 'publish');
         $payload['blocks'] = collect($payload['blocks'])->reject(fn ($block) => $block['type'] === 'registration_form')->values()->all();
 
-        $this->actingAs($admin)->patch("/website-redes/paginas/{$page->id}", $payload)
+        $this->actingAs($admin)->patch("/website/paginas/{$page->id}", $payload)
             ->assertRedirect()
             ->assertSessionHasErrors('blocks');
 
         $this->get('/inscricao')->assertInertia(fn (Assert $response) => $response->component('PublicSite/Inscricao'));
+    }
+
+    public function test_visual_editor_autosaves_design_behavior_and_version_without_publishing(): void
+    {
+        $admin = User::factory()->create(['perfil' => 'admin']);
+        $page = $this->createCustomPage($admin);
+        $payload = $this->pagePayload($page, 'autosave');
+        $payload['design_settings']['background_color'] = '#f4f8fb';
+        $payload['design_settings']['heading_font'] = 'montserrat';
+        $payload['blocks'][0]['style']['background_color'] = '#eaf5fb';
+        $payload['blocks'][0]['style']['heading_size'] = 48;
+        $payload['blocks'][0]['settings']['animation'] = 'slide-up';
+        $payload['blocks'][0]['settings']['anchor_id'] = 'apresentacao';
+
+        $this->actingAs($admin)
+            ->patchJson("/website/paginas/{$page->id}/autosave", $payload)
+            ->assertOk()
+            ->assertJsonPath('version.action', 'autosave');
+
+        $page->refresh()->load('blocks');
+        $this->assertSame('#f4f8fb', $page->design_settings['background_color']);
+        $this->assertSame('#eaf5fb', $page->blocks->first()->style['background_color']);
+        $this->assertSame('slide-up', $page->blocks->first()->settings['animation']);
+        $this->assertSame('apresentacao', $page->versions()->latest('version')->first()->snapshot['blocks'][0]['settings']['anchor_id']);
+        $this->get('/pagina-teste')->assertNotFound();
+    }
+
+    public function test_old_website_redes_address_redirects_to_independent_website_module(): void
+    {
+        $admin = User::factory()->create(['perfil' => 'admin']);
+
+        $this->actingAs($admin)->get('/website-redes/paginas')->assertRedirect('/website/paginas');
     }
 
     public function test_media_in_use_cannot_be_deleted(): void
@@ -193,7 +225,7 @@ class WebsitePageManagementTest extends TestCase
         $admin = User::factory()->create(['perfil' => 'admin']);
         $page = $this->createCustomPage($admin);
 
-        $this->actingAs($admin)->post('/website-redes/media', [
+        $this->actingAs($admin)->post('/website/media', [
             'image' => UploadedFile::fake()->image('piscina.jpg', 1200, 800),
             'alt_text' => 'Piscina de competição',
         ])->assertRedirect();
@@ -203,9 +235,9 @@ class WebsitePageManagementTest extends TestCase
 
         $payload = $this->pagePayload($page, 'save_draft');
         $payload['blocks'][0]['content']['image'] = $media->url;
-        $this->actingAs($admin)->patch("/website-redes/paginas/{$page->id}", $payload)->assertRedirect();
+        $this->actingAs($admin)->patch("/website/paginas/{$page->id}", $payload)->assertRedirect();
 
-        $this->actingAs($admin)->delete("/website-redes/media/{$media->id}")
+        $this->actingAs($admin)->delete("/website/media/{$media->id}")
             ->assertRedirect()
             ->assertSessionHasErrors('media');
 
@@ -215,7 +247,7 @@ class WebsitePageManagementTest extends TestCase
 
     private function createCustomPage(User $admin): WebsitePage
     {
-        $this->actingAs($admin)->post('/website-redes/paginas', [
+        $this->actingAs($admin)->post('/website/paginas', [
             'title' => 'Página teste',
             'slug' => 'pagina-teste',
             'navigation_label' => 'Teste',
@@ -241,6 +273,16 @@ class WebsitePageManagementTest extends TestCase
             'sort_order' => (int) $page->sort_order,
             'meta_title' => $page->meta_title,
             'meta_description' => $page->meta_description,
+            'design_settings' => $page->design_settings ?? [
+                'background_color' => '#ffffff',
+                'text_color' => '#102c44',
+                'heading_color' => '#062b54',
+                'accent_color' => '#f2e613',
+                'heading_font' => 'inter',
+                'body_font' => 'inter',
+                'base_font_size' => 16,
+                'content_width' => 'standard',
+            ],
             'operation' => $operation,
             'scheduled_for' => null,
             'blocks' => $page->blocks->map(fn ($block): array => [
@@ -249,6 +291,8 @@ class WebsitePageManagementTest extends TestCase
                 'type' => $block->type,
                 'is_visible' => (bool) $block->is_visible,
                 'content' => $block->content,
+                'style' => $block->style,
+                'settings' => $block->settings,
             ])->all(),
         ];
     }
