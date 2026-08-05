@@ -12,6 +12,7 @@ class WebsitePageBlock extends Model
 
     public const TYPES = [
         'hero',
+        'section',
         'rich_text',
         'cards',
         'image_text',

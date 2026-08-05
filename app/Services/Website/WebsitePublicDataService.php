@@ -4,6 +4,7 @@ namespace App\Services\Website;
 
 use App\Models\Event;
 use App\Models\NewsItem;
+use App\Models\Sponsor;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
@@ -55,6 +56,31 @@ class WebsitePublicDataService
             ->all();
     }
 
+    /** @return array<int, array<string, mixed>> */
+    public function partners(int $limit): array
+    {
+        return Sponsor::query()
+            ->where('estado', 'ativo')
+            ->whereDate('data_inicio', '<=', today())
+            ->where(function ($query): void {
+                $query->whereNull('data_fim')
+                    ->orWhereDate('data_fim', '>=', today());
+            })
+            ->orderByRaw("CASE tipo WHEN 'principal' THEN 1 WHEN 'secundario' THEN 2 ELSE 3 END")
+            ->orderBy('nome')
+            ->limit(max(1, min($limit, 60)))
+            ->get(['id', 'nome', 'descricao', 'logo', 'website', 'tipo'])
+            ->map(fn (Sponsor $sponsor): array => [
+                'id' => (string) $sponsor->id,
+                'name' => $sponsor->nome,
+                'description' => Str::limit(trim(strip_tags((string) $sponsor->descricao)), 180),
+                'logo' => $this->publicImageUrl($sponsor->logo),
+                'website' => $this->publicLinkUrl($sponsor->website),
+                'type' => $sponsor->tipo,
+            ])
+            ->all();
+    }
+
     private function publicImageUrl(?string $image): ?string
     {
         $image = trim((string) $image);
@@ -68,5 +94,16 @@ class WebsitePublicDataService
         }
 
         return Storage::url($image);
+    }
+
+    private function publicLinkUrl(?string $url): ?string
+    {
+        $url = trim((string) $url);
+
+        if ($url === '' || preg_match('/\s/', $url) === 1) {
+            return null;
+        }
+
+        return Str::startsWith($url, ['http://', 'https://']) ? $url : 'https://'.$url;
     }
 }

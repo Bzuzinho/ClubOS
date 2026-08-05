@@ -75,7 +75,14 @@ class WebsiteMediaService
 
         return $media->mapWithKeys(function (WebsiteMedia $item) use ($pages, $versions): array {
             $used = $pages->contains(function (WebsitePage $page) use ($item): bool {
-                $draft = $page->blocks->pluck('content')->all();
+                $draft = [
+                    'design_settings' => $page->design_settings,
+                    'blocks' => $page->blocks->map(fn ($block): array => [
+                        'content' => $block->content,
+                        'style' => $block->style,
+                        'settings' => $block->settings,
+                    ])->all(),
+                ];
 
                 return $this->containsValue($draft, $item->url)
                     || $this->containsValue($draft, $item->path)

@@ -38,8 +38,26 @@ class WebsitePageTemplateService
                 'secondary_label' => 'Conhecer o clube',
                 'secondary_url' => '/clube',
             ]),
-            $this->block('news_feed', 'news', ['eyebrow' => 'Atualidade', 'title' => 'Notícias do clube', 'intro' => 'Informação publicada diretamente no ClubOS.', 'limit' => 3]),
-            $this->block('events_feed', 'events', ['eyebrow' => 'Agenda', 'title' => 'Próximas datas', 'intro' => 'Eventos públicos confirmados pelo clube.', 'limit' => 3]),
+            $this->block('section', 'news-and-events', [
+                'eyebrow' => 'Atualidade',
+                'title' => 'Notícias e próximas datas.',
+                'intro' => 'Conteúdo atualizado diretamente a partir do ClubOS.',
+                'columns_desktop' => 6,
+                'columns_tablet' => 2,
+                'columns_mobile' => 1,
+                'gap' => 24,
+                'align_items' => 'start',
+                'items' => [
+                    $this->sectionItem('data_collection', 'home-news', [
+                        'source' => 'news', 'limit' => 2, 'layout' => 'grid', 'columns' => 2,
+                        'show_image' => true, 'show_meta' => true, 'show_description' => true, 'show_link' => true, 'link_label' => 'Ler mais',
+                    ], ['column_span' => 4, 'tablet_span' => 2, 'mobile_span' => 1]),
+                    $this->sectionItem('data_collection', 'home-events', [
+                        'source' => 'events', 'limit' => 3, 'layout' => 'list', 'columns' => 1,
+                        'show_image' => false, 'show_meta' => true, 'show_description' => true, 'show_link' => true, 'link_label' => 'Ver calendário',
+                    ], ['column_span' => 2, 'tablet_span' => 2, 'mobile_span' => 1]),
+                ],
+            ]),
             $this->block('rich_text', 'identity', [
                 'eyebrow' => 'Um clube com direção',
                 'title' => 'Não somos uma escola de aprendizagem. Somos um projeto de competição.',
@@ -218,7 +236,11 @@ class WebsitePageTemplateService
     {
         return [
             $this->pageHero('Nova página', 'Título principal da página', 'Explica aqui, de forma breve, o objetivo desta página.', '/site-assets/bscn-club-bright.webp'),
-            $this->block('rich_text', 'content', ['eyebrow' => 'Conteúdo', 'title' => 'Primeira secção', 'text' => 'Escreve aqui o conteúdo da nova página.']),
+            $this->block('section', 'content', [
+                'eyebrow' => 'Conteúdo', 'title' => 'Primeira secção', 'intro' => 'Cria subsecções, cards ou liga esta área aos dados da aplicação.',
+                'columns_desktop' => 3, 'columns_tablet' => 2, 'columns_mobile' => 1, 'gap' => 20, 'align_items' => 'stretch',
+                'items' => [$this->sectionItem('card', 'starter-card', ['eyebrow' => 'Destaque', 'title' => 'Novo card', 'text' => 'Edita este conteúdo na lateral direita.'], ['column_span' => 1])],
+            ]),
         ];
     }
 
@@ -245,6 +267,19 @@ class WebsitePageTemplateService
             'type' => $type,
             'is_visible' => true,
             'content' => $content,
+        ];
+    }
+
+    /** @param array<string, mixed> $content @param array<string, mixed> $style */
+    private function sectionItem(string $type, string $key, array $content, array $style = []): array
+    {
+        return [
+            'id' => 'element-'.$key,
+            'type' => $type,
+            'is_visible' => true,
+            'content' => $content,
+            'style' => $style,
+            'settings' => [],
         ];
     }
 }

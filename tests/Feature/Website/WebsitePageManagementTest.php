@@ -212,6 +212,70 @@ class WebsitePageManagementTest extends TestCase
         $this->get('/pagina-teste')->assertNotFound();
     }
 
+    public function test_visual_editor_preserves_nested_elements_and_dynamic_data_configuration(): void
+    {
+        $admin = User::factory()->create(['perfil' => 'admin']);
+        $page = $this->createCustomPage($admin);
+        $payload = $this->pagePayload($page, 'autosave');
+        $payload['blocks'][0]['content'] = [
+            'eyebrow' => 'Atualidade',
+            'title' => 'Notícias e agenda',
+            'intro' => 'Dados públicos do ClubOS.',
+            'columns_desktop' => 6,
+            'columns_tablet' => 2,
+            'columns_mobile' => 1,
+            'gap' => 24,
+            'align_items' => 'start',
+            'items' => [[
+                'id' => 'element-news-feed',
+                'type' => 'data_collection',
+                'is_visible' => true,
+                'content' => [
+                    'source' => 'news',
+                    'limit' => 4,
+                    'layout' => 'grid',
+                    'columns' => 2,
+                    'show_image' => true,
+                    'show_meta' => true,
+                    'show_description' => true,
+                    'show_link' => true,
+                    'link_label' => 'Ler notícia',
+                ],
+                'style' => [
+                    'column_span' => 4,
+                    'tablet_span' => 2,
+                    'mobile_span' => 1,
+                    'heading_font' => 'poppins',
+                    'heading_size' => 28,
+                    'body_font' => 'inter',
+                    'body_size' => 15,
+                    'heading_weight' => 700,
+                    'body_weight' => 400,
+                    'line_height' => 1.7,
+                ],
+                'settings' => [
+                    'animation' => 'slide-up',
+                    'animation_delay' => 150,
+                    'hide_mobile' => false,
+                    'hide_desktop' => false,
+                    'open_link_new_tab' => false,
+                ],
+            ]],
+        ];
+
+        $this->actingAs($admin)
+            ->patchJson("/website/paginas/{$page->id}/autosave", $payload)
+            ->assertOk();
+
+        $block = $page->fresh()->blocks()->firstOrFail();
+        $this->assertSame('section', $block->type);
+        $this->assertSame('news', $block->content['items'][0]['content']['source']);
+        $this->assertSame(4, $block->content['items'][0]['style']['column_span']);
+        $this->assertSame('poppins', $block->content['items'][0]['style']['heading_font']);
+        $this->assertSame('slide-up', $block->content['items'][0]['settings']['animation']);
+        $this->assertSame('news', $page->fresh()->versions()->latest('version')->first()->snapshot['blocks'][0]['content']['items'][0]['content']['source']);
+    }
+
     public function test_old_website_redes_address_redirects_to_independent_website_module(): void
     {
         $admin = User::factory()->create(['perfil' => 'admin']);
@@ -219,7 +283,7 @@ class WebsitePageManagementTest extends TestCase
         $this->actingAs($admin)->get('/website-redes/paginas')->assertRedirect('/website/paginas');
     }
 
-    public function test_media_in_use_cannot_be_deleted(): void
+    public function test_media_used_as_page_background_cannot_be_deleted(): void
     {
         Storage::fake('public');
         $admin = User::factory()->create(['perfil' => 'admin']);
@@ -234,7 +298,8 @@ class WebsitePageManagementTest extends TestCase
         Storage::disk('public')->assertExists($media->path);
 
         $payload = $this->pagePayload($page, 'save_draft');
-        $payload['blocks'][0]['content']['image'] = $media->url;
+        $payload['design_settings']['background_image'] = $media->url;
+        $payload['design_settings']['background_position'] = 'center top';
         $this->actingAs($admin)->patch("/website/paginas/{$page->id}", $payload)->assertRedirect();
 
         $this->actingAs($admin)->delete("/website/media/{$media->id}")
@@ -282,6 +347,8 @@ class WebsitePageManagementTest extends TestCase
                 'body_font' => 'inter',
                 'base_font_size' => 16,
                 'content_width' => 'standard',
+                'background_image' => null,
+                'background_position' => 'center top',
             ],
             'operation' => $operation,
             'scheduled_for' => null,
