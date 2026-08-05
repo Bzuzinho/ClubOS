@@ -42,7 +42,7 @@
     @endif
 
     <p style="margin-top: 24px;">
-        <a href="{{ url('/website-redes/pedidos/'.$submission->id) }}" style="background: #0b4b8c; color: #ffffff; padding: 10px 16px; border-radius: 7px; text-decoration: none;">Abrir pedido no ClubOS</a>
+        <a href="{{ url('/website/pedidos/'.$submission->id) }}" style="background: #0b4b8c; color: #ffffff; padding: 10px 16px; border-radius: 7px; text-decoration: none;">Abrir pedido no ClubOS</a>
     </p>
 </body>
 </html>

@@ -30,12 +30,16 @@ class WebsitePageBlock extends Model
         'sort_order',
         'is_visible',
         'content',
+        'style',
+        'settings',
     ];
 
     protected $casts = [
         'sort_order' => 'integer',
         'is_visible' => 'boolean',
         'content' => 'array',
+        'style' => 'array',
+        'settings' => 'array',
     ];
 
     public function page(): BelongsTo

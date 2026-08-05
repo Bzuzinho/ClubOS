@@ -17,7 +17,7 @@ final class AccessControlCatalog
             ['key' => 'patrocinios', 'label' => 'Patrocínios', 'route' => '/patrocinios'],
             ['key' => 'comunicacao', 'label' => 'Comunicação', 'route' => '/comunicacao'],
             ['key' => 'marketing', 'label' => 'Marketing', 'route' => '/campanhas-marketing'],
-            ['key' => 'website_redes', 'label' => 'Website & Redes', 'route' => '/website-redes'],
+            ['key' => 'website', 'label' => 'Website', 'route' => '/website'],
             ['key' => 'configuracoes', 'label' => 'Configurações', 'route' => '/configuracoes'],
         ];
     }
@@ -105,12 +105,12 @@ final class AccessControlCatalog
                 ],
             ],
             [
-                'module_key' => 'website_redes',
-                'module_label' => 'Website & Redes',
+                'module_key' => 'website',
+                'module_label' => 'Website',
                 'base_pages' => [
-                    ['key' => 'website_redes_dashboard', 'label' => 'Visão geral', 'route' => '/website-redes'],
-                    ['key' => 'website_redes_pedidos', 'label' => 'Pedidos', 'route' => '/website-redes?tab=pedidos'],
-                    ['key' => 'website_redes_paginas', 'label' => 'Páginas', 'route' => '/website-redes/paginas'],
+                    ['key' => 'website_dashboard', 'label' => 'Visão geral', 'route' => '/website'],
+                    ['key' => 'website_pedidos', 'label' => 'Pedidos', 'route' => '/website?tab=pedidos'],
+                    ['key' => 'website_paginas', 'label' => 'Páginas', 'route' => '/website/paginas'],
                 ],
             ],
             [
@@ -251,16 +251,16 @@ final class AccessControlCatalog
                 ],
             ],
             [
-                'key' => 'website_redes',
-                'label' => 'Website & Redes',
+                'key' => 'website',
+                'label' => 'Website',
                 'node_type' => 'module',
-                'module_key' => 'website_redes',
+                'module_key' => 'website',
                 'children' => [
-                    ['key' => 'website_redes.dashboard', 'label' => 'Visão geral', 'node_type' => 'submodule', 'module_key' => 'website_redes', 'children' => []],
-                    ['key' => 'website_redes.pedidos', 'label' => 'Pedidos', 'node_type' => 'submodule', 'module_key' => 'website_redes', 'children' => []],
-                    ['key' => 'website_redes.paginas', 'label' => 'Páginas', 'node_type' => 'submodule', 'module_key' => 'website_redes', 'children' => []],
-                    ['key' => 'website_redes.publicacoes', 'label' => 'Notícias e redes sociais', 'node_type' => 'submodule', 'module_key' => 'website_redes', 'children' => []],
-                    ['key' => 'website_redes.integracoes', 'label' => 'Integrações', 'node_type' => 'submodule', 'module_key' => 'website_redes', 'children' => []],
+                    ['key' => 'website.dashboard', 'label' => 'Visão geral', 'node_type' => 'submodule', 'module_key' => 'website', 'children' => []],
+                    ['key' => 'website.pedidos', 'label' => 'Pedidos', 'node_type' => 'submodule', 'module_key' => 'website', 'children' => []],
+                    ['key' => 'website.paginas', 'label' => 'Páginas', 'node_type' => 'submodule', 'module_key' => 'website', 'children' => []],
+                    ['key' => 'website.noticias', 'label' => 'Notícias do website', 'node_type' => 'submodule', 'module_key' => 'website', 'children' => []],
+                    ['key' => 'website.integracoes', 'label' => 'Integrações do website', 'node_type' => 'submodule', 'module_key' => 'website', 'children' => []],
                 ],
             ],
             [

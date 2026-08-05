@@ -11,6 +11,7 @@ use App\Services\Website\WebsiteMediaService;
 use App\Services\Website\WebsitePageService;
 use App\Services\Website\WebsitePublicDataService;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -33,7 +34,7 @@ class WebsitePageController extends Controller
             ->get()
             ->map(fn (WebsitePage $page): array => $this->summaryPayload($page));
 
-        return Inertia::render('WebsiteRedes/Pages/Index', [
+        return Inertia::render('Website/Pages/Index', [
             'pages' => $pages,
             'summary' => [
                 'total' => $pages->count(),
@@ -48,7 +49,7 @@ class WebsitePageController extends Controller
     {
         $page = $this->pages->create($request->validated(), $request->user());
 
-        return redirect()->route('website-redes.pages.edit', $page)
+        return redirect()->route('website.pages.edit', $page)
             ->with('success', 'Página criada em rascunho.');
     }
 
@@ -58,7 +59,7 @@ class WebsitePageController extends Controller
         $media = WebsiteMedia::query()->latest()->limit(100)->get();
         $usage = $this->mediaService->usageMap($media);
 
-        return Inertia::render('WebsiteRedes/Pages/Edit', [
+        return Inertia::render('Website/Pages/Edit', [
             'page' => $this->editorPayload($page),
             'media' => $media->map(fn (WebsiteMedia $item): array => $this->mediaPayload($item, $usage->get($item->id, false))),
             'blockTypes' => [
@@ -73,6 +74,8 @@ class WebsitePageController extends Controller
                 ['value' => 'contact_form', 'label' => 'Formulário de contacto'],
                 ['value' => 'registration_form', 'label' => 'Formulário de inscrição'],
             ],
+            'news' => $this->publicData->news(30),
+            'events' => $this->publicData->events(60),
         ]);
     }
 
@@ -95,6 +98,23 @@ class WebsitePageController extends Controller
         };
 
         return back()->with('success', $message);
+    }
+
+    public function autosave(WebsitePageDataRequest $request, WebsitePage $page): JsonResponse
+    {
+        $saved = $this->pages->save($page, $request->validated(), $request->user());
+        $latestVersion = $saved->versions->first();
+
+        return response()->json([
+            'saved_at' => now()->toISOString(),
+            'version' => $latestVersion ? [
+                'id' => $latestVersion->id,
+                'version' => $latestVersion->version,
+                'action' => $latestVersion->action,
+                'created_at' => $latestVersion->created_at?->toISOString(),
+                'created_by' => $latestVersion->creator?->name,
+            ] : null,
+        ]);
     }
 
     public function preview(WebsitePage $page): Response
@@ -121,7 +141,7 @@ class WebsitePageController extends Controller
     {
         $this->pages->delete($page);
 
-        return redirect()->route('website-redes.pages.index')->with('success', 'Página eliminada.');
+        return redirect()->route('website.pages.index')->with('success', 'Página eliminada.');
     }
 
     /** @return array<string, mixed> */
@@ -140,7 +160,7 @@ class WebsitePageController extends Controller
             'published_at' => $page->published_at?->toISOString(),
             'scheduled_for' => $page->scheduled_for?->toISOString(),
             'public_url' => $page->publicPath(),
-            'edit_url' => route('website-redes.pages.edit', $page),
+            'edit_url' => route('website.pages.edit', $page),
         ];
     }
 
@@ -151,6 +171,7 @@ class WebsitePageController extends Controller
             ...$this->summaryPayload($page->loadCount('blocks')),
             'meta_title' => $page->meta_title,
             'meta_description' => $page->meta_description,
+            'design_settings' => $page->design_settings ?? [],
             'has_published_version' => $page->published_snapshot !== null,
             'blocks' => $page->blocks->map(fn ($block): array => [
                 'id' => $block->id,
@@ -158,6 +179,8 @@ class WebsitePageController extends Controller
                 'type' => $block->type,
                 'is_visible' => (bool) $block->is_visible,
                 'content' => $block->content,
+                'style' => $block->style ?? [],
+                'settings' => $block->settings ?? [],
             ])->values(),
             'versions' => $page->versions->take(20)->map(fn (WebsitePageVersion $version): array => [
                 'id' => $version->id,

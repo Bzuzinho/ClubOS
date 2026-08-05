@@ -36,7 +36,7 @@ class PublicFormWorkflowTest extends TestCase
         $this->assertNotNull($submission->fresh()->email_queued_at);
         $this->assertDatabaseHas('in_app_alerts', [
             'user_id' => $admin->id,
-            'link' => '/website-redes/pedidos/'.$submission->id,
+            'link' => '/website/pedidos/'.$submission->id,
             'is_read' => false,
         ]);
         $this->assertNotNull($submission->fresh()->admin_notified_at);
@@ -134,22 +134,22 @@ class PublicFormWorkflowTest extends TestCase
         $this->post('/junta-te', $this->contactPayload())->assertRedirect();
         $submission = PublicFormSubmission::query()->sole();
 
-        $this->actingAs($admin)->get('/website-redes')
+        $this->actingAs($admin)->get('/website')
             ->assertOk()
             ->assertInertia(fn (Assert $page) => $page
-                ->component('WebsiteRedes/Index')
+                ->component('Website/Index')
                 ->where('summary.new', 1)
                 ->where('submissions.data.0.id', $submission->id)
             );
 
-        $this->actingAs($admin)->get('/website-redes/pedidos/'.$submission->id)
+        $this->actingAs($admin)->get('/website/pedidos/'.$submission->id)
             ->assertOk()
             ->assertInertia(fn (Assert $page) => $page
-                ->component('WebsiteRedes/Index')
+                ->component('Website/Index')
                 ->where('selectedSubmission.id', $submission->id)
             );
 
-        $this->actingAs($admin)->patch('/website-redes/pedidos/'.$submission->id.'/estado', [
+        $this->actingAs($admin)->patch('/website/pedidos/'.$submission->id.'/estado', [
             'status' => 'contacted',
         ])->assertRedirect();
 
