@@ -35,7 +35,7 @@ class InAppNotificationPreferenceTest extends TestCase
             'automacoes_alertas_operacionais' => true,
         ]);
 
-        $this->post('/junta-te', $this->contactPayload())->assertRedirect('/junta-te');
+        $this->from('/junta-te')->post('/junta-te', $this->contactPayload())->assertRedirect('/junta-te');
 
         $submission = PublicFormSubmission::query()->sole();
 
@@ -65,7 +65,7 @@ class InAppNotificationPreferenceTest extends TestCase
             'automacoes_alertas_operacionais' => true,
         ]);
 
-        $this->post('/junta-te', $this->contactPayload())->assertRedirect('/junta-te');
+        $this->from('/junta-te')->post('/junta-te', $this->contactPayload())->assertRedirect('/junta-te');
 
         $submission = PublicFormSubmission::query()->sole();
 
@@ -95,7 +95,7 @@ class InAppNotificationPreferenceTest extends TestCase
             'automacoes_alertas_operacionais' => true,
         ]);
 
-        $this->post('/junta-te', $this->contactPayload())->assertRedirect('/junta-te');
+        $this->from('/junta-te')->post('/junta-te', $this->contactPayload())->assertRedirect('/junta-te');
 
         $submission = PublicFormSubmission::query()->sole();
 
