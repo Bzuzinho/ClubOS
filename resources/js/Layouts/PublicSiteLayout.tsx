@@ -1,9 +1,9 @@
 import '../../css/public-site.css';
 
-import { Head, Link } from '@inertiajs/react';
+import { Head, Link, usePage } from '@inertiajs/react';
 import { PropsWithChildren, ReactNode } from 'react';
 
-const links = [
+const defaultLinks = [
     ['O clube', '/clube'],
     ['Natação', '/competicao'],
     ['Treinos', '/treinos'],
@@ -14,6 +14,11 @@ const links = [
 ];
 
 export function PublicHeader() {
+    const { publicNavigation } = usePage<{ publicNavigation?: Array<{ label: string; href: string }> }>().props;
+    const links = publicNavigation?.length
+        ? publicNavigation.map((item) => [item.label, item.href])
+        : defaultLinks;
+
     return (
         <>
             <div className="utility-bar">
@@ -74,7 +79,7 @@ export function PageHero({
     eyebrow: string;
     title: ReactNode;
     text: string;
-    image: string;
+    image?: string;
     imagePosition?: string;
 }) {
     return (
@@ -85,7 +90,7 @@ export function PageHero({
                     <h1>{title}</h1>
                     <p>{text}</p>
                 </div>
-                <div className="page-hero-image" style={{ backgroundImage: `url('${image}')`, backgroundPosition: imagePosition }} role="img" aria-label="Ambiente de natação do BSCN" />
+                <div className="page-hero-image" style={{ backgroundImage: image ? `url('${image}')` : undefined, backgroundPosition: imagePosition }} role="img" aria-label="Ambiente de natação do BSCN" />
             </div>
         </section>
     );
