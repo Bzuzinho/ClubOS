@@ -54,6 +54,7 @@ class PublicFormWorkflowTest extends TestCase
         $member = User::query()->findOrFail($submission->user_id);
 
         $this->assertSame('inativo', $member->estado);
+        $this->assertSame('user', $member->perfil);
         $this->assertFalse((bool) $member->ativo_desportivo);
         $this->assertNull($member->numero_socio);
         $this->assertNull($member->email_utilizador);

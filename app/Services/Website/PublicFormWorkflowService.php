@@ -155,7 +155,7 @@ final class PublicFormWorkflowService
             'email' => 'pre-registration+'.Str::uuid().'@bscn.invalid',
             'password' => Hash::make(Str::random(64)),
             'numero_socio' => null,
-            'perfil' => null,
+            'perfil' => 'user',
             'tipo_membro' => [],
             'estado' => 'inativo',
             'menor' => $birthDate->age < 18,
