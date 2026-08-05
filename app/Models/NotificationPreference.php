@@ -43,10 +43,6 @@ class NotificationPreference extends Model
     protected static function booted(): void
     {
         static::saved(function (NotificationPreference $preferences): void {
-            if (app()->runningInConsole()) {
-                return;
-            }
-
             /** @var Request $request */
             $request = request();
 
