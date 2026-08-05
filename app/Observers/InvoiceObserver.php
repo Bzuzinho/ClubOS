@@ -17,7 +17,9 @@ class InvoiceObserver
             app(FiscalDocumentRequestService::class)->syncInvoicePaymentStatus($invoice);
         }
 
-        app(CommunicationAutomationService::class)->triggerInvoiceIssued($invoice);
+        if (! $invoice->oculta) {
+            app(CommunicationAutomationService::class)->triggerInvoiceIssued($invoice);
+        }
     }
 
     public function updating(Invoice $invoice): void
@@ -35,6 +37,10 @@ class InvoiceObserver
     public function updated(Invoice $invoice): void
     {
         $this->forgetDashboardFinanceCaches($invoice);
+
+        if ($invoice->wasChanged('oculta') && ! $invoice->oculta) {
+            app(CommunicationAutomationService::class)->triggerInvoiceIssued($invoice);
+        }
 
         if (! $invoice->wasChanged('estado_pagamento')) {
             return;
