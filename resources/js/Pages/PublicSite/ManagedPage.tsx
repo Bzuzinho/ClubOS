@@ -36,6 +36,13 @@ type BlockStyle = {
     card_radius?: number;
     card_shadow?: 'none' | 'soft' | 'medium' | 'strong';
     card_gap?: number;
+    background_image?: string | null;
+    background_position?: string;
+    heading_font?: 'inherit' | 'inter' | 'poppins' | 'montserrat' | 'georgia' | 'system';
+    body_font?: 'inherit' | 'inter' | 'poppins' | 'montserrat' | 'georgia' | 'system';
+    heading_weight?: number;
+    body_weight?: number;
+    line_height?: number;
 };
 
 type BlockSettings = {
@@ -56,6 +63,61 @@ type PageDesign = {
     body_font?: 'inter' | 'poppins' | 'montserrat' | 'georgia' | 'system';
     base_font_size?: number;
     content_width?: 'compact' | 'standard' | 'wide';
+    background_image?: string | null;
+    background_position?: string;
+};
+
+type SectionItem = {
+    id: string;
+    type: 'subsection' | 'card' | 'text' | 'image' | 'button' | 'data_collection';
+    is_visible?: boolean;
+    content: BlockContent;
+    style?: SectionItemStyle;
+    settings?: SectionItemSettings;
+};
+
+type SectionItemStyle = {
+    background_color?: string | null;
+    text_color?: string | null;
+    heading_color?: string | null;
+    accent_color?: string | null;
+    border_color?: string | null;
+    border_width?: number;
+    border_radius?: number;
+    shadow?: 'none' | 'soft' | 'medium' | 'strong';
+    padding?: number;
+    min_height?: number;
+    text_align?: 'left' | 'center' | 'right';
+    heading_size?: number;
+    body_size?: number;
+    heading_font?: 'inherit' | 'inter' | 'poppins' | 'montserrat' | 'georgia' | 'system';
+    body_font?: 'inherit' | 'inter' | 'poppins' | 'montserrat' | 'georgia' | 'system';
+    heading_weight?: number;
+    body_weight?: number;
+    line_height?: number;
+    column_span?: number;
+    tablet_span?: number;
+    mobile_span?: number;
+    row_span?: number;
+    image_ratio?: 'auto' | '1:1' | '4:3' | '16:9' | '21:9';
+    image_fit?: 'cover' | 'contain';
+};
+
+type SectionItemSettings = {
+    animation?: 'none' | 'fade' | 'slide-up' | 'zoom';
+    animation_delay?: number;
+    hide_mobile?: boolean;
+    hide_desktop?: boolean;
+    open_link_new_tab?: boolean;
+};
+
+type PublicPartner = {
+    id: string;
+    name: string;
+    description?: string | null;
+    logo?: string | null;
+    website?: string | null;
+    type?: string | null;
 };
 
 type ManagedPageData = {
@@ -90,6 +152,12 @@ function strings(value: unknown): string[] {
 function items(value: unknown): CardItem[] {
     return Array.isArray(value)
         ? value.filter((item): item is CardItem => Boolean(item) && typeof item === 'object')
+        : [];
+}
+
+function sectionItems(value: unknown): SectionItem[] {
+    return Array.isArray(value)
+        ? value.filter((item): item is SectionItem => Boolean(item) && typeof item === 'object' && typeof item.id === 'string')
         : [];
 }
 
@@ -236,6 +304,92 @@ function EventsBlock({ content, events }: { content: BlockContent; events: Publi
     );
 }
 
+function DynamicCollection({ content, news, events, partners, newTab }: { content: BlockContent; news: PublicNews[]; events: PublicEvent[]; partners: PublicPartner[]; newTab: boolean }) {
+    const source = text(content.source) || 'news';
+    const limit = Math.min(30, Math.max(1, number(content.limit, 3)));
+    const columns = Math.min(4, Math.max(1, number(content.columns, 3)));
+    const layout = text(content.layout) === 'list' ? 'list' : 'grid';
+    const showImage = content.show_image !== false;
+    const showMeta = content.show_meta !== false;
+    const showDescription = content.show_description !== false;
+    const showLink = content.show_link !== false;
+    const linkLabel = text(content.link_label) || 'Saber mais';
+    const records = source === 'events'
+        ? events.slice(0, limit).map((event) => {
+            const date = eventDateParts(event.startDate);
+            return { id: event.id, image: null, meta: `${date.day} ${date.month} ${date.year} · ${event.type}`, title: event.title, description: [event.place, event.startTime].filter(Boolean).join(' · ') || event.description || '', href: '/calendario' };
+        })
+        : source === 'partners'
+            ? partners.slice(0, limit).map((partner) => ({ id: partner.id, image: partner.logo || null, meta: partner.type, title: partner.name, description: partner.description || '', href: partner.website || '/parceiros' }))
+            : news.slice(0, limit).map((story) => ({ id: story.id, image: story.image || '/site-assets/bscn-news-bright.webp', meta: [newsDate(story.publishedAt), story.category].filter(Boolean).join(' · '), title: story.title, description: story.excerpt, href: '/noticias' }));
+
+    return <div className={`cms-data-collection cms-data-${layout}`} style={{ '--cms-data-columns': columns } as CSSProperties}>
+        {records.map((record) => <article key={record.id}>{showImage && record.image && <div className="cms-data-image"><img src={record.image} alt="" /></div>}<div className="cms-data-copy">{showMeta && record.meta && <p className="cms-data-meta">{record.meta}</p>}<h3>{record.title}</h3>{showDescription && record.description && <p>{record.description}</p>}{showLink && <SmartLink href={record.href} newTab={newTab}>{linkLabel} <span aria-hidden="true">↗</span></SmartLink>}</div></article>)}
+        {records.length === 0 && <div className="cms-empty">Ainda não existem dados públicos nesta origem.</div>}
+    </div>;
+}
+
+function sectionItemVariables(style: SectionItemStyle = {}, type: SectionItem['type'] = 'subsection'): CSSProperties {
+    const card = type === 'card';
+    return {
+        '--cms-item-background': style.background_color || (card ? 'var(--cms-card-background)' : 'transparent'),
+        '--cms-item-text': style.text_color || 'var(--cms-block-text)',
+        '--cms-item-heading': style.heading_color || 'var(--cms-block-heading)',
+        '--cms-item-accent': style.accent_color || 'var(--cms-block-accent)',
+        '--cms-item-border': style.border_color || (card ? 'var(--cms-card-border)' : 'transparent'),
+        '--cms-item-border-width': `${style.border_width ?? (card ? 2 : 0)}px`,
+        '--cms-item-radius': style.border_radius === undefined ? (card ? 'var(--cms-card-radius)' : '0px') : `${style.border_radius}px`,
+        '--cms-item-shadow': style.shadow === undefined ? (card ? 'var(--cms-card-shadow)' : 'none') : shadowValue(style.shadow),
+        '--cms-item-padding': `${style.padding ?? (card ? 24 : 0)}px`,
+        '--cms-item-min-height': `${style.min_height ?? 0}px`,
+        '--cms-item-heading-size': `${style.heading_size ?? 22}px`,
+        '--cms-item-body-size': `${style.body_size ?? 14}px`,
+        '--cms-item-heading-font': style.heading_font && style.heading_font !== 'inherit' ? fontFamily(style.heading_font) : 'var(--cms-block-heading-font)',
+        '--cms-item-body-font': style.body_font && style.body_font !== 'inherit' ? fontFamily(style.body_font) : 'var(--cms-block-body-font)',
+        '--cms-item-heading-weight': style.heading_weight ?? 600,
+        '--cms-item-body-weight': style.body_weight ?? 400,
+        '--cms-item-line-height': style.line_height ?? 1.6,
+        '--cms-item-span-desktop': Math.max(1, style.column_span ?? 1),
+        '--cms-item-span-tablet': Math.max(1, style.tablet_span ?? 1),
+        '--cms-item-span-mobile': Math.max(1, style.mobile_span ?? 1),
+        '--cms-item-row-span': Math.max(1, style.row_span ?? 1),
+        textAlign: style.text_align || 'left',
+    } as CSSProperties;
+}
+
+function RenderSectionItem({ item, blockKey, news, events, partners, editor, selected }: { item: SectionItem; blockKey: string; news: PublicNews[]; events: PublicEvent[]; partners: PublicPartner[]; editor?: (key: string, itemId?: string) => void; selected?: boolean }) {
+    if (item.is_visible === false) return null;
+    const content = item.content || {};
+    const style = item.style || {};
+    const settings = item.settings || {};
+    const image = text(content.image);
+    const classes = ['cms-section-item', `cms-section-${item.type}`, settings.animation && settings.animation !== 'none' ? `cms-motion-${settings.animation}` : '', settings.hide_mobile ? 'cms-hide-mobile' : '', settings.hide_desktop ? 'cms-hide-desktop' : '', editor ? 'cms-editor-node' : '', selected ? 'is-selected' : ''].filter(Boolean).join(' ');
+    let body: ReactNode;
+    if (item.type === 'image') {
+        body = image ? <SmartLink href={content.url} newTab={Boolean(settings.open_link_new_tab)}><img src={image} alt={text(content.image_alt)} /></SmartLink> : <div className="cms-item-placeholder">Escolhe uma imagem</div>;
+    } else if (item.type === 'button') {
+        body = <SmartLink className="button" href={content.url} newTab={Boolean(settings.open_link_new_tab)}>{text(content.label) || 'Saber mais'}</SmartLink>;
+    } else if (item.type === 'data_collection') {
+        body = <DynamicCollection content={content} news={news} events={events} partners={partners} newTab={Boolean(settings.open_link_new_tab)} />;
+    } else {
+        body = <>{text(content.eyebrow) && <p className="eyebrow">{text(content.eyebrow)}</p>}{image && <div className="cms-item-image"><img src={image} alt={text(content.image_alt)} /></div>}{text(content.title) && <h3>{text(content.title)}</h3>}{text(content.text) && <div className="cms-item-copy">{text(content.text).split(/\n{2,}/).filter(Boolean).map((paragraph, index) => <p key={index}>{paragraph}</p>)}</div>}{text(content.button_label) && <SmartLink className="text-link" href={content.url} newTab={Boolean(settings.open_link_new_tab)}>{text(content.button_label)} <span aria-hidden="true">↗</span></SmartLink>}</>;
+    }
+    const ratio = style.image_ratio && style.image_ratio !== 'auto' ? style.image_ratio.replace(':', ' / ') : undefined;
+    return <div className={classes} style={{ ...sectionItemVariables(style, item.type), animationDelay: `${settings.animation_delay ?? 0}ms`, '--cms-item-image-ratio': ratio || 'auto', '--cms-item-image-fit': style.image_fit || 'cover' } as CSSProperties} onClickCapture={editor ? (event) => { event.preventDefault(); event.stopPropagation(); editor(blockKey, item.id); } : undefined}>{body}</div>;
+}
+
+function SectionBlock({ block, news, events, partners, editor, selectedItemId }: { block: ManagedBlock; news: PublicNews[]; events: PublicEvent[]; partners: PublicPartner[]; editor?: (key: string, itemId?: string) => void; selectedItemId?: string | null }) {
+    const content = block.content;
+    const layout = {
+        '--cms-section-columns': Math.min(6, Math.max(1, number(content.columns_desktop, 3))),
+        '--cms-section-columns-tablet': Math.min(4, Math.max(1, number(content.columns_tablet, 2))),
+        '--cms-section-columns-mobile': Math.min(2, Math.max(1, number(content.columns_mobile, 1))),
+        '--cms-section-gap': `${Math.min(80, Math.max(0, number(content.gap, 20)))}px`,
+        '--cms-section-align': text(content.align_items) || 'stretch',
+    } as CSSProperties;
+    return <section className="cms-builder-section shell"><SectionHeading content={content} /><div className="cms-section-layout" style={layout}>{sectionItems(content.items).map((item) => <RenderSectionItem key={item.id} item={item} blockKey={block.block_key} news={news} events={events} partners={partners} editor={editor} selected={selectedItemId === item.id} />)}</div></section>;
+}
+
 function FormBlock({ content, registration }: { content: BlockContent; registration: boolean }) {
     const steps = strings(content.steps);
     return (
@@ -263,7 +417,7 @@ function fontFamily(value?: string): string {
 
 function blockSpacing(type: string): [number, number] {
     if (type === 'hero') return [18, 0];
-    if (['rich_text', 'cards', 'news_feed', 'events_feed'].includes(type)) return [68, 72];
+    if (['section', 'rich_text', 'cards', 'news_feed', 'events_feed'].includes(type)) return [68, 72];
     if (type === 'stats') return [0, 0];
     if (type === 'cta') return [66, 78];
     if (type === 'contact_form') return [75, 90];
@@ -289,11 +443,19 @@ function blockVariables(style: BlockStyle = {}, type = ''): CSSProperties {
         '--cms-card-radius': `${style.card_radius ?? 15}px`,
         '--cms-card-shadow': shadowValue(style.card_shadow || 'soft'),
         '--cms-card-gap': `${style.card_gap ?? 14}px`,
+        '--cms-block-heading-font': style.heading_font && style.heading_font !== 'inherit' ? fontFamily(style.heading_font) : 'var(--cms-heading-font)',
+        '--cms-block-body-font': style.body_font && style.body_font !== 'inherit' ? fontFamily(style.body_font) : 'var(--cms-body-font)',
+        '--cms-block-heading-weight': style.heading_weight ?? 600,
+        '--cms-block-body-weight': style.body_weight ?? 400,
+        '--cms-block-line-height': style.line_height ?? 1.6,
         textAlign: style.text_align || 'left',
+        backgroundImage: style.background_image ? `url('${style.background_image}')` : undefined,
+        backgroundPosition: style.background_position || 'center',
+        backgroundSize: style.background_image ? 'cover' : undefined,
     } as CSSProperties;
 }
 
-function RenderBlock({ block, news, events, editor, selected }: { block: ManagedBlock; news: PublicNews[]; events: PublicEvent[]; editor?: (key: string) => void; selected?: boolean }) {
+function RenderBlock({ block, news, events, partners, editor, selected, selectedItemId }: { block: ManagedBlock; news: PublicNews[]; events: PublicEvent[]; partners: PublicPartner[]; editor?: (key: string, itemId?: string) => void; selected?: boolean; selectedItemId?: string | null }) {
     if (!block.is_visible) return null;
 
     const settings = block.settings || {};
@@ -306,6 +468,7 @@ function RenderBlock({ block, news, events, editor, selected }: { block: Managed
         settings.hide_mobile ? 'cms-hide-mobile' : '',
         settings.hide_desktop ? 'cms-hide-desktop' : '',
         editor ? 'cms-editor-block' : '',
+        editor && block.type !== 'section' ? 'cms-editor-simple' : '',
         selected ? 'is-selected' : '',
     ].filter(Boolean).join(' ');
 
@@ -313,6 +476,7 @@ function RenderBlock({ block, news, events, editor, selected }: { block: Managed
 
     switch (block.type) {
         case 'hero': content = <HeroBlock content={block.content} newTab={newTab} />; break;
+        case 'section': content = <SectionBlock block={block} news={news} events={events} partners={partners} editor={editor} selectedItemId={selectedItemId} />; break;
         case 'rich_text': content = <RichTextBlock content={block.content} />; break;
         case 'cards': content = <CardsBlock content={block.content} newTab={newTab} />; break;
         case 'image_text': content = <ImageTextBlock content={block.content} newTab={newTab} />; break;
@@ -334,7 +498,7 @@ function RenderBlock({ block, news, events, editor, selected }: { block: Managed
             id={settings.anchor_id || undefined}
             className={classes}
             style={{ ...blockVariables(style, block.type), animationDelay: `${settings.animation_delay ?? 0}ms` }}
-            onClickCapture={editor ? (event) => { event.preventDefault(); event.stopPropagation(); editor(block.block_key); } : undefined}
+            onClick={editor ? (event) => { event.preventDefault(); event.stopPropagation(); editor(block.block_key); } : undefined}
         >
             {content}
         </div>
@@ -350,27 +514,30 @@ function pageVariables(design: PageDesign = {}): CSSProperties {
         '--cms-heading-font': fontFamily(design.heading_font),
         '--cms-body-font': fontFamily(design.body_font),
         '--cms-base-font-size': `${design.base_font_size ?? 16}px`,
+        backgroundImage: design.background_image ? `url('${design.background_image}')` : undefined,
+        backgroundPosition: design.background_position || 'center top',
+        backgroundSize: design.background_image ? 'cover' : undefined,
     } as CSSProperties;
 }
 
-export function ManagedPageCanvas({ page, news = [], events = [], preview = false, editor, selectedBlockKey, chrome = true }: { page: ManagedPageData; news?: PublicNews[]; events?: PublicEvent[]; preview?: boolean; editor?: (key: string) => void; selectedBlockKey?: string | null; chrome?: boolean }) {
+export function ManagedPageCanvas({ page, news = [], events = [], partners = [], preview = false, editor, selectedBlockKey, selectedItemId, chrome = true }: { page: ManagedPageData; news?: PublicNews[]; events?: PublicEvent[]; partners?: PublicPartner[]; preview?: boolean; editor?: (key: string, itemId?: string) => void; selectedBlockKey?: string | null; selectedItemId?: string | null; chrome?: boolean }) {
     const widthClass = `cms-page-width-${page.design_settings?.content_width || 'standard'}`;
 
     return (
         <div className={`public-site cms-managed-page ${widthClass} ${editor ? 'cms-editor-canvas' : ''}`} style={pageVariables(page.design_settings)}>
             {chrome && <PublicHeader />}
             {preview && <div className="cms-preview-banner">Pré-visualização do rascunho · o website público ainda não foi alterado</div>}
-            {page.blocks.map((block) => <RenderBlock key={block.id || block.block_key} block={block} news={news} events={events} editor={editor} selected={selectedBlockKey === block.block_key} />)}
+            {page.blocks.map((block) => <RenderBlock key={block.id || block.block_key} block={block} news={news} events={events} partners={partners} editor={editor} selected={selectedBlockKey === block.block_key} selectedItemId={selectedBlockKey === block.block_key ? selectedItemId : null} />)}
             {page.blocks.length === 0 && <section className="cms-empty-page shell"><h1>{page.title}</h1><p>Esta página ainda não tem blocos visíveis.</p></section>}
             {chrome && <PublicFooter />}
         </div>
     );
 }
 
-export default function ManagedPage({ page, news = [], events = [], preview = false }: { page: ManagedPageData; news?: PublicNews[]; events?: PublicEvent[]; preview?: boolean }) {
+export default function ManagedPage({ page, news = [], events = [], partners = [], preview = false }: { page: ManagedPageData; news?: PublicNews[]; events?: PublicEvent[]; partners?: PublicPartner[]; preview?: boolean }) {
     return (
         <PublicPage title={page.meta_title || page.title} description={page.meta_description || page.title}>
-            <ManagedPageCanvas page={page} news={news} events={events} preview={preview} chrome={false} />
+            <ManagedPageCanvas page={page} news={news} events={events} partners={partners} preview={preview} chrome={false} />
         </PublicPage>
     );
 }

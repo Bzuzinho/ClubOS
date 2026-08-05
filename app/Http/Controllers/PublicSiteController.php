@@ -99,6 +99,7 @@ class PublicSiteController extends Controller
             'page' => $snapshot,
             'news' => $this->publicData->news(30),
             'events' => $this->publicData->events(60),
+            'partners' => $this->publicData->partners(60),
             'publicNavigation' => $this->pages->navigation(),
             'preview' => false,
         ]);

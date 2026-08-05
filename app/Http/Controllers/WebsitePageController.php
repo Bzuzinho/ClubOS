@@ -64,6 +64,7 @@ class WebsitePageController extends Controller
             'media' => $media->map(fn (WebsiteMedia $item): array => $this->mediaPayload($item, $usage->get($item->id, false))),
             'blockTypes' => [
                 ['value' => 'hero', 'label' => 'Hero'],
+                ['value' => 'section', 'label' => 'Secção avançada'],
                 ['value' => 'rich_text', 'label' => 'Texto'],
                 ['value' => 'cards', 'label' => 'Cards'],
                 ['value' => 'image_text', 'label' => 'Imagem + texto'],
@@ -76,6 +77,7 @@ class WebsitePageController extends Controller
             ],
             'news' => $this->publicData->news(30),
             'events' => $this->publicData->events(60),
+            'partners' => $this->publicData->partners(60),
         ]);
     }
 
@@ -125,6 +127,7 @@ class WebsitePageController extends Controller
             'page' => $snapshot,
             'news' => $this->publicData->news(30),
             'events' => $this->publicData->events(60),
+            'partners' => $this->publicData->partners(60),
             'publicNavigation' => $this->pages->navigation(),
             'preview' => true,
         ]);
