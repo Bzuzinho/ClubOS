@@ -744,7 +744,7 @@ Route::middleware('auth')->group(function () {
 
 require __DIR__.'/auth.php';
 
-// Public custom pages must remain the final route so application and auth routes win first.
-Route::get('/{page}', [PublicSiteController::class, 'custom'])
-    ->where('page', '[a-z0-9]+(?:-[a-z0-9]+)*')
+// Custom public pages are a true fallback so named application routes always win,
+// including when Laravel compiles and caches the route collection.
+Route::fallback([PublicSiteController::class, 'custom'])
     ->name('public.custom-page');

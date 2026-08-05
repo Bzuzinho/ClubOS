@@ -80,6 +80,19 @@ class WebsitePageManagementTest extends TestCase
             );
     }
 
+    public function test_custom_page_fallback_never_shadows_existing_single_segment_routes(): void
+    {
+        $admin = User::factory()->create(['perfil' => 'admin']);
+
+        $this->get('/clube')
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page->component('PublicSite/Clube'));
+
+        $this->actingAs($admin)->get('/dashboard')->assertOk();
+        $this->actingAs($admin)->get('/membros')->assertOk();
+        $this->actingAs($admin)->get('/financeiro')->assertOk();
+    }
+
     public function test_scheduled_version_does_not_replace_live_snapshot_before_its_date(): void
     {
         $admin = User::factory()->create(['perfil' => 'admin']);

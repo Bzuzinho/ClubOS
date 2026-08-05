@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\WebsitePage;
 use App\Services\Website\WebsitePageService;
 use App\Services\Website\WebsitePublicDataService;
+use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -74,8 +75,16 @@ class PublicSiteController extends Controller
         ]);
     }
 
-    public function custom(string $page): Response
+    public function custom(Request $request): Response
     {
+        $page = trim($request->path(), '/');
+
+        abort_unless(
+            in_array(strtoupper($request->method()), ['GET', 'HEAD'], true)
+                && preg_match('/\A[a-z0-9]+(?:-[a-z0-9]+)*\z/', $page) === 1,
+            404,
+        );
+
         $managed = WebsitePage::query()->where('slug', $page)->firstOrFail();
         $snapshot = $this->pages->publicSnapshot($managed);
         abort_unless($snapshot !== null, 404);
