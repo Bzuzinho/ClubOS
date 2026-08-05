@@ -46,6 +46,7 @@ use App\Http\Controllers\PortalTrainingController;
 use App\Http\Controllers\PortalEventController;
 use App\Http\Controllers\PublicFormSubmissionController;
 use App\Http\Controllers\PublicSiteController;
+use App\Http\Controllers\WebsiteRedesController;
 use App\Http\Controllers\MembrosEquipaController;
 use App\Http\Controllers\SessoesFormacaoController;
 use App\Http\Controllers\ConvocatoriasController;
@@ -106,6 +107,20 @@ Route::middleware(['auth', 'verified'])->group(function () {
     // before the controller can render the personal dashboard.
     Route::get('/dashboard', [DashboardController::class, 'index'])
         ->name('dashboard');
+
+    Route::prefix('website-redes')
+        ->middleware('module.access:website_redes')
+        ->group(function () {
+            Route::get('/', [WebsiteRedesController::class, 'index'])
+                ->middleware('permission.access:website_redes.dashboard,view')
+                ->name('website-redes.index');
+            Route::get('/pedidos/{submission}', [WebsiteRedesController::class, 'show'])
+                ->middleware('permission.access:website_redes.pedidos,view')
+                ->name('website-redes.submissions.show');
+            Route::patch('/pedidos/{submission}/estado', [WebsiteRedesController::class, 'updateStatus'])
+                ->middleware('permission.access:website_redes.pedidos,edit')
+                ->name('website-redes.submissions.status');
+        });
 
     Route::get('/portal/perfil', [PortalProfileController::class, 'show'])
         ->name('portal.profile');

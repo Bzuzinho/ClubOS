@@ -161,6 +161,7 @@ MAIL_PASSWORD=your_password
 MAIL_ENCRYPTION=tls
 MAIL_FROM_ADDRESS=noreply@yourdomain.com
 MAIL_FROM_NAME="${APP_NAME}"
+WEBSITE_SUBMISSIONS_RECIPIENT=beneditasportclubnatacao@gmail.com
 ```
 
 Para sincronizar estas variáveis para a VM usando o deploy automatizado:

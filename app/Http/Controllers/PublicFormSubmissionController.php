@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\PublicFormSubmission;
+use App\Services\Website\PublicFormWorkflowService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -11,6 +11,10 @@ use Illuminate\Validation\Validator as LaravelValidator;
 
 class PublicFormSubmissionController extends Controller
 {
+    public function __construct(private readonly PublicFormWorkflowService $workflowService)
+    {
+    }
+
     public function contact(Request $request): RedirectResponse
     {
         if ($this->isSpam($request)) {
@@ -34,7 +38,7 @@ class PublicFormSubmissionController extends Controller
         $this->requireGuardianForMinor($validator, $request, ['guardianName', 'guardianEmail']);
         $data = $validator->validate();
 
-        $this->store('contact', $data, $request);
+        $this->workflowService->submitContact($data, $this->requestMetadata($request));
 
         return back()->with('success', 'Pedido de contacto enviado. A equipa do BSCN entrará em contacto contigo.');
     }
@@ -74,7 +78,7 @@ class PublicFormSubmissionController extends Controller
         ]);
         $data = $validator->validate();
 
-        $this->store('registration', $data, $request);
+        $this->workflowService->submitRegistration($data, $this->requestMetadata($request));
 
         return back()->with('success', 'Registo submetido. A equipa do BSCN irá validar os dados e indicar os próximos passos.');
     }
@@ -101,40 +105,13 @@ class PublicFormSubmissionController extends Controller
         });
     }
 
-    /** @param array<string, mixed> $data */
-    private function store(string $type, array $data, Request $request): void
+    /** @return array{ip_hash: ?string, user_agent: ?string} */
+    private function requestMetadata(Request $request): array
     {
-        PublicFormSubmission::create([
-            'type' => $type,
-            'athlete_name' => trim((string) $data['athleteName']),
-            'birth_date' => $data['birthDate'],
-            'email' => mb_strtolower(trim((string) $data['email'])),
-            'phone' => trim((string) $data['phone']),
-            'program' => trim((string) $data['program']),
-            'experience' => trim((string) $data['experience']),
-            'locality' => $this->nullable($data, 'locality'),
-            'previous_club' => $this->nullable($data, 'previousClub'),
-            'federation_number' => $this->nullable($data, 'federationNumber'),
-            'availability' => $this->nullable($data, 'availability'),
-            'guardian_name' => $this->nullable($data, 'guardianName'),
-            'guardian_relationship' => $this->nullable($data, 'guardianRelationship'),
-            'guardian_email' => ($email = $this->nullable($data, 'guardianEmail')) ? mb_strtolower($email) : null,
-            'guardian_phone' => $this->nullable($data, 'guardianPhone'),
-            'notes' => $this->nullable($data, 'notes'),
-            'status' => 'new',
-            'privacy_consent_at' => now(),
+        return [
             'ip_hash' => $request->ip() ? hash_hmac('sha256', $request->ip(), (string) config('app.key')) : null,
             'user_agent' => mb_substr((string) $request->userAgent(), 0, 500) ?: null,
-            'payload' => collect($data)->except(['company', 'consent', 'accuracy'])->all(),
-        ]);
-    }
-
-    /** @param array<string, mixed> $data */
-    private function nullable(array $data, string $key): ?string
-    {
-        $value = trim((string) ($data[$key] ?? ''));
-
-        return $value === '' ? null : $value;
+        ];
     }
 
     private function isSpam(Request $request): bool
