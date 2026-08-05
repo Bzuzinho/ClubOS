@@ -5,11 +5,18 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Event;
 use App\Models\EventAttendance;
+use App\Models\User;
+use App\Services\Eventos\EventParticipantEligibilityService;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 
 class EventAttendancesController extends Controller
 {
+    public function __construct(
+        private readonly EventParticipantEligibilityService $participantEligibilityService,
+    ) {
+    }
+
     public function index(Request $request): JsonResponse
     {
         $query = EventAttendance::with(['event', 'user', 'registeredBy']);
@@ -43,6 +50,10 @@ class EventAttendancesController extends Controller
         $validated['registado_em'] = $validated['registado_em'] ?? now();
 
         $this->ensureAttendancesEditable($validated['evento_id']);
+        $this->participantEligibilityService->assertEligible(
+            Event::query()->findOrFail($validated['evento_id']),
+            User::query()->with('athleteSportsData:id,user_id,escalao_id')->findOrFail($validated['user_id'])
+        );
 
         $attendance = EventAttendance::create($validated);
         
@@ -109,6 +120,10 @@ class EventAttendancesController extends Controller
         ]);
 
         $registadoPor = auth()->id() ?? $validated['user_id'];
+        $this->participantEligibilityService->assertEligible(
+            Event::query()->findOrFail($eventId),
+            User::query()->with('athleteSportsData:id,user_id,escalao_id')->findOrFail($validated['user_id'])
+        );
 
         $attendance = EventAttendance::updateOrCreate(
             [
@@ -134,6 +149,10 @@ class EventAttendancesController extends Controller
     public function updateUserProvas(Request $request, string $eventId, string $userId): JsonResponse
     {
         $this->ensureAttendancesEditable($eventId);
+        $this->participantEligibilityService->assertEligible(
+            Event::query()->findOrFail($eventId),
+            User::query()->with('athleteSportsData:id,user_id,escalao_id')->findOrFail($userId)
+        );
 
         $validated = $request->validate([
             'provas' => 'required|array',

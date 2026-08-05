@@ -27,6 +27,7 @@ interface Prova {
 }
 
 interface ConvocationGroup {
+  id?: string;
   evento_id: string;
   evento_titulo: string;
   evento_data: string;
@@ -114,7 +115,9 @@ export function EditConvocatoriaDialog({
   useEffect(() => {
     if (group && open) {
       // Primeiro, tenta carregar do KV store
-      const groupData = convocationGroups.find((g: any) => g.evento_id === group.evento_id);
+      const groupData = convocationGroups.find((g: any) =>
+        group.id ? g.id === group.id : g.evento_id === group.evento_id
+      );
 
       if (groupData) {
         setHoraEncontro(groupData.hora_encontro || '');
@@ -163,13 +166,9 @@ export function EditConvocatoriaDialog({
 
     setIsSubmitting(true);
     try {
-      // Detectar mudanças nos atletas
-      const removedAthletes = initialAthletes.filter(id => !selectedAthletes.includes(id));
-      const addedAthletes = selectedAthletes.filter(id => !initialAthletes.includes(id));
-
       // Atualizar grupo
       const updatedGroups = convocationGroups.map((g: any) => {
-        if (g.evento_id === group.evento_id) {
+        if (group.id ? g.id === group.id : g.evento_id === group.evento_id) {
           return {
             ...g,
             atletas_ids: selectedAthletes,
@@ -182,9 +181,9 @@ export function EditConvocatoriaDialog({
         return g;
       });
 
-      setConvocationGroups(updatedGroups);
+      await setConvocationGroups(updatedGroups);
 
-      const groupId = (convocationGroups.find((g: any) => g.evento_id === group.evento_id)?.id) || null;
+      const groupId = group.id || (convocationGroups.find((g: any) => g.evento_id === group.evento_id)?.id) || null;
 
       if (groupId) {
         const preserved = (convocationAthletes || []).filter((item: any) => item.convocatoria_grupo_id !== groupId);
@@ -197,7 +196,7 @@ export function EditConvocatoriaDialog({
           provas: athleteProvas[athleteId] || [],
           created_at: new Date().toISOString(),
         }));
-        setConvocationAthletes([...preserved, ...updated]);
+        await setConvocationAthletes([...preserved, ...updated]);
       }
 
       toast.success('Convocatória atualizada com sucesso!');
@@ -205,7 +204,11 @@ export function EditConvocatoriaDialog({
       setStep(1);
     } catch (error: any) {
       console.error('Erro ao atualizar convocatória:', error);
-      toast.error(error.response?.data?.message || 'Erro ao atualizar convocatória');
+      const errors = error?.response?.data?.errors;
+      const message = errors && typeof errors === 'object'
+        ? Object.values(errors).flat().find((value) => typeof value === 'string')
+        : error?.response?.data?.message;
+      toast.error(typeof message === 'string' ? message : 'Erro ao atualizar convocatória');
     } finally {
       setIsSubmitting(false);
     }
@@ -219,8 +222,11 @@ export function EditConvocatoriaDialog({
   const availableAthletes = useMemo(() => {
     return (users || []).filter((u: any) => {
       const isActive = u.estado === 'ativo' || u.status === 'ativo';
-      const isAthlete = (u.tipo_membro || []).includes('atleta') || (u.tipo_membro || []).includes('Atleta');
-      return isActive && isAthlete;
+
+      // A lista já vem filtrada pelo resolvedor canónico de atletas no backend.
+      // Não voltar a depender de tipo_membro, que pode estar vazio em registos
+      // migrados mesmo quando user_types identifica corretamente o atleta.
+      return isActive;
     });
   }, [users]);
 

@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { Card } from '@/Components/ui/card';
 import { Badge } from '@/Components/ui/badge';
 import { Button } from '@/Components/ui/button';
+import { Input } from '@/Components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/Components/ui/tabs';
 import {
   Table,
@@ -29,6 +30,7 @@ interface EventosRelatoriosProps {
   results?: any[];
   users?: any[];
   ageGroups?: any[];
+  canViewConvocations?: boolean;
 }
 
 export function EventosRelatorios({
@@ -38,8 +40,11 @@ export function EventosRelatorios({
   results = [],
   users = [],
   ageGroups = [],
+  canViewConvocations = false,
 }: EventosRelatoriosProps) {
   const [activeTab, setActiveTab] = useState('geral');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
 
   const normalizeStatus = (value: unknown): string => String(value ?? '').trim().toLowerCase();
   const sameId = (left: unknown, right: unknown): boolean => String(left ?? '') === String(right ?? '');
@@ -57,36 +62,58 @@ export function EventosRelatorios({
     return labels.join(', ');
   };
 
+  const reportEvents = useMemo(() => events.filter((event: any) => {
+    const eventDate = String(event.data_inicio || '').slice(0, 10);
+    return (!dateFrom || eventDate >= dateFrom) && (!dateTo || eventDate <= dateTo);
+  }), [events, dateFrom, dateTo]);
+
+  const reportEventIds = useMemo(
+    () => new Set(reportEvents.map((event: any) => String(event.id))),
+    [reportEvents]
+  );
+  const reportConvocations = useMemo(
+    () => convocatorias.filter((item: any) => reportEventIds.has(String(item.evento_id))),
+    [convocatorias, reportEventIds]
+  );
+  const reportAttendances = useMemo(
+    () => attendances.filter((item: any) => reportEventIds.has(String(item.evento_id))),
+    [attendances, reportEventIds]
+  );
+  const reportResults = useMemo(
+    () => results.filter((item: any) => reportEventIds.has(String(item.evento_id))),
+    [results, reportEventIds]
+  );
+
   // Relatório Geral
   const relatorioGeral = useMemo(() => {
-    const eventosById = new Map(events.map((event: any) => [String(event.id), event]));
+    const eventosById = new Map(reportEvents.map((event: any) => [String(event.id), event]));
 
-    const totalEventos = events.length;
-    const eventosAgendados = events.filter((e) => normalizeStatus(e.estado) === 'agendado').length;
-    const eventosEmCurso = events.filter((e) => normalizeStatus(e.estado) === 'em_curso').length;
-    const eventosConcluidos = events.filter((e) => normalizeStatus(e.estado) === 'concluido').length;
-    const eventosCancelados = events.filter((e) => normalizeStatus(e.estado) === 'cancelado').length;
+    const totalEventos = reportEvents.length;
+    const eventosAgendados = reportEvents.filter((e) => normalizeStatus(e.estado) === 'agendado').length;
+    const eventosEmCurso = reportEvents.filter((e) => normalizeStatus(e.estado) === 'em_curso').length;
+    const eventosConcluidos = reportEvents.filter((e) => normalizeStatus(e.estado) === 'concluido').length;
+    const eventosCancelados = reportEvents.filter((e) => normalizeStatus(e.estado) === 'cancelado').length;
 
-    const totalConvocatorias = convocatorias.length;
-    const convocatoriasConfirmadas = convocatorias.filter(
+    const totalConvocatorias = reportConvocations.length;
+    const convocatoriasConfirmadas = reportConvocations.filter(
       (c: any) => normalizeStatus(c.estado_confirmacao) === 'confirmado'
     ).length;
-    const convocatoriasPendentes = convocatorias.filter(
+    const convocatoriasPendentes = reportConvocations.filter(
       (c: any) => normalizeStatus(c.estado_confirmacao) === 'pendente'
     ).length;
-    const convocatoriasRecusadas = convocatorias.filter(
+    const convocatoriasRecusadas = reportConvocations.filter(
       (c: any) => normalizeStatus(c.estado_confirmacao) === 'recusado'
     ).length;
 
-    const totalPresencas = attendances.length;
-    const presentes = attendances.filter((a: any) => normalizeStatus(a.estado) === 'presente').length;
-    const ausentes = attendances.filter((a: any) => normalizeStatus(a.estado) === 'ausente').length;
-    const justificados = attendances.filter((a: any) => normalizeStatus(a.estado) === 'justificado').length;
+    const totalPresencas = reportAttendances.length;
+    const presentes = reportAttendances.filter((a: any) => normalizeStatus(a.estado) === 'presente').length;
+    const ausentes = reportAttendances.filter((a: any) => normalizeStatus(a.estado) === 'ausente').length;
+    const justificados = reportAttendances.filter((a: any) => normalizeStatus(a.estado) === 'justificado').length;
     const mediaPresencas =
       totalPresencas > 0 ? ((presentes / totalPresencas) * 100).toFixed(1) : 0;
 
-    const totalResultados = results.length;
-    const resultadosConcluidos = results.filter((result: any) => {
+    const totalResultados = reportResults.length;
+    const resultadosConcluidos = reportResults.filter((result: any) => {
       const estadoDoEvento =
         normalizeStatus(result?.event?.estado) ||
         normalizeStatus(eventosById.get(String(result?.evento_id))?.estado);
@@ -99,7 +126,7 @@ export function EventosRelatorios({
     const terceirosLugares = resultadosConcluidos.filter((r: any) => Number(r.classificacao) === 3).length;
 
     // Distribuição por tipo
-    const distribuicaoPorTipo = events.reduce((acc: any, event: any) => {
+    const distribuicaoPorTipo = reportEvents.reduce((acc: any, event: any) => {
       const tipo = event.tipo || 'Outro';
       acc[tipo] = (acc[tipo] || 0) + 1;
       return acc;
@@ -126,15 +153,15 @@ export function EventosRelatorios({
       terceirosLugares,
       distribuicaoPorTipo,
     };
-  }, [events, convocatorias, attendances, results]);
+  }, [reportEvents, reportConvocations, reportAttendances, reportResults]);
 
   // Relatório por Evento
   const relatorioPorEvento = useMemo(() => {
-    return events.map((event: any) => {
-      const eventConvocatorias = convocatorias.filter(
+    return reportEvents.map((event: any) => {
+      const eventConvocatorias = reportConvocations.filter(
         (c: any) => sameId(c.evento_id, event.id)
       );
-      const eventAttendances = attendances.filter((a: any) => sameId(a.evento_id, event.id));
+      const eventAttendances = reportAttendances.filter((a: any) => sameId(a.evento_id, event.id));
       const presentes = eventAttendances.filter((a: any) => normalizeStatus(a.estado) === 'presente').length;
       const ausentes = eventAttendances.filter((a: any) => normalizeStatus(a.estado) === 'ausente').length;
       const justificados = eventAttendances.filter(
@@ -158,13 +185,13 @@ export function EventosRelatorios({
         taxaPresenca,
       };
     });
-  }, [events, convocatorias, attendances]);
+  }, [reportEvents, reportConvocations, reportAttendances]);
 
   // Relatório por Atleta
   const relatorioPorAtleta = useMemo(() => {
     return users.map((user: any) => {
-      const userConvocatorias = convocatorias.filter((c: any) => sameId(c.user_id, user.id));
-      const userAttendances = attendances.filter((a: any) => sameId(a.user_id, user.id));
+      const userConvocatorias = reportConvocations.filter((c: any) => sameId(c.user_id, user.id));
+      const userAttendances = reportAttendances.filter((a: any) => sameId(a.user_id, user.id));
       const presentes = userAttendances.filter((a: any) => normalizeStatus(a.estado) === 'presente').length;
       const ausentes = userAttendances.filter((a: any) => normalizeStatus(a.estado) === 'ausente').length;
       const justificados = userAttendances.filter(
@@ -175,7 +202,7 @@ export function EventosRelatorios({
           ? ((presentes / userAttendances.length) * 100).toFixed(1)
           : 0;
 
-      const userResults = results.filter((r: any) => sameId(r.user_id, user.id));
+      const userResults = reportResults.filter((r: any) => sameId(r.user_id, user.id));
       const podios = userResults.filter(
         (r: any) => {
           if (!(Number(r.classificacao) >= 1 && Number(r.classificacao) <= 3)) {
@@ -184,7 +211,7 @@ export function EventosRelatorios({
 
           const estadoDoEvento =
             normalizeStatus(r?.event?.estado) ||
-            normalizeStatus(events.find((event: any) => sameId(event.id, r.evento_id))?.estado);
+            normalizeStatus(reportEvents.find((event: any) => sameId(event.id, r.evento_id))?.estado);
 
           return estadoDoEvento === 'concluido';
         }
@@ -203,26 +230,45 @@ export function EventosRelatorios({
         podios,
       };
     });
-  }, [users, convocatorias, attendances, results, ageGroups]);
+  }, [users, reportConvocations, reportAttendances, reportResults, reportEvents, ageGroups]);
 
   const exportToCSV = (data: any[], filename: string) => {
     if (data.length === 0) return;
 
-    const headers = Object.keys(data[0]).join(',');
-    const rows = data.map((row) => Object.values(row).join(',')).join('\n');
-    const csvContent = headers + '\n' + rows;
+    const escapeCsv = (value: unknown) => `"${String(value ?? '').replace(/"/g, '""')}"`;
+    const headers = Object.keys(data[0]).map(escapeCsv).join(',');
+    const rows = data.map((row) => Object.values(row).map(escapeCsv).join(',')).join('\r\n');
+    const csvContent = `\uFEFF${headers}\r\n${rows}`;
 
     const element = document.createElement('a');
-    element.setAttribute(
-      'href',
-      'data:text/csv;charset=utf-8,' + encodeURIComponent(csvContent)
-    );
+    const objectUrl = URL.createObjectURL(new Blob([csvContent], { type: 'text/csv;charset=utf-8' }));
+    element.setAttribute('href', objectUrl);
     element.setAttribute('download', filename);
     element.style.display = 'none';
     document.body.appendChild(element);
     element.click();
     document.body.removeChild(element);
+    URL.revokeObjectURL(objectUrl);
   };
+
+  const relatorioGeralCsv = useMemo(() => {
+    const rows = [
+      { indicador: 'Total de eventos', valor: relatorioGeral.totalEventos },
+      { indicador: 'Eventos agendados', valor: relatorioGeral.eventosAgendados },
+      { indicador: 'Eventos a decorrer', valor: relatorioGeral.eventosEmCurso },
+      { indicador: 'Eventos concluídos', valor: relatorioGeral.eventosConcluidos },
+      { indicador: 'Eventos cancelados', valor: relatorioGeral.eventosCancelados },
+      { indicador: 'Presenças', valor: relatorioGeral.totalPresencas },
+      { indicador: 'Taxa média de presença', valor: `${relatorioGeral.mediaPresencas}%` },
+      { indicador: 'Resultados', valor: relatorioGeral.totalResultados },
+    ];
+
+    if (canViewConvocations) {
+      rows.splice(5, 0, { indicador: 'Convocatórias', valor: relatorioGeral.totalConvocatorias });
+    }
+
+    return rows;
+  }, [canViewConvocations, relatorioGeral]);
 
   return (
     <div className="space-y-4">
@@ -243,16 +289,30 @@ export function EventosRelatorios({
             </TabsTrigger>
           </TabsList>
 
-          <div className="flex w-full gap-2 sm:w-auto">
+          <div className="flex w-full flex-wrap gap-2 sm:w-auto">
+            <Input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} aria-label="Data inicial" className="h-9 w-[145px]" />
+            <Input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} aria-label="Data final" className="h-9 w-[145px]" />
             <Button
               size="sm"
               variant="outline"
               className="flex-1 sm:flex-none"
               onClick={() => {
                 if (activeTab === 'evento') {
-                  exportToCSV(relatorioPorEvento, 'relatorio-eventos.csv');
+                  exportToCSV(
+                    canViewConvocations
+                      ? relatorioPorEvento
+                      : relatorioPorEvento.map(({ convocatorias: _convocatorias, ...row }) => row),
+                    'relatorio-eventos.csv'
+                  );
                 } else if (activeTab === 'atleta') {
-                  exportToCSV(relatorioPorAtleta, 'relatorio-atletas.csv');
+                  exportToCSV(
+                    canViewConvocations
+                      ? relatorioPorAtleta
+                      : relatorioPorAtleta.map(({ convocatorias: _convocatorias, ...row }) => row),
+                    'relatorio-atletas.csv'
+                  );
+                } else {
+                  exportToCSV(relatorioGeralCsv, 'relatorio-geral-eventos.csv');
                 }
               }}
             >
@@ -273,7 +333,7 @@ export function EventosRelatorios({
 
         {/* Relatório Geral */}
         <TabsContent value="geral" className="space-y-4">
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          <div className={`grid gap-4 md:grid-cols-2 ${canViewConvocations ? 'lg:grid-cols-4' : 'lg:grid-cols-3'}`}>
             {/* Card: Total de Eventos */}
             <Card className="p-4">
               <div className="flex items-center justify-between mb-2">
@@ -302,7 +362,7 @@ export function EventosRelatorios({
             </Card>
 
             {/* Card: Total de Convocatórias */}
-            <Card className="p-4">
+            {canViewConvocations ? <Card className="p-4">
               <div className="flex items-center justify-between mb-2">
                 <h3 className="text-sm font-medium text-muted-foreground">
                   Total de Convocatórias
@@ -330,7 +390,7 @@ export function EventosRelatorios({
                   </span>
                 </div>
               </div>
-            </Card>
+            </Card> : null}
 
             {/* Card: Total de Presenças */}
             <Card className="p-4">
@@ -437,7 +497,7 @@ export function EventosRelatorios({
                     <TableHead>Tipo</TableHead>
                     <TableHead>Data</TableHead>
                     <TableHead>Estado</TableHead>
-                    <TableHead className="text-center">Convocatórias</TableHead>
+                    {canViewConvocations ? <TableHead className="text-center">Convocatórias</TableHead> : null}
                     <TableHead className="text-center">Presentes</TableHead>
                     <TableHead className="text-center">Ausentes</TableHead>
                     <TableHead className="text-center">Justificados</TableHead>
@@ -467,7 +527,7 @@ export function EventosRelatorios({
                           {evento.estado === 'em_curso' ? 'A decorrer' : evento.estado}
                         </Badge>
                       </TableCell>
-                      <TableCell className="text-center">{evento.convocatorias}</TableCell>
+                      {canViewConvocations ? <TableCell className="text-center">{evento.convocatorias}</TableCell> : null}
                       <TableCell className="text-center text-green-600 font-medium">
                         {evento.presentes}
                       </TableCell>
@@ -498,7 +558,7 @@ export function EventosRelatorios({
                   <TableRow>
                     <TableHead>Atleta</TableHead>
                     <TableHead>Escalão</TableHead>
-                    <TableHead className="text-center">Convocatórias</TableHead>
+                    {canViewConvocations ? <TableHead className="text-center">Convocatórias</TableHead> : null}
                     <TableHead className="text-center">Presentes</TableHead>
                     <TableHead className="text-center">Ausentes</TableHead>
                     <TableHead className="text-center">Justificados</TableHead>
@@ -512,7 +572,7 @@ export function EventosRelatorios({
                     <TableRow key={atleta.id}>
                       <TableCell className="font-medium">{atleta.nome}</TableCell>
                       <TableCell>{atleta.escalao}</TableCell>
-                      <TableCell className="text-center">{atleta.convocatorias}</TableCell>
+                      {canViewConvocations ? <TableCell className="text-center">{atleta.convocatorias}</TableCell> : null}
                       <TableCell className="text-center text-green-600 font-medium">
                         {atleta.presentes}
                       </TableCell>
@@ -546,4 +606,3 @@ export function EventosRelatorios({
     </div>
   );
 }
-

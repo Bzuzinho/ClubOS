@@ -3,7 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Models\EventTypeConfig;
+use App\Models\EventType;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 
@@ -14,7 +14,7 @@ class TiposEventoController extends Controller
      */
     public function index(): JsonResponse
     {
-        $eventTypes = EventTypeConfig::orderBy('nome')->get();
+        $eventTypes = EventType::orderBy('nome')->get();
         return response()->json($eventTypes);
     }
 
@@ -25,17 +25,20 @@ class TiposEventoController extends Controller
     {
         $validated = $request->validate([
             'nome' => 'required|string|max:255',
-            'cor' => 'required|string|max:20',
-            'icon' => 'required|string|max:50',
+            'descricao' => 'nullable|string',
+            'categoria' => 'nullable|string|max:50',
+            'cor' => 'nullable|string|max:20',
+            'icon' => 'nullable|string|max:50',
             'ativo' => 'nullable|boolean',
             'gera_taxa' => 'nullable|boolean',
-            'requer_convocatoria' => 'nullable|boolean',
+            'permite_convocatoria' => 'nullable|boolean',
+            'gera_presencas' => 'nullable|boolean',
             'requer_transporte' => 'nullable|boolean',
             'visibilidade_default' => 'nullable|in:publico,privado,restrito',
         ]);
 
         $validated['ativo'] = $validated['ativo'] ?? true;
-        $eventType = EventTypeConfig::create($validated);
+        $eventType = EventType::create($validated);
 
         return response()->json($eventType, 201);
     }
@@ -43,7 +46,7 @@ class TiposEventoController extends Controller
     /**
      * Display the specified resource.
      */
-    public function show(EventTypeConfig $eventType): JsonResponse
+    public function show(EventType $eventType): JsonResponse
     {
         return response()->json($eventType);
     }
@@ -51,15 +54,18 @@ class TiposEventoController extends Controller
     /**
      * Update the specified resource in storage.
      */
-    public function update(Request $request, EventTypeConfig $eventType): JsonResponse
+    public function update(Request $request, EventType $eventType): JsonResponse
     {
         $validated = $request->validate([
             'nome' => 'sometimes|string|max:255',
+            'descricao' => 'nullable|string',
+            'categoria' => 'nullable|string|max:50',
             'cor' => 'sometimes|string|max:20',
             'icon' => 'sometimes|string|max:50',
             'ativo' => 'sometimes|boolean',
             'gera_taxa' => 'sometimes|boolean',
-            'requer_convocatoria' => 'sometimes|boolean',
+            'permite_convocatoria' => 'sometimes|boolean',
+            'gera_presencas' => 'sometimes|boolean',
             'requer_transporte' => 'sometimes|boolean',
             'visibilidade_default' => 'sometimes|in:publico,privado,restrito',
         ]);
@@ -72,7 +78,7 @@ class TiposEventoController extends Controller
     /**
      * Remove the specified resource from storage.
      */
-    public function destroy(EventTypeConfig $eventType): JsonResponse
+    public function destroy(EventType $eventType): JsonResponse
     {
         $eventType->delete();
 

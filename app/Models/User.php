@@ -168,7 +168,7 @@ class User extends Authenticatable
     // Legacy relation (old events architecture; not used by canonical Sports module).
     public function resultProvas(): HasMany
     {
-        return $this->hasMany(ResultProva::class, 'user_id');
+        return $this->hasMany(ResultProva::class, 'atleta_id');
     }
 
     public function createdTrainings(): HasMany
@@ -269,7 +269,7 @@ class User extends Authenticatable
 
     public function convocationAthletes(): HasMany
     {
-        return $this->hasMany(ConvocationAthlete::class, 'user_id');
+        return $this->hasMany(ConvocationAthlete::class, 'atleta_id');
     }
 
     public function documents(): HasMany

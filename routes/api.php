@@ -51,19 +51,48 @@ Route::middleware(['auth'])->group(function () {
     Route::delete('/kv/{key}', [KeyValueController::class, 'destroy']);
 
     // Resource APIs
-    Route::apiResource('users', UsersController::class);
-    Route::apiResource('events', EventsController::class);
-    Route::apiResource('provas', ProvasController::class);
-    Route::apiResource('results', ResultsController::class);
-    Route::apiResource('event-attendances', EventAttendancesController::class);
-    Route::apiResource('event-results', EventResultsController::class);
-    Route::get('event-results-stats', [EventResultsController::class, 'stats']);
+    Route::apiResource('users', UsersController::class)
+        ->middleware('module.access:membros')
+        ->middlewareFor(['index', 'show'], 'permission.access:membros.ficha,view')
+        ->middlewareFor(['store', 'update'], 'permission.access:membros.ficha,edit')
+        ->middlewareFor(['destroy'], 'permission.access:membros.ficha,delete');
+    Route::apiResource('events', EventsController::class)
+        ->middleware('module.access:eventos')
+        ->middlewareFor(['index', 'show'], 'permission.access:eventos.calendario,view')
+        ->middlewareFor(['store', 'update'], 'permission.access:eventos.calendario,edit')
+        ->middlewareFor(['destroy'], 'permission.access:eventos.calendario,delete');
+    Route::apiResource('provas', ProvasController::class)
+        ->middleware('module.access:desportivo')
+        ->middlewareFor(['index', 'show'], 'permission.access:desportivo.competicoes,view')
+        ->middlewareFor(['store', 'update'], 'permission.access:desportivo.competicoes,edit')
+        ->middlewareFor(['destroy'], 'permission.access:desportivo.competicoes,delete');
+    Route::apiResource('results', ResultsController::class)
+        ->middleware('module.access:desportivo')
+        ->middlewareFor(['index', 'show'], 'permission.access:desportivo.resultados,view')
+        ->middlewareFor(['store', 'update'], 'permission.access:desportivo.resultados,edit')
+        ->middlewareFor(['destroy'], 'permission.access:desportivo.resultados,delete');
+    Route::apiResource('event-attendances', EventAttendancesController::class)
+        ->middleware('module.access:eventos')
+        ->middlewareFor(['index', 'show'], 'permission.access:eventos.resultados,view')
+        ->middlewareFor(['store', 'update'], 'permission.access:eventos.resultados,edit')
+        ->middlewareFor(['destroy'], 'permission.access:eventos.resultados,delete');
+    Route::apiResource('event-results', EventResultsController::class)
+        ->middleware('module.access:eventos')
+        ->middlewareFor(['index', 'show'], 'permission.access:eventos.resultados,view')
+        ->middlewareFor(['store', 'update'], 'permission.access:eventos.resultados,edit')
+        ->middlewareFor(['destroy'], 'permission.access:eventos.resultados,delete');
+    Route::get('event-results-stats', [EventResultsController::class, 'stats'])
+        ->middleware(['module.access:eventos', 'permission.access:eventos.resultados,view']);
     Route::get('prova-tipos', [ProvaTiposController::class, 'index']);
 
     // Settings APIs
     Route::apiResource('user-types', TiposUtilizadorController::class);
     Route::apiResource('age-groups', EscaloesController::class);
-    Route::apiResource('event-types', TiposEventoController::class);
+    Route::apiResource('event-types', TiposEventoController::class)
+        ->middleware('module.access:eventos')
+        ->middlewareFor(['index', 'show'], 'permission.access:eventos.calendario,view')
+        ->middlewareFor(['store', 'update'], 'permission.access:eventos.calendario,edit')
+        ->middlewareFor(['destroy'], 'permission.access:eventos.calendario,delete');
     Route::apiResource('cost-centers', CentrosCustoController::class);
     Route::apiResource('club-settings', ClubSettingController::class);
 

@@ -17,8 +17,8 @@ class ConvocatoriaKvDeleteTest extends TestCase
 
     public function test_kv_sync_deletes_removed_convocation_group(): void
     {
-        $user = User::factory()->create();
-        $athlete = User::factory()->create();
+        $user = User::factory()->admin()->create();
+        $athlete = User::factory()->athlete()->create();
 
         $event = Event::create([
             'id' => (string) Str::uuid(),
@@ -75,8 +75,8 @@ class ConvocatoriaKvDeleteTest extends TestCase
 
     public function test_kv_sync_deletes_only_removed_group_when_multiple_exist(): void
     {
-        $user = User::factory()->create();
-        $athlete = User::factory()->create();
+        $user = User::factory()->admin()->create();
+        $athlete = User::factory()->athlete()->create();
 
         $event = Event::create([
             'id' => (string) Str::uuid(),
@@ -154,8 +154,8 @@ class ConvocatoriaKvDeleteTest extends TestCase
 
     public function test_kv_sync_blocks_deleting_financially_protected_group(): void
     {
-        $user = User::factory()->create();
-        $athlete = User::factory()->create();
+        $user = User::factory()->admin()->create();
+        $athlete = User::factory()->athlete()->create();
 
         $event = Event::create([
             'id' => (string) Str::uuid(),

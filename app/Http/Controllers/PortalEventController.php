@@ -133,9 +133,10 @@ class PortalEventController extends Controller
 
         $eventConvocation->loadMissing('event:id,data_inicio,data_fim,estado');
         abort_if($eventConvocation->event === null, 404);
+        abort_if($eventConvocation->event->estado === 'cancelado', 422, 'O evento foi cancelado.');
 
         $eventEndDate = $eventConvocation->event->data_fim ?? $eventConvocation->event->data_inicio;
-        abort_if($eventEndDate instanceof Carbon && $eventEndDate->isPast(), 422, 'A convocatória já expirou.');
+        abort_if($eventEndDate instanceof Carbon && $eventEndDate->copy()->endOfDay()->isPast(), 422, 'A convocatória já expirou.');
 
         $data = $request->validate([
             'action' => ['required', 'in:confirm_presence,justify_absence,reset_response'],
@@ -193,25 +194,35 @@ class PortalEventController extends Controller
             ->values();
 
         $convocationEventIds = $convocations->pluck('evento_id')->filter()->unique()->values()->all();
+        $member->loadMissing('athleteSportsData:id,user_id,escalao_id');
         $memberAgeGroupIds = collect(is_array($member->escalao) ? $member->escalao : (array) $member->escalao)
+            ->push($member->athleteSportsData?->escalao_id)
             ->filter()
+            ->map(fn ($id) => (string) $id)
+            ->unique()
             ->values()
             ->all();
 
-        $informativeEvents = empty($memberAgeGroupIds)
-            ? collect()
-            : Event::query()
-                ->with(['ageGroups:id,nome'])
-                ->where('estado', '!=', 'cancelado')
-                ->whereNotIn('id', $convocationEventIds)
-                ->where(function ($query) use ($memberAgeGroupIds) {
+        $informativeEvents = Event::query()
+            ->with(['ageGroups:id,nome'])
+            ->where('estado', '!=', 'cancelado')
+            ->whereIn('visibilidade', ['publico', 'restrito'])
+            ->whereNotIn('id', $convocationEventIds)
+            ->where(function ($query) use ($memberAgeGroupIds) {
+                $query->where(function ($publicQuery) {
+                    $publicQuery->where('visibilidade', 'publico')
+                        ->whereDoesntHave('ageGroups');
+                });
+
+                if (! empty($memberAgeGroupIds)) {
                     foreach ($memberAgeGroupIds as $ageGroupId) {
                         $query->orWhereHas('ageGroups', fn ($ageGroupQuery) => $ageGroupQuery->where('age_groups.id', $ageGroupId));
                     }
-                })
-                ->orderBy('data_inicio')
-                ->orderBy('hora_inicio')
-                ->get();
+                }
+            })
+            ->orderBy('data_inicio')
+            ->orderBy('hora_inicio')
+            ->get();
 
         $eventIds = array_values(array_unique(array_filter([
             ...$convocationEventIds,
@@ -407,7 +418,7 @@ class PortalEventController extends Controller
     {
         $endDate = $event->data_fim ?? $event->data_inicio;
 
-        return $endDate instanceof Carbon && $endDate->isPast();
+        return $endDate instanceof Carbon && $endDate->copy()->endOfDay()->isPast();
     }
 
     /**

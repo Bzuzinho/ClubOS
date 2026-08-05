@@ -313,8 +313,8 @@ class ConvocationGroupFinancialLifecycleTest extends TestCase
      */
     private function seedBaseEntities(): array
     {
-        $user = User::factory()->create();
-        $athlete = User::factory()->create();
+        $user = User::factory()->admin()->create();
+        $athlete = User::factory()->athlete()->create();
 
         $event = Event::query()->create([
             'id' => (string) Str::uuid(),

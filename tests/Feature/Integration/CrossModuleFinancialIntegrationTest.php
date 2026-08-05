@@ -740,8 +740,8 @@ class CrossModuleFinancialIntegrationTest extends TestCase
      */
     private function seedConvocationBaseEntities(): array
     {
-        $user = User::factory()->create();
-        $athlete = User::factory()->create();
+        $user = User::factory()->admin()->create();
+        $athlete = User::factory()->athlete()->create();
 
         $event = Event::query()->create([
             'id' => (string) Str::uuid(),

@@ -78,7 +78,9 @@ interface AgeGroup {
 interface EventType {
   id: string;
   nome: string;
+  categoria?: string;
   visibilidade_default?: string;
+  requer_transporte?: boolean;
   ativo?: boolean;
 }
 
@@ -92,6 +94,13 @@ interface Props {
   convocations?: any[];
   attendances?: any[];
   results?: any[];
+  permissions: {
+    calendario: boolean;
+    calendario_editar: boolean;
+    calendario_eliminar: boolean;
+    convocatorias: boolean;
+    resultados: boolean;
+  };
 }
 
 type EventosPageProps = Props & Record<string, unknown>;
@@ -106,6 +115,7 @@ export default function EventosIndex({
   convocations = [],
   attendances: initialAttendances = [],
   results = [],
+  permissions,
 }: Props) {
   const page = usePage<EventosPageProps>();
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -122,10 +132,17 @@ export default function EventosIndex({
 
   useEffect(() => {
     const pendingByTab: Record<string, { ready: boolean; props: string[] }> = {
-      eventos: { ready: hasUsers, props: ['users'] },
       relatorios: {
-        ready: hasUsers && hasConvocations && hasAttendances && hasResults,
-        props: ['users', 'convocations', 'attendances', 'results'],
+        ready: hasUsers
+          && (!permissions.convocatorias || hasConvocations)
+          && hasAttendances
+          && hasResults,
+        props: [
+          'users',
+          ...(permissions.convocatorias ? ['convocations'] : []),
+          'attendances',
+          'results',
+        ],
       },
     };
 
@@ -141,7 +158,7 @@ export default function EventosIndex({
       only: pending.props,
       onFinish: () => setLoadingTab((current) => (current === activeTab ? null : current)),
     });
-  }, [activeTab, hasAttendances, hasConvocations, hasResults, hasUsers]);
+  }, [activeTab, hasAttendances, hasConvocations, hasResults, hasUsers, permissions.convocatorias]);
 
   return (
     <AuthenticatedLayout
@@ -161,7 +178,7 @@ export default function EventosIndex({
 
       <div className={moduleViewportClass}>
         <Tabs value={activeTab} onValueChange={setActiveTab} className={moduleTabsClass}>
-          <TabsList className="grid w-full shrink-0 h-9 grid-cols-4 p-1">
+          <TabsList className={`grid w-full shrink-0 h-9 ${permissions.resultados ? 'grid-cols-4' : 'grid-cols-3'} p-1`}>
             <TabsTrigger
               value="dashboard"
               className="flex items-center gap-1.5 px-1 py-1 text-xs"
@@ -183,13 +200,15 @@ export default function EventosIndex({
               <ListChecks size={16} className="flex-shrink-0" />
               <span>Eventos</span>
             </TabsTrigger>
-            <TabsTrigger
-              value="relatorios"
-              className="flex items-center gap-1.5 px-1 py-1 text-xs"
-            >
-              <ChartBar size={16} className="flex-shrink-0" />
-              <span>Relatórios</span>
-            </TabsTrigger>
+            {permissions.resultados ? (
+              <TabsTrigger
+                value="relatorios"
+                className="flex items-center gap-1.5 px-1 py-1 text-xs"
+              >
+                <ChartBar size={16} className="flex-shrink-0" />
+                <span>Relatórios</span>
+              </TabsTrigger>
+            ) : null}
           </TabsList>
 
           <TabsContent value="dashboard" className={`${moduleTabbedContentClass} space-y-3`}>
@@ -217,40 +236,44 @@ export default function EventosIndex({
 
           <TabsContent value="eventos" className={`${moduleTabbedContentClass} space-y-3`}>
             {activeTab === 'eventos' ? (
-              !hasUsers || loadingTab === 'eventos' ? (
-                <TabFallback />
-              ) : (
-                <Suspense fallback={<TabFallback />}>
-                  <EventosList
-                    events={eventos}
-                    users={users}
-                    costCenters={costCenters}
-                    eventTypes={eventTypes}
-                    ageGroups={ageGroups}
-                  />
-                </Suspense>
-              )
+              <Suspense fallback={<TabFallback />}>
+                <EventosList
+                  events={eventos}
+                  costCenters={costCenters}
+                  eventTypes={eventTypes}
+                  ageGroups={ageGroups}
+                  canEdit={permissions.calendario_editar}
+                  canDelete={permissions.calendario_eliminar}
+                />
+              </Suspense>
             ) : null}
           </TabsContent>
 
-          <TabsContent value="relatorios" className={`${moduleTabbedContentClass} space-y-3`}>
-            {activeTab === 'relatorios' ? (
-              !hasUsers || !hasConvocations || !hasAttendances || !hasResults || loadingTab === 'relatorios' ? (
-                <TabFallback />
-              ) : (
-                <Suspense fallback={<TabFallback />}>
-                  <EventosRelatorios
-                    events={eventos}
-                    convocatorias={convocations}
-                    attendances={attendances}
-                    results={results}
-                    users={users}
-                    ageGroups={ageGroups}
-                  />
-                </Suspense>
-              )
-            ) : null}
-          </TabsContent>
+          {permissions.resultados ? (
+            <TabsContent value="relatorios" className={`${moduleTabbedContentClass} space-y-3`}>
+              {activeTab === 'relatorios' ? (
+                !hasUsers
+                  || (permissions.convocatorias && !hasConvocations)
+                  || !hasAttendances
+                  || !hasResults
+                  || loadingTab === 'relatorios' ? (
+                  <TabFallback />
+                ) : (
+                  <Suspense fallback={<TabFallback />}>
+                    <EventosRelatorios
+                      events={eventos}
+                      convocatorias={convocations}
+                      attendances={attendances}
+                      results={results}
+                      users={users}
+                      ageGroups={ageGroups}
+                      canViewConvocations={permissions.convocatorias}
+                    />
+                  </Suspense>
+                )
+              ) : null}
+            </TabsContent>
+          ) : null}
         </Tabs>
       </div>
     </AuthenticatedLayout>

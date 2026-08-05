@@ -144,7 +144,7 @@ export function CreateConvocatoriaDialog({
 
   const eventOptions = useMemo(() => {
     return (events || [])
-      .filter((event) => !event.tipo || event.tipo === 'prova')
+      .filter((event) => event.estado !== 'cancelado')
       .sort((a, b) => new Date(a.data_inicio).getTime() - new Date(b.data_inicio).getTime());
   }, [events]);
 
@@ -376,17 +376,8 @@ export function CreateConvocatoriaDialog({
         created_at: createdDate,
       }));
 
-      setConvocatoriaGroups([...(convocatoriaGroups || []), newGroup]);
-      setConvocatoriaAthletes([...(convocatoriaAthletes || []), ...newAthletes]);
-
-      await Promise.allSettled(
-        selectedAthletes.map((athleteId) =>
-          axios.post(`/eventos/${selectedEventId}/participantes`, {
-            user_id: athleteId,
-            estado_confirmacao: 'pendente',
-          })
-        )
-      );
+      await setConvocatoriaGroups([...(convocatoriaGroups || []), newGroup]);
+      await setConvocatoriaAthletes([...(convocatoriaAthletes || []), ...newAthletes]);
 
       const athleteMap = new Map(userSource.map((user) => [user.id, user]));
       const newConvocations: Convocation[] = selectedAthletes.map((athleteId) => {
@@ -413,8 +404,12 @@ export function CreateConvocatoriaDialog({
       onCreated(newConvocations);
       toast.success('Convocatória criada com sucesso!');
       onOpenChange(false);
-    } catch {
-      toast.error('Erro ao criar convocatória');
+    } catch (error: any) {
+      const errors = error?.response?.data?.errors;
+      const message = errors && typeof errors === 'object'
+        ? Object.values(errors).flat().find((value) => typeof value === 'string')
+        : error?.response?.data?.message;
+      toast.error(typeof message === 'string' ? message : 'Erro ao criar convocatória');
     } finally {
       setIsSubmitting(false);
     }

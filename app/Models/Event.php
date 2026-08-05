@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
+use App\Services\Members\MemberTypeResolver;
 
 class Event extends Model
 {
@@ -229,14 +230,24 @@ class Event extends Model
             return;
         }
 
-        // ✅ Buscar users que têm algum dos escalões no JSON array
-        $eligibleUsers = User::where('estado', 'ativo')
-            ->where(function($query) use ($ageGroupIds) {
+        $eligibleUsers = User::query()
+            ->with(['athleteSportsData:id,user_id,escalao_id', 'userTypes:id,codigo,nome'])
+            ->where('estado', 'ativo')
+            ->where(function ($query) {
+                $query->whereNull('ativo_desportivo')
+                    ->orWhere('ativo_desportivo', true);
+            })
+            ->where(function ($query) use ($ageGroupIds) {
+                $query->whereHas('athleteSportsData', function ($sportsDataQuery) use ($ageGroupIds) {
+                    $sportsDataQuery->whereIn('escalao_id', $ageGroupIds);
+                });
+
                 foreach ($ageGroupIds as $ageGroupId) {
                     $query->orWhereJsonContains('escalao', $ageGroupId);
                 }
             })
-            ->get();
+            ->get()
+            ->filter(fn (User $user) => app(MemberTypeResolver::class)->isAthlete($user));
         
         $eligibleUserIds = $eligibleUsers->pluck('id')->toArray();
 

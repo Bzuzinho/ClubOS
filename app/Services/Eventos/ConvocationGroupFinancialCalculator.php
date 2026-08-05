@@ -5,9 +5,11 @@ namespace App\Services\Eventos;
 use App\Models\ConvocationAthlete;
 use App\Models\ConvocationGroup;
 use App\Models\Event;
+use App\Models\EventType;
 use App\Models\User;
 use App\Services\Members\MemberIdentityDisplayResolver;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Str;
 
 class ConvocationGroupFinancialCalculator
 {
@@ -150,10 +152,29 @@ class ConvocationGroupFinancialCalculator
 
     private function resolveMovementType(Event $event): string
     {
-        $eventTypeConfig = $event->tipoConfig;
-        $geraTaxa = $eventTypeConfig ? (bool) $eventTypeConfig->gera_taxa : false;
-        $isProva = strtolower((string) ($event->tipo ?? '')) === 'prova';
+        $normalizedType = $this->normalizeType((string) ($event->tipo ?? ''));
+        $eventType = EventType::query()
+            ->where('ativo', true)
+            ->get(['nome', 'categoria', 'gera_taxa'])
+            ->first(fn (EventType $type) => in_array($normalizedType, [
+                $this->normalizeType((string) $type->nome),
+                $this->normalizeType((string) $type->categoria),
+            ], true));
+
+        $geraTaxa = $eventType
+            ? (bool) $eventType->gera_taxa
+            : (bool) $event->tipoConfig?->gera_taxa;
+        $isProva = in_array($normalizedType, ['prova', 'competicao'], true);
 
         return ($geraTaxa || $isProva) ? 'inscricao' : 'outro';
+    }
+
+    private function normalizeType(string $value): string
+    {
+        return Str::of(Str::ascii($value))
+            ->lower()
+            ->replaceMatches('/[^a-z0-9]+/', '_')
+            ->trim('_')
+            ->value();
     }
 }
