@@ -217,7 +217,9 @@ class WebsitePageManagementTest extends TestCase
         $admin = User::factory()->create(['perfil' => 'admin']);
         $page = $this->createCustomPage($admin);
         $payload = $this->pagePayload($page, 'autosave');
-        $payload['blocks'][0]['content'] = [
+        $sectionIndex = collect($payload['blocks'])->search(fn (array $block): bool => $block['type'] === 'section');
+        $this->assertNotFalse($sectionIndex);
+        $payload['blocks'][$sectionIndex]['content'] = [
             'eyebrow' => 'Atualidade',
             'title' => 'Notícias e agenda',
             'intro' => 'Dados públicos do ClubOS.',
@@ -267,13 +269,15 @@ class WebsitePageManagementTest extends TestCase
             ->patchJson("/website/paginas/{$page->id}/autosave", $payload)
             ->assertOk();
 
-        $block = $page->fresh()->blocks()->firstOrFail();
+        $block = $page->fresh()->blocks()->where('type', 'section')->firstOrFail();
         $this->assertSame('section', $block->type);
         $this->assertSame('news', $block->content['items'][0]['content']['source']);
         $this->assertSame(4, $block->content['items'][0]['style']['column_span']);
         $this->assertSame('poppins', $block->content['items'][0]['style']['heading_font']);
         $this->assertSame('slide-up', $block->content['items'][0]['settings']['animation']);
-        $this->assertSame('news', $page->fresh()->versions()->latest('version')->first()->snapshot['blocks'][0]['content']['items'][0]['content']['source']);
+        $snapshot = $page->fresh()->versions()->latest('version')->first()->snapshot;
+        $sectionSnapshot = collect($snapshot['blocks'])->firstWhere('type', 'section');
+        $this->assertSame('news', $sectionSnapshot['content']['items'][0]['content']['source']);
     }
 
     public function test_old_website_redes_address_redirects_to_independent_website_module(): void
