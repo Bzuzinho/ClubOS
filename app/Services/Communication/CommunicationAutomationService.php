@@ -55,7 +55,7 @@ class CommunicationAutomationService
         $this->dispatch([
             'title' => $subject,
             'alert_category' => 'mensalidade',
-            'alert_title' => $isMonthlyFee ? 'Mensalidade disponível' : 'Nova fatura disponível',
+            'alert_title' => 'Nova fatura disponível',
             'alert_message' => $message,
             'alert_type' => $invoice->estado_pagamento === 'vencido' ? 'warning' : 'info',
             'recipient_user_ids' => [$invoice->user_id],
@@ -71,6 +71,15 @@ class CommunicationAutomationService
         if (!$this->canRun() || !$this->canSendFinancialInvoiceAutomation()) {
             return 0;
         }
+
+        $today = now()->startOfDay();
+
+        Invoice::query()
+            ->where('tipo', 'mensalidade')
+            ->where('oculta', true)
+            ->where('estado_pagamento', '!=', 'cancelado')
+            ->whereDate('data_fatura', '<=', $today)
+            ->update(['oculta' => false]);
 
         $released = 0;
 
