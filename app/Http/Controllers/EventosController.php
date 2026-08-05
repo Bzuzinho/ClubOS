@@ -193,7 +193,7 @@ class EventosController extends Controller
         ])
             ->where('estado', 'ativo')
             ->get(['id', 'name', 'nome_completo', 'perfil', 'email', 'numero_socio', 'estado', 'tipo_membro', 'escalao'])
-            ->map(function (User $user) {
+            ->map(function (User $user) use ($identityResolver) {
                 if ((!is_array($user->escalao) || count($user->escalao) === 0) && $user->athleteSportsData?->escalao_id) {
                     $user->escalao = [(string) $user->athleteSportsData->escalao_id];
                 }
