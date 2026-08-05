@@ -3,13 +3,19 @@
 namespace App\Services\Communication;
 
 use App\Models\InAppAlert;
+use App\Models\NotificationPreference;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Schema;
 
 class InAppAlertService
 {
     public function createAlerts(array $payload, Collection $recipients): int
     {
+        if (! $this->inAppAlertsEnabled()) {
+            return 0;
+        }
+
         $created = 0;
         $affectedUserIds = [];
 
@@ -109,6 +115,29 @@ class InAppAlertService
             ->delete();
 
         $this->forgetSharedAlertCache($userId);
+    }
+
+    private function inAppAlertsEnabled(): bool
+    {
+        if (! Schema::hasTable('notification_preferences')) {
+            return true;
+        }
+
+        $preferences = NotificationPreference::query()->first();
+        if (! $preferences) {
+            return true;
+        }
+
+        $attributes = $preferences->getAttributes();
+        if (! array_key_exists('alertas_aplicacao', $attributes) || $attributes['alertas_aplicacao'] === null) {
+            return true;
+        }
+
+        return filter_var(
+            $attributes['alertas_aplicacao'],
+            FILTER_VALIDATE_BOOLEAN,
+            FILTER_NULL_ON_FAILURE
+        ) !== false;
     }
 
     private function forgetSharedAlertCaches(array $userIds): void
