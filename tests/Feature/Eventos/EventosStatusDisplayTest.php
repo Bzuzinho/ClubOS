@@ -3,9 +3,11 @@
 namespace Tests\Feature\Eventos;
 
 use App\Http\Middleware\HandleInertiaRequests;
+use App\Models\DadosPessoais;
 use App\Models\Event;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
 use Tests\TestCase;
 
 class EventosStatusDisplayTest extends TestCase
@@ -71,5 +73,40 @@ class EventosStatusDisplayTest extends TestCase
         $response->assertJsonPath('props.eventos.2.id', $pastEvent->id);
         $response->assertJsonPath('props.stats.upcomingEvents', 1);
         $response->assertJsonPath('props.stats.completedEvents', 1);
+    }
+
+    public function test_eventos_users_partial_payload_uses_canonical_display_names(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $member = User::factory()->create([
+            'name' => 'Nome de autenticação',
+            'nome_completo' => 'Nome legado',
+            'estado' => 'ativo',
+        ]);
+
+        DadosPessoais::query()->create([
+            'user_id' => $member->id,
+            'nome_completo' => 'Nome canónico do atleta',
+        ]);
+
+        Cache::forget('eventos:users');
+
+        $inertiaVersion = app(HandleInertiaRequests::class)->version(request());
+
+        $response = $this->actingAs($admin)->withHeaders([
+            'X-Inertia' => 'true',
+            'X-Requested-With' => 'XMLHttpRequest',
+            'X-Inertia-Version' => (string) $inertiaVersion,
+            'X-Inertia-Partial-Component' => 'Eventos/Index',
+            'X-Inertia-Partial-Data' => 'users',
+        ])->get(route('eventos.index'));
+
+        $response->assertOk();
+        $response->assertJsonPath('component', 'Eventos/Index');
+
+        $user = collect($response->json('props.users'))->firstWhere('id', $member->id);
+
+        $this->assertIsArray($user);
+        $this->assertSame('Nome canónico do atleta', $user['nome_completo']);
     }
 }
