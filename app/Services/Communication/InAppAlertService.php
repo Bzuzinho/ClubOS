@@ -10,6 +10,18 @@ use Illuminate\Support\Facades\Schema;
 
 class InAppAlertService
 {
+    public function createAlert(array $payload, string $userId): ?InAppAlert
+    {
+        if (! $this->inAppAlertsEnabled() || $userId === '') {
+            return null;
+        }
+
+        $alert = $this->createAlertRecord($payload, $userId);
+        $this->forgetSharedAlertCache($userId);
+
+        return $alert;
+    }
+
     public function createAlerts(array $payload, Collection $recipients): int
     {
         if (! $this->inAppAlertsEnabled()) {
@@ -24,19 +36,10 @@ class InAppAlertService
                 continue;
             }
 
-            InAppAlert::create([
-                'campaign_id' => $payload['campaign_id'] ?? null,
-                'delivery_id' => $payload['delivery_id'] ?? null,
-                'user_id' => $recipient['user_id'],
-                'title' => $payload['title'],
-                'message' => $payload['message'],
-                'link' => $payload['link'] ?? null,
-                'type' => $payload['type'] ?? 'info',
-                'visible_from' => $payload['visible_from'] ?? now(),
-                'visible_until' => $payload['visible_until'] ?? null,
-            ]);
+            $userId = (string) $recipient['user_id'];
+            $this->createAlertRecord($payload, $userId);
 
-            $affectedUserIds[] = (string) $recipient['user_id'];
+            $affectedUserIds[] = $userId;
             $created++;
         }
 
@@ -115,6 +118,21 @@ class InAppAlertService
             ->delete();
 
         $this->forgetSharedAlertCache($userId);
+    }
+
+    private function createAlertRecord(array $payload, string $userId): InAppAlert
+    {
+        return InAppAlert::create([
+            'campaign_id' => $payload['campaign_id'] ?? null,
+            'delivery_id' => $payload['delivery_id'] ?? null,
+            'user_id' => $userId,
+            'title' => $payload['title'],
+            'message' => $payload['message'],
+            'link' => $payload['link'] ?? null,
+            'type' => $payload['type'] ?? 'info',
+            'visible_from' => $payload['visible_from'] ?? now(),
+            'visible_until' => $payload['visible_until'] ?? null,
+        ]);
     }
 
     private function inAppAlertsEnabled(): bool
