@@ -64,12 +64,12 @@ class InAppNotificationPreferenceTest extends TestCase
         $this->assertStringContainsString("'alertas_aplicacao' => ['required', 'boolean']", $middlewareSource);
     }
 
-    public function test_configuration_surface_mounts_global_channel_inside_native_notification_grid(): void
+    public function test_configuration_channel_is_not_mounted_outside_the_inertia_context(): void
     {
         $appSource = file_get_contents(resource_path('js/app.tsx'));
         $controlSource = file_get_contents(resource_path('js/Components/Configuracoes/InAppNotificationChannelControl.tsx'));
 
-        $this->assertStringContainsString('InAppNotificationChannelControl', $appSource);
+        $this->assertStringNotContainsString('InAppNotificationChannelControl', $appSource);
         $this->assertStringContainsString('createPortal', $controlSource);
         $this->assertStringContainsString('Automações da Comunicação', $controlSource);
         $this->assertStringContainsString("querySelector<HTMLElement>('.grid')", $controlSource);
