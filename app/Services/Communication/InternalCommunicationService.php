@@ -14,6 +14,7 @@ class InternalCommunicationService
 {
     public function __construct(
         private readonly MemberIdentityDisplayResolver $memberIdentityDisplayResolver,
+        private readonly InAppAlertService $inAppAlertService,
     ) {
     }
 
@@ -38,8 +39,7 @@ class InternalCommunicationService
                 ->get(['id', 'name']);
 
             foreach ($recipients as $recipient) {
-                $alert = InAppAlert::create([
-                    'user_id' => $recipient->id,
+                $alert = $this->inAppAlertService->createAlert([
                     'title' => $message->subject,
                     'message' => $this->excerpt($message->message),
                     'link' => route('membros.show', [
@@ -50,12 +50,12 @@ class InternalCommunicationService
                     ]),
                     'type' => $message->type,
                     'visible_from' => now(),
-                ]);
+                ], (string) $recipient->id);
 
                 InternalMessageRecipient::create([
                     'internal_message_id' => $message->id,
                     'recipient_id' => $recipient->id,
-                    'in_app_alert_id' => $alert->id,
+                    'in_app_alert_id' => $alert?->id,
                     'is_read' => false,
                 ]);
             }
@@ -101,8 +101,7 @@ class InternalCommunicationService
 
         $recipient->loadMissing('message');
 
-        $alert = InAppAlert::create([
-            'user_id' => $recipient->recipient_id,
+        $alert = $this->inAppAlertService->createAlert([
             'title' => $recipient->message->subject,
             'message' => $this->excerpt($recipient->message->message),
             'link' => route('membros.show', [
@@ -113,11 +112,13 @@ class InternalCommunicationService
             ]),
             'type' => $recipient->message->type,
             'visible_from' => now(),
-        ]);
+        ], (string) $recipient->recipient_id);
 
-        $recipient->forceFill([
-            'in_app_alert_id' => $alert->id,
-        ])->save();
+        if ($alert) {
+            $recipient->forceFill([
+                'in_app_alert_id' => $alert->id,
+            ])->save();
+        }
     }
 
     public function markAllReceivedAsRead(string $userId): void
