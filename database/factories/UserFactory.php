@@ -33,7 +33,9 @@ class UserFactory extends Factory
             'email_verified_at' => now(),
             'password' => static::$password ??= Hash::make('password'),
             'remember_token' => Str::random(10),
-            'numero_socio' => $this->faker->unique()->numberBetween(100, 9999),
+            // Keep automatically generated members outside the legacy four-digit
+            // range used by deterministic financial and reconciliation fixtures.
+            'numero_socio' => $this->faker->unique()->numberBetween(10000, 99999),
             'nome_completo' => fake()->name(),
             'perfil' => $this->faker->randomElement(['user', 'atleta', 'admin']),
             'estado' => 'ativo',
