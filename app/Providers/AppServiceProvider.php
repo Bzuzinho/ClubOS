@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use App\Http\Middleware\PersistInAppNotificationPreference;
 use App\Services\AccessControl\UserTypeAccessControlService;
 use Illuminate\Support\ServiceProvider;
 use App\Models\Event;
@@ -34,6 +35,8 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        $this->app['router']->pushMiddlewareToGroup('web', PersistInAppNotificationPreference::class);
+
         Event::observe(EventObserver::class);
         EventConvocation::observe(EventConvocationObserver::class);
         Invoice::observe(InvoiceObserver::class);
