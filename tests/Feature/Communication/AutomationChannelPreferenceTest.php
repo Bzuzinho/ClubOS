@@ -17,25 +17,12 @@ class AutomationChannelPreferenceTest extends TestCase
 
     public function test_invoice_automation_uses_email_only_when_in_app_channel_is_disabled(): void
     {
-        Mail::fake();
-        $recipient = User::factory()->create(['tipo_membro' => ['atleta']]);
-
-        NotificationPreference::query()->create($this->preferences([
+        $recipient = $this->preparePreferences([
             'email_notificacoes' => true,
             'alertas_aplicacao' => false,
-        ]));
-
-        Invoice::query()->create([
-            'user_id' => $recipient->id,
-            'data_fatura' => now()->toDateString(),
-            'data_emissao' => now()->toDateString(),
-            'data_vencimento' => now()->addWeek()->toDateString(),
-            'mes' => now()->format('Y-m'),
-            'valor_total' => 45,
-            'oculta' => false,
-            'estado_pagamento' => 'pendente',
-            'tipo' => 'mensalidade',
         ]);
+
+        $this->createInvoice($recipient);
 
         $campaign = CommunicationCampaign::query()->sole();
 
@@ -43,17 +30,102 @@ class AutomationChannelPreferenceTest extends TestCase
         $this->assertSame(0, InAppAlert::query()->count());
     }
 
+    public function test_invoice_automation_uses_in_app_only_when_email_channel_is_disabled(): void
+    {
+        $recipient = $this->preparePreferences([
+            'email_notificacoes' => false,
+            'alertas_aplicacao' => true,
+        ]);
+
+        $this->createInvoice($recipient);
+
+        $campaign = CommunicationCampaign::query()->sole();
+
+        $this->assertSame(['alert_app'], $campaign->channels()->pluck('channel')->all());
+        $this->assertSame(1, InAppAlert::query()->where('user_id', $recipient->id)->count());
+    }
+
+    public function test_invoice_automation_uses_both_channels_when_both_are_enabled(): void
+    {
+        $recipient = $this->preparePreferences([
+            'email_notificacoes' => true,
+            'alertas_aplicacao' => true,
+        ]);
+
+        $this->createInvoice($recipient);
+
+        $campaign = CommunicationCampaign::query()->sole();
+
+        $this->assertEqualsCanonicalizing(
+            ['email', 'alert_app'],
+            $campaign->channels()->pluck('channel')->all(),
+        );
+        $this->assertSame(1, InAppAlert::query()->where('user_id', $recipient->id)->count());
+    }
+
     public function test_invoice_automation_creates_no_campaign_when_all_channels_are_disabled(): void
     {
-        Mail::fake();
-        $recipient = User::factory()->create(['tipo_membro' => ['atleta']]);
-
-        NotificationPreference::query()->create($this->preferences([
+        $recipient = $this->preparePreferences([
             'email_notificacoes' => false,
             'alertas_aplicacao' => false,
-        ]));
+        ]);
 
-        Invoice::query()->create([
+        $this->createInvoice($recipient);
+
+        $this->assertSame(0, CommunicationCampaign::query()->count());
+        $this->assertSame(0, InAppAlert::query()->count());
+    }
+
+    public function test_payment_category_switch_blocks_financial_invoice_automation(): void
+    {
+        $recipient = $this->preparePreferences([
+            'alertas_pagamento' => false,
+        ]);
+
+        $this->createInvoice($recipient);
+
+        $this->assertSame(0, CommunicationCampaign::query()->count());
+        $this->assertSame(0, InAppAlert::query()->count());
+    }
+
+    public function test_financial_module_switch_blocks_financial_invoice_automation(): void
+    {
+        $recipient = $this->preparePreferences([
+            'automacoes_financeiro' => false,
+        ]);
+
+        $this->createInvoice($recipient);
+
+        $this->assertSame(0, CommunicationCampaign::query()->count());
+        $this->assertSame(0, InAppAlert::query()->count());
+    }
+
+    public function test_specific_invoice_switch_blocks_only_invoice_automation(): void
+    {
+        $recipient = $this->preparePreferences([
+            'automacoes_faturas_financeiras' => false,
+        ]);
+
+        $this->createInvoice($recipient);
+
+        $this->assertSame(0, CommunicationCampaign::query()->count());
+        $this->assertSame(0, InAppAlert::query()->count());
+    }
+
+    private function preparePreferences(array $overrides): User
+    {
+        Mail::fake();
+
+        $recipient = User::factory()->create(['tipo_membro' => ['atleta']]);
+
+        NotificationPreference::query()->create($this->preferences($overrides));
+
+        return $recipient;
+    }
+
+    private function createInvoice(User $recipient): Invoice
+    {
+        return Invoice::query()->create([
             'user_id' => $recipient->id,
             'data_fatura' => now()->toDateString(),
             'data_emissao' => now()->toDateString(),
@@ -64,9 +136,6 @@ class AutomationChannelPreferenceTest extends TestCase
             'estado_pagamento' => 'pendente',
             'tipo' => 'mensalidade',
         ]);
-
-        $this->assertSame(0, CommunicationCampaign::query()->count());
-        $this->assertSame(0, InAppAlert::query()->count());
     }
 
     private function preferences(array $overrides = []): array
