@@ -1,9 +1,8 @@
 import { router, usePage } from '@inertiajs/react';
 import { Bell } from '@phosphor-icons/react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 
-import { Button } from '@/Components/ui/button';
-import { Card, CardContent } from '@/Components/ui/card';
 import { Switch } from '@/Components/ui/switch';
 
 type NotificationPreferences = {
@@ -40,15 +39,39 @@ const booleanPayload = (preferences: NotificationPreferences, enabled: boolean) 
     automacoes_alertas_operacionais: Boolean(preferences.automacoes_alertas_operacionais),
 });
 
+const findNativeGrid = (): HTMLElement | null => {
+    const headings = Array.from(document.querySelectorAll('h1, h2, h3, h4, div'));
+    const heading = headings.find((element) => element.textContent?.trim() === 'Automações da Comunicação');
+    const card = heading?.closest('[class*="rounded"], [class*="border"]');
+
+    return card?.querySelector<HTMLElement>('.grid') ?? null;
+};
+
 export function InAppNotificationChannelControl() {
     const { props, url } = usePage<PageProps>();
     const preferences = props.notificationPrefs;
     const isConfigurationsPage = url.startsWith('/configuracoes');
     const [processing, setProcessing] = useState(false);
+    const [target, setTarget] = useState<HTMLElement | null>(null);
 
     const enabled = useMemo(() => Boolean(preferences?.alertas_aplicacao ?? true), [preferences]);
 
-    if (!isConfigurationsPage || !preferences) {
+    useEffect(() => {
+        if (!isConfigurationsPage || !preferences) {
+            setTarget(null);
+            return;
+        }
+
+        const resolveTarget = () => setTarget(findNativeGrid());
+        resolveTarget();
+
+        const observer = new MutationObserver(resolveTarget);
+        observer.observe(document.body, { childList: true, subtree: true });
+
+        return () => observer.disconnect();
+    }, [isConfigurationsPage, preferences]);
+
+    if (!isConfigurationsPage || !preferences || !target) {
         return null;
     }
 
@@ -63,37 +86,26 @@ export function InAppNotificationChannelControl() {
         });
     };
 
-    return (
-        <div className="pointer-events-none fixed bottom-5 right-5 z-50 w-[min(24rem,calc(100vw-2rem))]">
-            <Card className="pointer-events-auto border-primary/20 shadow-lg">
-                <CardContent className="flex items-center gap-3 p-4">
-                    <div className="rounded-full bg-primary/10 p-2 text-primary">
-                        <Bell size={20} weight="duotone" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                        <p className="font-medium">Alertas na aplicação</p>
-                        <p className="text-xs text-muted-foreground">
-                            Canal global para mensalidades, eventos, logística e website.
-                        </p>
-                    </div>
-                    <Switch
-                        checked={enabled}
-                        disabled={processing}
-                        onCheckedChange={save}
-                        aria-label="Ativar alertas na aplicação"
-                    />
-                    <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        disabled={processing}
-                        onClick={() => save(!enabled)}
-                        className="sr-only"
-                    >
-                        Alterar
-                    </Button>
-                </CardContent>
-            </Card>
-        </div>
+    return createPortal(
+        <div className="flex items-center justify-between gap-3 rounded-lg border bg-card p-3">
+            <div className="flex min-w-0 items-start gap-3">
+                <div className="mt-0.5 rounded-full bg-primary/10 p-2 text-primary">
+                    <Bell size={18} weight="duotone" />
+                </div>
+                <div>
+                    <p className="text-sm font-medium">Alertas na aplicação</p>
+                    <p className="text-xs text-muted-foreground">
+                        Canal global para mensalidades, eventos, logística, loja e website.
+                    </p>
+                </div>
+            </div>
+            <Switch
+                checked={enabled}
+                disabled={processing}
+                onCheckedChange={save}
+                aria-label="Ativar alertas na aplicação"
+            />
+        </div>,
+        target,
     );
 }
