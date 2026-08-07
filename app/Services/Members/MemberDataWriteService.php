@@ -7,6 +7,7 @@ namespace App\Services\Members;
 use App\Models\DadosConfiguracao;
 use App\Models\DadosPessoais;
 use App\Models\User;
+use App\Services\Desportivo\SportsMemberProvisioningService;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -146,6 +147,7 @@ final class MemberDataWriteService
 
     public function __construct(
         private readonly MemberDataMigrationService $migrationService,
+        private readonly SportsMemberProvisioningService $sportsMemberProvisioningService,
     ) {
     }
 
@@ -161,6 +163,7 @@ final class MemberDataWriteService
             $this->persistConfigurationData($user, $payload, $userId);
             $this->syncLegacyUserPersonalFields($userId, $payload);
             $this->syncLegacyUserConfigurationFields($userId, $payload);
+            $this->sportsMemberProvisioningService->sync($user, $payload);
         });
     }
 
