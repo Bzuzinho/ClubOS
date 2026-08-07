@@ -21,12 +21,41 @@ interface DadosDesportivosTabProps {
   isAdmin: boolean;
 }
 
+const AUTOMATIC_AGE_GROUP_VALUE = '__automatic__';
+
 export function DadosDesportivosTab({ user, onChange, isAdmin }: DadosDesportivosTabProps) {
   const { data: ageGroups = [], isLoading } = useAgeGroups();
   const [showCardPreview, setShowCardPreview] = useState(false);
-  const selectedEscalao = Array.isArray((user as any).escalao) && (user as any).escalao.length > 0
-    ? (user as any).escalao[0]
-    : (user as any).escalao_id || undefined;
+  const sportsUser = user as any;
+  const explicitAgeGroup = Array.isArray(sportsUser.escalao) && sportsUser.escalao.length > 0
+    ? sportsUser.escalao[0]
+    : sportsUser.escalao_id || undefined;
+  const manualOverride = Boolean(sportsUser.escalao_manual_override);
+  const selectedEscalao = manualOverride && explicitAgeGroup
+    ? explicitAgeGroup
+    : AUTOMATIC_AGE_GROUP_VALUE;
+  const calculatedAgeGroup = ageGroups.find((group) => group.id === sportsUser.escalao_calculado_id);
+
+  const ageGroupHint = manualOverride
+    ? calculatedAgeGroup
+      ? `Override manual. Pelo cálculo automático seria ${calculatedAgeGroup.nome}.`
+      : 'Override manual. O escalão automático continua a ser calculado para comparação.'
+    : calculatedAgeGroup
+      ? `Calculado automaticamente: ${calculatedAgeGroup.nome}.`
+      : 'Será calculado pela data de nascimento ao guardar.';
+
+  const handleAgeGroupChange = (value: string) => {
+    if (value === AUTOMATIC_AGE_GROUP_VALUE) {
+      onChange('escalao_manual_override' as keyof User, false);
+      onChange('escalao', []);
+      onChange('escalao_id' as keyof User, null);
+      return;
+    }
+
+    onChange('escalao_manual_override' as keyof User, true);
+    onChange('escalao', [value]);
+    onChange('escalao_id' as keyof User, value);
+  };
 
   const handlePrintCard = () => {
     if (user.cartao_federacao) {
@@ -61,12 +90,12 @@ export function DadosDesportivosTab({ user, onChange, isAdmin }: DadosDesportivo
         <Card className="p-2">
           <div className="flex items-center justify-between">
             <div>
-              <Label htmlFor="ativo_desportivo" className="text-xs">Ativo</Label>
-              <p className="text-[10px] text-muted-foreground">Atleta ativo</p>
+              <Label htmlFor="ativo_desportivo" className="text-xs">Atividade desportiva</Label>
+              <p className="text-[10px] text-muted-foreground">Ativo para treinos e competição</p>
             </div>
             <Switch
               id="ativo_desportivo"
-              checked={user.ativo_desportivo}
+              checked={Boolean(user.ativo_desportivo)}
               onCheckedChange={(checked) => onChange('ativo_desportivo', checked)}
               disabled={!isAdmin}
             />
@@ -98,34 +127,30 @@ export function DadosDesportivosTab({ user, onChange, isAdmin }: DadosDesportivo
         </Card>
 
         <Card className="p-2">
-          <Label htmlFor="escalao" className="text-xs">Escalão</Label>
+          <Label htmlFor="escalao" className="text-xs">Escalão oficial</Label>
           <Select
             value={selectedEscalao}
-            onValueChange={(value) => {
-              onChange('escalao', value ? [value] : []);
-              onChange('escalao_id' as keyof User, value || null);
-            }}
-            disabled={!isAdmin || isLoading || ageGroups.length === 0}
+            onValueChange={handleAgeGroupChange}
+            disabled={!isAdmin || isLoading}
           >
             <SelectTrigger id="escalao" className="h-7 text-xs bg-white mt-1">
               <SelectValue placeholder={isLoading ? 'A carregar...' : 'Selecionar'} />
             </SelectTrigger>
             <SelectContent>
-              {ageGroups.length === 0 ? (
-                <SelectItem value="placeholder" disabled>
-                  {isLoading ? 'A carregar escalões...' : 'Nenhum escalão configurado'}
-                </SelectItem>
-              ) : (
-                ageGroups
-                  .filter(group => group.ativo)
-                  .map((group) => (
-                    <SelectItem key={group.id} value={group.id}>
-                      {group.nome} ({group.idade_minima}-{group.idade_maxima}a)
-                    </SelectItem>
-                  ))
+              <SelectItem value={AUTOMATIC_AGE_GROUP_VALUE}>Automático (pela idade)</SelectItem>
+              {ageGroups
+                .filter(group => group.ativo)
+                .map((group) => (
+                  <SelectItem key={group.id} value={group.id}>
+                    {group.nome} ({group.idade_minima}-{group.idade_maxima}a)
+                  </SelectItem>
+                ))}
+              {!isLoading && ageGroups.filter(group => group.ativo).length === 0 && (
+                <SelectItem value="__no_age_groups__" disabled>Nenhum escalão configurado</SelectItem>
               )}
             </SelectContent>
           </Select>
+          <p className="mt-1 text-[10px] leading-tight text-muted-foreground">{ageGroupHint}</p>
         </Card>
       </div>
 
