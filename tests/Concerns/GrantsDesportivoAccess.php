@@ -19,6 +19,7 @@ trait GrantsDesportivoAccess
         array $permissionKeys = [
             'desportivo.dashboard',
             'desportivo.treinos',
+            'desportivo.treinos.cais',
             'desportivo.presencas',
             'desportivo.competicoes',
             'desportivo.resultados',
@@ -59,7 +60,7 @@ trait GrantsDesportivoAccess
         return $userType;
     }
 
-    private function desportivoPermissionNode(string $permissionKey, int $index): PermissionNode
+    protected function desportivoPermissionNode(string $permissionKey, int $index): PermissionNode
     {
         $existing = PermissionNode::query()->where('key', $permissionKey)->first();
 
