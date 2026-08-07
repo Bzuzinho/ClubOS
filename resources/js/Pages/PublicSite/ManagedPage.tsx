@@ -69,11 +69,12 @@ type PageDesign = {
 
 type SectionItem = {
     id: string;
-    type: 'subsection' | 'card' | 'text' | 'image' | 'button' | 'data_collection';
+    type: 'container' | 'subsection' | 'card' | 'text' | 'eyebrow' | 'heading' | 'paragraph' | 'rich_text' | 'image' | 'button' | 'link' | 'divider' | 'spacer' | 'data_collection' | 'contact_form' | 'registration_form';
     is_visible?: boolean;
     content: BlockContent;
     style?: SectionItemStyle;
     settings?: SectionItemSettings;
+    children?: SectionItem[];
 };
 
 type SectionItemStyle = {
@@ -157,7 +158,9 @@ function items(value: unknown): CardItem[] {
 
 function sectionItems(value: unknown): SectionItem[] {
     return Array.isArray(value)
-        ? value.filter((item): item is SectionItem => Boolean(item) && typeof item === 'object' && typeof item.id === 'string')
+        ? value
+            .filter((item): item is SectionItem => Boolean(item) && typeof item === 'object' && typeof item.id === 'string')
+            .map((item) => ({ ...item, children: sectionItems(item.children) }))
         : [];
 }
 
@@ -368,25 +371,51 @@ function sectionItemVariables(style: SectionItemStyle = {}, type: SectionItem['t
     } as CSSProperties;
 }
 
-function RenderSectionItem({ item, blockKey, news, events, partners, editor, selected }: { item: SectionItem; blockKey: string; news: PublicNews[]; events: PublicEvent[]; partners: PublicPartner[]; editor?: (key: string, itemId?: string) => void; selected?: boolean }) {
+function RenderSectionItem({ item, blockKey, news, events, partners, editor, selectedItemId }: { item: SectionItem; blockKey: string; news: PublicNews[]; events: PublicEvent[]; partners: PublicPartner[]; editor?: (key: string, itemId?: string) => void; selectedItemId?: string | null }) {
     if (item.is_visible === false) return null;
     const content = item.content || {};
     const style = item.style || {};
     const settings = item.settings || {};
+    const children = sectionItems(item.children);
     const image = text(content.image);
-    const classes = ['cms-section-item', `cms-section-${item.type}`, settings.animation && settings.animation !== 'none' ? `cms-motion-${settings.animation}` : '', settings.hide_mobile ? 'cms-hide-mobile' : '', settings.hide_desktop ? 'cms-hide-desktop' : '', editor ? 'cms-editor-node' : '', selected ? 'is-selected' : ''].filter(Boolean).join(' ');
+    const classes = ['cms-section-item', `cms-section-${item.type}`, settings.animation && settings.animation !== 'none' ? `cms-motion-${settings.animation}` : '', settings.hide_mobile ? 'cms-hide-mobile' : '', settings.hide_desktop ? 'cms-hide-desktop' : '', editor ? 'cms-editor-node' : '', selectedItemId === item.id ? 'is-selected' : ''].filter(Boolean).join(' ');
     let body: ReactNode;
-    if (item.type === 'image') {
+    if (['container', 'subsection', 'card'].includes(item.type)) {
+        const layout = {
+            '--cms-section-columns': Math.min(6, Math.max(1, number(content.columns_desktop, 1))),
+            '--cms-section-columns-tablet': Math.min(4, Math.max(1, number(content.columns_tablet, 1))),
+            '--cms-section-columns-mobile': Math.min(2, Math.max(1, number(content.columns_mobile, 1))),
+            '--cms-section-gap': `${Math.min(80, Math.max(0, number(content.gap, 12)))}px`,
+            '--cms-section-align': text(content.align_items) || 'start',
+        } as CSSProperties;
+        body = <div className="cms-element-children" style={layout}>{children.map((child) => <RenderSectionItem key={child.id} item={child} blockKey={blockKey} news={news} events={events} partners={partners} editor={editor} selectedItemId={selectedItemId} />)}</div>;
+    } else if (item.type === 'eyebrow') {
+        body = <p className="eyebrow">{text(content.text)}</p>;
+    } else if (item.type === 'heading') {
+        body = <h2>{text(content.text)}</h2>;
+    } else if (['paragraph', 'rich_text', 'text'].includes(item.type)) {
+        body = <div className="cms-item-copy">{text(content.text).split(/\n{2,}/).filter(Boolean).map((paragraph, index) => <p key={index}>{paragraph}</p>)}</div>;
+    } else if (item.type === 'image') {
         body = image ? <SmartLink href={content.url} newTab={Boolean(settings.open_link_new_tab)}><img src={image} alt={text(content.image_alt)} /></SmartLink> : <div className="cms-item-placeholder">Escolhe uma imagem</div>;
     } else if (item.type === 'button') {
         body = <SmartLink className="button" href={content.url} newTab={Boolean(settings.open_link_new_tab)}>{text(content.label) || 'Saber mais'}</SmartLink>;
+    } else if (item.type === 'link') {
+        body = <SmartLink className="text-link" href={content.url} newTab={Boolean(settings.open_link_new_tab)}>{text(content.label) || 'Saber mais'} <span aria-hidden="true">↗</span></SmartLink>;
+    } else if (item.type === 'divider') {
+        body = <hr className="cms-element-divider" />;
+    } else if (item.type === 'spacer') {
+        body = <div className="cms-element-spacer" aria-hidden="true" />;
     } else if (item.type === 'data_collection') {
         body = <DynamicCollection content={content} news={news} events={events} partners={partners} newTab={Boolean(settings.open_link_new_tab)} />;
+    } else if (item.type === 'contact_form') {
+        body = <ContactForm />;
+    } else if (item.type === 'registration_form') {
+        body = <RegistrationForm />;
     } else {
         body = <>{text(content.eyebrow) && <p className="eyebrow">{text(content.eyebrow)}</p>}{image && <div className="cms-item-image"><img src={image} alt={text(content.image_alt)} /></div>}{text(content.title) && <h3>{text(content.title)}</h3>}{text(content.text) && <div className="cms-item-copy">{text(content.text).split(/\n{2,}/).filter(Boolean).map((paragraph, index) => <p key={index}>{paragraph}</p>)}</div>}{text(content.button_label) && <SmartLink className="text-link" href={content.url} newTab={Boolean(settings.open_link_new_tab)}>{text(content.button_label)} <span aria-hidden="true">↗</span></SmartLink>}</>;
     }
     const ratio = style.image_ratio && style.image_ratio !== 'auto' ? style.image_ratio.replace(':', ' / ') : undefined;
-    return <div className={classes} style={{ ...sectionItemVariables(style, item.type), animationDelay: `${settings.animation_delay ?? 0}ms`, '--cms-item-image-ratio': ratio || 'auto', '--cms-item-image-fit': style.image_fit || 'cover' } as CSSProperties} onClickCapture={editor ? (event) => { event.preventDefault(); event.stopPropagation(); editor(blockKey, item.id); } : undefined}>{body}</div>;
+    return <div className={classes} style={{ ...sectionItemVariables(style, item.type), animationDelay: `${settings.animation_delay ?? 0}ms`, '--cms-item-image-ratio': ratio || 'auto', '--cms-item-image-fit': style.image_fit || 'cover', '--cms-item-image-position': text(content.image_position) || 'center' } as CSSProperties} onClick={editor ? (event) => { event.preventDefault(); event.stopPropagation(); editor(blockKey, item.id); } : undefined}>{body}</div>;
 }
 
 function SectionBlock({ block, news, events, partners, editor, selectedItemId }: { block: ManagedBlock; news: PublicNews[]; events: PublicEvent[]; partners: PublicPartner[]; editor?: (key: string, itemId?: string) => void; selectedItemId?: string | null }) {
@@ -398,7 +427,20 @@ function SectionBlock({ block, news, events, partners, editor, selectedItemId }:
         '--cms-section-gap': `${Math.min(80, Math.max(0, number(content.gap, 20)))}px`,
         '--cms-section-align': text(content.align_items) || 'stretch',
     } as CSSProperties;
-    return <section className="cms-builder-section shell"><SectionHeading content={content} /><div className="cms-section-layout" style={layout}>{sectionItems(content.items).map((item) => <RenderSectionItem key={item.id} item={item} blockKey={block.block_key} news={news} events={events} partners={partners} editor={editor} selected={selectedItemId === item.id} />)}</div></section>;
+    return <section className="cms-builder-section shell"><SectionHeading content={content} /><div className="cms-section-layout" style={layout}>{sectionItems(content.items).map((item) => <RenderSectionItem key={item.id} item={item} blockKey={block.block_key} news={news} events={events} partners={partners} editor={editor} selectedItemId={selectedItemId} />)}</div></section>;
+}
+
+function EditableElementsBlock({ block, news, events, partners, editor, selectedItemId }: { block: ManagedBlock; news: PublicNews[]; events: PublicEvent[]; partners: PublicPartner[]; editor?: (key: string, itemId?: string) => void; selectedItemId?: string | null }) {
+    const content = block.content;
+    const layout = {
+        '--cms-section-columns': Math.min(6, Math.max(1, number(content.columns_desktop, 6))),
+        '--cms-section-columns-tablet': Math.min(4, Math.max(1, number(content.columns_tablet, 2))),
+        '--cms-section-columns-mobile': Math.min(2, Math.max(1, number(content.columns_mobile, 1))),
+        '--cms-section-gap': `${Math.min(80, Math.max(0, number(content.gap, 20)))}px`,
+        '--cms-section-align': text(content.align_items) || 'stretch',
+    } as CSSProperties;
+
+    return <section className={`cms-builder-section cms-elements-block cms-elements-${block.type} shell`}><div className="cms-section-layout" style={layout}>{sectionItems(content.elements).map((item) => <RenderSectionItem key={item.id} item={item} blockKey={block.block_key} news={news} events={events} partners={partners} editor={editor} selectedItemId={selectedItemId} />)}</div></section>;
 }
 
 function FormBlock({ content, registration }: { content: BlockContent; registration: boolean }) {
@@ -479,25 +521,29 @@ function RenderBlock({ block, news, events, partners, editor, selected, selected
         settings.hide_mobile ? 'cms-hide-mobile' : '',
         settings.hide_desktop ? 'cms-hide-desktop' : '',
         editor ? 'cms-editor-block' : '',
-        editor && block.type !== 'section' ? 'cms-editor-simple' : '',
+        editor && block.type !== 'section' && !Array.isArray(block.content.elements) ? 'cms-editor-simple' : '',
         selected ? 'is-selected' : '',
     ].filter(Boolean).join(' ');
 
     let content: ReactNode = null;
 
-    switch (block.type) {
-        case 'hero': content = <HeroBlock content={block.content} newTab={newTab} />; break;
-        case 'section': content = <SectionBlock block={block} news={news} events={events} partners={partners} editor={editor} selectedItemId={selectedItemId} />; break;
-        case 'rich_text': content = <RichTextBlock content={block.content} />; break;
-        case 'cards': content = <CardsBlock content={block.content} newTab={newTab} />; break;
-        case 'image_text': content = <ImageTextBlock content={block.content} newTab={newTab} />; break;
-        case 'stats': content = <StatsBlock content={block.content} />; break;
-        case 'cta': content = <CtaBlock content={block.content} newTab={newTab} />; break;
-        case 'news_feed': content = <DataFeedBlock content={block.content} defaultSource="news" news={news} events={events} partners={partners} newTab={newTab} />; break;
-        case 'events_feed': content = <DataFeedBlock content={block.content} defaultSource="events" news={news} events={events} partners={partners} newTab={newTab} />; break;
-        case 'contact_form': content = <FormBlock content={block.content} registration={false} />; break;
-        case 'registration_form': content = <FormBlock content={block.content} registration />; break;
-        default: return null;
+    if (Array.isArray(block.content.elements)) {
+        content = <EditableElementsBlock block={block} news={news} events={events} partners={partners} editor={editor} selectedItemId={selectedItemId} />;
+    } else {
+        switch (block.type) {
+            case 'hero': content = <HeroBlock content={block.content} newTab={newTab} />; break;
+            case 'section': content = <SectionBlock block={block} news={news} events={events} partners={partners} editor={editor} selectedItemId={selectedItemId} />; break;
+            case 'rich_text': content = <RichTextBlock content={block.content} />; break;
+            case 'cards': content = <CardsBlock content={block.content} newTab={newTab} />; break;
+            case 'image_text': content = <ImageTextBlock content={block.content} newTab={newTab} />; break;
+            case 'stats': content = <StatsBlock content={block.content} />; break;
+            case 'cta': content = <CtaBlock content={block.content} newTab={newTab} />; break;
+            case 'news_feed': content = <DataFeedBlock content={block.content} defaultSource="news" news={news} events={events} partners={partners} newTab={newTab} />; break;
+            case 'events_feed': content = <DataFeedBlock content={block.content} defaultSource="events" news={news} events={events} partners={partners} newTab={newTab} />; break;
+            case 'contact_form': content = <FormBlock content={block.content} registration={false} />; break;
+            case 'registration_form': content = <FormBlock content={block.content} registration />; break;
+            default: return null;
+        }
     }
 
     if (!editor && !block.style && !block.settings) {

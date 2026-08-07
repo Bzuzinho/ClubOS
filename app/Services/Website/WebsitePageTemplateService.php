@@ -7,7 +7,7 @@ class WebsitePageTemplateService
     /** @return array<int, array<string, mixed>> */
     public function starterBlocks(string $slug): array
     {
-        return match ($slug) {
+        $blocks = match ($slug) {
             'home' => $this->home(),
             'clube' => $this->clube(),
             'competicao' => $this->competicao(),
@@ -21,6 +21,14 @@ class WebsitePageTemplateService
             'privacidade' => $this->privacy(),
             default => $this->custom(),
         };
+
+        return $this->makeBlocksFullyEditable($blocks);
+    }
+
+    /** @param array<int, array<string, mixed>> $blocks @return array<int, array<string, mixed>> */
+    public function makeBlocksFullyEditable(array $blocks): array
+    {
+        return array_map(fn (array $block): array => $this->makeFullyEditable($block), $blocks);
     }
 
     /** @return array<int, array<string, mixed>> */
@@ -352,6 +360,232 @@ class WebsitePageTemplateService
                 'columns_desktop' => 3, 'columns_tablet' => 2, 'columns_mobile' => 1, 'gap' => 20, 'align_items' => 'stretch',
                 'items' => [$this->sectionItem('card', 'starter-card', ['eyebrow' => 'Destaque', 'title' => 'Novo card', 'text' => 'Edita este conteúdo na lateral direita.'], ['column_span' => 1])],
             ]),
+        ];
+    }
+
+    /** @param array<string, mixed> $block @return array<string, mixed> */
+    private function makeFullyEditable(array $block): array
+    {
+        $content = is_array($block['content'] ?? null) ? $block['content'] : [];
+        if (is_array($content['elements'] ?? null)) {
+            return $block;
+        }
+
+        $type = (string) ($block['type'] ?? 'section');
+        $key = (string) ($block['block_key'] ?? 'content');
+        $columns = max(1, min(6, (int) ($content['columns_desktop'] ?? 6)));
+        $tabletColumns = max(1, min(4, (int) ($content['columns_tablet'] ?? min(2, $columns))));
+        $mobileColumns = max(1, min(2, (int) ($content['columns_mobile'] ?? 1)));
+
+        $content['columns_desktop'] = $columns;
+        $content['columns_tablet'] = $tabletColumns;
+        $content['columns_mobile'] = $mobileColumns;
+        $content['gap'] = max(0, min(80, (int) ($content['gap'] ?? 20)));
+        $content['align_items'] = $content['align_items'] ?? 'stretch';
+        $content['elements'] = $this->editableElementsForBlock($type, $key, $content, $columns, $tabletColumns, $mobileColumns);
+        $block['content'] = $content;
+
+        if ($type === 'hero' && is_string($content['image'] ?? null) && $content['image'] !== '') {
+            $block['style'] = [
+                ...(is_array($block['style'] ?? null) ? $block['style'] : []),
+                'background_image' => $content['image'],
+                'background_position' => $content['image_position'] ?? 'center',
+            ];
+        }
+
+        return $block;
+    }
+
+    /** @return array<int, array<string, mixed>> */
+    private function editableElementsForBlock(string $type, string $key, array $content, int $columns, int $tabletColumns, int $mobileColumns): array
+    {
+        $full = $this->span($columns, $tabletColumns, $mobileColumns);
+        $heading = $this->headingElements($key, $content, $full, isset($content['intro']) ? 'intro' : 'text');
+
+        if ($type === 'section') {
+            return [
+                ...$heading,
+                ...array_map(fn (array $item): array => $this->makeEditableItem($item), array_values(array_filter($content['items'] ?? [], 'is_array'))),
+            ];
+        }
+
+        if ($type === 'cards') {
+            $cardColumns = max(1, min(4, (int) ($content['columns'] ?? 3)));
+            $span = max(1, (int) ceil(6 / $cardColumns));
+            $cards = [];
+            foreach (array_values(array_filter($content['items'] ?? [], 'is_array')) as $index => $card) {
+                $children = $this->headingElements("$key-card-$index", $card, $this->span(1, 1, 1), 'text', 'heading');
+                if ((string) ($card['url'] ?? '') !== '') {
+                    $children[] = $this->linkElement('link', "$key-card-$index-link", 'Saber mais', (string) $card['url'], $this->span(1, 1, 1));
+                }
+                $cards[] = $this->element('card', "$key-card-$index", [], [
+                    'column_span' => $span,
+                    'tablet_span' => min(2, $span),
+                    'mobile_span' => 1,
+                ], $children);
+            }
+
+            return [...$heading, ...$cards];
+        }
+
+        if ($type === 'stats') {
+            $stats = [];
+            foreach (array_values(array_filter($content['items'] ?? [], 'is_array')) as $index => $stat) {
+                $stats[] = $this->element('card', "$key-stat-$index", [], [
+                    'column_span' => max(1, (int) ceil(6 / max(1, count($content['items'] ?? [])))),
+                    'tablet_span' => 1,
+                    'mobile_span' => 1,
+                    'text_align' => 'center',
+                ], array_values(array_filter([
+                    $this->textElement('heading', "$key-stat-$index-value", (string) ($stat['value'] ?? ''), $this->span(1, 1, 1)),
+                    $this->textElement('paragraph', "$key-stat-$index-label", (string) ($stat['label'] ?? ''), $this->span(1, 1, 1)),
+                ])));
+            }
+
+            return $stats;
+        }
+
+        if ($type === 'image_text') {
+            $listElements = [];
+            foreach (array_values(array_filter(is_array($content['items'] ?? null) ? $content['items'] : [], 'is_string')) as $index => $item) {
+                $element = $this->textElement('paragraph', "$key-list-$index", '• '.$item, $this->span(1, 1, 1));
+                if ($element !== null) {
+                    $listElements[] = $element;
+                }
+            }
+            $copy = $this->element('container', "$key-copy", [
+                'columns_desktop' => 1, 'columns_tablet' => 1, 'columns_mobile' => 1, 'gap' => 14, 'align_items' => 'start',
+            ], ['column_span' => 3, 'tablet_span' => 2, 'mobile_span' => 1], [
+                ...$this->headingElements("$key-copy", $content, $this->span(1, 1, 1), 'text'),
+                ...$listElements,
+                ...((string) ($content['button_label'] ?? '') !== '' ? [$this->linkElement('button', "$key-button", (string) $content['button_label'], (string) ($content['button_url'] ?? ''), $this->span(1, 1, 1))] : []),
+            ]);
+            $image = $this->element('image', "$key-image", [
+                'image' => $content['image'] ?? '',
+                'image_alt' => $content['image_alt'] ?? '',
+                'image_position' => $content['image_position'] ?? 'center',
+                'url' => '',
+            ], ['column_span' => 3, 'tablet_span' => 2, 'mobile_span' => 1, 'image_ratio' => '16:9', 'border_radius' => 16]);
+
+            return ($content['image_side'] ?? 'left') === 'right' ? [$copy, $image] : [$image, $copy];
+        }
+
+        if (in_array($type, ['news_feed', 'events_feed'], true)) {
+            return [...$heading, $this->element('data_collection', "$key-data", [
+                'source' => $content['source'] ?? ($type === 'events_feed' ? 'events' : 'news'),
+                'limit' => $content['limit'] ?? 6,
+                'layout' => 'grid',
+                'columns' => 3,
+                'show_image' => true,
+                'show_meta' => true,
+                'show_description' => true,
+                'show_link' => true,
+                'link_label' => 'Saber mais',
+            ], $full)];
+        }
+
+        if (in_array($type, ['contact_form', 'registration_form'], true)) {
+            $steps = [];
+            foreach (array_values(array_filter(is_array($content['steps'] ?? null) ? $content['steps'] : [], 'is_string')) as $index => $step) {
+                $element = $this->textElement('paragraph', "$key-step-$index", sprintf('%02d · %s', $index + 1, $step), $this->span(1, 1, 1));
+                if ($element !== null) {
+                    $steps[] = $element;
+                }
+            }
+            $stepsContainer = $steps === [] ? [] : [$this->element('container', "$key-steps", [
+                'columns_desktop' => 1, 'columns_tablet' => 1, 'columns_mobile' => 1, 'gap' => 8, 'align_items' => 'start',
+            ], $full, $steps)];
+
+            return [...$heading, ...$stepsContainer, $this->element($type, "$key-form", [], $full)];
+        }
+
+        $elements = $heading;
+        foreach ([['primary_label', 'primary_url'], ['button_label', 'button_url'], ['secondary_label', 'secondary_url']] as $index => [$labelKey, $urlKey]) {
+            if ((string) ($content[$labelKey] ?? '') !== '') {
+                $elements[] = $this->linkElement('button', "$key-action-$index", (string) $content[$labelKey], (string) ($content[$urlKey] ?? ''), $full);
+            }
+        }
+
+        return $elements;
+    }
+
+    /** @param array<string, mixed> $item @return array<string, mixed> */
+    private function makeEditableItem(array $item): array
+    {
+        $type = (string) ($item['type'] ?? 'card');
+        if (in_array($type, ['image', 'button', 'data_collection'], true)) {
+            return $this->element($type, str_replace('element-', '', (string) ($item['id'] ?? $type)), is_array($item['content'] ?? null) ? $item['content'] : [], is_array($item['style'] ?? null) ? $item['style'] : [], [], is_array($item['settings'] ?? null) ? $item['settings'] : []);
+        }
+
+        $content = is_array($item['content'] ?? null) ? $item['content'] : [];
+        $key = str_replace('element-', '', (string) ($item['id'] ?? $type));
+        $containerType = $type === 'card' ? 'card' : 'container';
+        $children = $this->headingElements($key, $content, $this->span(1, 1, 1), 'text', 'heading');
+        if ((string) ($content['image'] ?? '') !== '') {
+            array_unshift($children, $this->element('image', "$key-image", [
+                'image' => $content['image'], 'image_alt' => $content['image_alt'] ?? '', 'url' => '',
+            ], $this->span(1, 1, 1)));
+        }
+        if ((string) ($content['button_label'] ?? '') !== '') {
+            $children[] = $this->linkElement('link', "$key-link", (string) $content['button_label'], (string) ($content['url'] ?? ''), $this->span(1, 1, 1));
+        }
+
+        return $this->element($containerType, $key, [
+            'columns_desktop' => 1, 'columns_tablet' => 1, 'columns_mobile' => 1, 'gap' => 12, 'align_items' => 'start',
+        ], is_array($item['style'] ?? null) ? $item['style'] : [], $children, is_array($item['settings'] ?? null) ? $item['settings'] : []);
+    }
+
+    /** @return array<int, array<string, mixed>> */
+    private function headingElements(string $key, array $content, array $style, string $bodyKey = 'text', string $headingType = 'heading'): array
+    {
+        return array_values(array_filter([
+            $this->textElement('eyebrow', "$key-eyebrow", (string) ($content['eyebrow'] ?? $content['label'] ?? ''), $style),
+            $this->textElement($headingType, "$key-title", (string) ($content['title'] ?? ''), $style),
+            $this->textElement($bodyKey === 'text' ? 'rich_text' : 'paragraph', "$key-body", (string) ($content[$bodyKey] ?? ''), $style),
+        ]));
+    }
+
+    /** @return array<string, int> */
+    private function span(int $desktop, int $tablet, int $mobile): array
+    {
+        return ['column_span' => $desktop, 'tablet_span' => $tablet, 'mobile_span' => $mobile];
+    }
+
+    /** @return array<string, mixed>|null */
+    private function textElement(string $type, string $key, string $text, array $style): ?array
+    {
+        if (trim($text) === '') {
+            return null;
+        }
+
+        $specific = match ($type) {
+            'eyebrow' => ['heading_size' => 12, 'heading_weight' => 700],
+            'heading' => ['heading_size' => 32, 'heading_weight' => 700],
+            default => ['body_size' => 15, 'body_weight' => 400],
+        };
+
+        return $this->element($type, $key, ['text' => $text], [...$style, ...$specific]);
+    }
+
+    /** @return array<string, mixed> */
+    private function linkElement(string $type, string $key, string $label, string $url, array $style): array
+    {
+        return $this->element($type, $key, ['label' => $label, 'url' => $url], $style);
+    }
+
+    /** @return array<string, mixed> */
+    private function element(string $type, string $key, array $content = [], array $style = [], array $children = [], array $settings = []): array
+    {
+        $safeKey = preg_replace('/[^a-zA-Z0-9-]+/', '-', $key) ?: 'content';
+
+        return [
+            'id' => 'element-'.trim($safeKey, '-'),
+            'type' => $type,
+            'is_visible' => true,
+            'content' => $content,
+            'style' => $style,
+            'settings' => $settings,
+            'children' => $children,
         ];
     }
 

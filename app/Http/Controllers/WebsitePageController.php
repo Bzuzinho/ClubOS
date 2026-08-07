@@ -64,7 +64,7 @@ class WebsitePageController extends Controller
             'media' => $media->map(fn (WebsiteMedia $item): array => $this->mediaPayload($item, $usage->get($item->id, false))),
             'blockTypes' => [
                 ['value' => 'hero', 'label' => 'Hero'],
-                ['value' => 'section', 'label' => 'Secção avançada'],
+                ['value' => 'section', 'label' => 'Secção livre'],
                 ['value' => 'rich_text', 'label' => 'Texto'],
                 ['value' => 'cards', 'label' => 'Cards'],
                 ['value' => 'image_text', 'label' => 'Imagem + texto'],

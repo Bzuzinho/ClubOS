@@ -114,6 +114,40 @@ chown -R "${RUNTIME_USER}:${RUNTIME_GROUP}" "${WORK_TREE}/storage" "${WORK_TREE}
 find "${WORK_TREE}/storage" "${WORK_TREE}/bootstrap/cache" -type d -exec chmod 775 {} +
 find "${WORK_TREE}/storage" "${WORK_TREE}/bootstrap/cache" -type f -exec chmod 664 {} +
 
+log "alinhar limites de upload do Website"
+install -d -m 755 /etc/php/8.3/fpm/conf.d /etc/nginx/conf.d
+cat > /etc/php/8.3/fpm/conf.d/99-clubmanager-uploads.ini <<'PHP_UPLOADS'
+upload_max_filesize = 10M
+post_max_size = 12M
+max_file_uploads = 20
+PHP_UPLOADS
+cat > /etc/nginx/conf.d/clubmanager-uploads.conf <<'NGINX_UPLOADS'
+# ClubOS Website accepts images up to 8 MiB. Keep transport limits above the
+# application validation limit so Laravel can return a useful validation error.
+client_max_body_size 12M;
+NGINX_UPLOADS
+SITE_CONFIG="/etc/nginx/sites-enabled/clubmanager"
+if [[ -f "${SITE_CONFIG}" ]]; then
+  python3 - "${SITE_CONFIG}" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+content = path.read_text()
+directive = "    client_max_body_size 12M;\n"
+if re.search(r"(?m)^\s*client_max_body_size\s+[^;]+;\s*$", content):
+    content = re.sub(r"(?m)^\s*client_max_body_size\s+[^;]+;\s*$", directive.rstrip(), content)
+else:
+    marker = "    location / {\n"
+    if marker not in content:
+        raise SystemExit("location / não encontrado no site nginx clubmanager")
+    content = content.replace(marker, directive + "\n" + marker, 1)
+path.write_text(content)
+PY
+fi
+nginx -t
+
 log "reload php-fpm"
 systemctl reload php8.3-fpm || service php8.3-fpm reload
 

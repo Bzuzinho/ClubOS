@@ -115,9 +115,23 @@ class WebsitePageDataRequest extends FormRequest
                 $validator->errors()->add('blocks', 'Cada âncora só pode ser usada uma vez na página.');
             }
 
+            $elementIds = [];
+            $elementCount = 0;
             foreach ($blocks as $blockIndex => $block) {
                 if (! is_array($block)) {
                     continue;
+                }
+
+                $blockContent = is_array($block['content'] ?? null) ? $block['content'] : [];
+                if (array_key_exists('elements', $blockContent)) {
+                    $this->validateElementTree(
+                        $validator,
+                        $blockContent['elements'],
+                        "blocks.$blockIndex.content.elements",
+                        0,
+                        $elementIds,
+                        $elementCount,
+                    );
                 }
 
                 if (in_array($block['type'] ?? null, ['news_feed', 'events_feed'], true)) {
@@ -193,9 +207,117 @@ class WebsitePageDataRequest extends FormRequest
                 'inscricao' => 'registration_form',
                 default => null,
             };
-            if ($requiredType && in_array($operation, ['publish', 'schedule'], true) && ! $visibleBlocks->contains('type', $requiredType)) {
-                $validator->errors()->add('blocks', 'Esta página tem de manter o respetivo formulário público visível.');
+            if ($requiredType && in_array($operation, ['publish', 'schedule'], true)) {
+                $hasRequiredForm = $visibleBlocks->contains(function (mixed $block) use ($requiredType): bool {
+                    if (! is_array($block) || ($block['type'] ?? null) !== $requiredType) {
+                        return false;
+                    }
+
+                    $content = is_array($block['content'] ?? null) ? $block['content'] : [];
+
+                    return ! array_key_exists('elements', $content)
+                        || $this->elementTreeContainsVisibleType($content['elements'], $requiredType);
+                });
+
+                if (! $hasRequiredForm) {
+                    $validator->errors()->add('blocks', 'Esta página tem de manter o respetivo formulário público visível.');
+                }
             }
         });
+    }
+
+    /** @param array<int, string> $ids */
+    private function validateElementTree(Validator $validator, mixed $items, string $path, int $depth, array &$ids, int &$count): void
+    {
+        if (! is_array($items)) {
+            $validator->errors()->add($path, 'A estrutura de elementos é inválida.');
+
+            return;
+        }
+
+        if ($depth > 4) {
+            $validator->errors()->add($path, 'A estrutura só pode ter cinco níveis.');
+
+            return;
+        }
+
+        if (count($items) > 30) {
+            $validator->errors()->add($path, 'Cada contentor pode ter até 30 elementos.');
+        }
+
+        $types = [
+            'container', 'subsection', 'card', 'text', 'eyebrow', 'heading', 'paragraph', 'rich_text',
+            'image', 'button', 'link', 'divider', 'spacer', 'data_collection', 'contact_form', 'registration_form',
+        ];
+
+        foreach (array_slice($items, 0, 30) as $index => $item) {
+            $itemPath = "$path.$index";
+            if (! is_array($item)) {
+                $validator->errors()->add($itemPath, 'O elemento é inválido.');
+                continue;
+            }
+
+            $count++;
+            if ($count > 120) {
+                $validator->errors()->add($path, 'A página pode ter até 120 elementos editáveis.');
+                return;
+            }
+
+            $id = $item['id'] ?? null;
+            if (! is_string($id) || preg_match('/\Aelement-[a-zA-Z0-9-]+\z/', $id) !== 1 || in_array($id, $ids, true)) {
+                $validator->errors()->add("$itemPath.id", 'Cada elemento tem de ter um identificador único.');
+            } else {
+                $ids[] = $id;
+            }
+
+            $type = $item['type'] ?? null;
+            if (! in_array($type, $types, true)) {
+                $validator->errors()->add("$itemPath.type", 'Escolhe um tipo de elemento válido.');
+            }
+
+            foreach (['content', 'style', 'settings'] as $field) {
+                if (! is_array($item[$field] ?? null)) {
+                    $validator->errors()->add("$itemPath.$field", 'O conteúdo, estilo e comportamento do elemento são obrigatórios.');
+                }
+            }
+
+            $itemContent = is_array($item['content'] ?? null) ? $item['content'] : [];
+            if ($type === 'data_collection' && ! in_array($itemContent['source'] ?? null, ['news', 'events', 'partners'], true)) {
+                $validator->errors()->add("$itemPath.content.source", 'Escolhe uma origem de dados válida.');
+            }
+
+            $children = $item['children'] ?? [];
+            if (! is_array($children)) {
+                $validator->errors()->add("$itemPath.children", 'Os elementos internos são inválidos.');
+                continue;
+            }
+
+            if ($children !== []) {
+                if (! in_array($type, ['container', 'subsection', 'card'], true)) {
+                    $validator->errors()->add("$itemPath.children", 'Apenas contentores, subsecções e cards podem receber elementos internos.');
+                    continue;
+                }
+
+                $this->validateElementTree($validator, $children, "$itemPath.children", $depth + 1, $ids, $count);
+            }
+        }
+    }
+
+    private function elementTreeContainsVisibleType(mixed $items, string $type): bool
+    {
+        if (! is_array($items)) {
+            return false;
+        }
+
+        foreach ($items as $item) {
+            if (! is_array($item) || ($item['is_visible'] ?? true) === false) {
+                continue;
+            }
+            if (($item['type'] ?? null) === $type || $this->elementTreeContainsVisibleType($item['children'] ?? [], $type)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }
