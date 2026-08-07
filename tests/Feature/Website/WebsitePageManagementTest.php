@@ -102,6 +102,66 @@ class WebsitePageManagementTest extends TestCase
         $this->get('/clube')->assertInertia(fn (Assert $response) => $response->component('PublicSite/Clube'));
     }
 
+    public function test_imported_privacy_page_is_decomposed_into_individually_editable_elements(): void
+    {
+        $admin = User::factory()->create(['perfil' => 'admin']);
+        $page = WebsitePage::query()->where('slug', 'privacidade')->sole();
+
+        $this->actingAs($admin)->post("/website/paginas/{$page->id}/importar")
+            ->assertRedirect()
+            ->assertSessionHas('success');
+
+        $block = $page->fresh()->blocks()->where('block_key', 'privacy')->firstOrFail();
+        $elements = collect($block->content['elements']);
+
+        $this->assertSame(['eyebrow', 'heading', 'rich_text'], $elements->pluck('type')->all());
+        $this->assertSame('Privacidade', $elements->firstWhere('type', 'eyebrow')['content']['text']);
+        $this->assertSame('Informação sobre o tratamento de dados', $elements->firstWhere('type', 'heading')['content']['text']);
+        $this->assertStringContainsString('Os dados enviados', $elements->firstWhere('type', 'rich_text')['content']['text']);
+        $this->assertNotSame(
+            $elements->firstWhere('type', 'eyebrow')['id'],
+            $elements->firstWhere('type', 'heading')['id'],
+        );
+    }
+
+    public function test_nested_card_children_keep_independent_content_style_and_links(): void
+    {
+        $admin = User::factory()->create(['perfil' => 'admin']);
+        $page = $this->createCustomPage($admin);
+        $payload = $this->pagePayload($page, 'autosave');
+        $sectionIndex = collect($payload['blocks'])->search(fn (array $block): bool => $block['type'] === 'section');
+        $this->assertNotFalse($sectionIndex);
+
+        $elements = $payload['blocks'][$sectionIndex]['content']['elements'];
+        $cardIndex = collect($elements)->search(fn (array $element): bool => $element['type'] === 'card');
+        $this->assertNotFalse($cardIndex);
+        $headingIndex = collect($elements[$cardIndex]['children'])->search(fn (array $element): bool => $element['type'] === 'heading');
+        $this->assertNotFalse($headingIndex);
+
+        $elements[$cardIndex]['children'][$headingIndex]['content']['text'] = 'Título independente';
+        $elements[$cardIndex]['children'][$headingIndex]['style']['heading_color'] = '#123456';
+        $link = $elements[$cardIndex]['children'][$headingIndex];
+        $link['id'] = 'element-card-independent-link';
+        $link['type'] = 'link';
+        $link['content'] = ['label' => 'Abrir calendário', 'url' => '/calendario'];
+        $link['children'] = [];
+        $elements[$cardIndex]['children'][] = $link;
+        $payload['blocks'][$sectionIndex]['content']['elements'] = $elements;
+
+        $this->actingAs($admin)
+            ->patchJson("/website/paginas/{$page->id}/autosave", $payload)
+            ->assertOk();
+
+        $block = $page->fresh()->blocks()->where('type', 'section')->firstOrFail();
+        $card = collect($block->content['elements'])->firstWhere('type', 'card');
+        $heading = collect($card['children'])->firstWhere('type', 'heading');
+        $savedLink = collect($card['children'])->firstWhere('type', 'link');
+
+        $this->assertSame('Título independente', $heading['content']['text']);
+        $this->assertSame('#123456', $heading['style']['heading_color']);
+        $this->assertSame('/calendario', $savedLink['content']['url']);
+    }
+
     public function test_importing_a_managed_live_page_replaces_only_the_draft_with_the_exact_published_snapshot(): void
     {
         $admin = User::factory()->create(['perfil' => 'admin']);
@@ -272,6 +332,27 @@ class WebsitePageManagementTest extends TestCase
         $this->get('/inscricao')->assertInertia(fn (Assert $response) => $response->component('PublicSite/Inscricao'));
     }
 
+    public function test_registration_page_cannot_keep_the_block_but_remove_the_nested_form_element(): void
+    {
+        $admin = User::factory()->create(['perfil' => 'admin']);
+        $page = WebsitePage::query()->where('slug', 'inscricao')->sole();
+        $this->actingAs($admin)->post("/website/paginas/{$page->id}/importar")->assertRedirect();
+
+        $payload = $this->pagePayload($page->fresh(), 'publish');
+        $formIndex = collect($payload['blocks'])->search(fn (array $block): bool => $block['type'] === 'registration_form');
+        $this->assertNotFalse($formIndex);
+        $payload['blocks'][$formIndex]['content']['elements'] = collect($payload['blocks'][$formIndex]['content']['elements'])
+            ->reject(fn (array $element): bool => $element['type'] === 'registration_form')
+            ->values()
+            ->all();
+
+        $this->actingAs($admin)->patch("/website/paginas/{$page->id}", $payload)
+            ->assertRedirect()
+            ->assertSessionHasErrors('blocks');
+
+        $this->get('/inscricao')->assertInertia(fn (Assert $response) => $response->component('PublicSite/Inscricao'));
+    }
+
     public function test_visual_editor_autosaves_design_behavior_and_version_without_publishing(): void
     {
         $admin = User::factory()->create(['perfil' => 'admin']);
@@ -397,6 +478,19 @@ class WebsitePageManagementTest extends TestCase
 
         $this->assertDatabaseHas('website_media', ['id' => $media->id, 'deleted_at' => null]);
         Storage::disk('public')->assertExists($media->path);
+    }
+
+    public function test_media_upload_rejects_files_above_eight_megabytes_inside_the_application(): void
+    {
+        Storage::fake('public');
+        $admin = User::factory()->create(['perfil' => 'admin']);
+
+        $this->actingAs($admin)->post('/website/media', [
+            'image' => UploadedFile::fake()->image('demasiado-grande.jpg', 2400, 1600)->size(9000),
+            'alt_text' => 'Imagem demasiado grande',
+        ])->assertSessionHasErrors('image');
+
+        $this->assertDatabaseCount('website_media', 0);
     }
 
     private function createCustomPage(User $admin): WebsitePage

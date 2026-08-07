@@ -70,7 +70,8 @@ class WebsitePageService
                 ...$metadata,
                 'updated_by' => $actor->id,
             ])->save();
-            $this->replaceBlocks($locked, is_array($snapshot['blocks'] ?? null) ? $snapshot['blocks'] : []);
+            $snapshotBlocks = is_array($snapshot['blocks'] ?? null) ? $snapshot['blocks'] : [];
+            $this->replaceBlocks($locked, $this->templates->makeBlocksFullyEditable($snapshotBlocks));
             $locked->forceFill([
                 'status' => $locked->published_snapshot ? $locked->status : 'draft',
                 'updated_by' => $actor->id,
@@ -406,6 +407,15 @@ class WebsitePageService
 
         $normalized = $normalize($content);
 
+        if (is_array($content['elements'] ?? null)) {
+            $normalized['elements'] = collect($content['elements'])
+                ->filter(fn (mixed $item): bool => is_array($item))
+                ->take(120)
+                ->map(fn (array $item): array => $this->normalizeSectionItem($item, $normalize))
+                ->values()
+                ->all();
+        }
+
         if ($type !== 'section') {
             return $normalized;
         }
@@ -428,9 +438,13 @@ class WebsitePageService
     }
 
     /** @param callable(mixed): mixed $normalize */
-    private function normalizeSectionItem(array $item, callable $normalize): array
+    private function normalizeSectionItem(array $item, callable $normalize, int $depth = 0): array
     {
-        $type = in_array($item['type'] ?? null, ['subsection', 'card', 'text', 'image', 'button', 'data_collection'], true)
+        $types = [
+            'container', 'subsection', 'card', 'text', 'eyebrow', 'heading', 'paragraph', 'rich_text',
+            'image', 'button', 'link', 'divider', 'spacer', 'data_collection', 'contact_form', 'registration_form',
+        ];
+        $type = in_array($item['type'] ?? null, $types, true)
             ? $item['type']
             : 'card';
         $style = is_array($item['style'] ?? null) ? $item['style'] : [];
@@ -442,6 +456,14 @@ class WebsitePageService
         $headingWeight = (int) ($style['heading_weight'] ?? 600);
         $bodyWeight = (int) ($style['body_weight'] ?? 400);
         $isCard = $type === 'card';
+        $children = $depth >= 4 || ! is_array($item['children'] ?? null)
+            ? []
+            : collect($item['children'])
+                ->filter(fn (mixed $child): bool => is_array($child))
+                ->take(30)
+                ->map(fn (array $child): array => $this->normalizeSectionItem($child, $normalize, $depth + 1))
+                ->values()
+                ->all();
 
         return [
             'id' => preg_match('/\Aelement-[a-zA-Z0-9-]+\z/', (string) ($item['id'] ?? '')) === 1
@@ -483,6 +505,7 @@ class WebsitePageService
                 'hide_desktop' => (bool) ($settings['hide_desktop'] ?? false),
                 'open_link_new_tab' => (bool) ($settings['open_link_new_tab'] ?? false),
             ],
+            'children' => $children,
         ];
     }
 
