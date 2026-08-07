@@ -25,7 +25,7 @@ class UpdateInvoiceRequest extends FormRequest
             'oculta' => ['nullable', 'boolean'],
             'centro_custo_id' => ['nullable', 'exists:cost_centers,id'],
             'referencia_pagamento' => ['nullable', 'string', 'max:255'],
-            'origem_tipo' => ['nullable', 'in:evento,stock,patrocinio,manual'],
+            'origem_tipo' => ['nullable', 'in:evento,stock,patrocinio,manual,monthly_fee'],
             'origem_id' => ['nullable', 'string', 'max:255'],
             'observacoes' => ['nullable', 'string'],
             'items' => ['required', 'array', 'min:1'],

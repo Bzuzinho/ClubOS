@@ -59,7 +59,7 @@ class ManualInvoiceService
         $requestedStatus = $data['estado_pagamento'] ?? $invoice->estado_pagamento;
         $this->ensureMonthlyStatusTransitionUsesCanonicalFlow($invoice, $data['tipo'] ?? null, $requestedStatus);
         $this->ensureManualPaymentReversalUsesCanonicalFlow($invoice, $requestedStatus);
-        $this->ensureManualInvoiceType($data['tipo'] ?? null);
+        $this->ensureEditableInvoiceTypeForUpdate($invoice, $data['tipo'] ?? null);
         $this->ensureManualOpenStatus($requestedStatus);
 
         $items = $this->normalizeAndValidateItems($data);
@@ -71,7 +71,7 @@ class ManualInvoiceService
                 ->lockForUpdate()
                 ->firstOrFail();
 
-            $this->ensureManualInvoiceType($lockedInvoice->tipo);
+            $this->ensureEditableInvoiceTypeForUpdate($lockedInvoice, $data['tipo'] ?? null);
             $this->ensureEditable($lockedInvoice);
 
             $existingItems = $lockedInvoice->items()->lockForUpdate()->get();
@@ -174,6 +174,27 @@ class ManualInvoiceService
         ) {
             throw ValidationException::withMessages([
                 'estado_pagamento' => 'A reabertura da fatura tem de ser efetuada pelo endpoint canonico de reabertura.',
+            ]);
+        }
+    }
+
+    private function ensureEditableInvoiceTypeForUpdate(Invoice $invoice, ?string $requestedType): void
+    {
+        $targetType = $requestedType ?? $invoice->tipo;
+
+        if ($invoice->tipo === 'mensalidade') {
+            if ($targetType !== 'mensalidade') {
+                throw ValidationException::withMessages([
+                    'tipo' => 'Uma mensalidade existente deve manter o tipo mensalidade durante uma correção administrativa.',
+                ]);
+            }
+
+            return;
+        }
+
+        if ($targetType === 'mensalidade') {
+            throw ValidationException::withMessages([
+                'tipo' => 'Uma fatura manual não pode ser convertida numa mensalidade. Use o motor canónico de mensalidades.',
             ]);
         }
     }
