@@ -119,8 +119,10 @@ final class MemberDataReadService
     }
 
     /**
-     * Perfil desportivo canónico. users é apenas fallback de transição quando
-     * ainda não existe athlete_sports_data para o membro.
+     * Perfil desportivo canónico. Quando ainda não existe athlete_sports_data,
+     * dados_configuracao é o primeiro fallback para informação que já tinha
+     * sido migrada para a camada canónica de Membros; users é a última rede de
+     * compatibilidade de transição.
      *
      * @return array<string, mixed>
      */
@@ -132,21 +134,29 @@ final class MemberDataReadService
             : $user->athleteSportsData()->first();
 
         if ($sports === null) {
+            $configuration = $this->configurationPayload($user);
+            $configurationExtra = is_array($configuration['configuracao_extra'] ?? null)
+                ? $configuration['configuracao_extra']
+                : [];
             $legacyAgeGroup = collect($user->escalao ?? [])
                 ->map(static fn (mixed $value): string => trim((string) $value))
                 ->first(static fn (string $value): bool => $value !== '');
 
             return [
-                'num_federacao' => $user->getAttribute('num_federacao'),
-                'cartao_federacao' => $user->getAttribute('cartao_federacao'),
+                'num_federacao' => $configuration['afiliacao_numero']
+                    ?? $user->getAttribute('num_federacao'),
+                'cartao_federacao' => $configuration['afiliacao_ficheiro']
+                    ?? $user->getAttribute('cartao_federacao'),
                 'numero_pmb' => $user->getAttribute('numero_pmb'),
                 'data_inscricao' => $this->formatDate($user->getAttribute('data_inscricao')),
                 'escalao_id' => $legacyAgeGroup ?: null,
                 'escalao_calculado_id' => $legacyAgeGroup ?: null,
                 'escalao_manual_override' => $legacyAgeGroup !== null,
                 'data_atestado_medico' => $this->formatDate($user->getAttribute('data_atestado_medico')),
-                'arquivo_atestado_medico' => $user->getAttribute('arquivo_atestado_medico'),
-                'informacoes_medicas' => $user->getAttribute('informacoes_medicas'),
+                'arquivo_atestado_medico' => $configuration['certificado_medico_ficheiro']
+                    ?? $user->getAttribute('arquivo_atestado_medico'),
+                'informacoes_medicas' => $configurationExtra['informacoes_medicas']
+                    ?? $user->getAttribute('informacoes_medicas'),
                 'ativo' => (bool) ($user->ativo_desportivo ?? false),
             ];
         }
