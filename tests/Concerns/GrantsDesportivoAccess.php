@@ -7,6 +7,7 @@ use App\Models\User;
 use App\Models\UserType;
 use App\Services\AccessControl\UserTypeAccessControlService;
 use Illuminate\Support\Str;
+use Ramsey\Uuid\Uuid;
 
 trait GrantsDesportivoAccess
 {
@@ -39,16 +40,7 @@ trait GrantsDesportivoAccess
 
         $permissions = collect($permissionKeys)
             ->map(function (string $permissionKey, int $index) use ($canEdit, $canDelete): array {
-                $node = PermissionNode::query()->firstOrCreate(
-                    ['key' => $permissionKey],
-                    [
-                        'label' => Str::headline(str_replace('desportivo.', '', $permissionKey)),
-                        'module_key' => 'desportivo',
-                        'node_type' => 'submodule',
-                        'sort_order' => $index + 1,
-                        'active' => true,
-                    ],
-                );
+                $node = $this->desportivoPermissionNode($permissionKey, $index);
 
                 return [
                     'permission_node_id' => $node->id,
@@ -65,5 +57,27 @@ trait GrantsDesportivoAccess
         $user->unsetRelation('userTypes');
 
         return $userType;
+    }
+
+    private function desportivoPermissionNode(string $permissionKey, int $index): PermissionNode
+    {
+        $existing = PermissionNode::query()->where('key', $permissionKey)->first();
+
+        if ($existing !== null) {
+            return $existing;
+        }
+
+        $node = new PermissionNode([
+            'label' => Str::headline(str_replace('desportivo.', '', $permissionKey)),
+            'module_key' => 'desportivo',
+            'node_type' => 'submodule',
+            'sort_order' => $index + 1,
+            'active' => true,
+        ]);
+        $node->id = Uuid::uuid5(Uuid::NAMESPACE_DNS, 'clubos.tests.permission.' . $permissionKey)->toString();
+        $node->key = $permissionKey;
+        $node->save();
+
+        return $node;
     }
 }
