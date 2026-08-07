@@ -9,11 +9,13 @@ use App\Models\UserType;
 use App\Models\UserTypeMenuModule;
 use App\Models\UserTypePermission;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\Concerns\GrantsDesportivoAccess;
 use Tests\TestCase;
 
 class SportsApiAuthorizationTest extends TestCase
 {
     use RefreshDatabase;
+    use GrantsDesportivoAccess;
 
     public function test_authenticated_user_without_desportivo_module_cannot_access_sports_api(): void
     {
@@ -99,6 +101,7 @@ class SportsApiAuthorizationTest extends TestCase
     public function test_api_training_creation_uses_canonical_action_with_athletes_and_series(): void
     {
         $coach = User::factory()->create();
+        $this->grantDesportivoAccess($coach);
         $athlete = User::factory()->create([
             'perfil' => 'atleta',
             'tipo_membro' => ['atleta'],
