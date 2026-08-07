@@ -25,12 +25,14 @@ class MonthlyInvoiceManualEditTest extends TestCase
             'ativo' => true,
         ]);
 
-        InvoiceType::query()->create([
-            'codigo' => 'mensalidade',
-            'nome' => 'Mensalidade',
-            'descricao' => 'Mensalidade',
-            'ativo' => true,
-        ]);
+        InvoiceType::query()->firstOrCreate(
+            ['codigo' => 'mensalidade'],
+            [
+                'nome' => 'Mensalidade',
+                'descricao' => 'Mensalidade',
+                'ativo' => true,
+            ],
+        );
 
         $invoice = Invoice::query()->create([
             'user_id' => $user->id,
