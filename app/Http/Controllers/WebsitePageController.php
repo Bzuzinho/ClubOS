@@ -83,9 +83,16 @@ class WebsitePageController extends Controller
 
     public function import(WebsitePage $page, Request $request): RedirectResponse
     {
-        $this->pages->importStarterBlocks($page, $request->user());
+        $this->pages->importCurrentWebsite($page, $request->user());
 
-        return back()->with('success', 'Conteúdo atual importado para o editor. O website público ainda não foi alterado.');
+        return back()->with('success', 'Website atual importado para o rascunho. A página pública não foi alterada.');
+    }
+
+    public function importWebsite(Request $request): RedirectResponse
+    {
+        $count = $this->pages->importCurrentSystemWebsite($request->user());
+
+        return back()->with('success', "$count páginas do website atual foram importadas para edição. O website público não foi alterado.");
     }
 
     public function update(WebsitePageDataRequest $request, WebsitePage $page): RedirectResponse
@@ -176,6 +183,8 @@ class WebsitePageController extends Controller
             'meta_description' => $page->meta_description,
             'design_settings' => $page->design_settings ?? [],
             'has_published_version' => $page->published_snapshot !== null,
+            'can_import_current_website' => $page->is_system || $page->published_snapshot !== null,
+            'import_source_label' => $page->published_snapshot !== null ? 'versão publicada' : 'website original',
             'blocks' => $page->blocks->map(fn ($block): array => [
                 'id' => $block->id,
                 'block_key' => $block->block_key,

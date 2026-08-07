@@ -38,6 +38,27 @@ class WebsitePageTemplateService
                 'secondary_label' => 'Conhecer o clube',
                 'secondary_url' => '/clube',
             ]),
+            $this->block('section', 'announcement', [
+                'eyebrow' => '',
+                'title' => '',
+                'intro' => '',
+                'columns_desktop' => 6,
+                'columns_tablet' => 2,
+                'columns_mobile' => 1,
+                'gap' => 16,
+                'align_items' => 'center',
+                'items' => [
+                    $this->sectionItem('text', 'announcement-copy', [
+                        'eyebrow' => 'Captação 2026/27',
+                        'title' => '',
+                        'text' => 'Pedidos de avaliação para atletas e treino complementar.',
+                    ], ['column_span' => 5, 'tablet_span' => 1, 'mobile_span' => 1, 'body_weight' => 500]),
+                    $this->sectionItem('button', 'announcement-link', [
+                        'label' => 'Pedir contacto',
+                        'url' => '/junta-te',
+                    ], ['column_span' => 1, 'tablet_span' => 1, 'mobile_span' => 1, 'text_align' => 'right']),
+                ],
+            ]),
             $this->block('section', 'news-and-events', [
                 'eyebrow' => 'Atualidade',
                 'title' => 'Notícias e próximas datas.',
@@ -49,7 +70,7 @@ class WebsitePageTemplateService
                 'align_items' => 'start',
                 'items' => [
                     $this->sectionItem('data_collection', 'home-news', [
-                        'source' => 'news', 'limit' => 2, 'layout' => 'grid', 'columns' => 2,
+                        'source' => 'news', 'limit' => 3, 'layout' => 'grid', 'columns' => 2,
                         'show_image' => true, 'show_meta' => true, 'show_description' => true, 'show_link' => true, 'link_label' => 'Ler mais',
                     ], ['column_span' => 4, 'tablet_span' => 2, 'mobile_span' => 1]),
                     $this->sectionItem('data_collection', 'home-events', [
@@ -58,10 +79,25 @@ class WebsitePageTemplateService
                     ], ['column_span' => 2, 'tablet_span' => 2, 'mobile_span' => 1]),
                 ],
             ]),
-            $this->block('rich_text', 'identity', [
+            $this->block('section', 'identity', [
                 'eyebrow' => 'Um clube com direção',
                 'title' => 'Não somos uma escola de aprendizagem. Somos um projeto de competição.',
-                'text' => 'O BSCN acompanha cada atleta de acordo com a idade, experiência e objetivos. Técnica, compromisso e evolução fazem parte do mesmo percurso — desde os primeiros anos de competição até aos Masters.',
+                'intro' => '',
+                'columns_desktop' => 3,
+                'columns_tablet' => 3,
+                'columns_mobile' => 1,
+                'gap' => 18,
+                'align_items' => 'stretch',
+                'items' => [
+                    $this->sectionItem('text', 'identity-copy', [
+                        'eyebrow' => '',
+                        'title' => '',
+                        'text' => 'O BSCN acompanha cada atleta de acordo com a idade, experiência e objetivos. Técnica, compromisso e evolução fazem parte do mesmo percurso — desde os primeiros anos de competição até aos Masters.',
+                    ], ['column_span' => 3, 'tablet_span' => 3, 'mobile_span' => 1, 'body_size' => 17]),
+                    $this->sectionItem('card', 'fact-entry-age', ['eyebrow' => '', 'title' => '6+', 'text' => 'idade de entrada'], ['column_span' => 1, 'tablet_span' => 1, 'mobile_span' => 1, 'text_align' => 'center']),
+                    $this->sectionItem('card', 'fact-pathways', ['eyebrow' => '', 'title' => '4', 'text' => 'percursos desportivos'], ['column_span' => 1, 'tablet_span' => 1, 'mobile_span' => 1, 'text_align' => 'center']),
+                    $this->sectionItem('card', 'fact-team', ['eyebrow' => '', 'title' => '1', 'text' => 'equipa, muitas etapas'], ['column_span' => 1, 'tablet_span' => 1, 'mobile_span' => 1, 'text_align' => 'center']),
+                ],
             ]),
             $this->block('cards', 'programmes', [
                 'eyebrow' => 'Encontra o teu percurso',
@@ -84,6 +120,32 @@ class WebsitePageTemplateService
                 'items' => ['Grupos definidos pela equipa técnica', 'Horários adequados a cada escalão', 'Avaliação antes da integração'],
                 'button_label' => 'Treinos e horários',
                 'button_url' => '/treinos',
+            ]),
+            $this->block('section', 'clubos', [
+                'eyebrow' => 'Área reservada',
+                'title' => 'ClubOS — a área digital do clube.',
+                'intro' => 'Acesso para atletas, encarregados de educação, treinadores e direção.',
+                'columns_desktop' => 6,
+                'columns_tablet' => 2,
+                'columns_mobile' => 1,
+                'gap' => 24,
+                'align_items' => 'center',
+                'items' => [
+                    $this->sectionItem('image', 'clubos-mark', [
+                        'image' => '/site-assets/bscn-logo.svg',
+                        'image_alt' => 'Benedita Sport Club Natação',
+                        'url' => '/login',
+                    ], ['column_span' => 1, 'tablet_span' => 1, 'mobile_span' => 1, 'image_ratio' => '1:1', 'image_fit' => 'contain']),
+                    $this->sectionItem('text', 'clubos-features', [
+                        'eyebrow' => '',
+                        'title' => 'Treinos, documentos, pagamentos e comunicação num único lugar.',
+                        'text' => 'A informação reservada do clube fica disponível apenas para utilizadores autorizados.',
+                    ], ['column_span' => 3, 'tablet_span' => 1, 'mobile_span' => 1]),
+                    $this->sectionItem('button', 'clubos-login', [
+                        'label' => 'Entrar com a minha conta',
+                        'url' => '/login',
+                    ], ['column_span' => 2, 'tablet_span' => 2, 'mobile_span' => 1, 'text_align' => 'right']),
+                ],
             ]),
             $this->block('cta', 'final-cta', [
                 'eyebrow' => 'Próxima etapa',
@@ -143,6 +205,11 @@ class WebsitePageTemplateService
                 ['label' => 'Sem limite de idade', 'title' => 'Masters', 'text' => 'Preparação para atletas adultos que querem competir e melhorar marcas.'],
                 ['label' => 'Outras modalidades', 'title' => 'Treino complementar', 'text' => 'Natação específica para triatletas e outros praticantes.'],
             ]]),
+            $this->block('rich_text', 'schedule-notice', [
+                'eyebrow' => 'Horários 2026/27',
+                'title' => 'A distribuição definitiva será publicada após confirmação das pistas.',
+                'text' => 'Até lá, podes enviar o pedido de inscrição e indicar a tua disponibilidade. O clube entrará em contacto quando houver informação confirmada para o grupo correspondente.',
+            ]),
             $this->block('cards', 'practical', ['eyebrow' => 'Informação prática', 'title' => 'Antes do primeiro treino', 'columns' => 3, 'items' => [
                 ['title' => 'Local', 'text' => 'Piscinas Municipais da Benedita, concelho de Alcobaça.'],
                 ['title' => 'O que trazer', 'text' => 'A equipa técnica indica o material adequado ao grupo e à avaliação.'],
@@ -157,7 +224,12 @@ class WebsitePageTemplateService
     {
         return [
             $this->pageHero('Notícias', 'O clube está sempre em movimento.', 'Informação sobre a época, competições, conquistas e a vida diária do BSCN.', '/site-assets/bscn-news-bright.webp'),
-            $this->block('news_feed', 'news', ['eyebrow' => 'Do BSCN', 'title' => 'Notícias e histórias do clube', 'intro' => 'As publicações criadas no ClubOS aparecem automaticamente nesta página.', 'limit' => 12]),
+            $this->block('news_feed', 'news', ['eyebrow' => 'Do BSCN', 'title' => 'Notícias e histórias do clube', 'intro' => 'As publicações criadas no ClubOS aparecem automaticamente nesta página.', 'source' => 'news', 'limit' => 12]),
+            $this->block('rich_text', 'centralised-information', [
+                'eyebrow' => 'Informação centralizada',
+                'title' => 'Uma publicação. Informação sempre atualizada.',
+                'text' => 'Notícias e calendário público são geridos no ClubOS e apresentados automaticamente no website.',
+            ]),
         ];
     }
 
@@ -166,7 +238,25 @@ class WebsitePageTemplateService
     {
         return [
             $this->pageHero('Calendário', 'A época, organizada.', 'Eventos públicos do BSCN, sem confundir calendário com convocatória.', '/site-assets/bscn-hero-bright.webp'),
-            $this->block('events_feed', 'events', ['eyebrow' => 'Agenda do clube', 'title' => 'Próximos eventos públicos', 'intro' => 'Apenas aparecem eventos confirmados como públicos. Os detalhes individuais continuam reservados aos membros.', 'limit' => 30]),
+            $this->block('events_feed', 'events', ['eyebrow' => 'Agenda do clube', 'title' => 'Próximos eventos públicos', 'intro' => 'Apenas aparecem eventos confirmados como públicos. Os detalhes individuais continuam reservados aos membros.', 'source' => 'events', 'limit' => 30]),
+            $this->block('cards', 'national-calendar', [
+                'eyebrow' => 'Época 2026/27',
+                'title' => 'Primeiras datas oficiais',
+                'intro' => 'Datas publicadas pela Federação Portuguesa de Natação. A participação do BSCN depende sempre de confirmação e convocatória técnica.',
+                'columns' => 3,
+                'items' => [
+                    ['label' => '24 OUT 2026', 'title' => 'Qualificação — Clubes 3.ª Divisão', 'text' => 'Sines · Calendário nacional FPN'],
+                    ['label' => '27 NOV 2026', 'title' => 'Campeonato Nacional de Clubes 3.ª Divisão', 'text' => 'Calendário nacional FPN'],
+                    ['label' => '04–06 DEZ 2026', 'title' => 'Torneio Zonal de Juvenis — Zona Sul', 'text' => 'Leiria · Calendário nacional FPN'],
+                ],
+            ]),
+            $this->block('cta', 'fpn-calendar', [
+                'eyebrow' => 'Fonte oficial',
+                'title' => 'Calendário nacional FPN 2026/27',
+                'text' => 'Consulta o documento completo da Federação Portuguesa de Natação. As datas podem ser alteradas pela entidade organizadora.',
+                'button_label' => 'Abrir calendário FPN',
+                'button_url' => 'https://fpnatacao.pt/uploads/Calendario_FPN_2026-2027.pdf',
+            ]),
             $this->block('cta', 'clubos', ['eyebrow' => 'Informação do clube', 'title' => 'Convocatórias e detalhes ficam disponíveis no ClubOS.', 'text' => '', 'button_label' => 'Entrar no ClubOS', 'button_url' => '/login']),
         ];
     }
@@ -197,7 +287,28 @@ class WebsitePageTemplateService
                 ['label' => 'Informação geral', 'title' => 'Clube e atividade desportiva', 'text' => 'geral@bscn.pt', 'url' => 'mailto:geral@bscn.pt'],
                 ['label' => 'Área reservada', 'title' => 'Acesso ao ClubOS', 'text' => 'Entrar na aplicação', 'url' => '/login'],
             ]]),
-            $this->block('rich_text', 'location', ['eyebrow' => 'Onde treinamos', 'title' => 'Piscinas Municipais da Benedita', 'text' => 'Benedita, concelho de Alcobaça, Portugal. Antes de te deslocares, marca primeiro o contacto.']),
+            $this->block('section', 'location', [
+                'eyebrow' => '',
+                'title' => '',
+                'intro' => '',
+                'columns_desktop' => 2,
+                'columns_tablet' => 2,
+                'columns_mobile' => 1,
+                'gap' => 24,
+                'align_items' => 'stretch',
+                'items' => [
+                    $this->sectionItem('subsection', 'training-location', [
+                        'eyebrow' => 'Onde treinamos',
+                        'title' => 'Piscinas Municipais da Benedita',
+                        'text' => 'Benedita, concelho de Alcobaça, Portugal.',
+                    ], ['column_span' => 1, 'tablet_span' => 1, 'mobile_span' => 1]),
+                    $this->sectionItem('subsection', 'contact-before-visit', [
+                        'eyebrow' => 'Antes de te deslocares',
+                        'title' => 'Marca primeiro o contacto.',
+                        'text' => 'Os grupos têm horários e condições específicas. Para inscrições ou avaliações, usa o formulário para que a equipa possa preparar o enquadramento adequado.',
+                    ], ['column_span' => 1, 'tablet_span' => 1, 'mobile_span' => 1]),
+                ],
+            ]),
         ];
     }
 

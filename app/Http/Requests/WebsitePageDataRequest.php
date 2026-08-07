@@ -120,6 +120,13 @@ class WebsitePageDataRequest extends FormRequest
                     continue;
                 }
 
+                if (in_array($block['type'] ?? null, ['news_feed', 'events_feed'], true)) {
+                    $source = is_array($block['content'] ?? null) ? ($block['content']['source'] ?? null) : null;
+                    if (! in_array($source, ['news', 'events', 'partners'], true)) {
+                        $validator->errors()->add("blocks.$blockIndex.content.source", 'Escolhe uma origem de dados válida.');
+                    }
+                }
+
                 if (($block['type'] ?? null) !== 'section') {
                     continue;
                 }

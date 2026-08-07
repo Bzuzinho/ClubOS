@@ -128,6 +128,9 @@ Route::middleware(['auth', 'verified'])->group(function () {
             Route::post('/paginas', [WebsitePageController::class, 'store'])
                 ->middleware('permission.access:website.paginas,create')
                 ->name('website.pages.store');
+            Route::post('/paginas/importar-website-atual', [WebsitePageController::class, 'importWebsite'])
+                ->middleware('permission.access:website.paginas,edit')
+                ->name('website.pages.import-website');
             Route::get('/paginas/{page}/editar', [WebsitePageController::class, 'edit'])
                 ->middleware('permission.access:website.paginas,view')
                 ->name('website.pages.edit');

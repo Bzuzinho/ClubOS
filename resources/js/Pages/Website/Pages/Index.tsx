@@ -1,6 +1,6 @@
 import { FormEvent, useState } from 'react';
 import { Head, Link, useForm } from '@inertiajs/react';
-import { ArrowSquareOut, Eye, EyeSlash, FileText, GlobeHemisphereWest, Plus, Timer } from '@phosphor-icons/react';
+import { ArrowSquareOut, DownloadSimple, Eye, EyeSlash, FileText, GlobeHemisphereWest, Plus, Timer } from '@phosphor-icons/react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { Badge } from '@/Components/ui/badge';
 import { Button } from '@/Components/ui/button';
@@ -59,6 +59,11 @@ export default function WebsitePagesIndex({ pages, summary }: { pages: WebsitePa
         form.post('/website/paginas', { onSuccess: () => form.reset() });
     };
 
+    const importWebsite = () => {
+        if (!window.confirm('Importar todas as páginas do website atual para o editor? Os rascunhos existentes serão substituídos e guardados no histórico. O website público não será alterado.')) return;
+        form.post('/website/paginas/importar-website-atual', { preserveScroll: true });
+    };
+
     return (
         <AuthenticatedLayout
             fullWidth
@@ -68,6 +73,7 @@ export default function WebsitePagesIndex({ pages, summary }: { pages: WebsitePa
                     <div className="flex flex-wrap gap-2">
                         <Button asChild variant="outline" size="sm"><Link href="/website">Dashboard</Link></Button>
                         <Button asChild variant="outline" size="sm"><a href="/" target="_blank" rel="noreferrer">Abrir website <ArrowSquareOut className="ml-2" /></a></Button>
+                        <Button variant="outline" size="sm" onClick={importWebsite} disabled={form.processing}><DownloadSimple className="mr-2" /> Importar website atual</Button>
                         <Button size="sm" onClick={() => setCreating((value) => !value)}><Plus className="mr-2" /> Nova página</Button>
                     </div>
                 </div>
