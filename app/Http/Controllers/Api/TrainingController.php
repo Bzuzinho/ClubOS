@@ -6,12 +6,18 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Sports\StoreTrainingRequest;
 use App\Http\Requests\Sports\UpdateTrainingRequest;
 use App\Models\Training;
+use App\Services\Desportivo\CreateTrainingAction;
 use App\Services\Desportivo\Queries\GetTrainingDashboardSummary;
 use App\Services\Desportivo\Queries\GetTrainingPoolDeckView;
 use Illuminate\Http\JsonResponse;
 
 class TrainingController extends Controller
 {
+    public function __construct(
+        private readonly CreateTrainingAction $createTrainingAction,
+    ) {
+    }
+
     /**
      * GET /api/desportivo/trainings
      * Retorna lista de treinos com dados essenciais.
@@ -26,7 +32,7 @@ class TrainingController extends Controller
             ->orderBy('data', 'desc')
             ->limit(100)
             ->get()
-            ->map(fn($training) => [
+            ->map(fn ($training) => [
                 'id' => $training->id,
                 'numero_treino' => $training->numero_treino,
                 'data' => $training->data,
@@ -43,14 +49,14 @@ class TrainingController extends Controller
 
     /**
      * POST /api/desportivo/trainings
-     * Cria um novo treino.
+     * Cria um treino através do mesmo fluxo canónico usado pelo módulo web.
      */
     public function store(StoreTrainingRequest $request): JsonResponse
     {
-        $validated = $request->validated();
-
-        $training = Training::create(collect($validated)->except('escaloes')->all());
-        $training->ageGroups()->sync($validated['escaloes'] ?? []);
+        $training = $this->createTrainingAction->execute(
+            $request->validated(),
+            $request->user(),
+        );
 
         return response()->json($training->load('ageGroups:id'), 201);
     }

@@ -5,7 +5,6 @@ namespace Tests\Feature\Sports;
 use App\Models\Competition;
 use App\Models\CompetitionRegistration;
 use App\Models\Event;
-use App\Models\FinancialEntry;
 use App\Models\FiscalDocumentRequest;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
@@ -15,15 +14,17 @@ use App\Models\Prova;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
+use Tests\Concerns\GrantsDesportivoAccess;
 use Tests\TestCase;
 
 class CompetitionRegistrationFinancialLifecycleTest extends TestCase
 {
     use RefreshDatabase;
+    use GrantsDesportivoAccess;
 
     public function test_create_with_explicit_value_creates_invoice_item_and_no_parallel_financial_entry(): void
     {
-        $admin = User::factory()->create();
+        $admin = $this->authorizedAdmin();
         $athlete = User::factory()->create();
         $prova = $this->createProvaWithEventFee(25);
 
@@ -59,7 +60,7 @@ class CompetitionRegistrationFinancialLifecycleTest extends TestCase
 
     public function test_create_without_explicit_value_uses_event_fee(): void
     {
-        $admin = User::factory()->create();
+        $admin = $this->authorizedAdmin();
         $athlete = User::factory()->create();
         $prova = $this->createProvaWithEventFee(19.9);
 
@@ -79,7 +80,7 @@ class CompetitionRegistrationFinancialLifecycleTest extends TestCase
 
     public function test_create_zero_value_without_event_fee_does_not_create_financial_debt(): void
     {
-        $admin = User::factory()->create();
+        $admin = $this->authorizedAdmin();
         $athlete = User::factory()->create();
         $prova = $this->createProvaWithEventFee(null);
 
@@ -101,7 +102,7 @@ class CompetitionRegistrationFinancialLifecycleTest extends TestCase
 
     public function test_duplicate_registration_for_same_user_and_prova_remains_blocked(): void
     {
-        $admin = User::factory()->create();
+        $admin = $this->authorizedAdmin();
         $athlete = User::factory()->create();
         $prova = $this->createProvaWithEventFee(12);
 
@@ -121,7 +122,7 @@ class CompetitionRegistrationFinancialLifecycleTest extends TestCase
 
     public function test_destroy_registration_without_invoice_is_allowed(): void
     {
-        $admin = User::factory()->create();
+        $admin = $this->authorizedAdmin();
         $registration = $this->createRegistrationWithoutInvoice();
 
         $this->actingAs($admin)
@@ -133,7 +134,7 @@ class CompetitionRegistrationFinancialLifecycleTest extends TestCase
 
     public function test_destroy_registration_with_pending_invoice_and_no_payments_removes_both_records(): void
     {
-        $admin = User::factory()->create();
+        $admin = $this->authorizedAdmin();
         $registration = $this->createRegistrationWithoutInvoice();
         $invoice = $this->attachInvoiceToRegistration($registration, [
             'estado_pagamento' => 'pendente',
@@ -153,7 +154,7 @@ class CompetitionRegistrationFinancialLifecycleTest extends TestCase
 
     public function test_destroy_with_partial_invoice_is_blocked(): void
     {
-        $admin = User::factory()->create();
+        $admin = $this->authorizedAdmin();
         $registration = $this->createRegistrationWithoutInvoice();
 
         $this->attachInvoiceToRegistration($registration, [
@@ -173,7 +174,7 @@ class CompetitionRegistrationFinancialLifecycleTest extends TestCase
 
     public function test_destroy_with_paid_invoice_is_blocked(): void
     {
-        $admin = User::factory()->create();
+        $admin = $this->authorizedAdmin();
         $registration = $this->createRegistrationWithoutInvoice();
 
         $this->attachInvoiceToRegistration($registration, [
@@ -193,7 +194,7 @@ class CompetitionRegistrationFinancialLifecycleTest extends TestCase
 
     public function test_destroy_with_confirmed_payment_allocation_is_blocked(): void
     {
-        $admin = User::factory()->create();
+        $admin = $this->authorizedAdmin();
         $registration = $this->createRegistrationWithoutInvoice();
         $invoice = $this->attachInvoiceToRegistration($registration, [
             'estado_pagamento' => 'pendente',
@@ -229,7 +230,7 @@ class CompetitionRegistrationFinancialLifecycleTest extends TestCase
 
     public function test_destroy_with_issued_fiscal_document_request_is_blocked(): void
     {
-        $admin = User::factory()->create();
+        $admin = $this->authorizedAdmin();
         $registration = $this->createRegistrationWithoutInvoice();
         $invoice = $this->attachInvoiceToRegistration($registration, [
             'estado_pagamento' => 'pendente',
@@ -256,7 +257,7 @@ class CompetitionRegistrationFinancialLifecycleTest extends TestCase
 
     public function test_destroy_with_invoice_receipt_number_is_blocked(): void
     {
-        $admin = User::factory()->create();
+        $admin = $this->authorizedAdmin();
         $registration = $this->createRegistrationWithoutInvoice();
 
         $this->attachInvoiceToRegistration($registration, [
@@ -271,6 +272,14 @@ class CompetitionRegistrationFinancialLifecycleTest extends TestCase
             ->deleteJson('/api/desportivo/competition-registrations/'.$registration->id)
             ->assertStatus(422)
             ->assertJsonValidationErrors('competition_registration');
+    }
+
+    private function authorizedAdmin(): User
+    {
+        $admin = User::factory()->create();
+        $this->grantDesportivoAccess($admin);
+
+        return $admin;
     }
 
     private function createProvaWithEventFee(?float $eventFee): Prova

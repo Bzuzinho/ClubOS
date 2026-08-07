@@ -179,12 +179,12 @@ class CreateTrainingAction
     }
 
     /**
-     * Gera número de treino (ex: T-2026-03-09-001)
+     * Gera número sequencial de treino (ex: #0001)
      */
     private function generateNumeroTreino(): string
     {
         $max = Training::where('numero_treino', 'LIKE', '#%')
-            ->selectRaw("MAX(CAST(SUBSTRING(numero_treino FROM 2) AS INTEGER)) as max_num")
+            ->selectRaw("MAX(CAST(SUBSTR(numero_treino, 2) AS INTEGER)) as max_num")
             ->value('max_num');
 
         return sprintf('#%04d', ((int) ($max ?? 0)) + 1);

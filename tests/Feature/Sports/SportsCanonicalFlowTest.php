@@ -12,15 +12,18 @@ use App\Services\Desportivo\PrepareTrainingAthletesAction;
 use App\Services\Desportivo\Queries\GetCompetitionListSummary;
 use App\Services\Desportivo\Queries\GetTrainingDashboardSummary;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\Concerns\GrantsDesportivoAccess;
 use Tests\TestCase;
 
 class SportsCanonicalFlowTest extends TestCase
 {
     use RefreshDatabase;
+    use GrantsDesportivoAccess;
 
     public function test_training_creation_flow(): void
     {
         $user = User::factory()->create();
+        $this->grantDesportivoAccess($user);
         $trainingType = TrainingTypeConfig::create([
             'codigo' => 'tecnico',
             'nome' => 'Treino Técnico',
@@ -76,6 +79,7 @@ class SportsCanonicalFlowTest extends TestCase
     public function test_attendance_update_flow(): void
     {
         $coach = User::factory()->create();
+        $this->grantDesportivoAccess($coach);
         $athlete = User::factory()->create();
         $training = Training::create([
             'numero_treino' => 'T-002',
@@ -112,6 +116,7 @@ class SportsCanonicalFlowTest extends TestCase
     public function test_training_metric_creation_flow(): void
     {
         $coach = User::factory()->create();
+        $this->grantDesportivoAccess($coach);
         $athlete = User::factory()->create();
         $training = Training::create([
             'numero_treino' => 'T-003',
@@ -148,6 +153,7 @@ class SportsCanonicalFlowTest extends TestCase
     public function test_competition_prova_registration_result_and_team_result_flows(): void
     {
         $user = User::factory()->create();
+        $this->grantDesportivoAccess($user);
         $athlete = User::factory()->create();
         $this->actingAs($user);
 

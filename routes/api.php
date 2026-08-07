@@ -111,34 +111,60 @@ Route::middleware(['auth'])->group(function () {
             ->middleware(['module.access:configuracoes', 'permission.access:configuracoes.permissoes,edit']);
     });
 
-    // Desportivo Module APIs (Step 5-6)
-    Route::prefix('desportivo')->group(function () {
-        // Performance (legacy + current endpoint compatibility)
-        Route::get('performance', [PerformanceController::class, 'index']);
-        Route::get('performance-metrics', [PerformanceController::class, 'index']);
+    // Desportivo Module APIs
+    Route::prefix('desportivo')
+        ->middleware('module.access:desportivo')
+        ->group(function () {
+            // Performance (legacy + current endpoint compatibility)
+            Route::get('performance', [PerformanceController::class, 'index'])
+                ->middleware('permission.access:desportivo.dashboard,view');
+            Route::get('performance-metrics', [PerformanceController::class, 'index'])
+                ->middleware('permission.access:desportivo.dashboard,view');
 
-        // Athletes
-        Route::apiResource('athletes', AthleteController::class, ['only' => ['index', 'show']]);
+            // Athletes
+            Route::apiResource('athletes', AthleteController::class, ['only' => ['index', 'show']])
+                ->middlewareFor(['index', 'show'], 'permission.access:desportivo.dashboard,view');
 
-        // Trainings
-        Route::apiResource('trainings', TrainingController::class);
+            // Trainings
+            Route::apiResource('trainings', TrainingController::class)
+                ->middlewareFor(['index', 'show'], 'permission.access:desportivo.treinos,view')
+                ->middlewareFor(['store', 'update'], 'permission.access:desportivo.treinos,edit')
+                ->middlewareFor(['destroy'], 'permission.access:desportivo.treinos,delete');
 
-        // Training Attendance (Cais)
-        Route::prefix('trainings/{trainingId}/attendance')->group(function () {
-            Route::get('/', [TrainingAttendanceController::class, 'index']);
-            Route::put('{athleteId}', [TrainingAttendanceController::class, 'update']);
-            Route::post('mark-all', [TrainingAttendanceController::class, 'markAllPresent']);
-            Route::post('clear-all', [TrainingAttendanceController::class, 'clearAll']);
+            // Training Attendance (Cais)
+            Route::prefix('trainings/{trainingId}/attendance')->group(function () {
+                Route::get('/', [TrainingAttendanceController::class, 'index'])
+                    ->middleware('permission.access:desportivo.presencas,view');
+                Route::put('{athleteId}', [TrainingAttendanceController::class, 'update'])
+                    ->middleware('permission.access:desportivo.presencas,edit');
+                Route::post('mark-all', [TrainingAttendanceController::class, 'markAllPresent'])
+                    ->middleware('permission.access:desportivo.presencas,edit');
+                Route::post('clear-all', [TrainingAttendanceController::class, 'clearAll'])
+                    ->middleware('permission.access:desportivo.presencas,edit');
+            });
+
+            // Competitions
+            Route::apiResource('competitions', CompetitionController::class)
+                ->middlewareFor(['index', 'show'], 'permission.access:desportivo.competicoes,view')
+                ->middlewareFor(['store', 'update'], 'permission.access:desportivo.competicoes,edit')
+                ->middlewareFor(['destroy'], 'permission.access:desportivo.competicoes,delete');
+
+            // Competition Results
+            Route::apiResource('competition-results', CompetitionResultController::class)
+                ->middlewareFor(['index', 'show'], 'permission.access:desportivo.resultados,view')
+                ->middlewareFor(['store', 'update'], 'permission.access:desportivo.resultados,edit')
+                ->middlewareFor(['destroy'], 'permission.access:desportivo.resultados,delete');
+            Route::apiResource('competition-registrations', CompetitionRegistrationController::class)
+                ->only(['index', 'store', 'destroy'])
+                ->middlewareFor(['index'], 'permission.access:desportivo.competicoes,view')
+                ->middlewareFor(['store'], 'permission.access:desportivo.competicoes,edit')
+                ->middlewareFor(['destroy'], 'permission.access:desportivo.competicoes,delete');
+            Route::apiResource('team-results', TeamResultController::class)
+                ->only(['index', 'store', 'destroy'])
+                ->middlewareFor(['index'], 'permission.access:desportivo.resultados,view')
+                ->middlewareFor(['store'], 'permission.access:desportivo.resultados,edit')
+                ->middlewareFor(['destroy'], 'permission.access:desportivo.resultados,delete');
         });
-
-        // Competitions
-        Route::apiResource('competitions', CompetitionController::class);
-
-        // Competition Results
-        Route::apiResource('competition-results', CompetitionResultController::class);
-        Route::apiResource('competition-registrations', CompetitionRegistrationController::class)->only(['index', 'store', 'destroy']);
-        Route::apiResource('team-results', TeamResultController::class)->only(['index', 'store', 'destroy']);
-    });
 
     Route::prefix('loja')->group(function () {
         Route::get('hero', [LojaController::class, 'hero']);
