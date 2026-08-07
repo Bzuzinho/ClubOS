@@ -2,7 +2,6 @@
 
 namespace Tests\Feature\Sports;
 
-use App\Models\PermissionNode;
 use App\Models\TrainingTypeConfig;
 use App\Models\User;
 use App\Models\UserType;
@@ -56,14 +55,7 @@ class SportsApiAuthorizationTest extends TestCase
             'sort_order' => 1,
         ]);
 
-        $permissionNode = PermissionNode::query()->create([
-            'key' => 'desportivo.treinos',
-            'label' => 'Treinos',
-            'module_key' => 'desportivo',
-            'node_type' => 'submodule',
-            'sort_order' => 1,
-            'active' => true,
-        ]);
+        $permissionNode = $this->desportivoPermissionNode('desportivo.treinos', 0);
 
         UserTypePermission::query()->create([
             'user_type_id' => $userType->id,
