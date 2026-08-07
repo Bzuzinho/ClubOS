@@ -50,7 +50,19 @@ jobs:
         run: npm run build
 
       - name: Run test suite
-        run: php artisan test
+        shell: bash
+        run: |
+          set -o pipefail
+          php artisan test 2>&1 | tee php-test-output.log
+
+      - name: Upload failing PHP test output
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: php-test-output-${{ github.run_id }}
+          path: php-test-output.log
+          if-no-files-found: error
+          retention-days: 1
 
       - name: Run legacy members read guard rail
         run: php artisan members:audit-users-legacy-read --fail-on-finding
