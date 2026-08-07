@@ -48,6 +48,91 @@ class WebsitePageManagementTest extends TestCase
             );
     }
 
+    public function test_home_import_captures_the_complete_current_structure_and_dynamic_sources(): void
+    {
+        $admin = User::factory()->create(['perfil' => 'admin']);
+        $page = WebsitePage::query()->where('slug', 'home')->sole();
+
+        $this->actingAs($admin)->post("/website/paginas/{$page->id}/importar")
+            ->assertRedirect()
+            ->assertSessionHas('success');
+
+        $blocks = $page->fresh()->blocks()->orderBy('sort_order')->get();
+
+        $this->assertSame([
+            'hero',
+            'announcement',
+            'news-and-events',
+            'identity',
+            'programmes',
+            'training',
+            'clubos',
+            'final-cta',
+        ], $blocks->pluck('block_key')->all());
+        $this->assertSame(
+            ['news', 'events'],
+            collect($blocks->firstWhere('block_key', 'news-and-events')->content['items'])
+                ->pluck('content.source')
+                ->all(),
+        );
+        $this->assertDatabaseHas('website_page_versions', [
+            'website_page_id' => $page->id,
+            'action' => 'imported_current_website',
+        ]);
+
+        $this->get('/')
+            ->assertOk()
+            ->assertInertia(fn (Assert $response) => $response->component('PublicSite/Home'));
+    }
+
+    public function test_admin_can_import_the_whole_existing_website_without_publishing_the_drafts(): void
+    {
+        $admin = User::factory()->create(['perfil' => 'admin']);
+
+        $this->actingAs($admin)->post('/website/paginas/importar-website-atual')
+            ->assertRedirect()
+            ->assertSessionHas('success');
+
+        $systemPages = WebsitePage::query()->where('is_system', true)->withCount('blocks')->get();
+        $this->assertGreaterThan(0, $systemPages->count());
+        $this->assertTrue($systemPages->every(fn (WebsitePage $page): bool => $page->blocks_count > 0));
+        $this->assertTrue($systemPages->every(fn (WebsitePage $page): bool => $page->status === 'draft'));
+
+        $this->get('/')->assertInertia(fn (Assert $response) => $response->component('PublicSite/Home'));
+        $this->get('/clube')->assertInertia(fn (Assert $response) => $response->component('PublicSite/Clube'));
+    }
+
+    public function test_importing_a_managed_live_page_replaces_only_the_draft_with_the_exact_published_snapshot(): void
+    {
+        $admin = User::factory()->create(['perfil' => 'admin']);
+        $page = $this->createCustomPage($admin);
+
+        $published = $this->pagePayload($page, 'publish');
+        $published['blocks'][0]['content']['title'] = 'Título publicado';
+        $published['design_settings']['accent_color'] = '#123456';
+        $this->actingAs($admin)->patch("/website/paginas/{$page->id}", $published)->assertRedirect();
+
+        $draft = $this->pagePayload($page->fresh(), 'save_draft');
+        $draft['blocks'][0]['content']['title'] = 'Título apenas no rascunho';
+        $draft['design_settings']['accent_color'] = '#abcdef';
+        $this->actingAs($admin)->patch("/website/paginas/{$page->id}", $draft)->assertRedirect();
+
+        $this->actingAs($admin)->post("/website/paginas/{$page->id}/importar")
+            ->assertRedirect()
+            ->assertSessionHas('success');
+
+        $page->refresh()->load('blocks');
+        $this->assertSame('Título publicado', $page->blocks->first()->content['title']);
+        $this->assertSame('#123456', $page->design_settings['accent_color']);
+        $this->assertSame('Título publicado', $page->published_snapshot['blocks'][0]['content']['title']);
+        $this->assertSame('imported_current_website', $page->versions()->latest('version')->value('action'));
+
+        $this->get('/pagina-teste')->assertInertia(fn (Assert $response) => $response
+            ->where('page.blocks.0.content.title', 'Título publicado')
+            ->where('page.design_settings.accent_color', '#123456')
+        );
+    }
+
     public function test_custom_page_is_private_until_published_and_then_enters_public_navigation(): void
     {
         $admin = User::factory()->create(['perfil' => 'admin']);

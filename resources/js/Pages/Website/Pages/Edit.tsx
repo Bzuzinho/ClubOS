@@ -11,6 +11,7 @@ import {
     DeviceMobile,
     DeviceTablet,
     DotsSixVertical,
+    DownloadSimple,
     Eye,
     FloppyDisk,
     Plus,
@@ -160,6 +161,8 @@ type Page = {
     blocks: Block[];
     versions: Version[];
     has_published_version: boolean;
+    can_import_current_website: boolean;
+    import_source_label: string;
     scheduled_for?: string | null;
 };
 
@@ -207,7 +210,7 @@ const itemTypeLabels: Record<SectionItemType, string> = {
 };
 const actionLabels: Record<string, string> = {
     created: 'Criação', imported: 'Importação', autosave: 'Gravação automática', save_draft: 'Rascunho', publish: 'Publicação',
-    schedule: 'Agendamento', hide: 'Ocultação', restored: 'Recuperação',
+    imported_current_website: 'Importação do website atual', schedule: 'Agendamento', hide: 'Ocultação', restored: 'Recuperação',
 };
 const deviceWidths: Record<Device, number> = { desktop: 1440, tablet: 820, mobile: 390 };
 
@@ -256,8 +259,8 @@ function emptyContent(type: string): BlockContent {
         case 'image_text': return { eyebrow: '', title: 'Título da secção', text: '', image: '/site-assets/bscn-club-bright.webp', image_alt: '', image_position: 'center', image_side: 'left', items: [], button_label: '', button_url: '' };
         case 'stats': return { items: [{ value: '1', label: 'Indicador' }] };
         case 'cta': return { eyebrow: '', title: 'Próximo passo', text: '', button_label: 'Saber mais', button_url: '/', secondary_label: '', secondary_url: '' };
-        case 'news_feed': return { eyebrow: 'Atualidade', title: 'Notícias', intro: '', limit: 6 };
-        case 'events_feed': return { eyebrow: 'Agenda', title: 'Próximos eventos', intro: '', limit: 12 };
+        case 'news_feed': return { eyebrow: 'Atualidade', title: 'Notícias', intro: '', source: 'news', limit: 6 };
+        case 'events_feed': return { eyebrow: 'Agenda', title: 'Próximos eventos', intro: '', source: 'events', limit: 12 };
         case 'contact_form': return { eyebrow: 'Pedido de contacto', title: 'Fala connosco', text: '', steps: ['Envio do pedido', 'Contacto do clube'] };
         case 'registration_form': return { eyebrow: 'Inscrição', title: 'Registo de atleta', text: '', steps: ['Dados do atleta', 'Validação pelo clube'] };
         default: return { eyebrow: '', title: 'Título da secção', text: 'Conteúdo da secção.' };
@@ -265,7 +268,13 @@ function emptyContent(type: string): BlockContent {
 }
 
 function normaliseBlock(block: Block): Block {
-    const content = block.type === 'section' ? { ...block.content, items: sectionItems(block.content?.items) } : block.content;
+    const content = block.type === 'section'
+        ? { ...block.content, items: sectionItems(block.content?.items) }
+        : block.type === 'news_feed'
+            ? { source: 'news', ...block.content }
+            : block.type === 'events_feed'
+                ? { source: 'events', ...block.content }
+                : block.content;
     return { ...block, content, style: { ...defaultStyleFor(block.type), ...(block.style || {}) }, settings: { ...DEFAULT_SETTINGS, ...(block.settings || {}) } };
 }
 
@@ -342,7 +351,7 @@ function BlockContentFields({ block, media, update }: { block: Block; media: Med
         case 'image_text': return <div className="space-y-3">{headings}<TextField label="Texto" value={stringValue(content.text)} onChange={(value) => update('text', value)} /><ImageFields content={content} media={media} update={update} /><SelectField label="Lado da imagem" value={stringValue(content.image_side) || 'left'} onChange={(value) => update('image_side', value)} options={[["left", "Esquerda"], ["right", "Direita"]]} /><Field label="Texto do botão" value={stringValue(content.button_label)} onChange={(value) => update('button_label', value)} /><Field label="Ligação" value={stringValue(content.button_url)} onChange={(value) => update('button_url', value)} /><StringListEditor content={content} update={update} /></div>;
         case 'stats': return <ItemsEditor type={block.type} content={content} update={update} />;
         case 'cta': return <div className="space-y-3">{headings}<TextField label="Texto" value={stringValue(content.text)} onChange={(value) => update('text', value)} /><Field label="Botão principal" value={stringValue(content.button_label)} onChange={(value) => update('button_label', value)} /><Field label="Ligação principal" value={stringValue(content.button_url)} onChange={(value) => update('button_url', value)} /><Field label="Botão secundário" value={stringValue(content.secondary_label)} onChange={(value) => update('secondary_label', value)} /><Field label="Ligação secundária" value={stringValue(content.secondary_url)} onChange={(value) => update('secondary_url', value)} /></div>;
-        case 'news_feed': case 'events_feed': return <div className="space-y-3">{headings}<TextField label="Introdução" value={stringValue(content.intro)} onChange={(value) => update('intro', value)} rows={2} /><RangeField label="Número máximo" value={numberValue(content.limit, 6)} onChange={(value) => update('limit', value)} min={1} max={30} suffix="" /></div>;
+        case 'news_feed': case 'events_feed': return <div className="space-y-3">{headings}<TextField label="Introdução" value={stringValue(content.intro)} onChange={(value) => update('intro', value)} rows={2} /><SelectField label="Origem dos dados" value={stringValue(content.source) || (block.type === 'events_feed' ? 'events' : 'news')} onChange={(value) => update('source', value)} options={[["news", "Notícias publicadas"], ["events", "Eventos públicos"], ["partners", "Parceiros ativos"]]} /><RangeField label="Número máximo" value={numberValue(content.limit, 6)} onChange={(value) => update('limit', value)} min={1} max={30} suffix="" /><p className="text-xs text-muted-foreground">Ao mudar a origem, o bloco adapta automaticamente os campos e a apresentação aos dados escolhidos.</p></div>;
         case 'contact_form': case 'registration_form': return <div className="space-y-3">{headings}<TextField label="Texto" value={stringValue(content.text)} onChange={(value) => update('text', value)} /><StringListEditor content={content} update={update} /></div>;
         default: return null;
     }
@@ -552,6 +561,13 @@ export default function WebsitePageEdit({ page, media, blockTypes, news = [], ev
     };
     const close = () => { if (!dirty || window.confirm('Ainda existem alterações por guardar. Sair na mesma?')) router.visit('/website/paginas'); };
     const uploadImage = (event: FormEvent) => { event.preventDefault(); upload.post('/website/media', { forceFormData: true, preserveState: true, preserveScroll: true, onSuccess: () => upload.reset() }); };
+    const importCurrentWebsite = () => {
+        if (!page.can_import_current_website) return;
+        if (dirty && !window.confirm('Existem alterações ainda não guardadas. A importação vai substituí-las. Continuar?')) return;
+        if (!window.confirm(`Importar a ${page.import_source_label} para o editor? O rascunho atual será substituído, será criada uma versão no histórico e o website público ficará inalterado.`)) return;
+        autosaveController.current?.abort();
+        router.post(`/website/paginas/${page.id}/importar`, {}, { preserveState: false });
+    };
 
     const livePage = { ...data, design_settings: data.design_settings, blocks: data.blocks };
 
@@ -560,14 +576,14 @@ export default function WebsitePageEdit({ page, media, blockTypes, news = [], ev
         <header className="flex h-16 shrink-0 items-center justify-between gap-3 border-b bg-white px-3 shadow-sm lg:px-4">
             <div className="flex min-w-0 items-center gap-2"><Button variant="ghost" size="icon" onClick={close}><ArrowLeft /></Button><div className="min-w-0"><p className="truncate text-sm font-semibold">{data.title}</p><div className="flex items-center gap-2 text-xs text-muted-foreground"><Badge variant="outline" className="h-5">{page.status}</Badge>{saving ? <span className="flex items-center gap-1"><SpinnerGap className="animate-spin" /> A guardar</span> : dirty ? <span>Alterações por guardar</span> : <span className="flex items-center gap-1 text-emerald-700"><Check /> Guardado{savedAt ? ` às ${new Date(savedAt).toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' })}` : ''}</span>}</div></div></div>
             <div className="hidden items-center gap-1 rounded-lg border bg-slate-50 p-1 md:flex">{(['desktop', 'tablet', 'mobile'] as Device[]).map((item) => <Button key={item} variant={device === item ? 'default' : 'ghost'} size="icon" className="h-8 w-8" onClick={() => setDevice(item)} title={item}>{item === 'desktop' ? <Desktop /> : item === 'tablet' ? <DeviceTablet /> : <DeviceMobile />}</Button>)}</div>
-            <div className="flex items-center gap-2"><Button asChild variant="outline" size="sm" className="hidden sm:inline-flex"><a href={`/website/paginas/${page.id}/previsualizar`} target="_blank" rel="noreferrer"><Eye className="mr-2" /> Pré-visualizar</a></Button><Button variant="outline" size="sm" onClick={() => submit('save_draft')} disabled={saving}><FloppyDisk className="mr-2" /> Guardar</Button><Button size="sm" onClick={() => submit('publish')} disabled={saving}>Aplicar</Button><Button variant="ghost" size="icon" onClick={close}><X /></Button></div>
+            <div className="flex items-center gap-2">{page.can_import_current_website && <Button variant="outline" size="sm" className="hidden xl:inline-flex" onClick={importCurrentWebsite} disabled={saving}><DownloadSimple className="mr-2" /> Importar website atual</Button>}<Button asChild variant="outline" size="sm" className="hidden sm:inline-flex"><a href={`/website/paginas/${page.id}/previsualizar`} target="_blank" rel="noreferrer"><Eye className="mr-2" /> Pré-visualizar</a></Button><Button variant="outline" size="sm" onClick={() => submit('save_draft')} disabled={saving}><FloppyDisk className="mr-2" /> Guardar</Button><Button size="sm" onClick={() => submit('publish')} disabled={saving}>Aplicar</Button><Button variant="ghost" size="icon" onClick={close}><X /></Button></div>
         </header>
         {saveError && <div className="shrink-0 bg-red-600 px-4 py-2 text-center text-xs font-medium text-white">{saveError}</div>}
 
         <div className="grid min-h-0 flex-1 grid-cols-[260px_minmax(0,1fr)_350px]">
             <aside className="flex min-h-0 flex-col border-r bg-white">
                 <div className="border-b p-3"><div className="mb-2 flex items-center justify-between"><p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Estrutura</p><Button size="sm" variant="ghost" onClick={() => { setSelectedKey(null); setSelectedItemId(null); setInspectorTab('page'); }}>Página</Button></div><div className="flex gap-2"><Select value={newBlockType} onValueChange={setNewBlockType}><SelectTrigger className="h-9"><SelectValue /></SelectTrigger><SelectContent>{blockTypes.map((item) => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}</SelectContent></Select><Button size="icon" className="h-9 w-9 shrink-0" onClick={addBlock} title="Adicionar secção"><Plus /></Button></div></div>
-                <ScrollArea className="flex-1"><div className="space-y-2 p-3">{data.blocks.map((block, index) => <div key={block.block_key} className="space-y-1"><button draggable onDragStart={() => setDraggedKey(block.block_key)} onDragOver={(event: DragEvent) => event.preventDefault()} onDrop={() => reorderBlock(block.block_key)} onClick={() => selectBlock(block.block_key)} className={`flex w-full items-center gap-2 rounded-lg border p-2 text-left transition ${selectedKey === block.block_key && !selectedItemId ? 'border-primary bg-primary/5 ring-1 ring-primary' : 'bg-white hover:bg-muted/40'}`}><DotsSixVertical className="shrink-0 text-muted-foreground" /><span className="flex h-7 w-7 shrink-0 items-center justify-center rounded bg-muted text-xs font-semibold">{index + 1}</span><span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{stringValue(block.content.title) || typeLabels[block.type]}</span><span className="block truncate text-xs text-muted-foreground">{typeLabels[block.type]}</span></span>{!block.is_visible && <Eye className="text-muted-foreground" />}</button>{block.type === 'section' && <div className="ml-5 space-y-1 border-l pl-2">{sectionItems(block.content.items).map((item, itemIndex) => <button key={item.id} draggable onDragStart={(event) => { event.stopPropagation(); setDraggedKey(item.id); }} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.stopPropagation(); if (draggedKey) reorderItem(block.block_key, draggedKey, item.id); }} onClick={() => selectBlock(block.block_key, item.id)} className={`flex w-full items-center gap-2 rounded-md border px-2 py-1.5 text-left ${selectedItemId === item.id ? 'border-violet-500 bg-violet-50 ring-1 ring-violet-400' : 'border-dashed bg-slate-50 hover:bg-slate-100'}`}><DotsSixVertical className="shrink-0 text-muted-foreground" /><span className="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-white text-[10px] font-semibold">{itemIndex + 1}</span><span className="min-w-0 flex-1"><span className="block truncate text-xs font-medium">{stringValue(item.content.title) || stringValue(item.content.label) || itemTypeLabels[item.type]}</span><span className="block truncate text-[10px] text-muted-foreground">{itemTypeLabels[item.type]}</span></span>{!item.is_visible && <Eye className="text-muted-foreground" />}</button>)}</div>}</div>)}{data.blocks.length === 0 && <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground"><p>Esta página ainda não tem blocos.</p><Button className="mt-3" size="sm" onClick={() => router.post(`/website/paginas/${page.id}/importar`)}>Importar conteúdo atual</Button></div>}</div></ScrollArea>
+                <ScrollArea className="flex-1"><div className="space-y-2 p-3">{data.blocks.map((block, index) => <div key={block.block_key} className="space-y-1"><button draggable onDragStart={() => setDraggedKey(block.block_key)} onDragOver={(event: DragEvent) => event.preventDefault()} onDrop={() => reorderBlock(block.block_key)} onClick={() => selectBlock(block.block_key)} className={`flex w-full items-center gap-2 rounded-lg border p-2 text-left transition ${selectedKey === block.block_key && !selectedItemId ? 'border-primary bg-primary/5 ring-1 ring-primary' : 'bg-white hover:bg-muted/40'}`}><DotsSixVertical className="shrink-0 text-muted-foreground" /><span className="flex h-7 w-7 shrink-0 items-center justify-center rounded bg-muted text-xs font-semibold">{index + 1}</span><span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{stringValue(block.content.title) || typeLabels[block.type]}</span><span className="block truncate text-xs text-muted-foreground">{typeLabels[block.type]}</span></span>{!block.is_visible && <Eye className="text-muted-foreground" />}</button>{block.type === 'section' && <div className="ml-5 space-y-1 border-l pl-2">{sectionItems(block.content.items).map((item, itemIndex) => <button key={item.id} draggable onDragStart={(event) => { event.stopPropagation(); setDraggedKey(item.id); }} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.stopPropagation(); if (draggedKey) reorderItem(block.block_key, draggedKey, item.id); }} onClick={() => selectBlock(block.block_key, item.id)} className={`flex w-full items-center gap-2 rounded-md border px-2 py-1.5 text-left ${selectedItemId === item.id ? 'border-violet-500 bg-violet-50 ring-1 ring-violet-400' : 'border-dashed bg-slate-50 hover:bg-slate-100'}`}><DotsSixVertical className="shrink-0 text-muted-foreground" /><span className="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-white text-[10px] font-semibold">{itemIndex + 1}</span><span className="min-w-0 flex-1"><span className="block truncate text-xs font-medium">{stringValue(item.content.title) || stringValue(item.content.label) || itemTypeLabels[item.type]}</span><span className="block truncate text-[10px] text-muted-foreground">{itemTypeLabels[item.type]}</span></span>{!item.is_visible && <Eye className="text-muted-foreground" />}</button>)}</div>}</div>)}{data.blocks.length === 0 && <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground"><p>Esta página ainda não tem blocos.</p>{page.can_import_current_website && <Button className="mt-3" size="sm" onClick={importCurrentWebsite}><DownloadSimple className="mr-2" /> Importar website atual</Button>}</div>}</div></ScrollArea>
                 {selectedBlock?.type === 'section' && <div className="border-t p-2"><p className="mb-2 text-[10px] font-semibold uppercase text-muted-foreground">Adicionar dentro da secção</p><div className="flex gap-2"><Select value={newItemType} onValueChange={(value) => setNewItemType(value as SectionItemType)}><SelectTrigger className="h-9"><SelectValue /></SelectTrigger><SelectContent>{Object.entries(itemTypeLabels).map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent></Select><Button size="icon" className="h-9 w-9 shrink-0" onClick={addItem}><Plus /></Button></div></div>}
                 {selectedBlock && <div className="flex gap-1 border-t p-2"><Button className="flex-1" size="sm" variant="outline" onClick={duplicateBlock}><Copy className="mr-2" /> Duplicar</Button><Button size="icon" variant="outline" className="h-9 w-9" onClick={removeBlock}><Trash /></Button></div>}
             </aside>

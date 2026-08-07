@@ -304,6 +304,17 @@ function EventsBlock({ content, events }: { content: BlockContent; events: Publi
     );
 }
 
+function DataFeedBlock({ content, defaultSource, news, events, partners, newTab }: { content: BlockContent; defaultSource: 'news' | 'events'; news: PublicNews[]; events: PublicEvent[]; partners: PublicPartner[]; newTab: boolean }) {
+    const source = text(content.source) || defaultSource;
+
+    if (source === 'events') return <EventsBlock content={content} events={events} />;
+    if (source === 'partners') {
+        return <section className="cms-section shell"><SectionHeading content={content} /><DynamicCollection content={{ ...content, source: 'partners', layout: 'grid', columns: 3 }} news={news} events={events} partners={partners} newTab={newTab} /></section>;
+    }
+
+    return <NewsBlock content={content} news={news} />;
+}
+
 function DynamicCollection({ content, news, events, partners, newTab }: { content: BlockContent; news: PublicNews[]; events: PublicEvent[]; partners: PublicPartner[]; newTab: boolean }) {
     const source = text(content.source) || 'news';
     const limit = Math.min(30, Math.max(1, number(content.limit, 3)));
@@ -482,8 +493,8 @@ function RenderBlock({ block, news, events, partners, editor, selected, selected
         case 'image_text': content = <ImageTextBlock content={block.content} newTab={newTab} />; break;
         case 'stats': content = <StatsBlock content={block.content} />; break;
         case 'cta': content = <CtaBlock content={block.content} newTab={newTab} />; break;
-        case 'news_feed': content = <NewsBlock content={block.content} news={news} />; break;
-        case 'events_feed': content = <EventsBlock content={block.content} events={events} />; break;
+        case 'news_feed': content = <DataFeedBlock content={block.content} defaultSource="news" news={news} events={events} partners={partners} newTab={newTab} />; break;
+        case 'events_feed': content = <DataFeedBlock content={block.content} defaultSource="events" news={news} events={events} partners={partners} newTab={newTab} />; break;
         case 'contact_form': content = <FormBlock content={block.content} registration={false} />; break;
         case 'registration_form': content = <FormBlock content={block.content} registration />; break;
         default: return null;

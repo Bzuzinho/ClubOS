@@ -38,25 +38,80 @@ class WebsitePageService
         });
     }
 
-    public function importStarterBlocks(WebsitePage $page, User $actor): WebsitePage
+    public function importCurrentWebsite(WebsitePage $page, User $actor): WebsitePage
     {
         return DB::transaction(function () use ($page, $actor): WebsitePage {
             $locked = WebsitePage::query()->lockForUpdate()->findOrFail($page->id);
-            if ($locked->blocks()->exists()) {
+
+            // A managed page can be copied byte-for-byte from the snapshot that is
+            // currently live. System pages without a managed publication still use
+            // their original React page, so their editable equivalent comes from the
+            // canonical legacy-page importer.
+            $snapshot = $this->publicSnapshot($locked)
+                ?? $locked->published_snapshot
+                ?? ($locked->is_system ? $this->legacySnapshot($locked) : null);
+
+            if (! is_array($snapshot)) {
                 throw ValidationException::withMessages([
-                    'blocks' => 'A página já tem conteúdo no editor.',
+                    'page' => 'Esta página ainda não tem uma versão publicada para importar.',
                 ]);
             }
 
-            $this->replaceBlocks($locked, $this->templates->starterBlocks($locked->slug));
+            $metadata = Arr::only($snapshot, [
+                'title', 'navigation_label', 'show_in_navigation', 'sort_order',
+                'meta_title', 'meta_description', 'design_settings',
+            ]);
+
+            if (isset($metadata['design_settings']) && is_array($metadata['design_settings'])) {
+                $metadata['design_settings'] = $this->normalizeDesignSettings($metadata['design_settings']);
+            }
+
+            $locked->forceFill([
+                ...$metadata,
+                'updated_by' => $actor->id,
+            ])->save();
+            $this->replaceBlocks($locked, is_array($snapshot['blocks'] ?? null) ? $snapshot['blocks'] : []);
             $locked->forceFill([
                 'status' => $locked->published_snapshot ? $locked->status : 'draft',
                 'updated_by' => $actor->id,
             ])->save();
-            $this->recordVersion($locked, 'imported', $actor);
+            $this->recordVersion($locked, 'imported_current_website', $actor);
 
             return $locked->fresh(['blocks', 'versions.creator']);
         });
+    }
+
+    public function importCurrentSystemWebsite(User $actor): int
+    {
+        return DB::transaction(function () use ($actor): int {
+            $pages = WebsitePage::query()
+                ->where('is_system', true)
+                ->orderBy('sort_order')
+                ->lockForUpdate()
+                ->get();
+
+            foreach ($pages as $page) {
+                $this->importCurrentWebsite($page, $actor);
+            }
+
+            return $pages->count();
+        });
+    }
+
+    /** @return array<string, mixed> */
+    private function legacySnapshot(WebsitePage $page): array
+    {
+        return [
+            'slug' => $page->slug,
+            'title' => $page->title,
+            'navigation_label' => $page->navigation_label,
+            'show_in_navigation' => (bool) $page->show_in_navigation,
+            'sort_order' => (int) $page->sort_order,
+            'meta_title' => $page->meta_title,
+            'meta_description' => $page->meta_description,
+            'design_settings' => $this->normalizeDesignSettings($page->design_settings ?? []),
+            'blocks' => $this->templates->starterBlocks($page->slug),
+        ];
     }
 
     /** @param array<string, mixed> $data */
