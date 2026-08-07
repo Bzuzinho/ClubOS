@@ -8,6 +8,7 @@ use App\Models\AgeGroup;
 use App\Models\AthleteSportsData;
 use App\Models\User;
 use App\Models\UserType;
+use App\Services\Members\MemberDataReadService;
 use App\Services\Members\MemberTypeResolver;
 use Carbon\Carbon;
 
@@ -15,6 +16,7 @@ final class SportsMemberProvisioningService
 {
     public function __construct(
         private readonly MemberTypeResolver $memberTypeResolver,
+        private readonly MemberDataReadService $memberDataReadService,
     ) {
     }
 
@@ -33,6 +35,7 @@ final class SportsMemberProvisioningService
         $user->loadMissing([
             'userTypes:id,codigo,nome',
             'dadosPessoais:id,user_id,data_nascimento',
+            'dadosConfiguracao',
             'athleteSportsData',
         ]);
 
@@ -40,18 +43,27 @@ final class SportsMemberProvisioningService
         $isAthlete = $this->resolveAthleteDecision($user, $payload);
 
         if (! $isAthlete) {
-            if ($existing !== null && (bool) $existing->ativo) {
+            // Um membro sem ficha desportiva não deve perder informação legacy
+            // apenas porque a tipologia atual não o resolve como atleta. Quando
+            // já existe ficha, preservamos o histórico e desativamo-la.
+            if ($existing === null) {
+                return null;
+            }
+
+            if ((bool) $existing->ativo) {
                 $existing->forceFill(['ativo' => false])->save();
             }
 
             $this->syncLegacyCompatibilityFields(
                 $user,
                 false,
-                $existing?->escalao_id,
+                $existing->escalao_id,
             );
 
-            return $existing?->fresh(['escalao', 'escalaoCalculado']);
+            return $existing->fresh(['escalao', 'escalaoCalculado']);
         }
+
+        $sportsFallback = $this->memberDataReadService->sportsPayload($user);
 
         $sportsActivityActive = array_key_exists('ativo_desportivo', $payload)
             ? (bool) $payload['ativo_desportivo']
@@ -74,20 +86,54 @@ final class SportsMemberProvisioningService
             ? $explicitAgeGroupId
             : ($calculatedAgeGroupId ?? $existing?->escalao_id);
 
-        $profile = $existing ?? new AthleteSportsData(['user_id' => $user->id]);
-        $profile->fill([
-            'num_federacao' => $this->sportsValue($payload, 'num_federacao', $existing?->num_federacao, $user->getAttribute('num_federacao')),
-            'cartao_federacao' => $this->sportsValue($payload, 'cartao_federacao', $existing?->cartao_federacao, $user->getAttribute('cartao_federacao')),
-            'numero_pmb' => $this->sportsValue($payload, 'numero_pmb', $existing?->numero_pmb, $user->getAttribute('numero_pmb')),
-            'data_inscricao' => $this->sportsValue($payload, 'data_inscricao', $existing?->data_inscricao, $user->getAttribute('data_inscricao')),
-            'escalao_id' => $officialAgeGroupId,
-            'escalao_calculado_id' => $calculatedAgeGroupId,
-            'escalao_manual_override' => $manualOverride,
-            'data_atestado_medico' => $this->sportsValue($payload, 'data_atestado_medico', $existing?->data_atestado_medico, $user->getAttribute('data_atestado_medico')),
-            'arquivo_atestado_medico' => $this->sportsValue($payload, 'arquivo_atestado_medico', $existing?->arquivo_atestado_medico, $user->getAttribute('arquivo_atestado_medico')),
-            'informacoes_medicas' => $this->sportsValue($payload, 'informacoes_medicas', $existing?->informacoes_medicas, $user->getAttribute('informacoes_medicas')),
-            'ativo' => $sportsActivityActive,
-        ]);
+        $profile = $existing ?? new AthleteSportsData();
+        $profile->user_id = $user->id;
+        $profile->num_federacao = $this->sportsValue(
+            $payload,
+            'num_federacao',
+            $existing?->num_federacao,
+            $sportsFallback['num_federacao'] ?? null,
+        );
+        $profile->cartao_federacao = $this->sportsValue(
+            $payload,
+            'cartao_federacao',
+            $existing?->cartao_federacao,
+            $sportsFallback['cartao_federacao'] ?? null,
+        );
+        $profile->numero_pmb = $this->sportsValue(
+            $payload,
+            'numero_pmb',
+            $existing?->numero_pmb,
+            $sportsFallback['numero_pmb'] ?? null,
+        );
+        $profile->data_inscricao = $this->sportsValue(
+            $payload,
+            'data_inscricao',
+            $existing?->data_inscricao,
+            $sportsFallback['data_inscricao'] ?? null,
+        );
+        $profile->escalao_id = $officialAgeGroupId;
+        $profile->escalao_calculado_id = $calculatedAgeGroupId;
+        $profile->escalao_manual_override = $manualOverride;
+        $profile->data_atestado_medico = $this->sportsValue(
+            $payload,
+            'data_atestado_medico',
+            $existing?->data_atestado_medico,
+            $sportsFallback['data_atestado_medico'] ?? null,
+        );
+        $profile->arquivo_atestado_medico = $this->sportsValue(
+            $payload,
+            'arquivo_atestado_medico',
+            $existing?->arquivo_atestado_medico,
+            $sportsFallback['arquivo_atestado_medico'] ?? null,
+        );
+        $profile->informacoes_medicas = $this->sportsValue(
+            $payload,
+            'informacoes_medicas',
+            $existing?->informacoes_medicas,
+            $sportsFallback['informacoes_medicas'] ?? null,
+        );
+        $profile->ativo = $sportsActivityActive;
         $profile->save();
 
         $this->syncLegacyCompatibilityFields(
@@ -165,9 +211,8 @@ final class SportsMemberProvisioningService
      */
     private function resolveBirthDate(User $user, array $payload): ?Carbon
     {
-        $candidate = $payload['data_nascimento']
-            ?? $user->dadosPessoais?->data_nascimento
-            ?? $user->getAttribute('data_nascimento');
+        $personal = $this->memberDataReadService->personalPayload($user);
+        $candidate = $payload['data_nascimento'] ?? ($personal['data_nascimento'] ?? null);
 
         if (blank($candidate)) {
             return null;
@@ -226,13 +271,13 @@ final class SportsMemberProvisioningService
         return $byYear?->id ? (string) $byYear->id : null;
     }
 
-    private function sportsValue(array $payload, string $key, mixed $canonical, mixed $legacy): mixed
+    private function sportsValue(array $payload, string $key, mixed $canonical, mixed $fallback): mixed
     {
         if (array_key_exists($key, $payload)) {
             return $payload[$key];
         }
 
-        return $canonical ?? $legacy;
+        return $canonical ?? $fallback;
     }
 
     private function syncLegacyCompatibilityFields(User $user, bool $sportsActivityActive, ?string $ageGroupId): void
