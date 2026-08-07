@@ -132,7 +132,7 @@ final class SportsMemberPayloadCanonicalReadTest extends TestCase
 
         $this->assertIsArray($row);
         $this->assertSame('Nome Canonico Builder', $row['nome_completo']);
-        $this->assertSame('FED-CANONICA', $row['num_federacao']);
+        $this->assertSame('FED-SPORTS', $row['num_federacao']);
         $this->assertSame('2026-04-20', $row['data_atestado_medico']);
         $this->assertSame('Info sports canonical', $row['informacoes_medicas']);
     }
