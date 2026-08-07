@@ -28,41 +28,46 @@ class StoreMembroRequest extends FormRequest
             'data_inscricao' => ['nullable', 'date'],
             'sexo' => ['required', 'in:masculino,feminino'],
             'menor' => ['boolean'],
-            
+
             // Morada
             'morada' => ['nullable', 'string'],
             'codigo_postal' => ['nullable', 'string', 'max:10'],
             'localidade' => ['nullable', 'string', 'max:255'],
             'nacionalidade' => ['nullable', 'string', 'max:255'],
             'estado_civil' => ['nullable', 'string', Rule::in(['solteiro', 'casado', 'uniao_de_facto', 'divorciado', 'viuvo'])],
-            
+
             // Tipo e estado
             'tipo_membro' => ['nullable', 'array'],
             'tipo_membro.*' => ['string'],
+            'user_types' => ['nullable', 'array'],
+            'user_types.*' => ['exists:user_types,id'],
             'estado' => ['required', 'in:ativo,inativo,suspenso'],
             'perfil' => ['nullable', 'string'],
-            
+
             // Dados desportivos
             'escalao' => ['nullable', 'array'],
             'escalao.*' => ['exists:age_groups,id'],
             'escalao_id' => ['nullable', 'exists:age_groups,id'],
-            'ativo_desportivo' => ['boolean'],
-            'num_federacao' => ['nullable', 'string'],
+            'escalao_manual_override' => ['sometimes', 'boolean'],
+            'ativo_desportivo' => ['sometimes', 'boolean'],
+            'num_federacao' => ['nullable', 'string', 'max:100'],
+            'numero_pmb' => ['nullable', 'string', 'max:100'],
             'data_atestado_medico' => ['nullable', 'date'],
+            'arquivo_atestado_medico' => ['nullable'],
             'informacoes_medicas' => ['nullable', 'string'],
-            
+
             // Encarregados de educação
             'encarregado_educacao' => ['nullable', 'array'],
             'encarregado_educacao.*' => ['exists:users,id'],
             'educandos' => ['nullable', 'array'],
             'educandos.*' => ['exists:users,id'],
-            
+
             // RGPD e documentos
             'rgpd' => ['boolean'],
             'consentimento' => ['boolean'],
             'afiliacao' => ['boolean'],
             'declaracao_de_transporte' => ['boolean'],
-            
+
             // Ficheiros (base64)
             'foto_perfil' => ['nullable', 'string'],
             'cartao_federacao' => ['nullable', 'string'],
@@ -70,7 +75,7 @@ class StoreMembroRequest extends FormRequest
             'arquivo_consentimento' => ['nullable', 'string'],
             'arquivo_afiliacao' => ['nullable', 'string'],
             'declaracao_transporte' => ['nullable', 'string'],
-            
+
             // Outros
             'notas' => ['nullable', 'string'],
             'ocupacao' => ['nullable', 'string'],
