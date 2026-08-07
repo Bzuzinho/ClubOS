@@ -52,6 +52,8 @@ class UpdateMemberRequest extends FormRequest
             // Tipo e estado
             'tipo_membro' => ['nullable', 'array'],
             'tipo_membro.*' => ['string'],
+            'user_types' => ['nullable', 'array'],
+            'user_types.*' => ['exists:user_types,id'],
             'estado' => ['required', 'in:ativo,inativo,suspenso'],
             'perfil' => ['nullable', 'string'],
 
@@ -59,9 +61,12 @@ class UpdateMemberRequest extends FormRequest
             'escalao' => ['nullable', 'array'],
             'escalao.*' => ['exists:age_groups,id'],
             'escalao_id' => ['nullable', 'exists:age_groups,id'],
-            'ativo_desportivo' => ['boolean'],
-            'num_federacao' => ['nullable', 'string'],
+            'escalao_manual_override' => ['sometimes', 'boolean'],
+            'ativo_desportivo' => ['sometimes', 'boolean'],
+            'num_federacao' => ['nullable', 'string', 'max:100'],
+            'numero_pmb' => ['nullable', 'string', 'max:100'],
             'data_atestado_medico' => ['nullable', 'date'],
+            'arquivo_atestado_medico' => ['nullable'],
             'informacoes_medicas' => ['nullable', 'string'],
 
             // Encarregados de educação
