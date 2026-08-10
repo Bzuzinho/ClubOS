@@ -49,7 +49,7 @@ final class MemberDocumentDataResolver
                     'path' => $documentPaths['atestado'],
                 ],
                 'cartao_federacao' => [
-                    'isValidated' => filled($memberDocumentPayload['cartao_federacao']) || filled($configuration['afiliacao_numero'] ?? null),
+                    'isValidated' => filled($memberDocumentPayload['cartao_federacao']) || filled($this->memberDataReadService->sportsPayload($user)['num_federacao'] ?? null),
                     'validatedAt' => $memberDocumentPayload['data_afiliacao'],
                     'validUntil' => null,
                     'path' => $memberDocumentPayload['cartao_federacao'],
@@ -83,8 +83,10 @@ final class MemberDocumentDataResolver
     public function profileDocuments(User $user): array
     {
         $configuration = $this->memberDataReadService->configurationPayload($user);
+        $sports = $this->memberDataReadService->sportsPayload($user);
         $payload = $this->memberDocumentPayload($user);
-        $federationNumber = $this->normalizeLegacyString($configuration['afiliacao_numero'] ?? null)
+        $federationNumber = $this->normalizeLegacyString($sports['num_federacao'] ?? null)
+            ?: $this->normalizeLegacyString($configuration['afiliacao_numero'] ?? null)
             ?: $this->normalizeLegacyString($this->legacyAttribute($user, 'num_federacao'));
 
         $federationIsValidated = (bool) $payload['afiliacao']
@@ -129,28 +131,21 @@ final class MemberDocumentDataResolver
      */
     public function sportsPayload(User $user): array
     {
-        $profileDocuments = $this->profileDocuments($user);
+        $sports = $this->memberDataReadService->sportsPayload($user);
         $configuration = $this->memberDataReadService->configurationPayload($user);
-
-        $configurationExtra = $configuration['configuracao_extra'] ?? null;
-        if (! is_array($configurationExtra)) {
-            $configurationExtra = [];
-        }
-
-        $federationNumber = $this->normalizeLegacyString($profileDocuments['federacao']['numero'] ?? null)
-            ?: $this->normalizeLegacyString($user->athleteSportsData?->num_federacao);
-
-        $medicalAttestationDate = $this->normalizeLegacyDate($user->athleteSportsData?->data_atestado_medico)
-            ?: $this->normalizeLegacyDate($profileDocuments['atestado']['validated_at'] ?? null);
-
-        $medicalInfo = $this->normalizeLegacyString($user->athleteSportsData?->informacoes_medicas)
-            ?: $this->normalizeLegacyString($configurationExtra['informacoes_medicas'] ?? null)
-            ?: $this->normalizeLegacyString($this->legacyAttribute($user, 'informacoes_medicas'));
+        $configurationExtra = is_array($configuration['configuracao_extra'] ?? null)
+            ? $configuration['configuracao_extra']
+            : [];
 
         return [
-            'num_federacao' => $federationNumber,
-            'data_atestado_medico' => $medicalAttestationDate,
-            'informacoes_medicas' => $medicalInfo,
+            'num_federacao' => $this->normalizeLegacyString($sports['num_federacao'] ?? null)
+                ?: $this->normalizeLegacyString($configuration['afiliacao_numero'] ?? null)
+                ?: $this->normalizeLegacyString($this->legacyAttribute($user, 'num_federacao')),
+            'data_atestado_medico' => $this->normalizeLegacyDate($sports['data_atestado_medico'] ?? null)
+                ?: $this->normalizeLegacyDate($this->legacyAttribute($user, 'data_atestado_medico')),
+            'informacoes_medicas' => $this->normalizeLegacyString($sports['informacoes_medicas'] ?? null)
+                ?: $this->normalizeLegacyString($configurationExtra['informacoes_medicas'] ?? null)
+                ?: $this->normalizeLegacyString($this->legacyAttribute($user, 'informacoes_medicas')),
         ];
     }
 
@@ -174,6 +169,7 @@ final class MemberDocumentDataResolver
     public function memberDocumentPayload(User $user): array
     {
         $configuration = $this->memberDataReadService->configurationPayload($user);
+        $sports = $this->memberDataReadService->sportsPayload($user);
         $documentPaths = $this->documentPaths($user);
 
         return [
@@ -188,8 +184,9 @@ final class MemberDocumentDataResolver
             'afiliacao' => (bool) ($configuration['afiliacao_federativa'] ?? false),
             'data_afiliacao' => $configuration['afiliacao_data'] ?? null,
             'arquivo_afiliacao' => $documentPaths['afiliacao'],
-            'cartao_federacao' => $documentPaths['cartao_federacao'],
-            'data_atestado_medico' => $this->normalizeLegacyDate($this->legacyAttribute($user, 'data_atestado_medico')),
+            'cartao_federacao' => $this->normalizeLegacyPath($sports['cartao_federacao'] ?? null)
+                ?: $documentPaths['cartao_federacao'],
+            'data_atestado_medico' => $this->normalizeLegacyDate($sports['data_atestado_medico'] ?? null),
         ];
     }
 
@@ -199,15 +196,18 @@ final class MemberDocumentDataResolver
     public function documentPaths(User $user): array
     {
         $configuration = $this->memberDataReadService->configurationPayload($user);
+        $sports = $this->memberDataReadService->sportsPayload($user);
 
         return [
             'rgpd' => $this->normalizeLegacyPath($this->legacyAttribute($user, 'arquivo_rgpd')),
             'consentimento' => $this->normalizeLegacyPath($this->legacyAttribute($user, 'arquivo_consentimento'))
                 ?: $this->normalizeLegacyPath($configuration['declaracao_transporte_ficheiro'] ?? null)
                 ?: $this->normalizeLegacyPath($this->legacyAttribute($user, 'declaracao_transporte')),
-            'atestado' => $this->normalizeLegacyPath($configuration['certificado_medico_ficheiro'] ?? null)
+            'atestado' => $this->normalizeLegacyPath($sports['arquivo_atestado_medico'] ?? null)
+                ?: $this->normalizeLegacyPath($configuration['certificado_medico_ficheiro'] ?? null)
                 ?: $this->normalizeLegacyPath($this->legacyAttribute($user, 'arquivo_atestado_medico')),
-            'cartao_federacao' => $this->normalizeLegacyPath($this->legacyAttribute($user, 'cartao_federacao'))
+            'cartao_federacao' => $this->normalizeLegacyPath($sports['cartao_federacao'] ?? null)
+                ?: $this->normalizeLegacyPath($this->legacyAttribute($user, 'cartao_federacao'))
                 ?: $this->normalizeLegacyPath($configuration['afiliacao_ficheiro'] ?? null),
             'declaracao_transporte' => $this->normalizeLegacyPath($configuration['declaracao_transporte_ficheiro'] ?? null)
                 ?: $this->normalizeLegacyPath($this->legacyAttribute($user, 'declaracao_transporte')),
@@ -262,7 +262,6 @@ final class MemberDocumentDataResolver
 
     private function legacyAttribute(User $user, string $field): mixed
     {
-        // transitional legacy document path fallback
         return $user->getAttribute($field);
     }
 

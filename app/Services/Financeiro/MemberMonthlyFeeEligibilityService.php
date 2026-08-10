@@ -5,12 +5,15 @@ declare(strict_types=1);
 namespace App\Services\Financeiro;
 
 use App\Models\User;
+use App\Services\Desportivo\SportsMemberStatusResolver;
 use App\Services\Members\MemberTypeResolver;
 
 final class MemberMonthlyFeeEligibilityService
 {
-    public function __construct(private readonly MemberTypeResolver $memberTypeResolver)
-    {
+    public function __construct(
+        private readonly MemberTypeResolver $memberTypeResolver,
+        private readonly SportsMemberStatusResolver $sportsMemberStatusResolver,
+    ) {
     }
 
     public function shouldHaveMonthlyFee(User $user): bool
@@ -25,7 +28,7 @@ final class MemberMonthlyFeeEligibilityService
     {
         $memberTypes = $this->memberTypeResolver->typesFor($user);
         $state = $this->normalizeNullableString($user->estado);
-        $activeSports = (bool) $user->ativo_desportivo;
+        $activeSports = $this->sportsMemberStatusResolver->sportsActivityActive($user);
         $isAthlete = $this->memberTypeResolver->isAthlete($user);
         $eligibleTypes = $this->eligibleMemberTypes();
         $athleteEligibilityEnabled = in_array('atleta', $eligibleTypes, true);
@@ -38,7 +41,7 @@ final class MemberMonthlyFeeEligibilityService
 
             if ($state !== 'ativo') {
                 $reasonCodes[] = 'inactive_member';
-            } elseif (!$activeSports) {
+            } elseif (! $activeSports) {
                 $reasonCodes[] = 'inactive_sports_athlete';
             } else {
                 $reasonCodes[] = 'active_sports_athlete';
@@ -93,7 +96,7 @@ final class MemberMonthlyFeeEligibilityService
 
     private function normalizeNullableString(mixed $value): ?string
     {
-        if (!is_string($value)) {
+        if (! is_string($value)) {
             return null;
         }
 

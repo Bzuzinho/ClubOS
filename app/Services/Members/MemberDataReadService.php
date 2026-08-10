@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Members;
 
+use App\Models\AthleteSportsData;
 use App\Models\DadosConfiguracao;
 use App\Models\DadosPessoais;
 use App\Models\User;
@@ -14,6 +15,7 @@ use Carbon\Carbon;
  *
  * Lê dados pessoais e de configuração preferencialmente de
  * dados_pessoais / dados_configuracao, com fallback para users.
+ * Os dados desportivos passam a preferir athlete_sports_data.
  *
  * Regras:
  *  - null e string vazia caem para fallback.
@@ -24,10 +26,6 @@ use Carbon\Carbon;
  */
 final class MemberDataReadService
 {
-    // -------------------------------------------------------------------------
-    // Mapeamento: campo em dados_pessoais → campo(s) fallback em users
-    // -------------------------------------------------------------------------
-
     /** @var array<string, string|list<string>|null> */
     private const PERSONAL_FALLBACK_MAP = [
         'nome_completo'           => ['nome_completo', 'name'],
@@ -53,54 +51,41 @@ final class MemberDataReadService
         'observacoes'             => 'observacoes',
     ];
 
-    // -------------------------------------------------------------------------
-    // Mapeamento: campo em dados_configuracao → campo(s) fallback em users
-    // -------------------------------------------------------------------------
-
     /** @var array<string, string|list<string>|null> */
     private const CONFIGURATION_FALLBACK_MAP = [
-        'consentimento_rgpd'              => 'rgpd',
-        'consentimento_rgpd_data'         => 'data_rgpd',
-        'consentimento_imagem'            => 'consentimento',
-        'consentimento_imagem_data'       => 'data_consentimento',
-        'declaracao_transporte'           => 'declaracao_de_transporte',
-        'declaracao_transporte_data'      => null,
-        'declaracao_transporte_ficheiro'  => null,
-        'afiliacao_federativa'            => 'afiliacao',
-        'afiliacao_numero'                => 'num_federacao',
-        'afiliacao_data'                  => 'data_afiliacao',
-        'afiliacao_ficheiro'              => 'arquivo_afiliacao',
-        'ficha_inscricao_ficheiro'        => null,
+        'consentimento_rgpd'               => 'rgpd',
+        'consentimento_rgpd_data'          => 'data_rgpd',
+        'consentimento_imagem'             => 'consentimento',
+        'consentimento_imagem_data'        => 'data_consentimento',
+        'declaracao_transporte'            => 'declaracao_de_transporte',
+        'declaracao_transporte_data'       => null,
+        'declaracao_transporte_ficheiro'   => null,
+        'afiliacao_federativa'             => 'afiliacao',
+        'afiliacao_numero'                 => 'num_federacao',
+        'afiliacao_data'                   => 'data_afiliacao',
+        'afiliacao_ficheiro'               => 'arquivo_afiliacao',
+        'ficha_inscricao_ficheiro'         => null,
         'documento_identificacao_ficheiro' => null,
-        'certificado_medico_ficheiro'     => 'arquivo_atestado_medico',
-        'autorizacao_parental_ficheiro'   => null,
-        'termos_aceites'                  => null,
-        'termos_aceites_data'             => null,
-        'receber_comunicacoes'            => null,
-        'acesso_portal_ativo'             => null,
-        'ultimo_envio_acessos_at'         => null,
-        'configuracao_extra'              => null,
+        'certificado_medico_ficheiro'      => 'arquivo_atestado_medico',
+        'autorizacao_parental_ficheiro'    => null,
+        'termos_aceites'                   => null,
+        'termos_aceites_data'              => null,
+        'receber_comunicacoes'             => null,
+        'acesso_portal_ativo'              => null,
+        'ultimo_envio_acessos_at'          => null,
+        'configuracao_extra'               => null,
     ];
 
-    // =========================================================================
-    // Métodos públicos principais
-    // =========================================================================
-
-    /**
-     * Payload de dados pessoais composto (nova tabela com fallback para users).
-     *
-     * @return array<string, mixed>
-     */
+    /** @return array<string, mixed> */
     public function personalPayload(User $user): array
     {
         $dp = $user->dadosPessoais;
-
         $payload = [];
+
         foreach (self::PERSONAL_FALLBACK_MAP as $newField => $fallback) {
             $payload[$newField] = $this->resolvePersonal($dp, $user, $newField, $fallback);
         }
 
-        // Normalizar datas para string Y-m-d (compatibilidade com payload atual)
         foreach (['data_nascimento', 'validade_documento'] as $dateField) {
             if (isset($payload[$dateField])) {
                 $payload[$dateField] = $this->formatDate($payload[$dateField]);
@@ -110,21 +95,16 @@ final class MemberDataReadService
         return $payload;
     }
 
-    /**
-     * Payload de configuração composto (nova tabela com fallback para users).
-     *
-     * @return array<string, mixed>
-     */
+    /** @return array<string, mixed> */
     public function configurationPayload(User $user): array
     {
         $dc = $user->dadosConfiguracao;
-
         $payload = [];
+
         foreach (self::CONFIGURATION_FALLBACK_MAP as $newField => $fallback) {
             $payload[$newField] = $this->resolveConfiguration($dc, $user, $newField, $fallback);
         }
 
-        // Normalizar datas para formato compatível com payload atual
         foreach (['consentimento_rgpd_data', 'consentimento_imagem_data', 'declaracao_transporte_data', 'afiliacao_data', 'termos_aceites_data', 'ultimo_envio_acessos_at'] as $dateField) {
             if (isset($payload[$dateField])) {
                 $payload[$dateField] = $this->formatDatetime($payload[$dateField]);
@@ -139,111 +119,144 @@ final class MemberDataReadService
     }
 
     /**
-     * Payload completo do membro composto — combina dados pessoais e configuração
-     * sobre o array base do membro.
+     * Perfil desportivo canónico. Quando ainda não existe athlete_sports_data,
+     * dados_configuracao é o primeiro fallback para informação que já tinha
+     * sido migrada para a camada canónica de Membros; users é a última rede de
+     * compatibilidade de transição.
      *
-     * Mantém as chaves esperadas pelo frontend atual.
-     *
-     * @param  array<string, mixed> $baseMemberData  Array obtido de $member->toArray() no controller
+     * @return array<string, mixed>
+     */
+    public function sportsPayload(User $user): array
+    {
+        /** @var AthleteSportsData|null $sports */
+        $sports = $user->relationLoaded('athleteSportsData')
+            ? $user->getRelation('athleteSportsData')
+            : $user->athleteSportsData()->first();
+
+        if ($sports === null) {
+            $configuration = $this->configurationPayload($user);
+            $configurationExtra = is_array($configuration['configuracao_extra'] ?? null)
+                ? $configuration['configuracao_extra']
+                : [];
+            $legacyAgeGroup = collect($user->escalao ?? [])
+                ->map(static fn (mixed $value): string => trim((string) $value))
+                ->first(static fn (string $value): bool => $value !== '');
+            $legacyFederationCard = $user->getAttribute('cartao_federacao');
+
+            return [
+                'num_federacao' => $configuration['afiliacao_numero']
+                    ?? $user->getAttribute('num_federacao'),
+                'cartao_federacao' => $this->hasValue($legacyFederationCard)
+                    ? $legacyFederationCard
+                    : ($configuration['afiliacao_ficheiro'] ?? null),
+                'numero_pmb' => $user->getAttribute('numero_pmb'),
+                'data_inscricao' => $this->formatDate($user->getAttribute('data_inscricao')),
+                'escalao_id' => $legacyAgeGroup ?: null,
+                'escalao_calculado_id' => $legacyAgeGroup ?: null,
+                'escalao_manual_override' => $legacyAgeGroup !== null,
+                'data_atestado_medico' => $this->formatDate($user->getAttribute('data_atestado_medico')),
+                'arquivo_atestado_medico' => $configuration['certificado_medico_ficheiro']
+                    ?? $user->getAttribute('arquivo_atestado_medico'),
+                'informacoes_medicas' => $configurationExtra['informacoes_medicas']
+                    ?? $user->getAttribute('informacoes_medicas'),
+                'ativo' => (bool) ($user->ativo_desportivo ?? false),
+            ];
+        }
+
+        return [
+            'num_federacao' => $sports->num_federacao,
+            'cartao_federacao' => $sports->cartao_federacao,
+            'numero_pmb' => $sports->numero_pmb,
+            'data_inscricao' => $this->formatDate($sports->data_inscricao),
+            'escalao_id' => $sports->escalao_id,
+            'escalao_calculado_id' => $sports->escalao_calculado_id,
+            'escalao_manual_override' => (bool) $sports->escalao_manual_override,
+            'data_atestado_medico' => $this->formatDate($sports->data_atestado_medico),
+            'arquivo_atestado_medico' => $sports->arquivo_atestado_medico,
+            'informacoes_medicas' => $sports->informacoes_medicas,
+            'ativo' => (bool) $sports->ativo,
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed> $baseMemberData
      * @return array<string, mixed>
      */
     public function mergedMemberPayload(User $user, array $baseMemberData): array
     {
         $personal = $this->personalPayload($user);
-        $config   = $this->configurationPayload($user);
+        $config = $this->configurationPayload($user);
+        $sports = $this->sportsPayload($user);
 
-        // --- Campos pessoais com chaves canónicas do frontend ---
-        $baseMemberData['nome_completo']           = $personal['nome_completo'];
-        $baseMemberData['data_nascimento']         = $personal['data_nascimento'];
-        $baseMemberData['sexo']                    = $personal['sexo'];
-        $baseMemberData['nif']                     = $personal['nif'];
-        $baseMemberData['cc']                      = $personal['documento_identificacao'];
+        $baseMemberData['nome_completo'] = $personal['nome_completo'];
+        $baseMemberData['data_nascimento'] = $personal['data_nascimento'];
+        $baseMemberData['sexo'] = $personal['sexo'];
+        $baseMemberData['nif'] = $personal['nif'];
+        $baseMemberData['cc'] = $personal['documento_identificacao'];
         $baseMemberData['documento_identificacao'] = $personal['documento_identificacao'];
-        $baseMemberData['nacionalidade']           = $personal['nacionalidade'];
-        $baseMemberData['morada']                  = $personal['morada'];
-        $baseMemberData['codigo_postal']           = $personal['codigo_postal'];
-        $baseMemberData['localidade']              = $personal['localidade'];
-        $baseMemberData['contacto']                = $personal['contacto'];
-        $baseMemberData['contacto_alternativo']    = $personal['contacto_alternativo'];
-        $baseMemberData['email_secundario']        = $personal['email_secundario'];
-        $baseMemberData['estado_civil']            = $personal['estado_civil'];
-        $baseMemberData['observacoes']             = $personal['observacoes'];
+        $baseMemberData['nacionalidade'] = $personal['nacionalidade'];
+        $baseMemberData['morada'] = $personal['morada'];
+        $baseMemberData['codigo_postal'] = $personal['codigo_postal'];
+        $baseMemberData['localidade'] = $personal['localidade'];
+        $baseMemberData['contacto'] = $personal['contacto'];
+        $baseMemberData['contacto_alternativo'] = $personal['contacto_alternativo'];
+        $baseMemberData['email_secundario'] = $personal['email_secundario'];
+        $baseMemberData['estado_civil'] = $personal['estado_civil'];
+        $baseMemberData['observacoes'] = $personal['observacoes'];
 
         if (array_key_exists('numero_irmaos', $personal)) {
             $baseMemberData['numero_irmaos'] = $personal['numero_irmaos'];
         }
 
-        // --- Campos de configuração com chaves canónicas do frontend ---
-        // RGPD — chaves legadas preservadas
-        $baseMemberData['rgpd']             = $config['consentimento_rgpd'];
-        $baseMemberData['data_rgpd']        = $config['consentimento_rgpd_data'];
-        $baseMemberData['arquivo_rgpd']     = $baseMemberData['arquivo_rgpd'] ?? $user->arquivo_rgpd;
-
-        // Consentimento imagem
-        $baseMemberData['consentimento']      = $config['consentimento_imagem'];
+        $baseMemberData['rgpd'] = $config['consentimento_rgpd'];
+        $baseMemberData['data_rgpd'] = $config['consentimento_rgpd_data'];
+        $baseMemberData['arquivo_rgpd'] = $baseMemberData['arquivo_rgpd'] ?? $user->arquivo_rgpd;
+        $baseMemberData['consentimento'] = $config['consentimento_imagem'];
         $baseMemberData['data_consentimento'] = $config['consentimento_imagem_data'];
         $baseMemberData['arquivo_consentimento'] = $baseMemberData['arquivo_consentimento'] ?? $user->arquivo_consentimento;
-
-        // Declaração transporte
         $baseMemberData['declaracao_de_transporte'] = $config['declaracao_transporte'];
-        $baseMemberData['declaracao_transporte']    = $config['declaracao_transporte_ficheiro'];
+        $baseMemberData['declaracao_transporte'] = $config['declaracao_transporte_ficheiro'];
+        $baseMemberData['afiliacao'] = $config['afiliacao_federativa'];
+        $baseMemberData['data_afiliacao'] = $config['afiliacao_data'];
+        $baseMemberData['arquivo_afiliacao'] = $config['afiliacao_ficheiro'] ?? $user->arquivo_afiliacao;
 
-        // Afiliação federativa
-        $baseMemberData['afiliacao']          = $config['afiliacao_federativa'];
-        $baseMemberData['data_afiliacao']     = $config['afiliacao_data'];
-        $baseMemberData['arquivo_afiliacao']  = $config['afiliacao_ficheiro'] ?? $user->arquivo_afiliacao;
-        $baseMemberData['num_federacao']      = $config['afiliacao_numero'];
+        // A ficha desportiva é dona destes campos. Configuração/users ficam apenas como fallback.
+        $baseMemberData['num_federacao'] = $sports['num_federacao'] ?? $config['afiliacao_numero'];
+        $baseMemberData['cartao_federacao'] = $sports['cartao_federacao'];
+        $baseMemberData['numero_pmb'] = $sports['numero_pmb'];
+        $baseMemberData['data_inscricao'] = $sports['data_inscricao'];
+        $baseMemberData['escalao_id'] = $sports['escalao_id'];
+        $baseMemberData['escalao'] = $sports['escalao_id'] ? [(string) $sports['escalao_id']] : [];
+        $baseMemberData['escalao_calculado_id'] = $sports['escalao_calculado_id'];
+        $baseMemberData['escalao_manual_override'] = $sports['escalao_manual_override'];
+        $baseMemberData['data_atestado_medico'] = $sports['data_atestado_medico'];
+        $baseMemberData['arquivo_atestado_medico'] = $sports['arquivo_atestado_medico'];
+        $baseMemberData['informacoes_medicas'] = $sports['informacoes_medicas'];
+        $baseMemberData['ativo_desportivo'] = $sports['ativo'];
 
-        // Email de autenticação — sempre de users
         $baseMemberData['email_utilizador'] = $user->email_utilizador ?? $user->email;
-
-        // estado e numero_socio — sempre de users (campos operacionais)
-        $baseMemberData['estado']        = $user->estado;
-        $baseMemberData['numero_socio']  = $user->numero_socio;
-
-        // perfil/role — sempre de users nesta fase
+        $baseMemberData['estado'] = $user->estado;
+        $baseMemberData['numero_socio'] = $user->numero_socio;
         $baseMemberData['perfil'] = $user->perfil;
 
         return $baseMemberData;
     }
 
-    // =========================================================================
-    // Métodos de leitura com fallback
-    // =========================================================================
-
-    /**
-     * Lê um campo de dados_pessoais com fallback para users.
-     *
-     * @param string|list<string>|null $fallbackUserField
-     */
     public function valueFromPersonal(
         User $user,
         string $newField,
         string|array|null $fallbackUserField = null,
     ): mixed {
-        $dp = $user->dadosPessoais;
-
-        return $this->resolvePersonal($dp, $user, $newField, $fallbackUserField);
+        return $this->resolvePersonal($user->dadosPessoais, $user, $newField, $fallbackUserField);
     }
 
-    /**
-     * Lê um campo de dados_configuracao com fallback para users.
-     *
-     * @param string|list<string>|null $fallbackUserField
-     */
     public function valueFromConfiguration(
         User $user,
         string $newField,
         string|array|null $fallbackUserField = null,
     ): mixed {
-        $dc = $user->dadosConfiguracao;
-
-        return $this->resolveConfiguration($dc, $user, $newField, $fallbackUserField);
+        return $this->resolveConfiguration($user->dadosConfiguracao, $user, $newField, $fallbackUserField);
     }
-
-    // =========================================================================
-    // Resolvers internos
-    // =========================================================================
 
     private function resolvePersonal(
         ?DadosPessoais $dp,
@@ -267,7 +280,6 @@ final class MemberDataReadService
         if ($dc !== null) {
             $value = $dc->getAttribute($newField);
 
-            // Boolean false é valor válido — não cair para fallback
             if (is_bool($value)) {
                 return $value;
             }
@@ -280,9 +292,6 @@ final class MemberDataReadService
         return $this->firstValueFromUser($user, $fallbackUserField);
     }
 
-    /**
-     * @param string|list<string>|null $fields
-     */
     private function firstValueFromUser(User $user, string|array|null $fields): mixed
     {
         if ($fields === null) {
@@ -299,15 +308,6 @@ final class MemberDataReadService
         return null;
     }
 
-    /**
-     * Determina se um valor é considerado "preenchido" (não cai para fallback).
-     *
-     * - null → fallback
-     * - string vazia → fallback
-     * - false booleano → valor válido (não fallback)
-     * - "0" → valor válido (não fallback)
-     * - qualquer outro valor → valor válido (não fallback)
-     */
     private function hasValue(mixed $value): bool
     {
         if ($value === null) {
@@ -320,10 +320,6 @@ final class MemberDataReadService
 
         return true;
     }
-
-    // =========================================================================
-    // Formatação de datas
-    // =========================================================================
 
     private function formatDate(mixed $value): ?string
     {

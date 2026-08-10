@@ -20,6 +20,8 @@ class AthleteSportsData extends Model
         'data_inscricao',
         'inscricao_path',
         'escalao_id',
+        'escalao_calculado_id',
+        'escalao_manual_override',
         'data_atestado_medico',
         'arquivo_atestado_medico',
         'informacoes_medicas',
@@ -30,6 +32,7 @@ class AthleteSportsData extends Model
         'data_inscricao' => 'date',
         'data_atestado_medico' => 'date',
         'arquivo_atestado_medico' => 'array',
+        'escalao_manual_override' => 'boolean',
         'ativo' => 'boolean',
     ];
 
@@ -46,5 +49,10 @@ class AthleteSportsData extends Model
     public function escalao(): BelongsTo
     {
         return $this->belongsTo(AgeGroup::class, 'escalao_id');
+    }
+
+    public function escalaoCalculado(): BelongsTo
+    {
+        return $this->belongsTo(AgeGroup::class, 'escalao_calculado_id');
     }
 }
