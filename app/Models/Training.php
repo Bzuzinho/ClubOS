@@ -14,7 +14,6 @@ class Training extends Model
 {
     use HasUuids;
 
-
     protected $fillable = [
         'numero_treino',
         'data',
@@ -34,6 +33,15 @@ class Training extends Model
         'criado_por',
         'evento_id',
         'atualizado_em',
+        'club_id',
+        'training_plan_version_id',
+        'responsavel_id',
+        'session_status',
+        'instrucao',
+        'plan_applied_at',
+        'plan_applied_by',
+        'published_at',
+        'completed_at',
     ];
 
     protected $casts = [
@@ -41,6 +49,9 @@ class Training extends Model
         'escaloes' => 'array',
         'volume_planeado_m' => 'integer',
         'atualizado_em' => 'datetime',
+        'plan_applied_at' => 'datetime',
+        'published_at' => 'datetime',
+        'completed_at' => 'datetime',
     ];
 
     public function season(): BelongsTo
@@ -76,6 +87,21 @@ class Training extends Model
         return $this->belongsTo(User::class, 'criado_por');
     }
 
+    public function responsibleCoach(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'responsavel_id');
+    }
+
+    public function planVersion(): BelongsTo
+    {
+        return $this->belongsTo(TrainingPlanVersion::class, 'training_plan_version_id');
+    }
+
+    public function planAppliedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'plan_applied_by');
+    }
+
     public function event(): BelongsTo
     {
         return $this->belongsTo(Event::class, 'evento_id');
@@ -83,7 +109,7 @@ class Training extends Model
 
     public function series(): HasMany
     {
-        return $this->hasMany(TrainingSeries::class, 'treino_id');
+        return $this->hasMany(TrainingSeries::class, 'treino_id')->orderBy('ordem');
     }
 
     public function athletes()
@@ -142,5 +168,10 @@ class Training extends Model
     public function metrics(): HasMany
     {
         return $this->hasMany(TrainingMetric::class, 'treino_id');
+    }
+
+    public function isCompleted(): bool
+    {
+        return $this->session_status === 'completed' || $this->completed_at !== null;
     }
 }
