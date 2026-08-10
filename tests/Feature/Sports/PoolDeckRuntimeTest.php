@@ -172,6 +172,9 @@ class PoolDeckRuntimeTest extends TestCase
         $sessions = app(PoolDeckSessionService::class);
         $timers = app(PoolDeckTimerService::class);
         $sessions->open($training, $actor);
+
+        $this->assertSame('open', $training->fresh()->pool_deck_status, 'A sessão deve estar aberta antes de iniciar timers.');
+
         $timer = $timers->start($training->fresh(), [
             'subject_type' => 'athlete',
             'training_athlete_id' => $record->id,
@@ -179,14 +182,44 @@ class PoolDeckRuntimeTest extends TestCase
             'exercise_label' => '100 crawl',
         ], $actor);
 
+        $this->assertSame('running', $timer->fresh()->timer_state, 'O cronómetro deve ficar running após start.');
+        $this->assertSame(
+            1,
+            TrainingPoolDeckTimer::query()
+                ->where('club_id', 'bscn')
+                ->where('training_id', $training->id)
+                ->whereIn('timer_state', ['running', 'paused'])
+                ->count(),
+            'Deve existir exatamente um cronómetro ativo antes da primeira tentativa de fecho.',
+        );
+
         try {
             $sessions->close($training->fresh(), $actor);
             $this->fail('Closing with an active timer should fail.');
         } catch (ValidationException $exception) {
-            $this->assertArrayHasKey('timers', $exception->errors());
+            $this->assertArrayHasKey(
+                'timers',
+                $exception->errors(),
+                'O bloqueio de fecho deve ser causado por timers ativos. Erros: '.json_encode($exception->errors(), JSON_UNESCAPED_UNICODE),
+            );
         }
 
-        $timers->event($timer, 'stop', [], $actor);
+        $this->assertSame('open', $training->fresh()->pool_deck_status, 'Uma tentativa de fecho bloqueada não pode alterar o estado da sessão.');
+
+        $timers->event($timer->fresh(), 'stop', [], $actor);
+
+        $this->assertSame('stopped', $timer->fresh()->timer_state, 'O evento stop deve persistir o estado stopped.');
+        $this->assertSame(
+            0,
+            TrainingPoolDeckTimer::query()
+                ->where('club_id', 'bscn')
+                ->where('training_id', $training->id)
+                ->whereIn('timer_state', ['running', 'paused'])
+                ->count(),
+            'Depois do stop não podem permanecer cronómetros ativos.',
+        );
+        $this->assertSame('open', $training->fresh()->pool_deck_status, 'Parar o cronómetro não deve fechar a sessão.');
+
         $closed = $sessions->close($training->fresh(), $actor);
 
         $this->assertSame('closed', $closed->pool_deck_status);
