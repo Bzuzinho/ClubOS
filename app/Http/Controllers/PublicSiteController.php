@@ -95,11 +95,15 @@ class PublicSiteController extends Controller
     /** @param array<string, mixed> $snapshot */
     private function managedResponse(array $snapshot): Response
     {
+        $dynamicData = $this->publicData->dynamicData();
+
         return Inertia::render('PublicSite/ManagedPage', [
             'page' => $snapshot,
-            'news' => $this->publicData->news(30),
-            'events' => $this->publicData->events(60),
-            'partners' => $this->publicData->partners(60),
+            'news' => $dynamicData['news'],
+            'events' => $dynamicData['events'],
+            'partners' => $dynamicData['partners'],
+            'dynamicData' => $dynamicData,
+            'dataSources' => $this->publicData->dataSources(),
             'publicNavigation' => $this->pages->navigation(),
             'preview' => false,
         ]);

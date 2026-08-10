@@ -2,6 +2,8 @@
 
 namespace Tests\Feature\Website;
 
+use App\Models\ConvocationGroup;
+use App\Models\Event;
 use App\Models\User;
 use App\Models\WebsiteMedia;
 use App\Models\WebsitePage;
@@ -378,6 +380,49 @@ class WebsitePageManagementTest extends TestCase
         $this->get('/pagina-teste')->assertNotFound();
     }
 
+    public function test_editor_exposes_real_dynamic_data_sources_and_aggregate_statistics(): void
+    {
+        $admin = User::factory()->create(['perfil' => 'admin']);
+        $page = $this->createCustomPage($admin);
+        $event = Event::query()->create([
+            'titulo' => 'Torneio público',
+            'descricao' => 'Competição aberta ao público.',
+            'data_inicio' => today()->addWeek(),
+            'tipo' => 'competicao',
+            'visibilidade' => 'publico',
+            'estado' => 'agendado',
+            'criado_por' => $admin->id,
+        ]);
+        ConvocationGroup::query()->create([
+            'evento_id' => $event->id,
+            'data_criacao' => now(),
+            'criado_por' => $admin->id,
+            'atletas_ids' => [$admin->id],
+            'tipo_custo' => 'sem_custo',
+            'hora_encontro' => '08:30',
+            'local_encontro' => 'Piscinas Municipais',
+        ]);
+
+        $this->actingAs($admin)
+            ->get("/website/paginas/{$page->id}/editar")
+            ->assertOk()
+            ->assertInertia(fn (Assert $response) => $response
+                ->component('Website/Pages/Edit')
+                ->where('dataSources.0.value', 'news')
+                ->where('dataSources.1.value', 'events')
+                ->where('dataSources.2.value', 'convocations')
+                ->where('dataSources.3.value', 'partners')
+                ->where('dataSources.4.value', 'statistics')
+                ->has('dynamicData.statistics', 6)
+                ->has('dynamicData.news')
+                ->has('dynamicData.events')
+                ->where('dynamicData.convocations.0.title', 'Torneio público')
+                ->where('dynamicData.convocations.0.athleteCount', 1)
+                ->missing('dynamicData.convocations.0.athletes')
+                ->has('dynamicData.partners')
+            );
+    }
+
     public function test_visual_editor_preserves_nested_elements_and_dynamic_data_configuration(): void
     {
         $admin = User::factory()->create(['perfil' => 'admin']);
@@ -399,9 +444,9 @@ class WebsitePageManagementTest extends TestCase
                 'type' => 'data_collection',
                 'is_visible' => true,
                 'content' => [
-                    'source' => 'news',
+                    'source' => 'statistics',
                     'limit' => 4,
-                    'layout' => 'grid',
+                    'layout' => 'metrics',
                     'columns' => 2,
                     'show_image' => true,
                     'show_meta' => true,
@@ -420,6 +465,21 @@ class WebsitePageManagementTest extends TestCase
                     'heading_weight' => 700,
                     'body_weight' => 400,
                     'line_height' => 1.7,
+                    'margin_top' => 18,
+                    'margin_right' => 12,
+                    'margin_bottom' => 24,
+                    'margin_left' => 12,
+                    'padding_top' => 8,
+                    'padding_right' => 10,
+                    'padding_bottom' => 8,
+                    'padding_left' => 10,
+                    'data_card_background' => '#eef6fb',
+                    'data_card_text_color' => '#123456',
+                    'data_card_border_color' => '#77aacc',
+                    'data_card_border_width' => 3,
+                    'data_card_radius' => 20,
+                    'data_card_shadow' => 'medium',
+                    'data_card_padding' => 26,
                 ],
                 'settings' => [
                     'animation' => 'slide-up',
@@ -437,13 +497,18 @@ class WebsitePageManagementTest extends TestCase
 
         $block = $page->fresh()->blocks()->where('type', 'section')->firstOrFail();
         $this->assertSame('section', $block->type);
-        $this->assertSame('news', $block->content['items'][0]['content']['source']);
+        $this->assertSame('statistics', $block->content['items'][0]['content']['source']);
+        $this->assertSame('metrics', $block->content['items'][0]['content']['layout']);
         $this->assertSame(4, $block->content['items'][0]['style']['column_span']);
         $this->assertSame('poppins', $block->content['items'][0]['style']['heading_font']);
+        $this->assertSame(18, $block->content['items'][0]['style']['margin_top']);
+        $this->assertSame(26, $block->content['items'][0]['style']['data_card_padding']);
+        $this->assertSame('#77aacc', $block->content['items'][0]['style']['data_card_border_color']);
         $this->assertSame('slide-up', $block->content['items'][0]['settings']['animation']);
         $snapshot = $page->fresh()->versions()->latest('version')->first()->snapshot;
         $sectionSnapshot = collect($snapshot['blocks'])->firstWhere('type', 'section');
-        $this->assertSame('news', $sectionSnapshot['content']['items'][0]['content']['source']);
+        $this->assertSame('statistics', $sectionSnapshot['content']['items'][0]['content']['source']);
+        $this->assertSame(24, $sectionSnapshot['content']['items'][0]['style']['margin_bottom']);
     }
 
     public function test_old_website_redes_address_redirects_to_independent_website_module(): void

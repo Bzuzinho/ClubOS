@@ -58,6 +58,7 @@ class WebsitePageController extends Controller
         $page->load(['blocks', 'versions.creator']);
         $media = WebsiteMedia::query()->latest()->limit(100)->get();
         $usage = $this->mediaService->usageMap($media);
+        $dynamicData = $this->publicData->dynamicData();
 
         return Inertia::render('Website/Pages/Edit', [
             'page' => $this->editorPayload($page),
@@ -75,9 +76,11 @@ class WebsitePageController extends Controller
                 ['value' => 'contact_form', 'label' => 'Formulário de contacto'],
                 ['value' => 'registration_form', 'label' => 'Formulário de inscrição'],
             ],
-            'news' => $this->publicData->news(30),
-            'events' => $this->publicData->events(60),
-            'partners' => $this->publicData->partners(60),
+            'news' => $dynamicData['news'],
+            'events' => $dynamicData['events'],
+            'partners' => $dynamicData['partners'],
+            'dynamicData' => $dynamicData,
+            'dataSources' => $this->publicData->dataSources(),
         ]);
     }
 
@@ -129,12 +132,15 @@ class WebsitePageController extends Controller
     public function preview(WebsitePage $page): Response
     {
         $snapshot = $this->pages->draftSnapshot($page->load('blocks'));
+        $dynamicData = $this->publicData->dynamicData();
 
         return Inertia::render('PublicSite/ManagedPage', [
             'page' => $snapshot,
-            'news' => $this->publicData->news(30),
-            'events' => $this->publicData->events(60),
-            'partners' => $this->publicData->partners(60),
+            'news' => $dynamicData['news'],
+            'events' => $dynamicData['events'],
+            'partners' => $dynamicData['partners'],
+            'dynamicData' => $dynamicData,
+            'dataSources' => $this->publicData->dataSources(),
             'publicNavigation' => $this->pages->navigation(),
             'preview' => true,
         ]);
