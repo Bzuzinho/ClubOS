@@ -104,7 +104,6 @@ final class PoolDeckMetricService
 
             return TrainingMetric::query()->create([
                 'treino_id' => $training->id,
-                'training_id' => $training->id,
                 'training_athlete_id' => $record->id,
                 'user_id' => $record->user_id,
                 'ordem' => $nextOrder,
