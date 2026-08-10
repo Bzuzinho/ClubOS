@@ -141,12 +141,14 @@ final class MemberDataReadService
             $legacyAgeGroup = collect($user->escalao ?? [])
                 ->map(static fn (mixed $value): string => trim((string) $value))
                 ->first(static fn (string $value): bool => $value !== '');
+            $legacyFederationCard = $user->getAttribute('cartao_federacao');
 
             return [
                 'num_federacao' => $configuration['afiliacao_numero']
                     ?? $user->getAttribute('num_federacao'),
-                'cartao_federacao' => $configuration['afiliacao_ficheiro']
-                    ?? $user->getAttribute('cartao_federacao'),
+                'cartao_federacao' => $this->hasValue($legacyFederationCard)
+                    ? $legacyFederationCard
+                    : ($configuration['afiliacao_ficheiro'] ?? null),
                 'numero_pmb' => $user->getAttribute('numero_pmb'),
                 'data_inscricao' => $this->formatDate($user->getAttribute('data_inscricao')),
                 'escalao_id' => $legacyAgeGroup ?: null,
