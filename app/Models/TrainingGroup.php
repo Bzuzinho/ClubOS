@@ -36,6 +36,16 @@ class TrainingGroup extends Model
         return $this->hasMany(TrainingGroupCoach::class, 'training_group_id');
     }
 
+    public function sessionAssignments(): HasMany
+    {
+        return $this->hasMany(TrainingSessionGroup::class, 'training_group_id');
+    }
+
+    public function recurrenceAssignments(): HasMany
+    {
+        return $this->hasMany(TrainingRecurrenceGroup::class, 'training_group_id');
+    }
+
     public function ageGroups(): BelongsToMany
     {
         return $this->belongsToMany(

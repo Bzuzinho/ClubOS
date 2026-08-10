@@ -29,6 +29,9 @@ class ClubSetting extends Model
         'monthly_fee_respect_registration_date',
         'monthly_fee_generate_months_ahead',
         'monthly_fee_default_period_mode',
+        'sports_lane_overlap_policy',
+        'sports_athlete_overlap_policy',
+        'sports_capacity_policy',
     ];
 
     protected $casts = [
