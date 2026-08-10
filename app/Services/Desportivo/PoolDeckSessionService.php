@@ -164,13 +164,8 @@ final class PoolDeckSessionService
             $locked = Training::query()->whereKey($training->id)->lockForUpdate()->firstOrFail();
             $this->assertTrainingTenant($locked);
 
-            if ($locked->pool_deck_status !== 'open') {
-                throw ValidationException::withMessages([
-                    'training' => 'A sessão não está aberta no Cais.',
-                ]);
-            }
-
             $activeTimers = TrainingPoolDeckTimer::query()
+                ->where('club_id', $this->clubContext->id())
                 ->where('training_id', $locked->id)
                 ->whereIn('timer_state', ['running', 'paused'])
                 ->count();
@@ -178,6 +173,12 @@ final class PoolDeckSessionService
             if ($activeTimers > 0) {
                 throw ValidationException::withMessages([
                     'timers' => "Existem {$activeTimers} cronómetros ativos ou pausados. Termina-os antes de fechar a sessão.",
+                ]);
+            }
+
+            if ($locked->pool_deck_status !== 'open') {
+                throw ValidationException::withMessages([
+                    'training' => 'A sessão não está aberta no Cais.',
                 ]);
             }
 
