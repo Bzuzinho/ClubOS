@@ -14,7 +14,6 @@ class TrainingMetric extends Model
 
     protected $fillable = [
         'treino_id',
-        'training_id',
         'training_athlete_id',
         'user_id',
         'ordem',
