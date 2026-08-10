@@ -4,7 +4,14 @@ import { Link } from '@inertiajs/react';
 import { CSSProperties, ReactNode } from 'react';
 import ContactForm from './ContactForm';
 import RegistrationForm from './RegistrationForm';
-import { PublicEvent, PublicNews, eventDateParts, newsDate } from './types';
+import {
+    PublicEvent,
+    PublicNews,
+    PublicPartner,
+    WebsiteDynamicData,
+    eventDateParts,
+    newsDate,
+} from './types';
 
 type BlockContent = Record<string, unknown>;
 
@@ -24,7 +31,13 @@ type BlockStyle = {
     heading_color?: string | null;
     accent_color?: string | null;
     padding_top?: number;
+    padding_right?: number;
     padding_bottom?: number;
+    padding_left?: number;
+    margin_top?: number;
+    margin_right?: number;
+    margin_bottom?: number;
+    margin_left?: number;
     content_width?: 'page' | 'compact' | 'wide' | 'full';
     text_align?: 'left' | 'center' | 'right';
     heading_size?: number;
@@ -87,6 +100,14 @@ type SectionItemStyle = {
     border_radius?: number;
     shadow?: 'none' | 'soft' | 'medium' | 'strong';
     padding?: number;
+    padding_top?: number;
+    padding_right?: number;
+    padding_bottom?: number;
+    padding_left?: number;
+    margin_top?: number;
+    margin_right?: number;
+    margin_bottom?: number;
+    margin_left?: number;
     min_height?: number;
     text_align?: 'left' | 'center' | 'right';
     heading_size?: number;
@@ -102,6 +123,13 @@ type SectionItemStyle = {
     row_span?: number;
     image_ratio?: 'auto' | '1:1' | '4:3' | '16:9' | '21:9';
     image_fit?: 'cover' | 'contain';
+    data_card_background?: string | null;
+    data_card_text_color?: string | null;
+    data_card_border_color?: string | null;
+    data_card_border_width?: number;
+    data_card_radius?: number;
+    data_card_shadow?: 'none' | 'soft' | 'medium' | 'strong';
+    data_card_padding?: number;
 };
 
 type SectionItemSettings = {
@@ -112,15 +140,6 @@ type SectionItemSettings = {
     open_link_new_tab?: boolean;
 };
 
-type PublicPartner = {
-    id: string;
-    name: string;
-    description?: string | null;
-    logo?: string | null;
-    website?: string | null;
-    type?: string | null;
-};
-
 type ManagedPageData = {
     slug: string;
     title: string;
@@ -128,6 +147,14 @@ type ManagedPageData = {
     meta_description?: string | null;
     design_settings?: PageDesign;
     blocks: ManagedBlock[];
+};
+
+const EMPTY_DYNAMIC_DATA: WebsiteDynamicData = {
+    news: [],
+    events: [],
+    partners: [],
+    convocations: [],
+    statistics: [],
 };
 
 type CardItem = {
@@ -307,44 +334,62 @@ function EventsBlock({ content, events }: { content: BlockContent; events: Publi
     );
 }
 
-function DataFeedBlock({ content, defaultSource, news, events, partners, newTab }: { content: BlockContent; defaultSource: 'news' | 'events'; news: PublicNews[]; events: PublicEvent[]; partners: PublicPartner[]; newTab: boolean }) {
-    const source = text(content.source) || defaultSource;
+type DynamicRecord = { id: string; image?: string | null; meta?: string | null; title: string; description?: string | null; href?: string | null };
 
-    if (source === 'events') return <EventsBlock content={content} events={events} />;
+function dynamicRecords(content: BlockContent, dynamicData: WebsiteDynamicData): DynamicRecord[] {
+    const source = text(content.source) as keyof WebsiteDynamicData || 'news';
+    const limit = Math.min(60, Math.max(1, number(content.limit, 3)));
+
+    if (source === 'events') {
+        return dynamicData.events.slice(0, limit).map((event) => {
+            const date = eventDateParts(event.startDate);
+            return { id: event.id, meta: `${date.day} ${date.month} ${date.year} · ${event.type}`, title: event.title, description: [event.place, event.startTime].filter(Boolean).join(' · ') || event.description || '', href: '/calendario' };
+        });
+    }
+    if (source === 'convocations') {
+        return dynamicData.convocations.slice(0, limit).map((convocation) => {
+            const date = eventDateParts(convocation.startDate);
+            const meeting = [convocation.meetingPlace, convocation.meetingTime].filter(Boolean).join(' · ');
+            return { id: convocation.id, meta: `${date.day} ${date.month} ${date.year} · ${convocation.athleteCount} atletas`, title: convocation.title, description: meeting || convocation.place || convocation.description || '', href: '/calendario' };
+        });
+    }
     if (source === 'partners') {
-        return <section className="cms-section shell"><SectionHeading content={content} /><DynamicCollection content={{ ...content, source: 'partners', layout: 'grid', columns: 3 }} news={news} events={events} partners={partners} newTab={newTab} /></section>;
+        return dynamicData.partners.slice(0, limit).map((partner) => ({ id: partner.id, image: partner.logo || null, meta: partner.type, title: partner.name, description: partner.description || '', href: partner.website || '/parceiros' }));
+    }
+    if (source === 'statistics') {
+        return dynamicData.statistics.slice(0, limit).map((statistic) => ({ id: statistic.id, meta: statistic.label, title: new Intl.NumberFormat('pt-PT').format(statistic.value), description: statistic.description || '', href: null }));
     }
 
-    return <NewsBlock content={content} news={news} />;
+    return dynamicData.news.slice(0, limit).map((story) => ({ id: story.id, image: story.image || '/site-assets/bscn-news-bright.webp', meta: [newsDate(story.publishedAt), story.category].filter(Boolean).join(' · '), title: story.title, description: story.excerpt, href: '/noticias' }));
 }
 
-function DynamicCollection({ content, news, events, partners, newTab }: { content: BlockContent; news: PublicNews[]; events: PublicEvent[]; partners: PublicPartner[]; newTab: boolean }) {
-    const source = text(content.source) || 'news';
-    const limit = Math.min(30, Math.max(1, number(content.limit, 3)));
-    const columns = Math.min(4, Math.max(1, number(content.columns, 3)));
-    const layout = text(content.layout) === 'list' ? 'list' : 'grid';
+function DataFeedBlock({ content, defaultSource, dynamicData, newTab, editor }: { content: BlockContent; defaultSource: 'news' | 'events'; dynamicData: WebsiteDynamicData; newTab: boolean; editor: boolean }) {
+    return <section className="cms-section shell"><SectionHeading content={content} /><DynamicCollection content={{ ...content, source: text(content.source) || defaultSource }} dynamicData={dynamicData} newTab={newTab} editor={editor} /></section>;
+}
+
+function DynamicCollection({ content, dynamicData, newTab, editor }: { content: BlockContent; dynamicData: WebsiteDynamicData; newTab: boolean; editor: boolean }) {
+    const source = text(content.source) as keyof WebsiteDynamicData || 'news';
+    const columns = Math.min(6, Math.max(1, number(content.columns, source === 'statistics' ? 4 : 3)));
+    const requestedLayout = text(content.layout);
+    const layout = source === 'statistics' || requestedLayout === 'metrics' ? 'metrics' : requestedLayout === 'list' ? 'list' : 'grid';
     const showImage = content.show_image !== false;
     const showMeta = content.show_meta !== false;
     const showDescription = content.show_description !== false;
     const showLink = content.show_link !== false;
     const linkLabel = text(content.link_label) || 'Saber mais';
-    const records = source === 'events'
-        ? events.slice(0, limit).map((event) => {
-            const date = eventDateParts(event.startDate);
-            return { id: event.id, image: null, meta: `${date.day} ${date.month} ${date.year} · ${event.type}`, title: event.title, description: [event.place, event.startTime].filter(Boolean).join(' · ') || event.description || '', href: '/calendario' };
-        })
-        : source === 'partners'
-            ? partners.slice(0, limit).map((partner) => ({ id: partner.id, image: partner.logo || null, meta: partner.type, title: partner.name, description: partner.description || '', href: partner.website || '/parceiros' }))
-            : news.slice(0, limit).map((story) => ({ id: story.id, image: story.image || '/site-assets/bscn-news-bright.webp', meta: [newsDate(story.publishedAt), story.category].filter(Boolean).join(' · '), title: story.title, description: story.excerpt, href: '/noticias' }));
+    const records = dynamicRecords(content, dynamicData);
+
+    if (records.length === 0 && !editor) return null;
 
     return <div className={`cms-data-collection cms-data-${layout}`} style={{ '--cms-data-columns': columns } as CSSProperties}>
-        {records.map((record) => <article key={record.id}>{showImage && record.image && <div className="cms-data-image"><img src={record.image} alt="" /></div>}<div className="cms-data-copy">{showMeta && record.meta && <p className="cms-data-meta">{record.meta}</p>}<h3>{record.title}</h3>{showDescription && record.description && <p>{record.description}</p>}{showLink && <SmartLink href={record.href} newTab={newTab}>{linkLabel} <span aria-hidden="true">↗</span></SmartLink>}</div></article>)}
-        {records.length === 0 && <div className="cms-empty">Ainda não existem dados públicos nesta origem.</div>}
+        {records.map((record) => <article key={record.id}>{showImage && record.image && <div className="cms-data-image"><img src={record.image} alt={record.title} /></div>}<div className="cms-data-copy">{showMeta && record.meta && <p className="cms-data-meta">{record.meta}</p>}<h3>{record.title}</h3>{showDescription && record.description && <p>{record.description}</p>}{showLink && record.href && <SmartLink href={record.href} newTab={newTab}>{linkLabel} <span aria-hidden="true">↗</span></SmartLink>}</div></article>)}
+        {records.length === 0 && <div className="cms-data-empty-state">Sem registos nesta origem. O aviso aparece apenas no editor.</div>}
     </div>;
 }
 
 function sectionItemVariables(style: SectionItemStyle = {}, type: SectionItem['type'] = 'subsection'): CSSProperties {
     const card = type === 'card';
+    const legacyPadding = style.padding ?? (card ? 24 : 0);
     return {
         '--cms-item-background': style.background_color || (card ? 'var(--cms-card-background)' : 'transparent'),
         '--cms-item-text': style.text_color || 'var(--cms-block-text)',
@@ -354,7 +399,14 @@ function sectionItemVariables(style: SectionItemStyle = {}, type: SectionItem['t
         '--cms-item-border-width': `${style.border_width ?? (card ? 2 : 0)}px`,
         '--cms-item-radius': style.border_radius === undefined ? (card ? 'var(--cms-card-radius)' : '0px') : `${style.border_radius}px`,
         '--cms-item-shadow': style.shadow === undefined ? (card ? 'var(--cms-card-shadow)' : 'none') : shadowValue(style.shadow),
-        '--cms-item-padding': `${style.padding ?? (card ? 24 : 0)}px`,
+        '--cms-item-padding-top': `${style.padding_top ?? legacyPadding}px`,
+        '--cms-item-padding-right': `${style.padding_right ?? legacyPadding}px`,
+        '--cms-item-padding-bottom': `${style.padding_bottom ?? legacyPadding}px`,
+        '--cms-item-padding-left': `${style.padding_left ?? legacyPadding}px`,
+        '--cms-item-margin-top': `${style.margin_top ?? 0}px`,
+        '--cms-item-margin-right': `${style.margin_right ?? 0}px`,
+        '--cms-item-margin-bottom': `${style.margin_bottom ?? 0}px`,
+        '--cms-item-margin-left': `${style.margin_left ?? 0}px`,
         '--cms-item-min-height': `${style.min_height ?? 0}px`,
         '--cms-item-heading-size': `${style.heading_size ?? 22}px`,
         '--cms-item-body-size': `${style.body_size ?? 14}px`,
@@ -367,13 +419,21 @@ function sectionItemVariables(style: SectionItemStyle = {}, type: SectionItem['t
         '--cms-item-span-tablet': Math.max(1, style.tablet_span ?? 1),
         '--cms-item-span-mobile': Math.max(1, style.mobile_span ?? 1),
         '--cms-item-row-span': Math.max(1, style.row_span ?? 1),
+        '--cms-data-card-background': style.data_card_background || 'var(--cms-card-background)',
+        '--cms-data-card-text': style.data_card_text_color || 'var(--cms-item-text)',
+        '--cms-data-card-border': style.data_card_border_color || 'var(--cms-card-border)',
+        '--cms-data-card-border-width': `${style.data_card_border_width ?? 2}px`,
+        '--cms-data-card-radius': `${style.data_card_radius ?? 15}px`,
+        '--cms-data-card-shadow': shadowValue(style.data_card_shadow || 'soft'),
+        '--cms-data-card-padding': `${style.data_card_padding ?? 20}px`,
         textAlign: style.text_align || 'left',
     } as CSSProperties;
 }
 
-function RenderSectionItem({ item, blockKey, news, events, partners, editor, selectedItemId }: { item: SectionItem; blockKey: string; news: PublicNews[]; events: PublicEvent[]; partners: PublicPartner[]; editor?: (key: string, itemId?: string) => void; selectedItemId?: string | null }) {
+function RenderSectionItem({ item, blockKey, dynamicData, editor, selectedItemId }: { item: SectionItem; blockKey: string; dynamicData: WebsiteDynamicData; editor?: (key: string, itemId?: string) => void; selectedItemId?: string | null }) {
     if (item.is_visible === false) return null;
     const content = item.content || {};
+    if (item.type === 'data_collection' && !editor && dynamicRecords(content, dynamicData).length === 0) return null;
     const style = item.style || {};
     const settings = item.settings || {};
     const children = sectionItems(item.children);
@@ -388,7 +448,7 @@ function RenderSectionItem({ item, blockKey, news, events, partners, editor, sel
             '--cms-section-gap': `${Math.min(80, Math.max(0, number(content.gap, 12)))}px`,
             '--cms-section-align': text(content.align_items) || 'start',
         } as CSSProperties;
-        body = <div className="cms-element-children" style={layout}>{children.map((child) => <RenderSectionItem key={child.id} item={child} blockKey={blockKey} news={news} events={events} partners={partners} editor={editor} selectedItemId={selectedItemId} />)}</div>;
+        body = <div className="cms-element-children" style={layout}>{children.map((child) => <RenderSectionItem key={child.id} item={child} blockKey={blockKey} dynamicData={dynamicData} editor={editor} selectedItemId={selectedItemId} />)}</div>;
     } else if (item.type === 'eyebrow') {
         body = <p className="eyebrow">{text(content.text)}</p>;
     } else if (item.type === 'heading') {
@@ -406,7 +466,7 @@ function RenderSectionItem({ item, blockKey, news, events, partners, editor, sel
     } else if (item.type === 'spacer') {
         body = <div className="cms-element-spacer" aria-hidden="true" />;
     } else if (item.type === 'data_collection') {
-        body = <DynamicCollection content={content} news={news} events={events} partners={partners} newTab={Boolean(settings.open_link_new_tab)} />;
+        body = <DynamicCollection content={content} dynamicData={dynamicData} newTab={Boolean(settings.open_link_new_tab)} editor={Boolean(editor)} />;
     } else if (item.type === 'contact_form') {
         body = <ContactForm />;
     } else if (item.type === 'registration_form') {
@@ -418,7 +478,7 @@ function RenderSectionItem({ item, blockKey, news, events, partners, editor, sel
     return <div className={classes} style={{ ...sectionItemVariables(style, item.type), animationDelay: `${settings.animation_delay ?? 0}ms`, '--cms-item-image-ratio': ratio || 'auto', '--cms-item-image-fit': style.image_fit || 'cover', '--cms-item-image-position': text(content.image_position) || 'center' } as CSSProperties} onClick={editor ? (event) => { event.preventDefault(); event.stopPropagation(); editor(blockKey, item.id); } : undefined}>{body}</div>;
 }
 
-function SectionBlock({ block, news, events, partners, editor, selectedItemId }: { block: ManagedBlock; news: PublicNews[]; events: PublicEvent[]; partners: PublicPartner[]; editor?: (key: string, itemId?: string) => void; selectedItemId?: string | null }) {
+function SectionBlock({ block, dynamicData, editor, selectedItemId }: { block: ManagedBlock; dynamicData: WebsiteDynamicData; editor?: (key: string, itemId?: string) => void; selectedItemId?: string | null }) {
     const content = block.content;
     const layout = {
         '--cms-section-columns': Math.min(6, Math.max(1, number(content.columns_desktop, 3))),
@@ -427,10 +487,10 @@ function SectionBlock({ block, news, events, partners, editor, selectedItemId }:
         '--cms-section-gap': `${Math.min(80, Math.max(0, number(content.gap, 20)))}px`,
         '--cms-section-align': text(content.align_items) || 'stretch',
     } as CSSProperties;
-    return <section className="cms-builder-section shell"><SectionHeading content={content} /><div className="cms-section-layout" style={layout}>{sectionItems(content.items).map((item) => <RenderSectionItem key={item.id} item={item} blockKey={block.block_key} news={news} events={events} partners={partners} editor={editor} selectedItemId={selectedItemId} />)}</div></section>;
+    return <section className="cms-builder-section shell"><SectionHeading content={content} /><div className="cms-section-layout" style={layout}>{sectionItems(content.items).map((item) => <RenderSectionItem key={item.id} item={item} blockKey={block.block_key} dynamicData={dynamicData} editor={editor} selectedItemId={selectedItemId} />)}</div></section>;
 }
 
-function EditableElementsBlock({ block, news, events, partners, editor, selectedItemId }: { block: ManagedBlock; news: PublicNews[]; events: PublicEvent[]; partners: PublicPartner[]; editor?: (key: string, itemId?: string) => void; selectedItemId?: string | null }) {
+function EditableElementsBlock({ block, dynamicData, editor, selectedItemId }: { block: ManagedBlock; dynamicData: WebsiteDynamicData; editor?: (key: string, itemId?: string) => void; selectedItemId?: string | null }) {
     const content = block.content;
     const layout = {
         '--cms-section-columns': Math.min(6, Math.max(1, number(content.columns_desktop, 6))),
@@ -440,7 +500,7 @@ function EditableElementsBlock({ block, news, events, partners, editor, selected
         '--cms-section-align': text(content.align_items) || 'stretch',
     } as CSSProperties;
 
-    return <section className={`cms-builder-section cms-elements-block cms-elements-${block.type} shell`}><div className="cms-section-layout" style={layout}>{sectionItems(content.elements).map((item) => <RenderSectionItem key={item.id} item={item} blockKey={block.block_key} news={news} events={events} partners={partners} editor={editor} selectedItemId={selectedItemId} />)}</div></section>;
+    return <section className={`cms-builder-section cms-elements-block cms-elements-${block.type} shell`}><div className="cms-section-layout" style={layout}>{sectionItems(content.elements).map((item) => <RenderSectionItem key={item.id} item={item} blockKey={block.block_key} dynamicData={dynamicData} editor={editor} selectedItemId={selectedItemId} />)}</div></section>;
 }
 
 function FormBlock({ content, registration }: { content: BlockContent; registration: boolean }) {
@@ -486,7 +546,13 @@ function blockVariables(style: BlockStyle = {}, type = ''): CSSProperties {
         '--cms-block-heading': style.heading_color || 'var(--cms-page-heading)',
         '--cms-block-accent': style.accent_color || 'var(--cms-page-accent)',
         '--cms-block-padding-top': `${style.padding_top ?? paddingTop}px`,
+        '--cms-block-padding-right': `${style.padding_right ?? 0}px`,
         '--cms-block-padding-bottom': `${style.padding_bottom ?? paddingBottom}px`,
+        '--cms-block-padding-left': `${style.padding_left ?? 0}px`,
+        '--cms-block-margin-top': `${style.margin_top ?? 0}px`,
+        '--cms-block-margin-right': `${style.margin_right ?? 0}px`,
+        '--cms-block-margin-bottom': `${style.margin_bottom ?? 0}px`,
+        '--cms-block-margin-left': `${style.margin_left ?? 0}px`,
         '--cms-block-heading-size': `${style.heading_size ?? 32}px`,
         '--cms-block-body-size': `${style.body_size ?? 14}px`,
         '--cms-block-radius': `${style.border_radius ?? 0}px`,
@@ -508,7 +574,7 @@ function blockVariables(style: BlockStyle = {}, type = ''): CSSProperties {
     } as CSSProperties;
 }
 
-function RenderBlock({ block, news, events, partners, editor, selected, selectedItemId }: { block: ManagedBlock; news: PublicNews[]; events: PublicEvent[]; partners: PublicPartner[]; editor?: (key: string, itemId?: string) => void; selected?: boolean; selectedItemId?: string | null }) {
+function RenderBlock({ block, dynamicData, editor, selected, selectedItemId }: { block: ManagedBlock; dynamicData: WebsiteDynamicData; editor?: (key: string, itemId?: string) => void; selected?: boolean; selectedItemId?: string | null }) {
     if (!block.is_visible) return null;
 
     const settings = block.settings || {};
@@ -528,18 +594,18 @@ function RenderBlock({ block, news, events, partners, editor, selected, selected
     let content: ReactNode = null;
 
     if (Array.isArray(block.content.elements)) {
-        content = <EditableElementsBlock block={block} news={news} events={events} partners={partners} editor={editor} selectedItemId={selectedItemId} />;
+        content = <EditableElementsBlock block={block} dynamicData={dynamicData} editor={editor} selectedItemId={selectedItemId} />;
     } else {
         switch (block.type) {
             case 'hero': content = <HeroBlock content={block.content} newTab={newTab} />; break;
-            case 'section': content = <SectionBlock block={block} news={news} events={events} partners={partners} editor={editor} selectedItemId={selectedItemId} />; break;
+            case 'section': content = <SectionBlock block={block} dynamicData={dynamicData} editor={editor} selectedItemId={selectedItemId} />; break;
             case 'rich_text': content = <RichTextBlock content={block.content} />; break;
             case 'cards': content = <CardsBlock content={block.content} newTab={newTab} />; break;
             case 'image_text': content = <ImageTextBlock content={block.content} newTab={newTab} />; break;
             case 'stats': content = <StatsBlock content={block.content} />; break;
             case 'cta': content = <CtaBlock content={block.content} newTab={newTab} />; break;
-            case 'news_feed': content = <DataFeedBlock content={block.content} defaultSource="news" news={news} events={events} partners={partners} newTab={newTab} />; break;
-            case 'events_feed': content = <DataFeedBlock content={block.content} defaultSource="events" news={news} events={events} partners={partners} newTab={newTab} />; break;
+            case 'news_feed': content = <DataFeedBlock content={block.content} defaultSource="news" dynamicData={dynamicData} newTab={newTab} editor={Boolean(editor)} />; break;
+            case 'events_feed': content = <DataFeedBlock content={block.content} defaultSource="events" dynamicData={dynamicData} newTab={newTab} editor={Boolean(editor)} />; break;
             case 'contact_form': content = <FormBlock content={block.content} registration={false} />; break;
             case 'registration_form': content = <FormBlock content={block.content} registration />; break;
             default: return null;
@@ -577,24 +643,25 @@ function pageVariables(design: PageDesign = {}): CSSProperties {
     } as CSSProperties;
 }
 
-export function ManagedPageCanvas({ page, news = [], events = [], partners = [], preview = false, editor, selectedBlockKey, selectedItemId, chrome = true }: { page: ManagedPageData; news?: PublicNews[]; events?: PublicEvent[]; partners?: PublicPartner[]; preview?: boolean; editor?: (key: string, itemId?: string) => void; selectedBlockKey?: string | null; selectedItemId?: string | null; chrome?: boolean }) {
+export function ManagedPageCanvas({ page, news = [], events = [], partners = [], dynamicData, preview = false, editor, selectedBlockKey, selectedItemId, chrome = true }: { page: ManagedPageData; news?: PublicNews[]; events?: PublicEvent[]; partners?: PublicPartner[]; dynamicData?: WebsiteDynamicData; preview?: boolean; editor?: (key: string, itemId?: string) => void; selectedBlockKey?: string | null; selectedItemId?: string | null; chrome?: boolean }) {
     const widthClass = `cms-page-width-${page.design_settings?.content_width || 'standard'}`;
+    const resolvedDynamicData: WebsiteDynamicData = dynamicData || { ...EMPTY_DYNAMIC_DATA, news, events, partners };
 
     return (
         <div className={`public-site cms-managed-page ${widthClass} ${editor ? 'cms-editor-canvas' : ''}`} style={pageVariables(page.design_settings)}>
             {chrome && <PublicHeader />}
             {preview && <div className="cms-preview-banner">Pré-visualização do rascunho · o website público ainda não foi alterado</div>}
-            {page.blocks.map((block) => <RenderBlock key={block.id || block.block_key} block={block} news={news} events={events} partners={partners} editor={editor} selected={selectedBlockKey === block.block_key} selectedItemId={selectedBlockKey === block.block_key ? selectedItemId : null} />)}
+            {page.blocks.map((block) => <RenderBlock key={block.id || block.block_key} block={block} dynamicData={resolvedDynamicData} editor={editor} selected={selectedBlockKey === block.block_key} selectedItemId={selectedBlockKey === block.block_key ? selectedItemId : null} />)}
             {page.blocks.length === 0 && <section className="cms-empty-page shell"><h1>{page.title}</h1><p>Esta página ainda não tem blocos visíveis.</p></section>}
             {chrome && <PublicFooter />}
         </div>
     );
 }
 
-export default function ManagedPage({ page, news = [], events = [], partners = [], preview = false }: { page: ManagedPageData; news?: PublicNews[]; events?: PublicEvent[]; partners?: PublicPartner[]; preview?: boolean }) {
+export default function ManagedPage({ page, news = [], events = [], partners = [], dynamicData, preview = false }: { page: ManagedPageData; news?: PublicNews[]; events?: PublicEvent[]; partners?: PublicPartner[]; dynamicData?: WebsiteDynamicData; preview?: boolean }) {
     return (
         <PublicPage title={page.meta_title || page.title} description={page.meta_description || page.title}>
-            <ManagedPageCanvas page={page} news={news} events={events} partners={partners} preview={preview} chrome={false} />
+            <ManagedPageCanvas page={page} news={news} events={events} partners={partners} dynamicData={dynamicData} preview={preview} chrome={false} />
         </PublicPage>
     );
 }

@@ -10,6 +10,8 @@ use Illuminate\Validation\Validator;
 
 class WebsitePageDataRequest extends FormRequest
 {
+    public const DATA_SOURCES = ['news', 'events', 'convocations', 'partners', 'statistics'];
+
     public const RESERVED_SLUGS = [
         'api', 'admin', 'dashboard', 'login', 'logout', 'register', 'password', 'email', 'profile',
         'portal', 'membros', 'financeiro', 'eventos', 'desportivo', 'comunicacao', 'configuracoes',
@@ -63,7 +65,13 @@ class WebsitePageDataRequest extends FormRequest
             'blocks.*.style.heading_color' => ['nullable', 'regex:/^#[0-9A-Fa-f]{6}$/'],
             'blocks.*.style.accent_color' => ['nullable', 'regex:/^#[0-9A-Fa-f]{6}$/'],
             'blocks.*.style.padding_top' => ['required', 'integer', 'min:0', 'max:180'],
+            'blocks.*.style.padding_right' => ['required', 'integer', 'min:0', 'max:180'],
             'blocks.*.style.padding_bottom' => ['required', 'integer', 'min:0', 'max:180'],
+            'blocks.*.style.padding_left' => ['required', 'integer', 'min:0', 'max:180'],
+            'blocks.*.style.margin_top' => ['required', 'integer', 'min:0', 'max:200'],
+            'blocks.*.style.margin_right' => ['required', 'integer', 'min:0', 'max:200'],
+            'blocks.*.style.margin_bottom' => ['required', 'integer', 'min:0', 'max:200'],
+            'blocks.*.style.margin_left' => ['required', 'integer', 'min:0', 'max:200'],
             'blocks.*.style.content_width' => ['required', Rule::in(['page', 'compact', 'wide', 'full'])],
             'blocks.*.style.text_align' => ['required', Rule::in(['left', 'center', 'right'])],
             'blocks.*.style.heading_size' => ['required', 'integer', 'min:18', 'max:88'],
@@ -136,7 +144,7 @@ class WebsitePageDataRequest extends FormRequest
 
                 if (in_array($block['type'] ?? null, ['news_feed', 'events_feed'], true)) {
                     $source = is_array($block['content'] ?? null) ? ($block['content']['source'] ?? null) : null;
-                    if (! in_array($source, ['news', 'events', 'partners'], true)) {
+                    if (! in_array($source, self::DATA_SOURCES, true)) {
                         $validator->errors()->add("blocks.$blockIndex.content.source", 'Escolhe uma origem de dados válida.');
                     }
                 }
@@ -188,7 +196,7 @@ class WebsitePageDataRequest extends FormRequest
                         continue;
                     }
 
-                    if ($itemType === 'data_collection' && ! in_array($item['content']['source'] ?? null, ['news', 'events', 'partners'], true)) {
+                    if ($itemType === 'data_collection' && ! in_array($item['content']['source'] ?? null, self::DATA_SOURCES, true)) {
                         $validator->errors()->add("$path.content.source", 'Escolhe uma origem de dados válida.');
                     }
                 }
@@ -282,8 +290,29 @@ class WebsitePageDataRequest extends FormRequest
             }
 
             $itemContent = is_array($item['content'] ?? null) ? $item['content'] : [];
-            if ($type === 'data_collection' && ! in_array($itemContent['source'] ?? null, ['news', 'events', 'partners'], true)) {
+            if ($type === 'data_collection' && ! in_array($itemContent['source'] ?? null, self::DATA_SOURCES, true)) {
                 $validator->errors()->add("$itemPath.content.source", 'Escolhe uma origem de dados válida.');
+            }
+
+            $itemStyle = is_array($item['style'] ?? null) ? $item['style'] : [];
+            foreach (['background_color', 'text_color', 'heading_color', 'accent_color', 'border_color', 'data_card_background', 'data_card_text_color', 'data_card_border_color'] as $field) {
+                $value = $itemStyle[$field] ?? null;
+                if ($value !== null && (! is_string($value) || preg_match('/\A#[0-9A-Fa-f]{6}\z/', $value) !== 1)) {
+                    $validator->errors()->add("$itemPath.style.$field", 'A cor tem de usar o formato hexadecimal completo.');
+                }
+            }
+            foreach ([
+                'padding_top' => 120, 'padding_right' => 120, 'padding_bottom' => 120, 'padding_left' => 120,
+                'margin_top' => 160, 'margin_right' => 160, 'margin_bottom' => 160, 'margin_left' => 160,
+                'data_card_padding' => 80, 'data_card_border_width' => 8, 'data_card_radius' => 48,
+            ] as $field => $maximum) {
+                $value = $itemStyle[$field] ?? 0;
+                if (! is_numeric($value) || (int) $value < 0 || (int) $value > $maximum) {
+                    $validator->errors()->add("$itemPath.style.$field", 'O valor de espaçamento ou aparência é inválido.');
+                }
+            }
+            if (isset($itemStyle['data_card_shadow']) && ! in_array($itemStyle['data_card_shadow'], ['none', 'soft', 'medium', 'strong'], true)) {
+                $validator->errors()->add("$itemPath.style.data_card_shadow", 'Escolhe uma sombra válida para os registos.');
             }
 
             $children = $item['children'] ?? [];
