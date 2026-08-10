@@ -42,6 +42,11 @@ class Training extends Model
         'plan_applied_by',
         'published_at',
         'completed_at',
+        'sports_venue_id',
+        'training_recurrence_id',
+        'recurrence_occurrence_key',
+        'schedule_review_required',
+        'schedule_conflicts_snapshot',
     ];
 
     protected $casts = [
@@ -52,6 +57,8 @@ class Training extends Model
         'plan_applied_at' => 'datetime',
         'published_at' => 'datetime',
         'completed_at' => 'datetime',
+        'schedule_review_required' => 'boolean',
+        'schedule_conflicts_snapshot' => 'array',
     ];
 
     public function season(): BelongsTo
@@ -102,6 +109,16 @@ class Training extends Model
         return $this->belongsTo(User::class, 'plan_applied_by');
     }
 
+    public function venue(): BelongsTo
+    {
+        return $this->belongsTo(SportsVenue::class, 'sports_venue_id');
+    }
+
+    public function recurrence(): BelongsTo
+    {
+        return $this->belongsTo(TrainingRecurrence::class, 'training_recurrence_id');
+    }
+
     public function event(): BelongsTo
     {
         return $this->belongsTo(Event::class, 'evento_id');
@@ -110,6 +127,16 @@ class Training extends Model
     public function series(): HasMany
     {
         return $this->hasMany(TrainingSeries::class, 'treino_id')->orderBy('ordem');
+    }
+
+    public function sessionGroups(): HasMany
+    {
+        return $this->hasMany(TrainingSessionGroup::class, 'training_id')->orderBy('sort_order');
+    }
+
+    public function scheduleExceptions(): HasMany
+    {
+        return $this->hasMany(TrainingScheduleException::class, 'training_id')->orderBy('recorded_at');
     }
 
     public function athletes()
