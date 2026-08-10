@@ -25,11 +25,30 @@ class TrainingMetric extends Model
         'observacao',
         'registado_por',
         'atualizado_por',
+        'club_id',
+        'training_series_id',
+        'measurement_type',
+        'total_distance_m',
+        'repetition_mode',
+        'repetition_number',
+        'duration_ms',
+        'splits_json',
+        'source',
+        'client_event_id',
+        'client_recorded_at',
+        'captured_by',
+        'server_version',
     ];
 
     protected $casts = [
         'ordem' => 'integer',
         'recorded_at' => 'datetime',
+        'total_distance_m' => 'integer',
+        'repetition_number' => 'integer',
+        'duration_ms' => 'integer',
+        'splits_json' => 'array',
+        'client_recorded_at' => 'datetime',
+        'server_version' => 'integer',
     ];
 
     public function training(): BelongsTo
@@ -45,5 +64,15 @@ class TrainingMetric extends Model
     public function trainingAthlete(): BelongsTo
     {
         return $this->belongsTo(TrainingAthlete::class, 'training_athlete_id');
+    }
+
+    public function series(): BelongsTo
+    {
+        return $this->belongsTo(TrainingSeries::class, 'training_series_id');
+    }
+
+    public function capturedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'captured_by');
     }
 }

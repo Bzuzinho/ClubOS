@@ -47,6 +47,12 @@ class Training extends Model
         'recurrence_occurrence_key',
         'schedule_review_required',
         'schedule_conflicts_snapshot',
+        'pool_deck_status',
+        'pool_deck_version',
+        'pool_deck_opened_at',
+        'pool_deck_opened_by',
+        'pool_deck_closed_at',
+        'pool_deck_closed_by',
     ];
 
     protected $casts = [
@@ -59,6 +65,9 @@ class Training extends Model
         'completed_at' => 'datetime',
         'schedule_review_required' => 'boolean',
         'schedule_conflicts_snapshot' => 'array',
+        'pool_deck_version' => 'integer',
+        'pool_deck_opened_at' => 'datetime',
+        'pool_deck_closed_at' => 'datetime',
     ];
 
     public function season(): BelongsTo
@@ -139,6 +148,16 @@ class Training extends Model
         return $this->hasMany(TrainingScheduleException::class, 'training_id')->orderBy('recorded_at');
     }
 
+    public function poolDeckTimers(): HasMany
+    {
+        return $this->hasMany(TrainingPoolDeckTimer::class, 'training_id')->orderByDesc('updated_at');
+    }
+
+    public function poolDeckSyncConflicts(): HasMany
+    {
+        return $this->hasMany(TrainingPoolDeckSyncConflict::class, 'training_id')->orderByDesc('created_at');
+    }
+
     public function athletes()
     {
         return $this->belongsToMany(
@@ -166,9 +185,6 @@ class Training extends Model
             ->withTimestamps();
     }
 
-    /**
-     * Sync age groups while supporting legacy pivot schemas where `id` is required.
-     */
     public function syncAgeGroupsWithPivot(array $ageGroupIds): void
     {
         if (!Schema::hasTable('training_age_group')) {
@@ -200,5 +216,10 @@ class Training extends Model
     public function isCompleted(): bool
     {
         return $this->session_status === 'completed' || $this->completed_at !== null;
+    }
+
+    public function isPoolDeckOpen(): bool
+    {
+        return $this->pool_deck_status === 'open';
     }
 }

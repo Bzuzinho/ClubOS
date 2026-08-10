@@ -4,6 +4,7 @@ namespace App\Providers;
 
 use App\Http\Middleware\PersistInAppNotificationPreference;
 use App\Services\AccessControl\UserTypeAccessControlService;
+use Illuminate\Support\Facades\Route;
 use Illuminate\Support\ServiceProvider;
 use App\Models\Event;
 use App\Models\EventConvocation;
@@ -22,20 +23,20 @@ use App\Observers\SupplierPurchaseObserver;
 
 class AppServiceProvider extends ServiceProvider
 {
-    /**
-     * Register any application services.
-     */
     public function register(): void
     {
         $this->app->singleton(UserTypeAccessControlService::class);
     }
 
-    /**
-     * Bootstrap any application services.
-     */
     public function boot(): void
     {
         $this->app['router']->pushMiddlewareToGroup('web', PersistInAppNotificationPreference::class);
+
+        if (! $this->app->routesAreCached()) {
+            Route::middleware(['web', 'auth', 'verified', 'module.access:desportivo'])
+                ->prefix('desportivo/cais/runtime')
+                ->group(base_path('routes/pool_deck.php'));
+        }
 
         Event::observe(EventObserver::class);
         EventConvocation::observe(EventConvocationObserver::class);

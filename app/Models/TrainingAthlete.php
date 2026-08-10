@@ -25,6 +25,10 @@ class TrainingAthlete extends Model
         'registado_em',
         'atualizado_por_utilizador_em',
         'atualizado_por',
+        'cais_version',
+        'cais_status_source',
+        'cais_last_modified_at',
+        'cais_last_modified_by',
     ];
 
     protected $casts = [
@@ -33,6 +37,8 @@ class TrainingAthlete extends Model
         'rpe' => 'integer',
         'registado_em' => 'datetime',
         'atualizado_por_utilizador_em' => 'datetime',
+        'cais_version' => 'integer',
+        'cais_last_modified_at' => 'datetime',
     ];
 
     public function training(): BelongsTo
@@ -55,8 +61,18 @@ class TrainingAthlete extends Model
         return $this->hasMany(TrainingMetric::class, 'training_athlete_id');
     }
 
+    public function poolDeckTimers(): HasMany
+    {
+        return $this->hasMany(TrainingPoolDeckTimer::class, 'training_athlete_id');
+    }
+
     public function registeredBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'registado_por');
+    }
+
+    public function caisLastModifiedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'cais_last_modified_by');
     }
 }
