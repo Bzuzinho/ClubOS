@@ -111,11 +111,13 @@ class MemberDataDualWriteOperationalValidationTest extends TestCase
             'observacoes' => 'Movimento baseline',
         ]);
 
-        $sports = AthleteSportsData::query()->create([
-            'user_id' => $member->id,
-            'num_federacao' => 'FED-OP-001',
-            'ativo' => true,
-        ]);
+        $sports = AthleteSportsData::query()->updateOrCreate(
+            ['user_id' => $member->id],
+            [
+                'num_federacao' => 'FED-OP-001',
+                'ativo' => true,
+            ]
+        );
 
         DB::table('user_guardian')->insert([
             'id' => (string) Str::uuid(),
