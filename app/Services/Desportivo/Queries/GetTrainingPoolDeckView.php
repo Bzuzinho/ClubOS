@@ -91,7 +91,7 @@ class GetTrainingPoolDeckView
                     'lanes' => $sessionGroup->lanes->map(fn ($lane) => [
                         'id' => $lane->id,
                         'name' => $lane->name,
-                        'number' => $lane->number,
+                        'number' => $lane->lane_number,
                         'capacity' => $lane->capacity,
                         'planned_capacity' => $lane->pivot?->planned_capacity,
                     ])->values(),
