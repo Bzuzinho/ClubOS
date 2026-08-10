@@ -354,8 +354,14 @@ class WebsitePageService
             'text_color' => $style['text_color'] ?? null,
             'heading_color' => $style['heading_color'] ?? null,
             'accent_color' => $style['accent_color'] ?? null,
-            'padding_top' => (int) ($style['padding_top'] ?? $paddingTop),
-            'padding_bottom' => (int) ($style['padding_bottom'] ?? $paddingBottom),
+            'padding_top' => max(0, min(180, (int) ($style['padding_top'] ?? $paddingTop))),
+            'padding_right' => max(0, min(180, (int) ($style['padding_right'] ?? 0))),
+            'padding_bottom' => max(0, min(180, (int) ($style['padding_bottom'] ?? $paddingBottom))),
+            'padding_left' => max(0, min(180, (int) ($style['padding_left'] ?? 0))),
+            'margin_top' => max(0, min(200, (int) ($style['margin_top'] ?? 0))),
+            'margin_right' => max(0, min(200, (int) ($style['margin_right'] ?? 0))),
+            'margin_bottom' => max(0, min(200, (int) ($style['margin_bottom'] ?? 0))),
+            'margin_left' => max(0, min(200, (int) ($style['margin_left'] ?? 0))),
             'content_width' => $style['content_width'] ?? 'page',
             'text_align' => $style['text_align'] ?? 'left',
             'heading_size' => (int) ($style['heading_size'] ?? 32),
@@ -453,9 +459,31 @@ class WebsitePageService
         $shadows = ['none', 'soft', 'medium', 'strong'];
         $ratios = ['auto', '1:1', '4:3', '16:9', '21:9'];
         $weights = [300, 400, 500, 600, 700, 800];
+        $color = static fn (mixed $value): ?string => is_string($value) && preg_match('/\A#[0-9A-Fa-f]{6}\z/', $value) === 1
+            ? strtolower($value)
+            : null;
         $headingWeight = (int) ($style['heading_weight'] ?? 600);
         $bodyWeight = (int) ($style['body_weight'] ?? 400);
         $isCard = $type === 'card';
+        $legacyPadding = max(0, min(120, (int) ($style['padding'] ?? ($isCard ? 24 : 0))));
+        $content = $normalize(is_array($item['content'] ?? null) ? $item['content'] : []);
+        if ($type === 'data_collection') {
+            $sources = ['news', 'events', 'convocations', 'partners', 'statistics'];
+            $source = in_array($content['source'] ?? null, $sources, true) ? $content['source'] : 'news';
+            $layouts = $source === 'statistics' ? ['metrics'] : ['grid', 'list'];
+            $content = [
+                ...$content,
+                'source' => $source,
+                'limit' => max(1, min(60, (int) ($content['limit'] ?? 3))),
+                'layout' => in_array($content['layout'] ?? null, $layouts, true) ? $content['layout'] : ($source === 'statistics' ? 'metrics' : 'grid'),
+                'columns' => max(1, min(6, (int) ($content['columns'] ?? ($source === 'statistics' ? 4 : 3)))),
+                'show_image' => (bool) ($content['show_image'] ?? true),
+                'show_meta' => (bool) ($content['show_meta'] ?? true),
+                'show_description' => (bool) ($content['show_description'] ?? true),
+                'show_link' => (bool) ($content['show_link'] ?? true),
+                'link_label' => Str::limit(trim((string) ($content['link_label'] ?? 'Saber mais')), 80, ''),
+            ];
+        }
         $children = $depth >= 4 || ! is_array($item['children'] ?? null)
             ? []
             : collect($item['children'])
@@ -471,17 +499,25 @@ class WebsitePageService
                 : 'element-'.Str::uuid(),
             'type' => $type,
             'is_visible' => (bool) ($item['is_visible'] ?? true),
-            'content' => $normalize(is_array($item['content'] ?? null) ? $item['content'] : []),
+            'content' => $content,
             'style' => [
-                'background_color' => $style['background_color'] ?? null,
-                'text_color' => $style['text_color'] ?? null,
-                'heading_color' => $style['heading_color'] ?? null,
-                'accent_color' => $style['accent_color'] ?? null,
-                'border_color' => $style['border_color'] ?? null,
+                'background_color' => $color($style['background_color'] ?? null),
+                'text_color' => $color($style['text_color'] ?? null),
+                'heading_color' => $color($style['heading_color'] ?? null),
+                'accent_color' => $color($style['accent_color'] ?? null),
+                'border_color' => $color($style['border_color'] ?? null),
                 'border_width' => max(0, min(8, (int) ($style['border_width'] ?? ($isCard ? 2 : 0)))),
                 'border_radius' => max(0, min(48, (int) ($style['border_radius'] ?? ($isCard ? 16 : 0)))),
                 'shadow' => in_array($style['shadow'] ?? null, $shadows, true) ? $style['shadow'] : ($isCard ? 'soft' : 'none'),
-                'padding' => max(0, min(80, (int) ($style['padding'] ?? ($isCard ? 24 : 0)))),
+                'padding' => $legacyPadding,
+                'padding_top' => max(0, min(120, (int) ($style['padding_top'] ?? $legacyPadding))),
+                'padding_right' => max(0, min(120, (int) ($style['padding_right'] ?? $legacyPadding))),
+                'padding_bottom' => max(0, min(120, (int) ($style['padding_bottom'] ?? $legacyPadding))),
+                'padding_left' => max(0, min(120, (int) ($style['padding_left'] ?? $legacyPadding))),
+                'margin_top' => max(0, min(160, (int) ($style['margin_top'] ?? 0))),
+                'margin_right' => max(0, min(160, (int) ($style['margin_right'] ?? 0))),
+                'margin_bottom' => max(0, min(160, (int) ($style['margin_bottom'] ?? 0))),
+                'margin_left' => max(0, min(160, (int) ($style['margin_left'] ?? 0))),
                 'min_height' => max(0, min(600, (int) ($style['min_height'] ?? ($isCard ? 170 : 0)))),
                 'text_align' => in_array($style['text_align'] ?? null, ['left', 'center', 'right'], true) ? $style['text_align'] : 'left',
                 'heading_size' => max(14, min(72, (int) ($style['heading_size'] ?? 22))),
@@ -491,12 +527,19 @@ class WebsitePageService
                 'heading_weight' => in_array($headingWeight, $weights, true) ? $headingWeight : 600,
                 'body_weight' => in_array($bodyWeight, $weights, true) ? $bodyWeight : 400,
                 'line_height' => max(1, min(2.4, (float) ($style['line_height'] ?? 1.6))),
-                'column_span' => max(1, min(6, (int) ($style['column_span'] ?? 1))),
-                'tablet_span' => max(1, min(4, (int) ($style['tablet_span'] ?? 1))),
-                'mobile_span' => max(1, min(2, (int) ($style['mobile_span'] ?? 1))),
+                'column_span' => max(1, min(6, (int) ($style['column_span'] ?? ($type === 'data_collection' ? 6 : 1)))),
+                'tablet_span' => max(1, min(4, (int) ($style['tablet_span'] ?? ($type === 'data_collection' ? 4 : 1)))),
+                'mobile_span' => max(1, min(2, (int) ($style['mobile_span'] ?? ($type === 'data_collection' ? 2 : 1)))),
                 'row_span' => max(1, min(4, (int) ($style['row_span'] ?? 1))),
                 'image_ratio' => in_array($style['image_ratio'] ?? null, $ratios, true) ? $style['image_ratio'] : 'auto',
                 'image_fit' => in_array($style['image_fit'] ?? null, ['cover', 'contain'], true) ? $style['image_fit'] : 'cover',
+                'data_card_background' => $color($style['data_card_background'] ?? null),
+                'data_card_text_color' => $color($style['data_card_text_color'] ?? null),
+                'data_card_border_color' => $color($style['data_card_border_color'] ?? null),
+                'data_card_border_width' => max(0, min(8, (int) ($style['data_card_border_width'] ?? 2))),
+                'data_card_radius' => max(0, min(48, (int) ($style['data_card_radius'] ?? 15))),
+                'data_card_shadow' => in_array($style['data_card_shadow'] ?? null, $shadows, true) ? $style['data_card_shadow'] : 'soft',
+                'data_card_padding' => max(0, min(80, (int) ($style['data_card_padding'] ?? 20))),
             ],
             'settings' => [
                 'animation' => in_array($settings['animation'] ?? null, ['none', 'fade', 'slide-up', 'zoom'], true) ? $settings['animation'] : 'none',
