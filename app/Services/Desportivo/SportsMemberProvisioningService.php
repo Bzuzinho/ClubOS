@@ -282,11 +282,16 @@ final class SportsMemberProvisioningService
 
     private function syncLegacyCompatibilityFields(User $user, bool $sportsActivityActive, ?string $ageGroupId): void
     {
-        $ageGroups = $ageGroupId ? [(string) $ageGroupId] : [];
+        // Quando não existe ainda um AgeGroup canónico resolvido, o valor legacy
+        // é apenas histórico/compatibilidade. Não o apagamos numa escrita de
+        // Membros não relacionada com o escalão; a fonte oficial continua a ser
+        // athlete_sports_data.escalao_id (null até existir resolução válida).
+        $currentAgeGroups = collect($user->escalao ?? [])->map('strval')->values()->all();
+        $ageGroups = $ageGroupId ? [(string) $ageGroupId] : $currentAgeGroups;
 
         if (
             (bool) $user->ativo_desportivo === $sportsActivityActive
-            && collect($user->escalao ?? [])->map('strval')->values()->all() === $ageGroups
+            && $currentAgeGroups === $ageGroups
         ) {
             return;
         }
