@@ -9,8 +9,9 @@ final class SportsArchitectureBoundaryGuard
 {
     /**
      * Existing violations are explicit temporary debt. The guard prevents the
-     * same boundary violation from spreading to additional files before the
-     * owning foundation phase removes the allowlisted debt.
+     * same boundary violation from spreading before the owning foundation phase
+     * removes it. F3 closes the direct Desportivo -> Members service coupling:
+     * Sports may consume member identity only through the neutral contract.
      *
      * @return array<string,array{scope:string,needles:list<string>,allowed_files:list<string>}>
      */
@@ -44,11 +45,11 @@ final class SportsArchitectureBoundaryGuard
                 'scope' => 'app/Services/Desportivo',
                 'needles' => [
                     'use App\\Services\\Members\\MemberDataReadService;',
+                    'use App\\Services\\Members\\MemberTypeResolver;',
                 ],
-                'allowed_files' => [
-                    // F3 debt: remove circular Membros <-> Desportivo provisioning dependency.
-                    'app/Services/Desportivo/SportsMemberProvisioningService.php',
-                ],
+                // F3 closed this debt. Sports receives identity facts through
+                // App\Contracts\Members\MemberSportsIdentityProvider only.
+                'allowed_files' => [],
             ],
         ];
     }
@@ -67,7 +68,7 @@ final class SportsArchitectureBoundaryGuard
                 }
 
                 foreach ($rule['needles'] as $needle) {
-                    if (!str_contains($source, $needle)) {
+                    if (! str_contains($source, $needle)) {
                         continue;
                     }
 
@@ -83,13 +84,11 @@ final class SportsArchitectureBoundaryGuard
         return $violations;
     }
 
-    /**
-     * @return array<string,string>
-     */
+    /** @return array<string,string> */
     private function phpFiles(string $scope): array
     {
         $absoluteScope = base_path($scope);
-        if (!is_dir($absoluteScope)) {
+        if (! is_dir($absoluteScope)) {
             return [];
         }
 
@@ -97,7 +96,7 @@ final class SportsArchitectureBoundaryGuard
         $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($absoluteScope));
 
         foreach ($iterator as $file) {
-            if (!$file->isFile() || strtolower($file->getExtension()) !== 'php') {
+            if (! $file->isFile() || strtolower($file->getExtension()) !== 'php') {
                 continue;
             }
 

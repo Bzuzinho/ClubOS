@@ -453,7 +453,17 @@ final class SportsMemberProfileService
         $legacy->escalao_calculado_id = $seasonProfile?->calculated_age_group_id;
         $legacy->escalao_manual_override = $seasonProfile?->placement_source === 'override';
 
-        foreach (['numero_pmb', 'data_inscricao'] as $field) {
+        // Preserve old inputs as compatibility data only. They are no longer
+        // interpreted as canonical modality/federation/clinical Sports records.
+        foreach ([
+            'num_federacao',
+            'cartao_federacao',
+            'numero_pmb',
+            'data_inscricao',
+            'data_atestado_medico',
+            'arquivo_atestado_medico',
+            'informacoes_medicas',
+        ] as $field) {
             if (array_key_exists($field, $payload)) {
                 $legacy->{$field} = $payload[$field];
             }
@@ -473,13 +483,28 @@ final class SportsMemberProfileService
 
     private function legacyProfileOnly(User $user, array $payload): ?AthleteSportsData
     {
-        $profile = AthleteSportsData::query()->where('user_id', $user->id)->first();
-        if (! $profile) {
-            return null;
+        $profile = AthleteSportsData::query()->firstOrNew(['user_id' => $user->id]);
+
+        foreach ([
+            'num_federacao',
+            'cartao_federacao',
+            'numero_pmb',
+            'data_inscricao',
+            'data_atestado_medico',
+            'arquivo_atestado_medico',
+            'informacoes_medicas',
+        ] as $field) {
+            if (array_key_exists($field, $payload)) {
+                $profile->{$field} = $payload[$field];
+            }
         }
 
         if (array_key_exists('ativo_desportivo', $payload)) {
-            $profile->forceFill(['ativo' => (bool) $payload['ativo_desportivo']])->save();
+            $profile->ativo = (bool) $payload['ativo_desportivo'];
+        }
+
+        if (! $profile->exists || $profile->isDirty()) {
+            $profile->save();
         }
 
         return $profile->fresh();
