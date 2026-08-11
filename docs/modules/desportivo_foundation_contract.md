@@ -35,11 +35,14 @@ Federation affiliation must support both shared and modality/federation-specific
 
 - Multiple active seasons may coexist across modalities.
 - A modality may support multiple programmes within the same broad season without forcing this complexity on clubs that do not need it.
+- Programmes are stable, permanent configurable identities inside a club + modality; they are not recreated every season.
+- New programmes may be created and existing programmes may be deactivated/archived; historically referenced programmes are never hard-deleted.
+- A season activates/configures the relevant permanent programmes through a temporal relation instead of cloning programme identity.
+- Groups may be associated with a programme in the applicable season configuration; athlete programme context is primarily derived from dated group membership so duplicated programme memberships are avoided where derivation is safe.
+- `Master` is an official competition age group, not a separate programme. A Master athlete may compete regularly, occasionally or have no competition objective; competitive intention is athlete/context-specific and is not inferred from the age group or by creating a `Masters` programme.
 - Seasons require start and end dates.
 - Closed seasons may only be reopened by Technical Director/Admin with mandatory reason and audit trail.
 - Season scope must be relational; do not store operational age groups, target competitions or pools as opaque JSON lists when canonical relations exist.
-
-The exact persistence semantics of `programme` (stable programme identity vs season-specific programme) are finalized in F2 before schema implementation.
 
 ## 4. Age groups
 
@@ -213,11 +216,21 @@ The existing CommunicationAutomation/Campaign pattern is the preferred integrati
 
 ## 14. Inventory and technical equipment
 
-Technical training material (board, pull buoy, paddles, fins, snorkel, etc.) is Sports/Library metadata and does not depend on club stock.
+Three canonical concepts are separate:
 
-A technical material may optionally map to an Inventory/Logistics item when a real logistical operation is needed. Missing club stock must not block creation of a workout; a future warning may be shown.
+1. Technical training material catalogue (Desportivo/Biblioteca), e.g. prancha, pull buoy, palas, barbatanas, snorkel.
+2. Athlete-owned equipment profile (Desportivo), recording whether an athlete has/uses a personal technical material and optional operational attributes such as size/model/notes where useful.
+3. Club-owned equipment (Inventário/Logística), covering physical assets/stock owned or managed by the club, including equipment loaned or assigned to athletes.
 
-Athlete-owned equipment is a real requirement, but its final persistence/ownership model is deferred to the Library/Logistics design so F0/F2 do not prematurely create a second personal-inventory system.
+Rules:
+- technical material required by a workout never depends on club stock;
+- an athlete may use personal material even when club inventory is zero;
+- a future workout/Cais flow may warn about missing athlete material or insufficient club stock, but it is not a structural block by default;
+- when club-owned material is issued/loaned to an athlete, stock/ownership lifecycle remains in Inventário/Logística;
+- technical material may optionally map to an Inventory/Logistics product or asset, but neither becomes the other's canonical source;
+- historical sports records preserve the material meaning even after the catalogue item is archived.
+
+The concrete athlete-equipment UI and persistence are deferred to the Biblioteca/Logística functional design, but this ownership boundary is fixed in F0.
 
 ## 15. Unified performance concept
 
