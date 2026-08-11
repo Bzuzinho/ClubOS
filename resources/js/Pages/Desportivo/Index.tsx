@@ -35,6 +35,7 @@ import {
   MapTrifold,
   Trophy,
   Lightning,
+  GearSix,
 } from '@phosphor-icons/react';
 
 import type {
@@ -52,8 +53,6 @@ import type {
   Training,
   User,
 } from '@/types/sports';
-
-// ─── Tipos da página (mapeados a partir do renderSportsPage do controller) ────
 
 interface TrainingOption {
   id: string;
@@ -147,8 +146,6 @@ const PlanningTab = lazy(() => import('@/components/sports/tabs/PlanningTab').th
 const CompetitionsTab = lazy(() => import('@/components/sports/tabs/CompetitionsTab').then((module) => ({ default: module.CompetitionsTab })));
 const PerformanceTab = lazy(() => import('@/components/sports/tabs/PerformanceTab').then((module) => ({ default: module.PerformanceTab })));
 
-// ─── Tabs disponíveis ──────────────────────────────────────────────────────────
-
 const TABS = [
   { value: 'dashboard',    label: 'Dashboard',    Icon: ChartBar },
   { value: 'atletas',      label: 'Atletas',      Icon: UsersThree },
@@ -186,8 +183,6 @@ function TabLoadingState() {
     </div>
   );
 }
-
-// ─── Componente ───────────────────────────────────────────────────────────────
 
 export default function DesportivoIndex({
   tab = 'dashboard',
@@ -273,15 +268,9 @@ export default function DesportivoIndex({
   const handleTabChange = (value: string) => {
     const t = value as TabValue;
 
-    if (t === activeTab) {
-      return;
-    }
+    if (t === activeTab) return;
 
-    if (t === 'cais') {
-      setIsNavigatingToCais(true);
-    } else {
-      setIsNavigatingToCais(false);
-    }
+    setIsNavigatingToCais(t === 'cais');
 
     router.get(TAB_ROUTES[t](), {}, {
       preserveScroll: true,
@@ -293,11 +282,22 @@ export default function DesportivoIndex({
     <AuthenticatedLayout
       fullWidth
       header={
-        <div>
-          <h1 className="text-lg sm:text-xl font-semibold tracking-tight">Desportivo</h1>
-          <p className="text-muted-foreground text-xs mt-0.5">
-            Sistema técnico de gestão desportiva: treinos, cais, competições e performance
-          </p>
+        <div className="flex w-full items-center justify-between gap-4">
+          <div>
+            <h1 className="text-lg sm:text-xl font-semibold tracking-tight">Desportivo</h1>
+            <p className="text-muted-foreground text-xs mt-0.5">
+              Sistema técnico de gestão desportiva: treinos, cais, competições e performance
+            </p>
+          </div>
+          <button
+            type="button"
+            className="inline-flex h-9 w-9 items-center justify-center rounded-md border bg-background text-muted-foreground transition hover:bg-muted hover:text-foreground"
+            onClick={() => router.get(route('desportivo.configuracao.index'))}
+            aria-label="Configuração Desportiva"
+            title="Configuração Desportiva"
+          >
+            <GearSix size={18} />
+          </button>
         </div>
       }
     >
@@ -310,121 +310,118 @@ export default function DesportivoIndex({
           </div>
         ) : (
           <>
-        {/* ── Tabs ───────────────────────────────────────────────────── */}
-        <Tabs value={activeTab} onValueChange={handleTabChange} className={moduleTabsClass}>
+            <Tabs value={activeTab} onValueChange={handleTabChange} className={moduleTabsClass}>
+              <TabsList className="grid w-full shrink-0 grid-cols-4 sm:grid-cols-7 h-auto">
+                {TABS.map(({ value, label, Icon }) => (
+                  <TabsTrigger
+                    key={value}
+                    value={value}
+                    className="flex items-center gap-1.5 py-1.5 text-xs"
+                  >
+                    <Icon size={12} />
+                    <span>{label}</span>
+                  </TabsTrigger>
+                ))}
+              </TabsList>
 
-          <TabsList className="grid w-full shrink-0 grid-cols-4 sm:grid-cols-7 h-auto">
-            {TABS.map(({ value, label, Icon }) => (
-              <TabsTrigger
-                key={value}
-                value={value}
-                className="flex items-center gap-1.5 py-1.5 text-xs"
-              >
-                <Icon size={12} />
-                <span>{label}</span>
-              </TabsTrigger>
-            ))}
-          </TabsList>
+              <TabsContent value="dashboard" className={moduleTabbedContentClass}>
+                <Suspense fallback={<TabLoadingState />}>
+                  <DashboardTab
+                    stats={stats}
+                    alerts={alerts}
+                    trainings={resolvedTrainings}
+                    upcomingCompetitions={upcomingCompetitions}
+                    competitions={resolvedCompetitions}
+                    eventos={eventos}
+                    ageGroups={ageGroups}
+                    users={resolvedUsers}
+                    volumeByAthlete={resolvedVolumeByAthlete}
+                  />
+                </Suspense>
+              </TabsContent>
 
-          <TabsContent value="dashboard" className={moduleTabbedContentClass}>
-            <Suspense fallback={<TabLoadingState />}>
-              <DashboardTab
-                stats={stats}
-                alerts={alerts}
-                trainings={resolvedTrainings}
-                upcomingCompetitions={upcomingCompetitions}
-                competitions={resolvedCompetitions}
-                eventos={eventos}
-                ageGroups={ageGroups}
-                users={resolvedUsers}
-                volumeByAthlete={resolvedVolumeByAthlete}
-              />
-            </Suspense>
-          </TabsContent>
+              <TabsContent value="atletas" className={moduleTabbedContentClass}>
+                <Suspense fallback={<TabLoadingState />}>
+                  <AthletesTab
+                    users={resolvedUsers}
+                    volumeByAthlete={resolvedVolumeByAthlete}
+                    athleteOperationalRows={athleteOperationalRows}
+                    ageGroups={ageGroups}
+                  />
+                </Suspense>
+              </TabsContent>
 
-          <TabsContent value="atletas" className={moduleTabbedContentClass}>
-            <Suspense fallback={<TabLoadingState />}>
-              <AthletesTab
-                users={resolvedUsers}
-                volumeByAthlete={resolvedVolumeByAthlete}
-                athleteOperationalRows={athleteOperationalRows}
-                ageGroups={ageGroups}
-              />
-            </Suspense>
-          </TabsContent>
+              <TabsContent value="treinos" className={moduleTabbedContentClass}>
+                <Suspense fallback={<TabLoadingState />}>
+                  <TrainingsTab
+                    trainings={resolvedTrainings}
+                    seasons={seasons}
+                    ageGroups={ageGroups}
+                    users={resolvedUsers}
+                    trainingTypeOptions={resolvedTrainingTypeOptions}
+                    trainingZoneOptions={trainingZoneOptions}
+                    selectedSeasonId={selectedSeason?.id}
+                    macrocycles={macrocycleOptions.length > 0 ? macrocycleOptions : macrocycles}
+                    mesocycles={mesocycleOptions.length > 0 ? mesocycleOptions : mesocycles}
+                    microcycles={microcycleOptions.length > 0 ? microcycleOptions : microcycles}
+                    planningSeason={selectedSeason}
+                    planningMacrocycles={macrocycles}
+                    planningMesocycles={mesocycles}
+                    calendarTrainings={calendarTrainings}
+                  />
+                </Suspense>
+              </TabsContent>
 
-          <TabsContent value="treinos" className={moduleTabbedContentClass}>
-            <Suspense fallback={<TabLoadingState />}>
-              <TrainingsTab
-                trainings={resolvedTrainings}
-                seasons={seasons}
-                ageGroups={ageGroups}
-                users={resolvedUsers}
-                trainingTypeOptions={resolvedTrainingTypeOptions}
-                trainingZoneOptions={trainingZoneOptions}
-                selectedSeasonId={selectedSeason?.id}
-                macrocycles={macrocycleOptions.length > 0 ? macrocycleOptions : macrocycles}
-                mesocycles={mesocycleOptions.length > 0 ? mesocycleOptions : mesocycles}
-                microcycles={microcycleOptions.length > 0 ? microcycleOptions : microcycles}
-                planningSeason={selectedSeason}
-                planningMacrocycles={macrocycles}
-                planningMesocycles={mesocycles}
-                calendarTrainings={calendarTrainings}
-              />
-            </Suspense>
-          </TabsContent>
+              <TabsContent value="cais" className={moduleTabbedContentClass}>
+                <Suspense fallback={<TabLoadingState />}>
+                  <PoolDeckTab
+                    trainings={resolvedTrainings}
+                    trainingOptions={resolvedTrainingOptions}
+                    selectedTraining={selectedTraining}
+                    users={resolvedUsers}
+                    ageGroups={ageGroups}
+                  />
+                </Suspense>
+              </TabsContent>
 
-          <TabsContent value="cais" className={moduleTabbedContentClass}>
-            <Suspense fallback={<TabLoadingState />}>
-              <PoolDeckTab
-                trainings={resolvedTrainings}
-                trainingOptions={resolvedTrainingOptions}
-                selectedTraining={selectedTraining}
-                users={resolvedUsers}
-                ageGroups={ageGroups}
-              />
-            </Suspense>
-          </TabsContent>
+              <TabsContent value="planeamento" className={moduleTabbedContentClass}>
+                <Suspense fallback={<TabLoadingState />}>
+                  <PlanningTab
+                    seasons={seasons}
+                    macrocycles={macrocycles}
+                    mesocycles={mesocycles}
+                    selectedSeasonId={selectedSeason?.id ?? null}
+                  />
+                </Suspense>
+              </TabsContent>
 
-          <TabsContent value="planeamento" className={moduleTabbedContentClass}>
-            <Suspense fallback={<TabLoadingState />}>
-              <PlanningTab
-                seasons={seasons}
-                macrocycles={macrocycles}
-                mesocycles={mesocycles}
-                selectedSeasonId={selectedSeason?.id ?? null}
-              />
-            </Suspense>
-          </TabsContent>
+              <TabsContent value="competicoes" className={moduleTabbedContentClass}>
+                <Suspense fallback={<TabLoadingState />}>
+                  <CompetitionsTab
+                    competitions={resolvedCompetitions}
+                    results={resolvedResults}
+                    teamResults={teamResults}
+                    users={resolvedUsers}
+                    eventos={eventos}
+                    ageGroups={ageGroups}
+                    costCenters={costCenters}
+                    eventTypes={eventTypes}
+                    convocations={convocations}
+                    convocationGroups={convocationGroups}
+                    provaTipos={provaTipos}
+                  />
+                </Suspense>
+              </TabsContent>
 
-          <TabsContent value="competicoes" className={moduleTabbedContentClass}>
-            <Suspense fallback={<TabLoadingState />}>
-              <CompetitionsTab
-                competitions={resolvedCompetitions}
-                results={resolvedResults}
-                teamResults={teamResults}
-                users={resolvedUsers}
-                eventos={eventos}
-                ageGroups={ageGroups}
-                costCenters={costCenters}
-                eventTypes={eventTypes}
-                convocations={convocations}
-                convocationGroups={convocationGroups}
-                provaTipos={provaTipos}
-              />
-            </Suspense>
-          </TabsContent>
-
-          <TabsContent value="performance" className={moduleTabbedContentClass}>
-            <Suspense fallback={<TabLoadingState />}>
-              <PerformanceTab
-                users={resolvedUsers}
-                volumeByAthlete={resolvedVolumeByAthlete}
-              />
-            </Suspense>
-          </TabsContent>
-
-        </Tabs>
+              <TabsContent value="performance" className={moduleTabbedContentClass}>
+                <Suspense fallback={<TabLoadingState />}>
+                  <PerformanceTab
+                    users={resolvedUsers}
+                    volumeByAthlete={resolvedVolumeByAthlete}
+                  />
+                </Suspense>
+              </TabsContent>
+            </Tabs>
           </>
         )}
       </div>

@@ -4,14 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\HasMany;
 
-/**
- * Estados de Atleta (Configuração Desportiva)
- * 
- * Catálogo técnico para estados de presença/participação de atletas em treinos
- * Ex: presente, ausente, justificado, lesionado, limitado, doente
- */
 class AthleteStatusConfig extends Model
 {
     use HasUuids;
@@ -19,6 +12,7 @@ class AthleteStatusConfig extends Model
     protected $table = 'athlete_status_configs';
 
     protected $fillable = [
+        'club_id',
         'codigo',
         'nome',
         'nome_en',
@@ -26,50 +20,47 @@ class AthleteStatusConfig extends Model
         'cor',
         'ativo',
         'ordem',
+        'counts_as_present',
+        'requires_reason',
+        'allows_training',
+        'allows_competition',
+        'archived_at',
+        'created_by',
+        'updated_by',
     ];
 
     protected $casts = [
         'ativo' => 'boolean',
         'ordem' => 'integer',
+        'counts_as_present' => 'boolean',
+        'requires_reason' => 'boolean',
+        'allows_training' => 'boolean',
+        'allows_competition' => 'boolean',
+        'archived_at' => 'datetime',
     ];
 
-    /**
-     * Scope para obter apenas estados ativos
-     */
+    public function scopeForClub($query, string $clubId)
+    {
+        return $query->where('club_id', $clubId);
+    }
+
     public function scopeAtivo($query)
     {
-        return $query->where('ativo', true);
+        return $query->where('ativo', true)->whereNull('archived_at');
     }
 
-    /**
-     * Scope para ordenar por ordem definida
-     */
     public function scopeOrdenado($query)
     {
-        return $query->orderBy('ordem');
+        return $query->orderBy('ordem')->orderBy('nome');
     }
 
-    /**
-     * Training athletes usando este estado
-     */
-    public function trainingAthletes(): HasMany
-    {
-        return $this->hasMany(TrainingAthlete::class, 'estado', 'codigo');
-    }
-
-    /**
-     * Verifica se estado indica presença
-     */
     public function isPresente(): bool
     {
-        return in_array($this->codigo, ['presente', 'limitado']);
+        return (bool) $this->counts_as_present;
     }
 
-    /**
-     * Verifica se requer justificação
-     */
     public function requerJustificacao(): bool
     {
-        return in_array($this->codigo, ['justificado', 'lesionado', 'doente']);
+        return (bool) $this->requires_reason;
     }
 }

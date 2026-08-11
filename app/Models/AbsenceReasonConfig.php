@@ -5,12 +5,6 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 
-/**
- * Motivos de Ausência (Configuração Desportiva)
- * 
- * Catálogo técnico para motivos de ausência de atletas
- * Ex: doenca, lesao, trabalho, estudos, familia, transporte, outros
- */
 class AbsenceReasonConfig extends Model
 {
     use HasUuids;
@@ -18,44 +12,50 @@ class AbsenceReasonConfig extends Model
     protected $table = 'absence_reason_configs';
 
     protected $fillable = [
+        'club_id',
         'codigo',
         'nome',
         'nome_en',
         'descricao',
         'requer_justificacao',
+        'health_related',
         'ativo',
         'ordem',
+        'archived_at',
+        'created_by',
+        'updated_by',
     ];
 
     protected $casts = [
         'requer_justificacao' => 'boolean',
+        'health_related' => 'boolean',
         'ativo' => 'boolean',
         'ordem' => 'integer',
+        'archived_at' => 'datetime',
     ];
+
+    public function scopeForClub($query, string $clubId)
+    {
+        return $query->where('club_id', $clubId);
+    }
 
     public function scopeAtivo($query)
     {
-        return $query->where('ativo', true);
+        return $query->where('ativo', true)->whereNull('archived_at');
     }
 
     public function scopeOrdenado($query)
     {
-        return $query->orderBy('ordem');
+        return $query->orderBy('ordem')->orderBy('nome');
     }
 
-    /**
-     * Scope para motivos que requerem justificação
-     */
     public function scopeRequerJustificacao($query)
     {
         return $query->where('requer_justificacao', true);
     }
 
-    /**
-     * Verifica se é motivo relacionado a saúde
-     */
     public function isHealthRelated(): bool
     {
-        return in_array($this->codigo, ['doenca', 'lesao']);
+        return (bool) $this->health_related;
     }
 }

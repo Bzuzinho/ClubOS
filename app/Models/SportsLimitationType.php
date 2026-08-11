@@ -5,36 +5,32 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 
-class TrainingZoneConfig extends Model
+class SportsLimitationType extends Model
 {
     use HasUuids;
-
-    protected $table = 'training_zone_configs';
 
     protected $fillable = [
         'club_id',
         'codigo',
         'nome',
         'descricao',
-        'percentagem_min',
-        'percentagem_max',
-        'cor',
+        'instrucao_padrao',
+        'allows_training',
+        'allows_competition',
+        'requires_end_date',
         'ativo',
         'ordem',
-        'is_recovery',
-        'is_high_intensity',
         'archived_at',
         'created_by',
         'updated_by',
     ];
 
     protected $casts = [
-        'percentagem_min' => 'integer',
-        'percentagem_max' => 'integer',
+        'allows_training' => 'boolean',
+        'allows_competition' => 'boolean',
+        'requires_end_date' => 'boolean',
         'ativo' => 'boolean',
         'ordem' => 'integer',
-        'is_recovery' => 'boolean',
-        'is_high_intensity' => 'boolean',
         'archived_at' => 'datetime',
     ];
 
@@ -51,23 +47,5 @@ class TrainingZoneConfig extends Model
     public function scopeOrdenado($query)
     {
         return $query->orderBy('ordem')->orderBy('nome');
-    }
-
-    public static function getZonaPorPercentagem(int $percentagem): ?self
-    {
-        return self::ativo()
-            ->where('percentagem_min', '<=', $percentagem)
-            ->where('percentagem_max', '>=', $percentagem)
-            ->first();
-    }
-
-    public function isRecoveryZone(): bool
-    {
-        return (bool) $this->is_recovery;
-    }
-
-    public function isHighIntensityZone(): bool
-    {
-        return (bool) $this->is_high_intensity;
     }
 }
