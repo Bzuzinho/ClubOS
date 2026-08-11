@@ -74,7 +74,15 @@ class AgeGroupPlacementService
             $reference = $rule->reference_date
                 ? Carbon::parse($rule->reference_date)
                 : Carbon::parse($season->data_fim);
-            $age = $birth->diffInYears($reference);
+
+            if ($birth->greaterThan($reference)) {
+                continue;
+            }
+
+            // Carbon 3 returns fractional years from diffInYears(). Sporting age
+            // rules are based on completed years, so 18 years and 11 months must
+            // still resolve as age 18 rather than failing an age_max=18 rule.
+            $age = (int) floor($birth->diffInYears($reference, true));
 
             if ($rule->age_min !== null && $age < $rule->age_min) {
                 continue;
