@@ -31,6 +31,7 @@ class AppServiceProvider extends ServiceProvider
     {
         $this->app['router']->pushMiddlewareToGroup('web', PersistInAppNotificationPreference::class);
         $this->loadRoutesFrom(base_path('routes/desportivo_configuration.php'));
+        $this->loadRoutesFrom(base_path('routes/desportivo_structure.php'));
 
         Event::observe(EventObserver::class);
         EventConvocation::observe(EventConvocationObserver::class);

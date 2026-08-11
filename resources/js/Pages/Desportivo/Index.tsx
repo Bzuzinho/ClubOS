@@ -28,6 +28,7 @@ import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { moduleScrollableContentClass, moduleTabbedContentClass, moduleTabsClass, moduleViewportClass } from '@/lib/module-layout';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/Components/ui/tabs';
 import {
+  Buildings,
   ChartBar,
   UsersThree,
   CalendarBlank,
@@ -289,15 +290,27 @@ export default function DesportivoIndex({
               Sistema técnico de gestão desportiva: treinos, cais, competições e performance
             </p>
           </div>
-          <button
-            type="button"
-            className="inline-flex h-9 w-9 items-center justify-center rounded-md border bg-background text-muted-foreground transition hover:bg-muted hover:text-foreground"
-            onClick={() => router.get(route('desportivo.configuracao.index'))}
-            aria-label="Configuração Desportiva"
-            title="Configuração Desportiva"
-          >
-            <GearSix size={18} />
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              className="inline-flex h-9 items-center justify-center gap-2 rounded-md border bg-background px-3 text-xs font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground"
+              onClick={() => router.get(route('desportivo.estrutura.index'))}
+              aria-label="Estrutura Desportiva"
+              title="Estrutura Desportiva"
+            >
+              <Buildings size={17} />
+              <span className="hidden sm:inline">Estrutura</span>
+            </button>
+            <button
+              type="button"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-md border bg-background text-muted-foreground transition hover:bg-muted hover:text-foreground"
+              onClick={() => router.get(route('desportivo.configuracao.index'))}
+              aria-label="Configuração Desportiva"
+              title="Configuração Desportiva"
+            >
+              <GearSix size={18} />
+            </button>
+          </div>
         </div>
       }
     >
