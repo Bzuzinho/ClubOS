@@ -109,6 +109,10 @@ final class SportsMemberProvisioningService
 
         if (array_key_exists('ativo_desportivo', $payload)) {
             $profile->ativo = (bool) $payload['ativo_desportivo'];
+        } elseif (! $profile->exists) {
+            // Avoid athlete_sports_data's historical DB default=true from
+            // activating a new profile when Membros did not request activity.
+            $profile->ativo = (bool) ($user->ativo_desportivo ?? false);
         }
 
         if (! $profile->exists || $profile->isDirty()) {

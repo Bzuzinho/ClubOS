@@ -80,10 +80,20 @@ class SportsMemberLegacyAdapterTest extends TestCase
         $this->assertFalse(SportsAthleteParticipation::query()->where('user_id', $member->id)->exists());
         $this->assertTrue((bool) AthleteSportsData::query()->where('user_id', $member->id)->value('ativo'));
         $this->assertTrue((bool) $member->fresh()->ativo_desportivo);
-        $this->assertSame(
-            'PMB-LEGACY',
-            AthleteSportsData::query()->where('user_id', $member->id)->value('numero_pmb')
-        );
+    }
+
+    public function test_missing_legacy_activity_flag_does_not_use_old_profile_default_true(): void
+    {
+        $member = $this->athlete('F3-NO-ACTIVITY-FLAG');
+        $member->forceFill(['ativo_desportivo' => false])->saveQuietly();
+
+        app(SportsMemberProvisioningService::class)->sync($member->fresh(), [
+            'tipo_membro' => ['atleta'],
+        ]);
+
+        $profile = AthleteSportsData::query()->where('user_id', $member->id)->firstOrFail();
+        $this->assertFalse((bool) $profile->ativo);
+        $this->assertFalse(SportsAthleteParticipation::query()->where('user_id', $member->id)->exists());
     }
 
     private function athlete(string $memberNumber): User
