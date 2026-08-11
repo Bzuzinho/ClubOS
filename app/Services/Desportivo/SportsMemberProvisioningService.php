@@ -44,10 +44,15 @@ final class SportsMemberProvisioningService
 
         // A generic Membros write may carry only identity/family/configuration
         // fields. Without canonical F3 history and without an explicit Sports
-        // mutation, it must be a no-op for the Sports domain. This preserves
-        // unresolved legacy projections and avoids creating an athlete profile
-        // for guardians or other non-athlete members as a side effect.
+        // mutation, non-athletes must be a no-op for the Sports domain. For an
+        // athlete, however, keep the legacy profile materialized as inactive so
+        // athlete_sports_data's historical default=true can never bootstrap an
+        // active sports profile merely because the activity flag was omitted.
         if (! $hasHistory && ! $this->hasSportsMutationIntent($payload)) {
+            if ($this->hasAthleteType($user, $payload)) {
+                return $this->preserveLegacyProfile($user, $payload);
+            }
+
             return AthleteSportsData::query()
                 ->where('user_id', $user->id)
                 ->first();
