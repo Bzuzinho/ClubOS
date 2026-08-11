@@ -6,6 +6,7 @@ import { RegistoPresencasTab } from './Sports/RegistoPresencasTab';
 import { ResultadosTab } from './Sports/ResultadosTab';
 import { TreinosTab } from './Sports/TreinosTab';
 import { PlaneamentoTab } from './Sports/PlaneamentoTab';
+import { MemberMedicalDocumentCard } from './MemberMedicalDocumentCard';
 
 interface NavigationContext {
   eventId?: string;
@@ -48,9 +49,12 @@ export function SportsTab({ user, onChange, isAdmin, onNavigate }: SportsTabProp
   return (
     <div className="space-y-1">
       <Tabs defaultValue="dados" className="space-y-1">
-        <TabsList className="grid w-full h-auto grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 bg-slate-200 gap-1 p-1">
+        <TabsList className="grid w-full h-auto grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 bg-slate-200 gap-1 p-1">
           <TabsTrigger value="dados" className="text-xs px-2 py-1.5 whitespace-normal leading-tight text-center min-h-8">
             Perfil Desportivo
+          </TabsTrigger>
+          <TabsTrigger value="documentos" className="text-xs px-2 py-1.5 whitespace-normal leading-tight text-center min-h-8">
+            Documentos
           </TabsTrigger>
           <TabsTrigger value="convocatorias" className="text-xs px-2 py-1.5 whitespace-normal leading-tight text-center min-h-8">
             Convocatórias
@@ -71,6 +75,10 @@ export function SportsTab({ user, onChange, isAdmin, onNavigate }: SportsTabProp
 
         <TabsContent value="dados" className="mt-1 bg-white p-0 rounded-lg border border-white">
           <DadosDesportivosTab user={user} onChange={onChange} isAdmin={isAdmin} />
+        </TabsContent>
+
+        <TabsContent value="documentos" className="mt-1 bg-white p-0 rounded-lg border border-white">
+          <MemberMedicalDocumentCard user={user} canEdit={isAdmin} />
         </TabsContent>
 
         <TabsContent value="convocatorias" className="mt-1 bg-white p-0 rounded-lg border border-white">

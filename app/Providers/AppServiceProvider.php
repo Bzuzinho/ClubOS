@@ -36,6 +36,7 @@ class AppServiceProvider extends ServiceProvider
         $this->loadRoutesFrom(base_path('routes/desportivo_configuration.php'));
         $this->loadRoutesFrom(base_path('routes/desportivo_structure.php'));
         $this->loadRoutesFrom(base_path('routes/desportivo_member_contract.php'));
+        $this->loadRoutesFrom(base_path('routes/member_documents.php'));
 
         Event::observe(EventObserver::class);
         EventConvocation::observe(EventConvocationObserver::class);
