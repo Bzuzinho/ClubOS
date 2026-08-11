@@ -12,6 +12,7 @@ use App\Models\SportsModality;
 use App\Models\SportsPool;
 use App\Models\SportsPoolLane;
 use App\Models\SportsProgram;
+use App\Models\SportsSeasonLifecycleEvent;
 use App\Models\SportsVenue;
 use App\Models\TrainingGroup;
 use App\Models\TrainingGroupMembership;
@@ -266,49 +267,84 @@ class SportsStructureService
     {
         $this->assertTenant($season);
 
-        if ($season->status === 'closed') {
-            return $season;
-        }
+        return DB::transaction(function () use ($season, $actorId) {
+            $locked = Season::query()
+                ->where('club_id', $this->clubId())
+                ->lockForUpdate()
+                ->findOrFail($season->id);
 
-        $season->forceFill([
-            'status' => 'closed',
-            'estado' => 'Concluída',
-            'closed_at' => now(),
-            'closed_by' => $actorId,
-            'reopened_at' => null,
-            'reopened_by' => null,
-            'reopen_reason' => null,
-        ])->save();
+            if ($locked->status === 'closed') {
+                return $locked;
+            }
 
-        return $season->refresh();
+            $fromStatus = $locked->status;
+            $occurredAt = now();
+            $locked->forceFill([
+                'status' => 'closed',
+                'estado' => 'Concluída',
+                'closed_at' => $occurredAt,
+                'closed_by' => $actorId,
+            ])->save();
+
+            SportsSeasonLifecycleEvent::create([
+                'club_id' => $this->clubId(),
+                'season_id' => $locked->id,
+                'from_status' => $fromStatus,
+                'to_status' => 'closed',
+                'reason' => null,
+                'actor_id' => $actorId,
+                'occurred_at' => $occurredAt,
+            ]);
+
+            return $locked->refresh();
+        }, 3);
     }
 
     public function reopenSeason(Season $season, string $reason, ?string $actorId = null): Season
     {
         $this->assertTenant($season);
-
-        if ($season->status !== 'closed') {
-            throw ValidationException::withMessages([
-                'reason' => 'Apenas épocas encerradas podem ser reabertas.',
-            ]);
-        }
-
         $reason = trim($reason);
+
         if ($reason === '') {
             throw ValidationException::withMessages([
                 'reason' => 'A reabertura de uma época exige um motivo.',
             ]);
         }
 
-        $season->forceFill([
-            'status' => 'active',
-            'estado' => 'Em curso',
-            'reopened_at' => now(),
-            'reopened_by' => $actorId,
-            'reopen_reason' => $reason,
-        ])->save();
+        return DB::transaction(function () use ($season, $reason, $actorId) {
+            $locked = Season::query()
+                ->where('club_id', $this->clubId())
+                ->lockForUpdate()
+                ->findOrFail($season->id);
 
-        return $season->refresh();
+            if ($locked->status !== 'closed') {
+                throw ValidationException::withMessages([
+                    'reason' => 'Apenas épocas encerradas podem ser reabertas.',
+                ]);
+            }
+
+            $fromStatus = $locked->status;
+            $occurredAt = now();
+            $locked->forceFill([
+                'status' => 'active',
+                'estado' => 'Em curso',
+                'reopened_at' => $occurredAt,
+                'reopened_by' => $actorId,
+                'reopen_reason' => $reason,
+            ])->save();
+
+            SportsSeasonLifecycleEvent::create([
+                'club_id' => $this->clubId(),
+                'season_id' => $locked->id,
+                'from_status' => $fromStatus,
+                'to_status' => 'active',
+                'reason' => $reason,
+                'actor_id' => $actorId,
+                'occurred_at' => $occurredAt,
+            ]);
+
+            return $locked->refresh();
+        }, 3);
     }
 
     public function createAgeGroupOverride(array $data, ?string $actorId = null): AthleteAgeGroupOverride
