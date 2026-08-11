@@ -23,9 +23,13 @@ use Illuminate\Validation\ValidationException;
 
 class SportsStructureService
 {
+    public function __construct(private readonly SportsClubContext $clubContext)
+    {
+    }
+
     public function clubId(): string
     {
-        return (string) config('clubos.sports.club_id', 'bscn');
+        return $this->clubContext->id();
     }
 
     public function createModality(array $data, ?string $actorId = null): SportsModality
