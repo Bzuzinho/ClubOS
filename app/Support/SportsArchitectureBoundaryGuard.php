@@ -10,8 +10,8 @@ final class SportsArchitectureBoundaryGuard
     /**
      * Existing violations are explicit temporary debt. The guard prevents the
      * same boundary violation from spreading before the owning foundation phase
-     * removes it. F3 closes the direct Desportivo -> Members service coupling:
-     * Sports may consume member identity only through the neutral contract.
+     * removes it. F3 closed direct Desportivo -> Members service coupling and F4
+     * closes Eventos -> Competition master ownership.
      *
      * @return array<string,array{scope:string,needles:list<string>,allowed_files:list<string>}>
      */
@@ -36,10 +36,9 @@ final class SportsArchitectureBoundaryGuard
                 'needles' => [
                     'use App\\Models\\Competition;',
                 ],
-                'allowed_files' => [
-                    // F4 debt: invert Event -> Competition into Competition -> Event projection.
-                    'app/Services/Eventos/EventLifecycleService.php',
-                ],
+                // F4 closed this debt. Eventos may interact only with the
+                // projection record, never with Competition master persistence.
+                'allowed_files' => [],
             ],
             'sports_member_read_coupling_boundary' => [
                 'scope' => 'app/Services/Desportivo',
@@ -47,8 +46,6 @@ final class SportsArchitectureBoundaryGuard
                     'use App\\Services\\Members\\MemberDataReadService;',
                     'use App\\Services\\Members\\MemberTypeResolver;',
                 ],
-                // F3 closed this debt. Sports receives identity facts through
-                // App\Contracts\Members\MemberSportsIdentityProvider only.
                 'allowed_files' => [],
             ],
         ];

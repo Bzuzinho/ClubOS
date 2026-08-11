@@ -3,19 +3,24 @@
 namespace App\Services\Desportivo\Queries;
 
 use App\Models\Competition;
+use App\Services\Desportivo\SportsClubContext;
 use App\Support\LegacySportsGuard;
 use Illuminate\Support\Facades\DB;
 
 class GetCompetitionListSummary
 {
-    public function __construct(private LegacySportsGuard $legacySportsGuard)
-    {
+    public function __construct(
+        private LegacySportsGuard $legacySportsGuard,
+        private SportsClubContext $clubContext,
+    ) {
     }
 
     public function __invoke(int $limit = 50)
     {
         $query = Competition::query()
+            ->forClub($this->clubContext->id())
             ->select('competitions.*')
+            ->with('eventProjection')
             ->withCount([
                 'provas as total_provas',
                 'results as total_resultados',
@@ -29,7 +34,6 @@ class GetCompetitionListSummary
             )
             ->orderByDesc('data_inicio');
 
-        // Aplicar limite apenas se positivo
         if ($limit > 0) {
             $query->limit($limit);
         }
