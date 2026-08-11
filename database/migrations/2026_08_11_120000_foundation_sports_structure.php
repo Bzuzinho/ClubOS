@@ -140,7 +140,7 @@ return new class extends Migration {
                 $table->uuid('id')->primary();
                 $table->string('club_id', 64)->index();
                 $table->uuid('sports_pool_id')->index();
-                $table->unsignedInteger('lane_number');
+                $table->unsignedInteger('lane_number')->nullable();
                 $table->string('name')->nullable();
                 $table->unsignedInteger('capacity')->nullable();
                 $table->boolean('active')->default(true)->index();
@@ -312,7 +312,7 @@ return new class extends Migration {
                         'id' => (string) Str::uuid(), 'club_id' => $clubId, 'sports_pool_id' => $poolId,
                         'lane_number' => $lane->lane_number, 'name' => $lane->name, 'capacity' => $lane->capacity,
                         'active' => (bool) $lane->active, 'legacy_sports_venue_lane_id' => $lane->id,
-                        'metadata_json' => $lane->metadata_json, 'created_at' => now(), 'updated_at' => now(),
+                        'metadata_json' => $lane->metadata, 'created_at' => now(), 'updated_at' => now(),
                     ]);
                 }
             }
