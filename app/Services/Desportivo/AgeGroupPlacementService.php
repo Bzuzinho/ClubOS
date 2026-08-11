@@ -23,6 +23,8 @@ class AgeGroupPlacementService
             ->where('sports_modality_id', $modalityId)
             ->findOrFail($seasonId);
 
+        $calculated = $this->resolveRule($clubId, $season, $modalityId, $birthDate, $gender);
+
         $override = AthleteAgeGroupOverride::query()
             ->where('club_id', $clubId)
             ->where('user_id', $userId)
@@ -36,18 +38,37 @@ class AgeGroupPlacementService
         if ($override) {
             return [
                 'age_group' => $override->ageGroup,
+                'calculated_age_group' => $calculated['age_group'] ?? null,
                 'source' => 'override',
                 'override_id' => $override->id,
+                'rule_id' => $calculated['rule_id'] ?? null,
+                'reference_date' => $calculated['reference_date'] ?? null,
             ];
         }
 
+        if ($calculated === null) {
+            return null;
+        }
+
+        return $calculated + [
+            'calculated_age_group' => $calculated['age_group'],
+        ];
+    }
+
+    private function resolveRule(
+        string $clubId,
+        Season $season,
+        string $modalityId,
+        CarbonInterface|string $birthDate,
+        ?string $gender
+    ): ?array {
         $birth = $birthDate instanceof CarbonInterface
             ? Carbon::instance($birthDate)
             : Carbon::parse($birthDate);
 
         $rules = SeasonAgeGroupRule::query()
             ->where('club_id', $clubId)
-            ->where('season_id', $seasonId)
+            ->where('season_id', $season->id)
             ->where('sports_modality_id', $modalityId)
             ->where('active', true)
             ->with('ageGroup')
@@ -68,9 +89,6 @@ class AgeGroupPlacementService
                 continue;
             }
 
-            // Never use the current date: age-group placement must be stable for
-            // the season. A rule may define its own reference date; otherwise the
-            // season end date is the deterministic reference for that season.
             $reference = $rule->reference_date
                 ? Carbon::parse($rule->reference_date)
                 : Carbon::parse($season->data_fim);
@@ -79,9 +97,6 @@ class AgeGroupPlacementService
                 continue;
             }
 
-            // Carbon 3 returns fractional years from diffInYears(). Sporting age
-            // rules are based on completed years, so 18 years and 11 months must
-            // still resolve as age 18 rather than failing an age_max=18 rule.
             $age = (int) floor($birth->diffInYears($reference, true));
 
             if ($rule->age_min !== null && $age < $rule->age_min) {

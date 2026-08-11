@@ -4,301 +4,199 @@ declare(strict_types=1);
 
 namespace App\Services\Desportivo;
 
-use App\Models\AgeGroup;
 use App\Models\AthleteSportsData;
+use App\Models\SportsAthleteParticipation;
+use App\Models\SportsModality;
 use App\Models\User;
 use App\Models\UserType;
-use App\Services\Members\MemberDataReadService;
-use App\Services\Members\MemberTypeResolver;
-use Carbon\Carbon;
+use Illuminate\Support\Facades\Schema;
 
+/**
+ * Compatibility adapter kept for existing Membros write flows during F3.
+ *
+ * Once a canonical F3 participation history exists, generic Membros saves are
+ * not allowed to drive Sports-owned activity or technical identifiers from a
+ * stale page snapshot. Those mutations must use the explicit Sports contract.
+ */
 final class SportsMemberProvisioningService
 {
     public function __construct(
-        private readonly MemberTypeResolver $memberTypeResolver,
-        private readonly MemberDataReadService $memberDataReadService,
+        private readonly SportsMemberProfileService $sportsMemberProfileService,
+        private readonly SportsClubContext $clubContext,
     ) {
     }
 
-    /**
-     * Sincroniza a ficha desportiva canónica a partir de uma escrita de Membros.
-     *
-     * athlete_sports_data.ativo representa apenas a atividade desportiva.
-     * O conceito de "atleta ativo" resulta da combinação estado do membro + tipo
-     * Atleta + atividade desportiva e é resolvido por SportsMemberStatusResolver.
-     *
-     * @param array<string, mixed> $payload
-     */
+    /** @param array<string,mixed> $payload */
     public function sync(User $user, array $payload): ?AthleteSportsData
     {
-        $user->refresh();
-        $user->loadMissing([
-            'userTypes:id,codigo,nome',
-            'dadosPessoais:id,user_id,data_nascimento',
-            'dadosConfiguracao',
-            'athleteSportsData',
-        ]);
-
-        $existing = $user->athleteSportsData;
-        $isAthlete = $this->resolveAthleteDecision($user, $payload);
-
-        if (! $isAthlete) {
-            // Um membro sem ficha desportiva não deve perder informação legacy
-            // apenas porque a tipologia atual não o resolve como atleta. Quando
-            // já existe ficha, preservamos o histórico e desativamo-la.
-            if ($existing === null) {
-                return null;
-            }
-
-            if ((bool) $existing->ativo) {
-                $existing->forceFill(['ativo' => false])->save();
-            }
-
-            $this->syncLegacyCompatibilityFields(
+        if (! Schema::hasTable('sports_athlete_participations')) {
+            return $this->sportsMemberProfileService->syncFromMemberWrite(
                 $user,
-                false,
-                $existing->escalao_id,
+                $payload,
+                auth()->id(),
             );
-
-            return $existing->fresh(['escalao', 'escalaoCalculado']);
         }
 
-        $sportsFallback = $this->memberDataReadService->sportsPayload($user);
+        $hasHistory = SportsAthleteParticipation::query()
+            ->where('club_id', $this->clubContext->id())
+            ->where('user_id', $user->id)
+            ->exists();
 
-        $sportsActivityActive = array_key_exists('ativo_desportivo', $payload)
-            ? (bool) $payload['ativo_desportivo']
-            : (bool) ($existing?->ativo ?? $user->ativo_desportivo ?? false);
+        // A generic Membros write may carry only identity/family/configuration
+        // fields. Without canonical F3 history and without an explicit Sports
+        // mutation, non-athletes must be a no-op for the Sports domain. For an
+        // athlete, however, keep the legacy profile materialized as inactive so
+        // athlete_sports_data's historical default=true can never bootstrap an
+        // active sports profile merely because the activity flag was omitted.
+        if (! $hasHistory && ! $this->hasSportsMutationIntent($payload)) {
+            if ($this->hasAthleteType($user, $payload)) {
+                return $this->preserveLegacyProfile($user, $payload);
+            }
 
-        $birthDate = $this->resolveBirthDate($user, $payload);
-        $calculatedAgeGroupId = $this->resolveAgeGroupId($birthDate);
-        $explicitAgeGroupId = $this->explicitAgeGroupId($payload);
-        $manualOverride = $this->resolveManualOverride($payload, $existing, $explicitAgeGroupId);
-
-        if ($manualOverride && $explicitAgeGroupId === null && $existing?->escalao_id) {
-            $explicitAgeGroupId = (string) $existing->escalao_id;
+            return AthleteSportsData::query()
+                ->where('user_id', $user->id)
+                ->first();
         }
 
-        if ($manualOverride && $explicitAgeGroupId === null) {
-            $manualOverride = false;
+        if ($hasHistory) {
+            // Membros may still carry these legacy values in its local form state,
+            // but after F3 they are a projection, not a write authority.
+            foreach ([
+                'ativo_desportivo',
+                'num_federacao',
+                'cartao_federacao',
+                'numero_pmb',
+                'data_inscricao',
+                'escalao',
+                'escalao_id',
+                'escalao_manual_override',
+            ] as $sportsOwnedField) {
+                unset($payload[$sportsOwnedField]);
+            }
+        } elseif ($this->hasAthleteType($user, $payload)) {
+            $requestedActive = array_key_exists('ativo_desportivo', $payload)
+                ? (bool) $payload['ativo_desportivo']
+                : null;
+
+            if ($requestedActive === null) {
+                return $this->preserveLegacyProfile($user, $payload);
+            }
+
+            if ($requestedActive) {
+                $activeModalities = SportsModality::query()
+                    ->where('club_id', $this->clubContext->id())
+                    ->where('active', true)
+                    ->whereNull('archived_at')
+                    ->count();
+
+                // The legacy flag has no modality dimension. When more than one
+                // modality is possible, preserve it for audit instead of guessing.
+                if ($activeModalities !== 1) {
+                    return $this->preserveLegacyProfile($user, $payload);
+                }
+            }
         }
 
-        $officialAgeGroupId = $manualOverride
-            ? $explicitAgeGroupId
-            : ($calculatedAgeGroupId ?? $existing?->escalao_id);
-
-        $profile = $existing ?? new AthleteSportsData();
-        $profile->user_id = $user->id;
-        $profile->num_federacao = $this->sportsValue(
-            $payload,
-            'num_federacao',
-            $existing?->num_federacao,
-            $sportsFallback['num_federacao'] ?? null,
-        );
-        $profile->cartao_federacao = $this->sportsValue(
-            $payload,
-            'cartao_federacao',
-            $existing?->cartao_federacao,
-            $sportsFallback['cartao_federacao'] ?? null,
-        );
-        $profile->numero_pmb = $this->sportsValue(
-            $payload,
-            'numero_pmb',
-            $existing?->numero_pmb,
-            $sportsFallback['numero_pmb'] ?? null,
-        );
-        $profile->data_inscricao = $this->sportsValue(
-            $payload,
-            'data_inscricao',
-            $existing?->data_inscricao,
-            $sportsFallback['data_inscricao'] ?? null,
-        );
-        $profile->escalao_id = $officialAgeGroupId;
-        $profile->escalao_calculado_id = $calculatedAgeGroupId;
-        $profile->escalao_manual_override = $manualOverride;
-        $profile->data_atestado_medico = $this->sportsValue(
-            $payload,
-            'data_atestado_medico',
-            $existing?->data_atestado_medico,
-            $sportsFallback['data_atestado_medico'] ?? null,
-        );
-        $profile->arquivo_atestado_medico = $this->sportsValue(
-            $payload,
-            'arquivo_atestado_medico',
-            $existing?->arquivo_atestado_medico,
-            $sportsFallback['arquivo_atestado_medico'] ?? null,
-        );
-        $profile->informacoes_medicas = $this->sportsValue(
-            $payload,
-            'informacoes_medicas',
-            $existing?->informacoes_medicas,
-            $sportsFallback['informacoes_medicas'] ?? null,
-        );
-        $profile->ativo = $sportsActivityActive;
-        $profile->save();
-
-        $this->syncLegacyCompatibilityFields(
+        return $this->sportsMemberProfileService->syncFromMemberWrite(
             $user,
-            $sportsActivityActive,
-            $officialAgeGroupId,
+            $payload,
+            auth()->id(),
         );
-
-        return $profile->fresh(['escalao', 'escalaoCalculado']);
     }
 
-    /**
-     * @param array<string, mixed> $payload
-     */
-    private function resolveAthleteDecision(User $user, array $payload): bool
+    /** @param array<string,mixed> $payload */
+    private function hasSportsMutationIntent(array $payload): bool
     {
-        if (array_key_exists('user_types', $payload) && is_array($payload['user_types'])) {
-            $types = UserType::query()
-                ->whereIn('id', $payload['user_types'])
-                ->get(['codigo', 'nome'])
-                ->map(fn (UserType $type): string => $this->memberTypeResolver->normalizeType((string) ($type->codigo ?: $type->nome)))
-                ->filter()
-                ->values();
-
-            return $types->contains('atleta');
+        // Medical documents/clinical notes are deliberately absent: F3 moved
+        // their ownership to Membros, so changing them must never activate,
+        // deactivate or otherwise bootstrap a Sports participation.
+        foreach ([
+            'ativo_desportivo',
+            'num_federacao',
+            'numero_pmb',
+            'data_inscricao',
+            'escalao',
+            'escalao_id',
+            'escalao_manual_override',
+        ] as $field) {
+            if (array_key_exists($field, $payload)) {
+                return true;
+            }
         }
 
-        if (array_key_exists('tipo_membro', $payload)) {
-            return collect(is_array($payload['tipo_membro']) ? $payload['tipo_membro'] : (array) $payload['tipo_membro'])
-                ->map(fn (mixed $type): string => $this->memberTypeResolver->normalizeType((string) $type))
+        return false;
+    }
+
+    /** @param array<string,mixed> $payload */
+    private function preserveLegacyProfile(User $user, array $payload): ?AthleteSportsData
+    {
+        $profile = AthleteSportsData::query()->firstOrNew(['user_id' => $user->id]);
+
+        foreach ([
+            'num_federacao',
+            'cartao_federacao',
+            'numero_pmb',
+            'data_inscricao',
+            'data_atestado_medico',
+            'arquivo_atestado_medico',
+            'informacoes_medicas',
+        ] as $field) {
+            if (array_key_exists($field, $payload)) {
+                $profile->{$field} = $payload[$field];
+            }
+        }
+
+        if (array_key_exists('ativo_desportivo', $payload)) {
+            $profile->ativo = (bool) $payload['ativo_desportivo'];
+        } elseif (! $profile->exists) {
+            // Avoid athlete_sports_data's historical DB default=true from
+            // activating a new profile when Membros did not request activity.
+            $profile->ativo = (bool) ($user->ativo_desportivo ?? false);
+        }
+
+        if (! $profile->exists || $profile->isDirty()) {
+            $profile->save();
+        }
+
+        return $profile->fresh();
+    }
+
+    /** @param array<string,mixed> $payload */
+    private function hasAthleteType(User $user, array $payload): bool
+    {
+        if (array_key_exists('user_types', $payload) && is_array($payload['user_types'])) {
+            return UserType::query()
+                ->whereIn('id', $payload['user_types'])
+                ->get(['codigo', 'nome'])
+                ->contains(fn (UserType $type): bool =>
+                    $this->normalizeType($type->codigo ?: $type->nome) === 'atleta'
+                );
+        }
+
+        $payloadTypes = $payload['tipo_membro'] ?? null;
+        if (is_array($payloadTypes)) {
+            return collect($payloadTypes)
+                ->map(fn (mixed $value): string => $this->normalizeType($value))
                 ->contains('atleta');
         }
 
-        return $this->memberTypeResolver->isAthlete($user);
-    }
-
-    /**
-     * @param array<string, mixed> $payload
-     */
-    private function resolveManualOverride(
-        array $payload,
-        ?AthleteSportsData $existing,
-        ?string $explicitAgeGroupId,
-    ): bool {
-        if (array_key_exists('escalao_manual_override', $payload)) {
-            return (bool) $payload['escalao_manual_override'];
+        $legacyTypes = collect($user->tipo_membro ?? [])
+            ->map(fn (mixed $value): string => $this->normalizeType($value));
+        if ($legacyTypes->contains('atleta')) {
+            return true;
         }
 
-        if ($existing !== null) {
-            return (bool) $existing->escalao_manual_override;
-        }
+        $user->loadMissing('userTypes:id,codigo,nome');
 
-        // Compatibilidade com clientes antigos que enviam um escalão explícito
-        // mas ainda não conhecem a flag de override.
-        return $explicitAgeGroupId !== null;
+        return $user->userTypes->contains(function ($type): bool {
+            return $this->normalizeType($type->codigo ?? $type->nome ?? '') === 'atleta';
+        });
     }
 
-    /**
-     * @param array<string, mixed> $payload
-     */
-    private function explicitAgeGroupId(array $payload): ?string
+    private function normalizeType(mixed $value): string
     {
-        $direct = trim((string) ($payload['escalao_id'] ?? ''));
-        if ($direct !== '') {
-            return $direct;
-        }
+        $value = mb_strtolower(trim((string) $value));
 
-        return collect($payload['escalao'] ?? [])
-            ->map(static fn (mixed $value): string => trim((string) $value))
-            ->first(static fn (string $value): bool => $value !== '') ?: null;
-    }
-
-    /**
-     * @param array<string, mixed> $payload
-     */
-    private function resolveBirthDate(User $user, array $payload): ?Carbon
-    {
-        $personal = $this->memberDataReadService->personalPayload($user);
-        $candidate = $payload['data_nascimento'] ?? ($personal['data_nascimento'] ?? null);
-
-        if (blank($candidate)) {
-            return null;
-        }
-
-        try {
-            return Carbon::parse($candidate);
-        } catch (\Throwable) {
-            return null;
-        }
-    }
-
-    private function resolveAgeGroupId(?Carbon $birthDate): ?string
-    {
-        if ($birthDate === null) {
-            return null;
-        }
-
-        $age = $birthDate->age;
-        $birthYear = $birthDate->year;
-
-        $byAge = AgeGroup::query()
-            ->where('ativo', true)
-            ->where(function ($query) use ($age): void {
-                $query->whereNull('idade_minima')->orWhere('idade_minima', '<=', $age);
-            })
-            ->where(function ($query) use ($age): void {
-                $query->whereNull('idade_maxima')->orWhere('idade_maxima', '>=', $age);
-            })
-            ->where(function ($query): void {
-                $query->whereNotNull('idade_minima')->orWhereNotNull('idade_maxima');
-            })
-            ->orderByDesc('idade_minima')
-            ->orderBy('idade_maxima')
-            ->first();
-
-        if ($byAge !== null) {
-            return (string) $byAge->id;
-        }
-
-        $byYear = AgeGroup::query()
-            ->where('ativo', true)
-            ->where(function ($query) use ($birthYear): void {
-                $query->whereNull('ano_minimo')->orWhere('ano_minimo', '<=', $birthYear);
-            })
-            ->where(function ($query) use ($birthYear): void {
-                $query->whereNull('ano_maximo')->orWhere('ano_maximo', '>=', $birthYear);
-            })
-            ->where(function ($query): void {
-                $query->whereNotNull('ano_minimo')->orWhereNotNull('ano_maximo');
-            })
-            ->orderByDesc('ano_minimo')
-            ->orderBy('ano_maximo')
-            ->first();
-
-        return $byYear?->id ? (string) $byYear->id : null;
-    }
-
-    private function sportsValue(array $payload, string $key, mixed $canonical, mixed $fallback): mixed
-    {
-        if (array_key_exists($key, $payload)) {
-            return $payload[$key];
-        }
-
-        return $canonical ?? $fallback;
-    }
-
-    private function syncLegacyCompatibilityFields(User $user, bool $sportsActivityActive, ?string $ageGroupId): void
-    {
-        // Quando não existe ainda um AgeGroup canónico resolvido, o valor legacy
-        // é apenas histórico/compatibilidade. Não o apagamos numa escrita de
-        // Membros não relacionada com o escalão; a fonte oficial continua a ser
-        // athlete_sports_data.escalao_id (null até existir resolução válida).
-        $currentAgeGroups = collect($user->escalao ?? [])->map('strval')->values()->all();
-        $ageGroups = $ageGroupId ? [(string) $ageGroupId] : $currentAgeGroups;
-
-        if (
-            (bool) $user->ativo_desportivo === $sportsActivityActive
-            && $currentAgeGroups === $ageGroups
-        ) {
-            return;
-        }
-
-        $user->forceFill([
-            'ativo_desportivo' => $sportsActivityActive,
-            'escalao' => $ageGroups,
-        ])->saveQuietly();
+        return in_array($value, ['atleta', 'athlete'], true) ? 'atleta' : $value;
     }
 }

@@ -43,7 +43,7 @@ final class MemberDocumentDataResolver
                     'path' => $memberDocumentPayload['arquivo_consentimento'],
                 ],
                 'atestado' => [
-                    'isValidated' => filled($memberDocumentPayload['data_atestado_medico']),
+                    'isValidated' => filled($memberDocumentPayload['data_atestado_medico']) || filled($documentPaths['atestado']),
                     'validatedAt' => $memberDocumentPayload['data_atestado_medico'],
                     'validUntil' => $memberDocumentPayload['data_atestado_medico'],
                     'path' => $documentPaths['atestado'],
@@ -107,7 +107,7 @@ final class MemberDocumentDataResolver
                 'validated_at' => $payload['data_consentimento'] ?? ($configuration['declaracao_transporte_data'] ?? null),
             ],
             'atestado' => [
-                'is_validated' => filled($payload['data_atestado_medico']),
+                'is_validated' => filled($payload['data_atestado_medico']) || filled($payload['arquivo_atestado_medico']),
                 'validated_at' => $payload['data_atestado_medico'],
                 'valid_until' => $payload['data_atestado_medico'],
             ],
@@ -127,6 +127,10 @@ final class MemberDocumentDataResolver
     }
 
     /**
+     * Compatibility sports payload for existing member consumers. Medical
+     * certificate metadata is now owned by Membros configuration and therefore
+     * takes precedence over the old sports-profile date.
+     *
      * @return array{num_federacao:?string,data_atestado_medico:?string,informacoes_medicas:?string}
      */
     public function sportsPayload(User $user): array
@@ -136,12 +140,16 @@ final class MemberDocumentDataResolver
         $configurationExtra = is_array($configuration['configuracao_extra'] ?? null)
             ? $configuration['configuracao_extra']
             : [];
+        $medicalCertificate = is_array($configurationExtra['medical_certificate'] ?? null)
+            ? $configurationExtra['medical_certificate']
+            : [];
 
         return [
             'num_federacao' => $this->normalizeLegacyString($sports['num_federacao'] ?? null)
                 ?: $this->normalizeLegacyString($configuration['afiliacao_numero'] ?? null)
                 ?: $this->normalizeLegacyString($this->legacyAttribute($user, 'num_federacao')),
-            'data_atestado_medico' => $this->normalizeLegacyDate($sports['data_atestado_medico'] ?? null)
+            'data_atestado_medico' => $this->normalizeLegacyDate($medicalCertificate['date'] ?? null)
+                ?: $this->normalizeLegacyDate($sports['data_atestado_medico'] ?? null)
                 ?: $this->normalizeLegacyDate($this->legacyAttribute($user, 'data_atestado_medico')),
             'informacoes_medicas' => $this->normalizeLegacyString($sports['informacoes_medicas'] ?? null)
                 ?: $this->normalizeLegacyString($configurationExtra['informacoes_medicas'] ?? null)
@@ -163,7 +171,8 @@ final class MemberDocumentDataResolver
      *   data_afiliacao:mixed,
      *   arquivo_afiliacao:?string,
      *   cartao_federacao:?string,
-     *   data_atestado_medico:?string
+     *   data_atestado_medico:?string,
+     *   arquivo_atestado_medico:?string
      * }
      */
     public function memberDocumentPayload(User $user): array
@@ -171,6 +180,12 @@ final class MemberDocumentDataResolver
         $configuration = $this->memberDataReadService->configurationPayload($user);
         $sports = $this->memberDataReadService->sportsPayload($user);
         $documentPaths = $this->documentPaths($user);
+        $configurationExtra = is_array($configuration['configuracao_extra'] ?? null)
+            ? $configuration['configuracao_extra']
+            : [];
+        $medicalCertificate = is_array($configurationExtra['medical_certificate'] ?? null)
+            ? $configurationExtra['medical_certificate']
+            : [];
 
         return [
             'rgpd' => (bool) ($configuration['consentimento_rgpd'] ?? false),
@@ -186,7 +201,9 @@ final class MemberDocumentDataResolver
             'arquivo_afiliacao' => $documentPaths['afiliacao'],
             'cartao_federacao' => $this->normalizeLegacyPath($sports['cartao_federacao'] ?? null)
                 ?: $documentPaths['cartao_federacao'],
-            'data_atestado_medico' => $this->normalizeLegacyDate($sports['data_atestado_medico'] ?? null),
+            'data_atestado_medico' => $this->normalizeLegacyDate($medicalCertificate['date'] ?? null)
+                ?: $this->normalizeLegacyDate($sports['data_atestado_medico'] ?? null),
+            'arquivo_atestado_medico' => $documentPaths['atestado'],
         ];
     }
 
@@ -203,8 +220,8 @@ final class MemberDocumentDataResolver
             'consentimento' => $this->normalizeLegacyPath($this->legacyAttribute($user, 'arquivo_consentimento'))
                 ?: $this->normalizeLegacyPath($configuration['declaracao_transporte_ficheiro'] ?? null)
                 ?: $this->normalizeLegacyPath($this->legacyAttribute($user, 'declaracao_transporte')),
-            'atestado' => $this->normalizeLegacyPath($sports['arquivo_atestado_medico'] ?? null)
-                ?: $this->normalizeLegacyPath($configuration['certificado_medico_ficheiro'] ?? null)
+            'atestado' => $this->normalizeLegacyPath($configuration['certificado_medico_ficheiro'] ?? null)
+                ?: $this->normalizeLegacyPath($sports['arquivo_atestado_medico'] ?? null)
                 ?: $this->normalizeLegacyPath($this->legacyAttribute($user, 'arquivo_atestado_medico')),
             'cartao_federacao' => $this->normalizeLegacyPath($sports['cartao_federacao'] ?? null)
                 ?: $this->normalizeLegacyPath($this->legacyAttribute($user, 'cartao_federacao'))
@@ -237,12 +254,12 @@ final class MemberDocumentDataResolver
             ->map(function (string $label, string $type) use ($documents, $essentialByType): ?array {
                 $document = $documents->get($type);
 
-                if (!is_array($document) || !($document['isValidated'] ?? false)) {
+                if (! is_array($document) || ! ($document['isValidated'] ?? false)) {
                     return null;
                 }
 
                 return [
-                    'id' => 'legacy-' . $type,
+                    'id' => 'legacy-'.$type,
                     'name' => $label,
                     'date' => $document['validatedAt'] ?? null,
                     'status' => (string) ($essentialByType->get($type)['status']['label'] ?? 'Valido'),
