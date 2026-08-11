@@ -42,6 +42,17 @@ final class SportsMemberProvisioningService
             ->where('user_id', $user->id)
             ->exists();
 
+        // A generic Membros write may carry only identity/family/configuration
+        // fields. Without canonical F3 history and without an explicit Sports
+        // mutation, it must be a no-op for the Sports domain. This preserves
+        // unresolved legacy projections and avoids creating an athlete profile
+        // for guardians or other non-athlete members as a side effect.
+        if (! $hasHistory && ! $this->hasSportsMutationIntent($payload)) {
+            return AthleteSportsData::query()
+                ->where('user_id', $user->id)
+                ->first();
+        }
+
         if ($hasHistory) {
             // Membros may still carry these legacy values in its local form state,
             // but after F3 they are a projection, not a write authority.
@@ -86,6 +97,29 @@ final class SportsMemberProvisioningService
             $payload,
             auth()->id(),
         );
+    }
+
+    /** @param array<string,mixed> $payload */
+    private function hasSportsMutationIntent(array $payload): bool
+    {
+        // Medical documents/clinical notes are deliberately absent: F3 moved
+        // their ownership to Membros, so changing them must never activate,
+        // deactivate or otherwise bootstrap a Sports participation.
+        foreach ([
+            'ativo_desportivo',
+            'num_federacao',
+            'numero_pmb',
+            'data_inscricao',
+            'escalao',
+            'escalao_id',
+            'escalao_manual_override',
+        ] as $field) {
+            if (array_key_exists($field, $payload)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /** @param array<string,mixed> $payload */
