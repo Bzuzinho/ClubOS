@@ -58,7 +58,15 @@ class SportsStructureController extends Controller
     public function updateModality(Request $request, SportsModality $modality): RedirectResponse
     {
         $data = $request->validate([
-            'code' => 'sometimes|required|string|max:64',
+            'code' => [
+                'sometimes',
+                'required',
+                'string',
+                'max:64',
+                Rule::unique('sports_modalities', 'code')
+                    ->where('club_id', $this->service->clubId())
+                    ->ignore($modality->id),
+            ],
             'name' => 'sometimes|required|string|max:150',
             'description' => 'nullable|string',
             'active' => 'boolean',
@@ -77,9 +85,17 @@ class SportsStructureController extends Controller
 
     public function storeProgram(Request $request): RedirectResponse
     {
+        $modalityId = (string) $request->input('sports_modality_id');
         $data = $request->validate([
             'sports_modality_id' => 'required|uuid',
-            'code' => 'required|string|max:64',
+            'code' => [
+                'required',
+                'string',
+                'max:64',
+                Rule::unique('sports_programs', 'code')->where(fn ($query) => $query
+                    ->where('club_id', $this->service->clubId())
+                    ->where('sports_modality_id', $modalityId)),
+            ],
             'name' => 'required|string|max:150',
             'description' => 'nullable|string',
             'active' => 'boolean',
@@ -92,7 +108,15 @@ class SportsStructureController extends Controller
     public function updateProgram(Request $request, SportsProgram $program): RedirectResponse
     {
         $data = $request->validate([
-            'code' => 'sometimes|required|string|max:64',
+            'code' => [
+                'sometimes',
+                'required',
+                'string',
+                'max:64',
+                Rule::unique('sports_programs', 'code')->where(fn ($query) => $query
+                    ->where('club_id', $this->service->clubId())
+                    ->where('sports_modality_id', $program->sports_modality_id))->ignore($program->id),
+            ],
             'name' => 'sometimes|required|string|max:150',
             'description' => 'nullable|string',
             'active' => 'boolean',
@@ -229,10 +253,22 @@ class SportsStructureController extends Controller
 
     public function storePool(Request $request): RedirectResponse
     {
+        $venueId = (string) $request->input('sports_venue_id');
         $data = $request->validate([
             'sports_venue_id' => 'required|uuid',
-            'pool_type_config_id' => 'nullable|uuid',
-            'code' => 'required|string|max:80',
+            'pool_type_config_id' => [
+                'nullable',
+                'uuid',
+                Rule::exists('pool_type_configs', 'id')->where('club_id', $this->service->clubId()),
+            ],
+            'code' => [
+                'required',
+                'string',
+                'max:80',
+                Rule::unique('sports_pools', 'code')->where(fn ($query) => $query
+                    ->where('club_id', $this->service->clubId())
+                    ->where('sports_venue_id', $venueId)),
+            ],
             'name' => 'required|string|max:150',
             'length_m' => 'nullable|numeric|min:0',
             'indoor' => 'nullable|boolean',
@@ -246,8 +282,15 @@ class SportsStructureController extends Controller
 
     public function storeLane(Request $request, SportsPool $pool): RedirectResponse
     {
+        abort_unless((string) $pool->club_id === $this->service->clubId(), 404);
+
         $data = $request->validate([
-            'lane_number' => 'required|integer|min:1',
+            'lane_number' => [
+                'required',
+                'integer',
+                'min:1',
+                Rule::unique('sports_pool_lanes', 'lane_number')->where('sports_pool_id', $pool->id),
+            ],
             'name' => 'nullable|string|max:100',
             'capacity' => 'nullable|integer|min:1',
             'active' => 'boolean',
