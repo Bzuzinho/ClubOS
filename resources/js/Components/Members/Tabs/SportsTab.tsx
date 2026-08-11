@@ -20,8 +20,22 @@ interface SportsTabProps {
   onNavigate?: (view: string, context?: NavigationContext) => void;
 }
 
+function normalizeType(value: unknown): string {
+  return typeof value === 'string'
+    ? value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '_')
+    : '';
+}
+
+function isAthlete(user: User): boolean {
+  const sportsUser = user as any;
+  const canonical = Array.isArray(sportsUser.memberTypes) ? sportsUser.memberTypes : [];
+  const legacy = Array.isArray(sportsUser.tipo_membro) ? sportsUser.tipo_membro : [];
+
+  return [...canonical, ...legacy].map(normalizeType).includes('atleta');
+}
+
 export function SportsTab({ user, onChange, isAdmin, onNavigate }: SportsTabProps) {
-  if (!user.tipo_membro?.includes('atleta')) {
+  if (!isAthlete(user)) {
     return (
       <div className="p-12 text-center">
         <p className="text-muted-foreground">
