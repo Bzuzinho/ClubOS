@@ -5,13 +5,6 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 
-/**
- * Zonas de Treino (Configuração Desportiva)
- * 
- * Catálogo técnico para zonas de intensidade de treino
- * Ex: Z1 (Recuperação), Z2 (Aeróbica Base), Z3 (Aeróbica Intensiva), 
- *     Z4 (Limiar Anaeróbico), Z5 (VO2 Max), Z6 (Velocidade Máxima)
- */
 class TrainingZoneConfig extends Model
 {
     use HasUuids;
@@ -19,6 +12,7 @@ class TrainingZoneConfig extends Model
     protected $table = 'training_zone_configs';
 
     protected $fillable = [
+        'club_id',
         'codigo',
         'nome',
         'descricao',
@@ -27,6 +21,11 @@ class TrainingZoneConfig extends Model
         'cor',
         'ativo',
         'ordem',
+        'is_recovery',
+        'is_high_intensity',
+        'archived_at',
+        'created_by',
+        'updated_by',
     ];
 
     protected $casts = [
@@ -34,21 +33,26 @@ class TrainingZoneConfig extends Model
         'percentagem_max' => 'integer',
         'ativo' => 'boolean',
         'ordem' => 'integer',
+        'is_recovery' => 'boolean',
+        'is_high_intensity' => 'boolean',
+        'archived_at' => 'datetime',
     ];
+
+    public function scopeForClub($query, string $clubId)
+    {
+        return $query->where('club_id', $clubId);
+    }
 
     public function scopeAtivo($query)
     {
-        return $query->where('ativo', true);
+        return $query->where('ativo', true)->whereNull('archived_at');
     }
 
     public function scopeOrdenado($query)
     {
-        return $query->orderBy('ordem');
+        return $query->orderBy('ordem')->orderBy('nome');
     }
 
-    /**
-     * Determina zona com base em percentagem de FC
-     */
     public static function getZonaPorPercentagem(int $percentagem): ?self
     {
         return self::ativo()
@@ -57,19 +61,13 @@ class TrainingZoneConfig extends Model
             ->first();
     }
 
-    /**
-     * Verifica se é zona de recuperação
-     */
     public function isRecoveryZone(): bool
     {
-        return $this->percentagem_max <= 70;
+        return (bool) $this->is_recovery;
     }
 
-    /**
-     * Verifica se é zona de alta intensidade
-     */
     public function isHighIntensityZone(): bool
     {
-        return $this->percentagem_min >= 80;
+        return (bool) $this->is_high_intensity;
     }
 }
