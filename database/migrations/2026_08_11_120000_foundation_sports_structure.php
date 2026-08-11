@@ -9,7 +9,7 @@ use Illuminate\Support\Str;
 return new class extends Migration {
     public function up(): void
     {
-        $clubId = (string) config('clubos.sports.club_id', 'bscn');
+        $clubId = (string) config('sports.club_id', 'bscn');
 
         if (! Schema::hasTable('sports_modalities')) {
             Schema::create('sports_modalities', function (Blueprint $table) {
