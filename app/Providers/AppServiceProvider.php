@@ -22,20 +22,15 @@ use App\Observers\SupplierPurchaseObserver;
 
 class AppServiceProvider extends ServiceProvider
 {
-    /**
-     * Register any application services.
-     */
     public function register(): void
     {
         $this->app->singleton(UserTypeAccessControlService::class);
     }
 
-    /**
-     * Bootstrap any application services.
-     */
     public function boot(): void
     {
         $this->app['router']->pushMiddlewareToGroup('web', PersistInAppNotificationPreference::class);
+        $this->loadRoutesFrom(base_path('routes/desportivo_configuration.php'));
 
         Event::observe(EventObserver::class);
         EventConvocation::observe(EventConvocationObserver::class);
