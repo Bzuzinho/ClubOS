@@ -19,11 +19,21 @@ class SportsArchitectureBoundaryGuardTest extends TestCase
         $rules = app(SportsArchitectureBoundaryGuard::class)->rules();
 
         $this->assertSame([], $rules['sports_finance_persistence_boundary']['allowed_files']);
+        $this->assertSame([], $rules['sports_communication_persistence_boundary']['allowed_files']);
+        $this->assertSame([], $rules['sports_logistics_persistence_boundary']['allowed_files']);
         $this->assertSame([], $rules['events_competition_master_boundary']['allowed_files']);
         $this->assertSame([], $rules['sports_member_read_coupling_boundary']['allowed_files']);
         $this->assertContains(
             'use App\\Models\\PaymentAllocation;',
             $rules['sports_finance_persistence_boundary']['needles']
+        );
+        $this->assertContains(
+            'use App\\Services\\Communication\\',
+            $rules['sports_communication_persistence_boundary']['needles']
+        );
+        $this->assertContains(
+            'use App\\Models\\EquipmentLoan;',
+            $rules['sports_logistics_persistence_boundary']['needles']
         );
         $this->assertContains(
             'use App\\Services\\Members\\MemberTypeResolver;',

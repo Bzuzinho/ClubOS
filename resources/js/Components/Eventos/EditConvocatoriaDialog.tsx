@@ -161,7 +161,7 @@ export function EditConvocatoriaDialog({
     }
   }, [group, open, convocationGroups, convocationAthletes]);
 
-  const handleSave = async () => {
+  const handleSave = async (publishAfterSave = false) => {
     if (!group) return;
 
     setIsSubmitting(true);
@@ -199,16 +199,34 @@ export function EditConvocatoriaDialog({
         await setConvocationAthletes([...preserved, ...updated]);
       }
 
-      toast.success('Convocatória atualizada com sucesso!');
+      if (publishAfterSave) {
+        if (!groupId) {
+          throw new Error('Não foi possível identificar a convocatória para publicação.');
+        }
+
+        const response = await axios.post(`/api/eventos/convocation-groups/${groupId}/publish`);
+        const communicationStatus = response.data?.communication?.status;
+
+        if (communicationStatus === 'dispatched') {
+          toast.success('Convocatória guardada e publicada com sucesso!');
+        } else if (communicationStatus === 'skipped') {
+          toast.success('Convocatória publicada. O envio está desativado nas preferências de Comunicação.');
+        } else {
+          toast.warning('Convocatória publicada, mas a comunicação não foi concluída.');
+        }
+      } else {
+        toast.success('Convocatória guardada como rascunho.');
+      }
+
       onOpenChange(false);
       setStep(1);
     } catch (error: any) {
-      console.error('Erro ao atualizar convocatória:', error);
+      console.error('Erro ao atualizar/publicar convocatória:', error);
       const errors = error?.response?.data?.errors;
       const message = errors && typeof errors === 'object'
         ? Object.values(errors).flat().find((value) => typeof value === 'string')
         : error?.response?.data?.message;
-      toast.error(typeof message === 'string' ? message : 'Erro ao atualizar convocatória');
+      toast.error(typeof message === 'string' ? message : 'Erro ao atualizar/publicar convocatória');
     } finally {
       setIsSubmitting(false);
     }
@@ -491,7 +509,7 @@ export function EditConvocatoriaDialog({
               </Card>
 
               <p className="text-sm text-muted-foreground">
-                Clique em "Guardar Alterações" para confirmar todas as mudanças à convocatória.
+                Pode guardar como rascunho sem enviar nada ou publicar explicitamente para acionar a Comunicação.
               </p>
             </div>
           )}
@@ -514,9 +532,14 @@ export function EditConvocatoriaDialog({
             )}
 
             {step === 5 && (
-              <Button onClick={handleSave} disabled={isSubmitting} className="bg-blue-600 hover:bg-blue-700">
-                {isSubmitting ? '⏳ Guardando...' : '✓ Guardar Alterações'}
-              </Button>
+              <>
+                <Button variant="outline" onClick={() => handleSave(false)} disabled={isSubmitting}>
+                  {isSubmitting ? 'A guardar...' : 'Guardar rascunho'}
+                </Button>
+                <Button onClick={() => handleSave(true)} disabled={isSubmitting} className="bg-blue-600 hover:bg-blue-700">
+                  {isSubmitting ? 'A publicar...' : 'Publicar Convocatória'}
+                </Button>
+              </>
             )}
 
             <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isSubmitting}>

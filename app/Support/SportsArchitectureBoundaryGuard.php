@@ -8,12 +8,6 @@ use RecursiveIteratorIterator;
 final class SportsArchitectureBoundaryGuard
 {
     /**
-     * Existing violations are explicit temporary debt. The guard prevents the
-     * same boundary violation from spreading before the owning foundation phase
-     * removes it. F3 closed direct Desportivo -> Members service coupling, F4
-     * closed Eventos -> Competition ownership and F5 closes direct financial
-     * persistence from the Sports service layer.
-     *
      * @return array<string,array{scope:string,needles:list<string>,allowed_files:list<string>}>
      */
     public function rules(): array
@@ -30,8 +24,32 @@ final class SportsArchitectureBoundaryGuard
                     'use App\\Models\\FiscalDocumentRequest;',
                     'use App\\Models\\BankTransactionAllocation;',
                 ],
-                // F5 closed this debt. Sports may request finance operations
-                // only through App\Contracts\Financeiro\CompetitionFinanceGateway.
+                'allowed_files' => [],
+            ],
+            'sports_communication_persistence_boundary' => [
+                'scope' => 'app/Services/Desportivo',
+                'needles' => [
+                    'use App\\Models\\CommunicationCampaign;',
+                    'use App\\Models\\CommunicationDelivery;',
+                    'use App\\Models\\CommunicationTemplate;',
+                    'use App\\Models\\CommunicationSegment;',
+                    'use App\\Models\\InAppAlert;',
+                    'use App\\Services\\Communication\\',
+                ],
+                'allowed_files' => [],
+            ],
+            'sports_logistics_persistence_boundary' => [
+                'scope' => 'app/Services/Desportivo',
+                'needles' => [
+                    'use App\\Models\\Product;',
+                    'use App\\Models\\StockMovement;',
+                    'use App\\Models\\LogisticsRequest;',
+                    'use App\\Models\\LogisticsRequestItem;',
+                    'use App\\Models\\EquipmentLoan;',
+                    'use App\\Services\\Logistica\\',
+                    'use App\\Services\\Inventario\\',
+                    'use App\\Services\\Catalog\\CanonicalProductStockService;',
+                ],
                 'allowed_files' => [],
             ],
             'events_competition_master_boundary' => [
