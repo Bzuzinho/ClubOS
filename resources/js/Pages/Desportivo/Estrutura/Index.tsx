@@ -10,7 +10,7 @@ import { Input } from '@/Components/ui/input';
 import { Label } from '@/Components/ui/label';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/Components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/Components/ui/tabs';
-import { ArchiveBox, CalendarBlank, PencilSimple, Plus, SwimmingPool, UsersThree, UserCircleGear, Buildings, XCircle } from '@phosphor-icons/react';
+import { Trash as ArchiveBox, CalendarBlank, PencilSimple, Plus, SwimmingPool, UsersThree, UserCircleGear, Buildings, XCircle } from '@phosphor-icons/react';
 
 type Id = string;
 interface Modality { id:Id; code:string; name:string; description?:string|null; active:boolean; archived_at?:string|null }
