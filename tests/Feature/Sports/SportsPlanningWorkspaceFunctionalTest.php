@@ -93,9 +93,10 @@ class SportsPlanningWorkspaceFunctionalTest extends TestCase
         $this->assertSame($meso->id, $micro->mesociclo_id);
         $this->assertDatabaseHas('microcycles', [
             'id' => $micro->id,
-            'data_inicio' => '2026-09-01',
-            'is_recovery_week' => false,
+            'club_id' => 'bscn',
         ]);
+        $this->assertSame('2026-09-01', $micro->fresh()->data_inicio?->toDateString());
+        $this->assertFalse((bool) $micro->fresh()->is_recovery_week);
 
         $pool = $this->pool();
         $athlete = User::factory()->athlete()->create();

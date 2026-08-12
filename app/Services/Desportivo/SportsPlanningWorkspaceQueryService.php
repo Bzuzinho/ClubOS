@@ -200,12 +200,14 @@ final class SportsPlanningWorkspaceQueryService
             ->get()
             ->map(function (User $user): array {
                 $identity = $this->identityProvider->forSports($user);
+                $displayName = trim((string) ($identity['display_name'] ?? ''));
+
                 return [
                     'id' => (string) $user->id,
-                    'name' => (string) ($identity['display_name'] ?? $user->name ?? $user->nome_completo ?? $user->id),
+                    'name' => $displayName !== '' ? $displayName : (string) $user->id,
                 ];
             })
-            ->sortBy('name')
+            ->sortBy(fn (array $row): string => mb_strtolower($row['name']))
             ->values()
             ->all();
     }

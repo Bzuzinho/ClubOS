@@ -6,10 +6,6 @@ use Illuminate\Support\Facades\Route;
 Route::middleware(['web', 'auth', 'verified', 'module.access:desportivo'])
     ->prefix('desportivo')
     ->group(function (): void {
-        // Registered after routes/web.php so this becomes the canonical GET handler.
-        Route::get('/planeamento', [SportsPlanningWorkspaceController::class, 'index'])
-            ->middleware('permission.access:desportivo.planeamento,view')
-            ->name('desportivo.planeamento');
         Route::get('/planeamento/workspace', [SportsPlanningWorkspaceController::class, 'index'])
             ->middleware('permission.access:desportivo.planeamento,view')
             ->name('desportivo.planeamento.workspace');

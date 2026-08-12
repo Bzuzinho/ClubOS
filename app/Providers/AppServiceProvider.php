@@ -7,6 +7,7 @@ use App\Contracts\Desportivo\SportsAudienceProvider;
 use App\Contracts\Financeiro\CompetitionFinanceGateway;
 use App\Contracts\Logistica\SportsLogisticsGateway;
 use App\Contracts\Members\MemberSportsIdentityProvider;
+use App\Http\Controllers\Desportivo\SportsPlanningWorkspaceController;
 use App\Http\Middleware\EnforceSportsLegacyCutover;
 use App\Http\Middleware\PersistInAppNotificationPreference;
 use App\Models\ConvocationGroup;
@@ -31,6 +32,7 @@ use App\Services\Desportivo\CanonicalSportsAudienceService;
 use App\Services\Financeiro\CompetitionFinancialObligationService;
 use App\Services\Logistica\SportsLogisticsGatewayService;
 use App\Services\Members\MemberSportsIdentityService;
+use Illuminate\Support\Facades\Route;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -55,6 +57,18 @@ class AppServiceProvider extends ServiceProvider
         $this->loadRoutesFrom(base_path('routes/desportivo_member_contract.php'));
         $this->loadRoutesFrom(base_path('routes/desportivo_communication_logistics.php'));
         $this->loadRoutesFrom(base_path('routes/member_documents.php'));
+
+        if (! $this->app->routesAreCached()) {
+            // routes/web.php is loaded after AppServiceProvider::boot in Laravel 11.
+            // Register the canonical Planning GET once the application has booted so
+            // it replaces the historical DesportivoController handler by URI/name.
+            $this->app->booted(function (): void {
+                Route::middleware(['web', 'auth', 'verified', 'module.access:desportivo'])
+                    ->get('/desportivo/planeamento', [SportsPlanningWorkspaceController::class, 'index'])
+                    ->middleware('permission.access:desportivo.planeamento,view')
+                    ->name('desportivo.planeamento');
+            });
+        }
 
         Event::observe(EventObserver::class);
         EventConvocation::observe(EventConvocationObserver::class);
