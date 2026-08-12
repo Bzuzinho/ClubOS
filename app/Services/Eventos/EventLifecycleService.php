@@ -2,13 +2,10 @@
 
 namespace App\Services\Eventos;
 
-use App\Models\Competition;
+use App\Models\CompetitionEventProjection;
 use App\Models\Event;
-use App\Models\EventType;
-use App\Services\Desportivo\DeleteCompetitionRegistrationAction;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Str;
 
 class EventLifecycleService
 {
@@ -23,14 +20,29 @@ class EventLifecycleService
         'custo_inscricao_estafeta',
     ];
 
+    private const COMPETITION_PROJECTED_FIELDS = [
+        'titulo',
+        'data_inicio',
+        'data_fim',
+        'local',
+        'tipo',
+        'recorrente',
+        'recorrencia_data_inicio',
+        'recorrencia_data_fim',
+        'recorrencia_dias_semana',
+        'evento_pai_id',
+    ];
+
     public function __construct(
         private readonly DeleteConvocationGroupAction $deleteConvocationGroup,
         private readonly SyncConvocationGroupFinancialMovementAction $syncConvocationFinancialMovement,
-        private readonly DeleteCompetitionRegistrationAction $deleteCompetitionRegistration,
     ) {
     }
 
     /**
+     * Eventos creates event-domain records only. A competition-category event is
+     * never promoted into a Competition master by this service.
+     *
      * @param array<string, mixed> $data
      * @param list<string> $ageGroupIds
      */
@@ -39,7 +51,6 @@ class EventLifecycleService
         return DB::transaction(function () use ($data, $ageGroupIds): Event {
             $event = Event::query()->create($data);
             $event->syncAgeGroups($ageGroupIds);
-            $this->syncCompetition($event);
             $this->generateRecurringChildren($event, $data, $ageGroupIds);
 
             return $event->fresh(['ageGroups']);
@@ -54,12 +65,12 @@ class EventLifecycleService
     {
         return DB::transaction(function () use ($event, $data, $ageGroupIds): Event {
             $lockedEvent = Event::query()->lockForUpdate()->findOrFail($event->id);
+            $data = $this->preserveCompetitionOwnedProjectionFields($lockedEvent, $data);
 
             $this->deleteRecurringChildren($lockedEvent);
 
             $lockedEvent->update($data);
             $lockedEvent->syncAgeGroups($ageGroupIds);
-            $this->syncCompetition($lockedEvent);
 
             if ($lockedEvent->wasChanged(self::FINANCIAL_EVENT_FIELDS)) {
                 $lockedEvent->convocationGroups()
@@ -128,7 +139,6 @@ class EventLifecycleService
 
             $childEvent = Event::query()->create($childData);
             $childEvent->syncAgeGroups($ageGroupIds);
-            $this->syncCompetition($childEvent);
         }
     }
 
@@ -147,73 +157,45 @@ class EventLifecycleService
             ->get()
             ->each(fn ($group) => $this->deleteConvocationGroup->execute($group));
 
-        $this->deleteCompetitionForEvent($event);
+        $this->detachCompetitionProjection($event);
         $event->delete();
     }
 
-    private function syncCompetition(Event $event): void
+    /** @param array<string,mixed> $data */
+    private function preserveCompetitionOwnedProjectionFields(Event $event, array $data): array
     {
-        $competitionType = $this->resolveCompetitionType($event);
+        $isCompetitionProjection = CompetitionEventProjection::query()
+            ->where('event_id', $event->id)
+            ->where('status', 'linked')
+            ->exists();
 
-        if ($competitionType === null) {
-            $this->deleteCompetitionForEvent($event);
+        if (! $isCompetitionProjection) {
+            return $data;
+        }
 
+        foreach (self::COMPETITION_PROJECTED_FIELDS as $field) {
+            unset($data[$field]);
+        }
+
+        return $data;
+    }
+
+    private function detachCompetitionProjection(Event $event): void
+    {
+        $projection = CompetitionEventProjection::query()
+            ->where('event_id', $event->id)
+            ->lockForUpdate()
+            ->first();
+
+        if (! $projection) {
             return;
         }
 
-        Competition::query()->updateOrCreate(
-            ['evento_id' => $event->id],
-            [
-                'nome' => $event->titulo,
-                'local' => $event->local ?: 'N/A',
-                'data_inicio' => $event->data_inicio,
-                'data_fim' => $event->data_fim,
-                'tipo' => $competitionType,
-            ]
-        );
-    }
-
-    private function resolveCompetitionType(Event $event): ?string
-    {
-        $normalizedType = $this->normalizeType((string) $event->tipo);
-        if (in_array($normalizedType, ['prova', 'competicao'], true)) {
-            return $normalizedType;
-        }
-
-        $configuredType = EventType::query()
-            ->get(['nome', 'categoria'])
-            ->first(fn (EventType $type) => $this->normalizeType((string) $type->nome) === $normalizedType);
-        $configuredCategory = $this->normalizeType((string) ($configuredType?->categoria ?? ''));
-
-        return in_array($configuredCategory, ['prova', 'competicao'], true)
-            ? $configuredCategory
-            : null;
-    }
-
-    private function normalizeType(string $value): string
-    {
-        return Str::of(Str::ascii($value))
-            ->lower()
-            ->replaceMatches('/[^a-z0-9]+/', '_')
-            ->trim('_')
-            ->value();
-    }
-
-    private function deleteCompetitionForEvent(Event $event): void
-    {
-        Competition::query()
-            ->where('evento_id', $event->id)
-            ->lockForUpdate()
-            ->get()
-            ->each(function (Competition $competition): void {
-                $competition->load('provas.registrations');
-
-                $competition->provas
-                    ->flatMap(fn ($prova) => $prova->registrations)
-                    ->each(fn ($registration) => $this->deleteCompetitionRegistration->execute($registration));
-
-                $competition->provas()->delete();
-                $competition->delete();
-            });
+        $projection->event_id = null;
+        $projection->legacy_event_id ??= $event->id;
+        $projection->status = 'detached';
+        $projection->manual_review_reason = 'event_deleted_from_events';
+        $projection->projected_at = null;
+        $projection->save();
     }
 }

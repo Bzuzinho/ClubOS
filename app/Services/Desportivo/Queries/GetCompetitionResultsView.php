@@ -3,18 +3,23 @@
 namespace App\Services\Desportivo\Queries;
 
 use App\Models\Competition;
+use App\Services\Desportivo\SportsClubContext;
 use App\Support\LegacySportsGuard;
 
 class GetCompetitionResultsView
 {
-    public function __construct(private LegacySportsGuard $legacySportsGuard)
-    {
+    public function __construct(
+        private LegacySportsGuard $legacySportsGuard,
+        private SportsClubContext $clubContext,
+    ) {
     }
 
     public function __invoke(string $competitionId): array
     {
         $query = Competition::query()
+            ->forClub($this->clubContext->id())
             ->with([
+                'eventProjection',
                 'provas.registrations.athlete',
                 'provas.results.athlete',
                 'teamResults',

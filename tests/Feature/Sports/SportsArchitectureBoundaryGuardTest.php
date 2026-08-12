@@ -22,10 +22,7 @@ class SportsArchitectureBoundaryGuardTest extends TestCase
             ['app/Services/Desportivo/CreateCompetitionRegistrationAction.php'],
             $rules['sports_finance_persistence_boundary']['allowed_files']
         );
-        $this->assertSame(
-            ['app/Services/Eventos/EventLifecycleService.php'],
-            $rules['events_competition_master_boundary']['allowed_files']
-        );
+        $this->assertSame([], $rules['events_competition_master_boundary']['allowed_files']);
         $this->assertSame([], $rules['sports_member_read_coupling_boundary']['allowed_files']);
         $this->assertContains(
             'use App\\Services\\Members\\MemberTypeResolver;',

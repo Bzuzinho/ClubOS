@@ -23,7 +23,7 @@ class EventosLifecycleAndMemberSyncTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_web_crud_creates_recurring_events_age_groups_and_competitions_atomically(): void
+    public function test_web_crud_creates_recurring_events_and_age_groups_without_competition_masters(): void
     {
         $admin = User::factory()->admin()->create();
         $ageGroup = AgeGroup::query()->create([
@@ -64,7 +64,7 @@ class EventosLifecycleAndMemberSyncTest extends TestCase
         $this->assertSame($lastDate->toDateString(), $child->data_inicio?->toDateString());
         $this->assertSame([$ageGroup->id], $parent->ageGroups()->pluck('age_groups.id')->all());
         $this->assertSame([$ageGroup->id], $child->ageGroups()->pluck('age_groups.id')->all());
-        $this->assertSame(2, Competition::query()->count());
+        $this->assertSame(0, Competition::query()->count());
     }
 
     public function test_eventos_index_returns_every_editable_field_and_canonical_age_groups(): void
@@ -108,7 +108,7 @@ class EventosLifecycleAndMemberSyncTest extends TestCase
             ->assertJsonPath('props.eventos.0.escaloes_elegiveis.0', $ageGroup->id);
     }
 
-    public function test_configured_competition_category_creates_the_sports_link(): void
+    public function test_configured_competition_category_remains_event_only(): void
     {
         $admin = User::factory()->admin()->create();
         EventType::query()->create([
@@ -129,9 +129,10 @@ class EventosLifecycleAndMemberSyncTest extends TestCase
 
         $event = Event::query()->where('titulo', 'Open configurado')->firstOrFail();
 
-        $this->assertDatabaseHas('competitions', [
-            'evento_id' => $event->id,
-            'tipo' => 'prova',
+        $this->assertSame(0, Competition::query()->count());
+        $this->assertDatabaseHas('events', [
+            'id' => $event->id,
+            'tipo' => 'prova_oficial',
         ]);
     }
 
