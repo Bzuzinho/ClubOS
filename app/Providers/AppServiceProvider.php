@@ -3,9 +3,11 @@
 namespace App\Providers;
 
 use App\Contracts\Communication\SportsCommunicationGateway;
+use App\Contracts\Desportivo\SportsAudienceProvider;
 use App\Contracts\Financeiro\CompetitionFinanceGateway;
 use App\Contracts\Logistica\SportsLogisticsGateway;
 use App\Contracts\Members\MemberSportsIdentityProvider;
+use App\Http\Middleware\EnforceSportsLegacyCutover;
 use App\Http\Middleware\PersistInAppNotificationPreference;
 use App\Models\ConvocationGroup;
 use App\Models\Event;
@@ -25,6 +27,7 @@ use App\Observers\MovementObserver;
 use App\Observers\SupplierPurchaseObserver;
 use App\Services\AccessControl\UserTypeAccessControlService;
 use App\Services\Communication\SportsCommunicationGatewayService;
+use App\Services\Desportivo\CanonicalSportsAudienceService;
 use App\Services\Financeiro\CompetitionFinancialObligationService;
 use App\Services\Logistica\SportsLogisticsGatewayService;
 use App\Services\Members\MemberSportsIdentityService;
@@ -36,6 +39,7 @@ class AppServiceProvider extends ServiceProvider
     {
         $this->app->singleton(UserTypeAccessControlService::class);
         $this->app->bind(MemberSportsIdentityProvider::class, MemberSportsIdentityService::class);
+        $this->app->bind(SportsAudienceProvider::class, CanonicalSportsAudienceService::class);
         $this->app->bind(CompetitionFinanceGateway::class, CompetitionFinancialObligationService::class);
         $this->app->bind(SportsCommunicationGateway::class, SportsCommunicationGatewayService::class);
         $this->app->bind(SportsLogisticsGateway::class, SportsLogisticsGatewayService::class);
@@ -43,6 +47,7 @@ class AppServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+        $this->app['router']->pushMiddlewareToGroup('web', EnforceSportsLegacyCutover::class);
         $this->app['router']->pushMiddlewareToGroup('web', PersistInAppNotificationPreference::class);
         $this->loadRoutesFrom(base_path('routes/desportivo_configuration.php'));
         $this->loadRoutesFrom(base_path('routes/desportivo_structure.php'));

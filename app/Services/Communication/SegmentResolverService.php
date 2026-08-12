@@ -2,28 +2,27 @@
 
 namespace App\Services\Communication;
 
+use App\Contracts\Desportivo\SportsAudienceProvider;
 use App\Models\AgeGroup;
 use App\Models\CommunicationDynamicSource;
 use App\Models\CommunicationSegment;
 use App\Models\EventAttendance;
 use App\Models\InAppAlert;
 use App\Models\Invoice;
-use App\Models\TeamMember;
 use App\Models\User;
 use App\Services\Members\MemberDataReadService;
 use App\Services\Members\MemberIdentityDisplayResolver;
 use Illuminate\Database\Eloquent\Collection as EloquentCollection;
-use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 
 class SegmentResolverService
 {
-    private ?bool $usersHaveAgeGroupColumn = null;
-
     public function __construct(
         private readonly MemberIdentityDisplayResolver $memberIdentityDisplayResolver,
         private readonly MemberDataReadService $memberDataReadService,
+        private readonly SportsAudienceProvider $sportsAudienceProvider,
     ) {
     }
 
@@ -75,10 +74,11 @@ class SegmentResolverService
         $source = $this->resolveSourceStrategy($rules);
 
         return match ($source) {
-            'athletes' => User::whereJsonContains('tipo_membro', 'atleta')->get(),
+            'athletes' => $this->usersByIds($this->sportsAudienceProvider->activeAthleteIds()),
+            // Guardian is a Membros/person role rather than a Sports participation.
             'guardians' => User::whereJsonContains('tipo_membro', 'encarregado_educacao')->get(),
-            'coaches' => User::whereJsonContains('tipo_membro', 'treinador')->get(),
-            'team_members' => $this->usersFromTeam($rules),
+            'coaches' => $this->usersByIds($this->sportsAudienceProvider->activeCoachIds()),
+            'team_members', 'training_group_members' => $this->usersFromTrainingGroup($rules),
             'age_group_members' => $this->usersFromAgeGroups($rules),
             'overdue_payments' => $this->usersWithOverduePayments(),
             'event_participants' => $this->usersFromEvent($rules),
@@ -89,9 +89,9 @@ class SegmentResolverService
 
     private function resolveManualUsers(array $rules): Collection
     {
-        $userIds = collect($rules['user_ids'] ?? [])->filter()->values();
-        $ageGroupIds = collect($rules['age_group_ids'] ?? [])->filter()->values();
-        $userTypes = collect($rules['user_types'] ?? [])->filter()->values();
+        $userIds = collect($rules['user_ids'] ?? [])->filter()->map('strval')->unique()->values();
+        $ageGroupIds = collect($rules['age_group_ids'] ?? [])->filter()->map('strval')->unique()->values();
+        $userTypes = collect($rules['user_types'] ?? [])->filter()->map('strval')->unique()->values();
 
         if ($userIds->isEmpty() && $ageGroupIds->isEmpty() && $userTypes->isEmpty()) {
             return collect();
@@ -102,19 +102,57 @@ class SegmentResolverService
         });
 
         if ($userIds->isNotEmpty()) {
-            $query->whereIn('id', $userIds);
+            $query->whereIn('id', $userIds->all());
         }
 
         if ($ageGroupIds->isNotEmpty()) {
-            $query->where(function (Builder $builder) use ($ageGroupIds) {
-                $this->applyAgeGroupFilter($builder, $ageGroupIds->all());
-            });
+            $canonicalAgeGroupUserIds = $this->sportsAudienceProvider->officialAgeGroupMemberIds(
+                $ageGroupIds->all(),
+                $this->nullableString($rules['season_id'] ?? null),
+            );
+            $query->whereIn('id', $canonicalAgeGroupUserIds === [] ? ['__none__'] : $canonicalAgeGroupUserIds);
         }
 
         if ($userTypes->isNotEmpty()) {
-            $query->where(function ($builder) use ($userTypes) {
-                foreach ($userTypes as $userType) {
-                    $builder->orWhereJsonContains('tipo_membro', $userType);
+            $sportsUserIds = collect();
+            $memberRoleTypes = collect();
+
+            foreach ($userTypes as $userType) {
+                $normalized = mb_strtolower(trim((string) $userType));
+
+                if (in_array($normalized, ['atleta', 'athlete'], true)) {
+                    $sportsUserIds = $sportsUserIds->merge($this->sportsAudienceProvider->activeAthleteIds());
+                    continue;
+                }
+
+                if (in_array($normalized, ['treinador', 'coach'], true)) {
+                    $sportsUserIds = $sportsUserIds->merge($this->sportsAudienceProvider->activeCoachIds());
+                    continue;
+                }
+
+                $memberRoleTypes->push((string) $userType);
+            }
+
+            $sportsUserIds = $sportsUserIds->filter()->unique()->values();
+            $query->where(function ($builder) use ($sportsUserIds, $memberRoleTypes): void {
+                $hasCondition = false;
+
+                if ($sportsUserIds->isNotEmpty()) {
+                    $builder->whereIn('id', $sportsUserIds->all());
+                    $hasCondition = true;
+                }
+
+                foreach ($memberRoleTypes as $memberRoleType) {
+                    if ($hasCondition) {
+                        $builder->orWhereJsonContains('tipo_membro', $memberRoleType);
+                    } else {
+                        $builder->whereJsonContains('tipo_membro', $memberRoleType);
+                        $hasCondition = true;
+                    }
+                }
+
+                if (! $hasCondition) {
+                    $builder->whereRaw('1 = 0');
                 }
             });
         }
@@ -158,17 +196,21 @@ class SegmentResolverService
             ->value('strategy') ?? $fallbackSource;
     }
 
-    private function usersFromTeam(array $rules): Collection
+    private function usersFromTrainingGroup(array $rules): Collection
     {
-        $teamId = $rules['team_id'] ?? null;
+        $trainingGroupId = $this->nullableString($rules['training_group_id'] ?? null);
 
-        if (!$teamId) {
+        if ($trainingGroupId === null) {
+            if (filled($rules['team_id'] ?? null)) {
+                Log::warning('Legacy communication team audience requires manual migration to training_group_id.', [
+                    'team_id' => $rules['team_id'],
+                ]);
+            }
+
             return collect();
         }
 
-        $userIds = TeamMember::where('team_id', $teamId)->pluck('user_id');
-
-        return User::whereIn('id', $userIds)->get();
+        return $this->usersByIds($this->sportsAudienceProvider->trainingGroupMemberIds($trainingGroupId));
     }
 
     private function usersFromAgeGroups(array $rules): Collection
@@ -176,42 +218,18 @@ class SegmentResolverService
         $ageGroupIds = collect($rules['age_group_ids'] ?? [])
             ->when(empty($rules['age_group_ids'] ?? []), fn ($collection) => $collection->push($rules['age_group_id'] ?? null))
             ->filter()
+            ->map('strval')
+            ->unique()
             ->values();
 
         if ($ageGroupIds->isEmpty()) {
             return collect();
         }
 
-        return User::query()
-            ->where(function ($query) use ($ageGroupIds) {
-                $this->applyAgeGroupFilter($query, $ageGroupIds->all());
-            })
-            ->get();
-    }
-
-    private function applyAgeGroupFilter(Builder $query, array $ageGroupIds): void
-    {
-        $hasStructuredCondition = false;
-
-        if ($this->usersHaveAgeGroupColumn()) {
-            $query->whereIn('age_group_id', $ageGroupIds);
-            $hasStructuredCondition = true;
-        }
-
-        foreach ($ageGroupIds as $ageGroupId) {
-            if ($hasStructuredCondition) {
-                $query->orWhereJsonContains('escalao', $ageGroupId);
-                continue;
-            }
-
-            $query->whereJsonContains('escalao', $ageGroupId);
-            $hasStructuredCondition = true;
-        }
-    }
-
-    private function usersHaveAgeGroupColumn(): bool
-    {
-        return $this->usersHaveAgeGroupColumn ??= Schema::hasColumn('users', 'age_group_id');
+        return $this->usersByIds($this->sportsAudienceProvider->officialAgeGroupMemberIds(
+            $ageGroupIds->all(),
+            $this->nullableString($rules['season_id'] ?? null),
+        ));
     }
 
     private function usersWithOverduePayments(): Collection
@@ -232,6 +250,8 @@ class SegmentResolverService
             return collect();
         }
 
+        // Event attendance remains valid for non-training Eventos. Training
+        // attendance is never resolved from this source after the Sports cutover.
         $userIds = EventAttendance::where('evento_id', $eventId)->distinct()->pluck('user_id');
 
         return User::whereIn('id', $userIds)->get();
@@ -246,6 +266,16 @@ class SegmentResolverService
         return User::whereIn('id', $userIds)->get();
     }
 
+    /** @param list<string> $userIds */
+    private function usersByIds(array $userIds): Collection
+    {
+        if ($userIds === []) {
+            return collect();
+        }
+
+        return User::query()->whereIn('id', $userIds)->get();
+    }
+
     private function loadCommunicationPersonalData(Collection $users): void
     {
         if ($users instanceof EloquentCollection) {
@@ -254,6 +284,17 @@ class SegmentResolverService
     }
 
     private function normalizedCommunicationContact(mixed $value): ?string
+    {
+        if (! is_string($value)) {
+            return null;
+        }
+
+        $trimmed = trim($value);
+
+        return $trimmed === '' ? null : $trimmed;
+    }
+
+    private function nullableString(mixed $value): ?string
     {
         if (! is_string($value)) {
             return null;

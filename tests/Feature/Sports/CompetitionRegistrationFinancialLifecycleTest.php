@@ -3,8 +3,9 @@
 namespace Tests\Feature\Sports;
 
 use App\Models\Competition;
+use App\Models\CompetitionFinancePolicy;
+use App\Models\CompetitionFinancialObligation;
 use App\Models\CompetitionRegistration;
-use App\Models\Event;
 use App\Models\FiscalDocumentRequest;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
@@ -22,11 +23,11 @@ class CompetitionRegistrationFinancialLifecycleTest extends TestCase
     use RefreshDatabase;
     use GrantsDesportivoAccess;
 
-    public function test_create_with_explicit_value_creates_invoice_item_and_no_parallel_financial_entry(): void
+    public function test_create_with_explicit_value_uses_canonical_obligation_and_no_parallel_financial_entry(): void
     {
         $admin = $this->authorizedAdmin();
         $athlete = User::factory()->create();
-        $prova = $this->createProvaWithEventFee(25);
+        [$competition, $prova] = $this->createCompetitionAndProva(25);
 
         $response = $this->actingAs($admin)->postJson('/api/desportivo/competition-registrations', [
             'prova_id' => $prova->id,
@@ -36,19 +37,19 @@ class CompetitionRegistrationFinancialLifecycleTest extends TestCase
         ]);
 
         $response->assertCreated();
-        $registrationId = $response->json('id');
-
-        $registration = CompetitionRegistration::query()->findOrFail($registrationId);
-        $invoice = Invoice::query()->findOrFail($registration->fatura_id);
+        $registrationId = (string) $response->json('id');
+        $invoice = $this->invoiceFor($competition, $athlete);
+        $obligation = $this->obligationFor($competition, $athlete);
 
         $this->assertSame('competition_registration', $invoice->origem_tipo);
-        $this->assertSame((string) $registration->id, (string) $invoice->origem_id);
+        $this->assertSame($registrationId, (string) $invoice->origem_id);
         $this->assertSame('inscricao', $invoice->tipo);
         $this->assertSame(12.5, (float) $invoice->valor_total);
+        $this->assertDatabaseHas('competition_registrations', ['id' => $registrationId, 'fatura_id' => null]);
 
         $this->assertDatabaseHas('invoice_items', [
             'fatura_id' => $invoice->id,
-            'descricao' => 'Inscricao em prova - '.$prova->competition->evento->titulo,
+            'descricao' => 'Inscricao em prova - '.$competition->nome,
             'quantidade' => 1,
             'total_linha' => 12.5,
         ]);
@@ -58,53 +59,48 @@ class CompetitionRegistrationFinancialLifecycleTest extends TestCase
         ]);
     }
 
-    public function test_create_without_explicit_value_uses_event_fee(): void
+    public function test_create_without_explicit_value_uses_canonical_per_race_policy(): void
     {
         $admin = $this->authorizedAdmin();
         $athlete = User::factory()->create();
-        $prova = $this->createProvaWithEventFee(19.9);
+        [$competition, $prova] = $this->createCompetitionAndProva(19.9);
 
-        $response = $this->actingAs($admin)->postJson('/api/desportivo/competition-registrations', [
+        $this->actingAs($admin)->postJson('/api/desportivo/competition-registrations', [
             'prova_id' => $prova->id,
             'user_id' => $athlete->id,
             'estado' => 'inscrito',
-        ]);
+        ])->assertCreated();
 
-        $response->assertCreated();
-
-        $registration = CompetitionRegistration::query()->findOrFail($response->json('id'));
-        $invoice = Invoice::query()->findOrFail($registration->fatura_id);
-
-        $this->assertSame(19.9, (float) $invoice->valor_total);
+        $this->assertSame(19.9, (float) $this->invoiceFor($competition, $athlete)->valor_total);
     }
 
-    public function test_create_zero_value_without_event_fee_does_not_create_financial_debt(): void
+    public function test_create_zero_value_with_club_pays_policy_does_not_create_financial_debt(): void
     {
         $admin = $this->authorizedAdmin();
         $athlete = User::factory()->create();
-        $prova = $this->createProvaWithEventFee(null);
+        [$competition, $prova] = $this->createCompetitionAndProva(null);
 
         $response = $this->actingAs($admin)->postJson('/api/desportivo/competition-registrations', [
             'prova_id' => $prova->id,
             'user_id' => $athlete->id,
             'estado' => 'inscrito',
             'valor_inscricao' => 0,
+        ])->assertCreated();
+
+        $this->assertDatabaseHas('competition_registrations', [
+            'id' => (string) $response->json('id'),
+            'fatura_id' => null,
         ]);
-
-        $response->assertCreated();
-
-        $registration = CompetitionRegistration::query()->findOrFail($response->json('id'));
-        $this->assertNull($registration->fatura_id);
-
         $this->assertSame(0, Invoice::query()->count());
         $this->assertSame(0, InvoiceItem::query()->count());
+        $this->assertSame('no_charge', $this->obligationFor($competition, $athlete)->status);
     }
 
     public function test_duplicate_registration_for_same_user_and_prova_remains_blocked(): void
     {
         $admin = $this->authorizedAdmin();
         $athlete = User::factory()->create();
-        $prova = $this->createProvaWithEventFee(12);
+        [, $prova] = $this->createCompetitionAndProva(12);
 
         $payload = [
             'prova_id' => $prova->id,
@@ -114,10 +110,7 @@ class CompetitionRegistrationFinancialLifecycleTest extends TestCase
         ];
 
         $this->actingAs($admin)->postJson('/api/desportivo/competition-registrations', $payload)->assertCreated();
-
-        $this->actingAs($admin)
-            ->postJson('/api/desportivo/competition-registrations', $payload)
-            ->assertStatus(422);
+        $this->actingAs($admin)->postJson('/api/desportivo/competition-registrations', $payload)->assertStatus(422);
     }
 
     public function test_destroy_registration_without_invoice_is_allowed(): void
@@ -136,7 +129,7 @@ class CompetitionRegistrationFinancialLifecycleTest extends TestCase
     {
         $admin = $this->authorizedAdmin();
         $registration = $this->createRegistrationWithoutInvoice();
-        $invoice = $this->attachInvoiceToRegistration($registration, [
+        $invoice = $this->attachInvoiceToObligation($registration, [
             'estado_pagamento' => 'pendente',
             'valor_total' => 22,
             'valor_pago' => 0,
@@ -157,7 +150,7 @@ class CompetitionRegistrationFinancialLifecycleTest extends TestCase
         $admin = $this->authorizedAdmin();
         $registration = $this->createRegistrationWithoutInvoice();
 
-        $this->attachInvoiceToRegistration($registration, [
+        $this->attachInvoiceToObligation($registration, [
             'estado_pagamento' => 'parcial',
             'valor_total' => 30,
             'valor_pago' => 10,
@@ -177,7 +170,7 @@ class CompetitionRegistrationFinancialLifecycleTest extends TestCase
         $admin = $this->authorizedAdmin();
         $registration = $this->createRegistrationWithoutInvoice();
 
-        $this->attachInvoiceToRegistration($registration, [
+        $this->attachInvoiceToObligation($registration, [
             'estado_pagamento' => 'pago',
             'valor_total' => 30,
             'valor_pago' => 30,
@@ -196,7 +189,7 @@ class CompetitionRegistrationFinancialLifecycleTest extends TestCase
     {
         $admin = $this->authorizedAdmin();
         $registration = $this->createRegistrationWithoutInvoice();
-        $invoice = $this->attachInvoiceToRegistration($registration, [
+        $invoice = $this->attachInvoiceToObligation($registration, [
             'estado_pagamento' => 'pendente',
             'valor_total' => 30,
             'valor_pago' => 0,
@@ -232,7 +225,7 @@ class CompetitionRegistrationFinancialLifecycleTest extends TestCase
     {
         $admin = $this->authorizedAdmin();
         $registration = $this->createRegistrationWithoutInvoice();
-        $invoice = $this->attachInvoiceToRegistration($registration, [
+        $invoice = $this->attachInvoiceToObligation($registration, [
             'estado_pagamento' => 'pendente',
             'valor_total' => 30,
             'valor_pago' => 0,
@@ -260,7 +253,7 @@ class CompetitionRegistrationFinancialLifecycleTest extends TestCase
         $admin = $this->authorizedAdmin();
         $registration = $this->createRegistrationWithoutInvoice();
 
-        $this->attachInvoiceToRegistration($registration, [
+        $this->attachInvoiceToObligation($registration, [
             'estado_pagamento' => 'pendente',
             'valor_total' => 30,
             'valor_pago' => 0,
@@ -282,57 +275,72 @@ class CompetitionRegistrationFinancialLifecycleTest extends TestCase
         return $admin;
     }
 
-    private function createProvaWithEventFee(?float $eventFee): Prova
+    /** @return array{0:Competition,1:Prova} */
+    private function createCompetitionAndProva(?float $perRaceAmount): array
     {
-        $creator = User::factory()->create();
-
-        $event = Event::query()->create([
-            'titulo' => 'Meeting Regional',
-            'descricao' => 'Evento de teste',
-            'data_inicio' => now()->toDateString(),
-            'tipo' => 'prova',
-            'taxa_inscricao' => $eventFee,
-            'estado' => 'agendado',
-            'criado_por' => $creator->id,
-        ]);
-
         $competition = Competition::query()->create([
+            'club_id' => config('sports.club_id', 'bscn'),
             'nome' => 'Competicao Teste',
             'local' => 'Piscina Municipal',
             'data_inicio' => now()->toDateString(),
             'data_fim' => now()->addDay()->toDateString(),
             'tipo' => 'natacao',
-            'evento_id' => $event->id,
+            'status' => 'scheduled',
         ]);
 
-        return Prova::query()->create([
+        CompetitionFinancePolicy::query()->create([
+            'club_id' => $competition->club_id,
+            'competition_id' => $competition->id,
+            'payer_mode' => $perRaceAmount !== null ? 'athlete' : 'club',
+            'charge_mode' => $perRaceAmount !== null ? 'per_race' : 'none',
+            'per_race_amount' => $perRaceAmount,
+            'active' => true,
+        ]);
+
+        $prova = Prova::query()->create([
             'competicao_id' => $competition->id,
             'estilo' => 'LIVRE',
             'distancia_m' => 100,
             'genero' => 'M',
             'ordem_prova' => 1,
         ]);
+
+        return [$competition, $prova];
     }
 
     private function createRegistrationWithoutInvoice(): CompetitionRegistration
     {
         $athlete = User::factory()->create();
-        $prova = $this->createProvaWithEventFee(null);
+        [, $prova] = $this->createCompetitionAndProva(null);
 
         return CompetitionRegistration::query()->create([
             'prova_id' => $prova->id,
             'user_id' => $athlete->id,
             'estado' => 'inscrito',
             'valor_inscricao' => 0,
-            'fatura_id' => null,
         ]);
     }
 
-    /**
-     * @param array<string,mixed> $overrides
-     */
-    private function attachInvoiceToRegistration(CompetitionRegistration $registration, array $overrides = []): Invoice
+    /** @param array<string,mixed> $overrides */
+    private function attachInvoiceToObligation(CompetitionRegistration $registration, array $overrides = []): Invoice
     {
+        $registration->loadMissing('prova.competition');
+        $competition = $registration->prova->competition;
+
+        $obligation = CompetitionFinancialObligation::query()->firstOrCreate(
+            [
+                'club_id' => $competition->club_id,
+                'competition_id' => $competition->id,
+                'user_id' => $registration->user_id,
+            ],
+            [
+                'status' => 'active',
+                'calculated_amount' => (float) ($overrides['valor_total'] ?? 10),
+                'calculation_snapshot' => ['registration_ids' => [(string) $registration->id]],
+                'synchronized_at' => now(),
+            ]
+        );
+
         $base = [
             'user_id' => $registration->user_id,
             'data_fatura' => now()->toDateString(),
@@ -363,8 +371,27 @@ class CompetitionRegistrationFinancialLifecycleTest extends TestCase
             'centro_custo_id' => $invoice->centro_custo_id,
         ]);
 
-        $registration->update(['fatura_id' => $invoice->id]);
+        $obligation->update([
+            'invoice_id' => $invoice->id,
+            'status' => 'active',
+            'calculated_amount' => (float) $invoice->valor_total,
+            'calculation_snapshot' => ['registration_ids' => [(string) $registration->id]],
+            'synchronized_at' => now(),
+        ]);
 
         return $invoice;
+    }
+
+    private function obligationFor(Competition $competition, User $athlete): CompetitionFinancialObligation
+    {
+        return CompetitionFinancialObligation::query()
+            ->where('competition_id', $competition->id)
+            ->where('user_id', $athlete->id)
+            ->sole();
+    }
+
+    private function invoiceFor(Competition $competition, User $athlete): Invoice
+    {
+        return Invoice::query()->findOrFail($this->obligationFor($competition, $athlete)->invoice_id);
     }
 }

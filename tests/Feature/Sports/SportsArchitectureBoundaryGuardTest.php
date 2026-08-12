@@ -18,26 +18,30 @@ class SportsArchitectureBoundaryGuardTest extends TestCase
     {
         $rules = app(SportsArchitectureBoundaryGuard::class)->rules();
 
-        $this->assertSame([], $rules['sports_finance_persistence_boundary']['allowed_files']);
-        $this->assertSame([], $rules['sports_communication_persistence_boundary']['allowed_files']);
-        $this->assertSame([], $rules['sports_logistics_persistence_boundary']['allowed_files']);
-        $this->assertSame([], $rules['events_competition_master_boundary']['allowed_files']);
-        $this->assertSame([], $rules['sports_member_read_coupling_boundary']['allowed_files']);
+        foreach ([
+            'sports_finance_persistence_boundary',
+            'sports_communication_persistence_boundary',
+            'sports_logistics_persistence_boundary',
+            'sports_legacy_runtime_boundary',
+            'finance_competition_legacy_pointer_boundary',
+            'communication_sports_legacy_audience_boundary',
+            'events_competition_master_boundary',
+            'sports_member_read_coupling_boundary',
+        ] as $rule) {
+            $this->assertSame([], $rules[$rule]['allowed_files'], "Boundary {$rule} is not closed.");
+        }
+
         $this->assertContains(
             'use App\\Models\\PaymentAllocation;',
             $rules['sports_finance_persistence_boundary']['needles']
         );
         $this->assertContains(
-            'use App\\Services\\Communication\\',
-            $rules['sports_communication_persistence_boundary']['needles']
+            'use App\\Models\\EventAttendance;',
+            $rules['sports_legacy_runtime_boundary']['needles']
         );
         $this->assertContains(
-            'use App\\Models\\EquipmentLoan;',
-            $rules['sports_logistics_persistence_boundary']['needles']
-        );
-        $this->assertContains(
-            'use App\\Services\\Members\\MemberTypeResolver;',
-            $rules['sports_member_read_coupling_boundary']['needles']
+            'use App\\Models\\TeamMember;',
+            $rules['communication_sports_legacy_audience_boundary']['needles']
         );
     }
 
