@@ -13,6 +13,9 @@ return Application::configure(basePath: dirname(__DIR__))
         api: __DIR__.'/../routes/api.php',
         commands: __DIR__.'/../routes/console.php',
         health: '/up',
+        then: function (Application $app): void {
+            require $app->basePath('routes/desportivo_planning_canonical.php');
+        },
     )
     ->withCommands([
         \App\Console\Commands\DatabaseSafety\MigrateFreshGuardedCommand::class,
