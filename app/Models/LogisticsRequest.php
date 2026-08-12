@@ -25,6 +25,9 @@ class LogisticsRequest extends Model
         'financial_invoice_id',
         'notes',
         'created_by',
+        'source_type',
+        'source_id',
+        'idempotency_key',
     ];
 
     protected $casts = [

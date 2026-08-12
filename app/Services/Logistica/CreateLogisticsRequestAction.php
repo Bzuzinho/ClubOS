@@ -35,6 +35,9 @@ class CreateLogisticsRequestAction
                 'notes' => $data['notes'] ?? null,
                 'total_amount' => 0,
                 'created_by' => $actor?->id,
+                'source_type' => $data['source_type'] ?? null,
+                'source_id' => $data['source_id'] ?? null,
+                'idempotency_key' => $data['idempotency_key'] ?? null,
             ]);
 
             $total = 0;

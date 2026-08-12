@@ -14,7 +14,7 @@ class ConvocationGroup extends Model
     protected $table = 'convocation_groups';
 
     protected $fillable = [
-        'id',  // ✅ IMPORTANTE: Precisa estar aqui para updateOrCreate respeitar o ID
+        'id',
         'evento_id',
         'data_criacao',
         'criado_por',
@@ -29,6 +29,11 @@ class ConvocationGroup extends Model
         'valor_inscricao_calculado',
         'movimento_id',
         'centro_custo_id',
+        'publication_status',
+        'publication_version',
+        'published_at',
+        'published_by',
+        'published_fingerprint',
     ];
 
     protected $casts = [
@@ -38,6 +43,8 @@ class ConvocationGroup extends Model
         'valor_por_estafeta' => 'decimal:2',
         'valor_inscricao_unitaria' => 'decimal:2',
         'valor_inscricao_calculado' => 'decimal:2',
+        'publication_version' => 'integer',
+        'published_at' => 'datetime',
     ];
 
     public function evento(): BelongsTo
@@ -48,6 +55,11 @@ class ConvocationGroup extends Model
     public function criadoPor(): BelongsTo
     {
         return $this->belongsTo(User::class, 'criado_por');
+    }
+
+    public function publishedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'published_by');
     }
 
     public function convocationAthletes(): HasMany
