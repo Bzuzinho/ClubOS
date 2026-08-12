@@ -45,7 +45,6 @@ final class SportsStructureWorkspaceService
             'tipo' => $data['tipo'] ?? 'Principal',
             'estado' => $this->legacySeasonState($status),
             'status' => $status,
-            'ativa' => $status === 'active',
             'descricao' => $data['descricao'] ?? null,
         ]);
     }
@@ -72,7 +71,6 @@ final class SportsStructureWorkspaceService
 
         if (isset($data['status'])) {
             $data['estado'] = $this->legacySeasonState($data['status']);
-            $data['ativa'] = $data['status'] === 'active';
         }
 
         $season->fill($data)->save();
@@ -97,7 +95,6 @@ final class SportsStructureWorkspaceService
         $season->forceFill([
             'status' => 'archived',
             'estado' => 'Arquivada',
-            'ativa' => false,
         ])->save();
     }
 

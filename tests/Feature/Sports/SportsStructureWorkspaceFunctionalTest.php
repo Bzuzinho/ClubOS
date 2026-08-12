@@ -53,7 +53,6 @@ class SportsStructureWorkspaceFunctionalTest extends TestCase
         ], $actor->id);
 
         $this->assertSame('Em curso', $season->estado);
-        $this->assertTrue((bool) $season->ativa);
 
         $ageGroup = $workspace->createAgeGroup([
             'code' => 'cadete-functional',
