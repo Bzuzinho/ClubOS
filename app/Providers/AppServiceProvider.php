@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use App\Contracts\Financeiro\CompetitionFinanceGateway;
 use App\Contracts\Members\MemberSportsIdentityProvider;
 use App\Http\Middleware\PersistInAppNotificationPreference;
 use App\Models\Event;
@@ -19,6 +20,7 @@ use App\Observers\MovementDocumentObserver;
 use App\Observers\MovementObserver;
 use App\Observers\SupplierPurchaseObserver;
 use App\Services\AccessControl\UserTypeAccessControlService;
+use App\Services\Financeiro\CompetitionFinancialObligationService;
 use App\Services\Members\MemberSportsIdentityService;
 use Illuminate\Support\ServiceProvider;
 
@@ -28,6 +30,7 @@ class AppServiceProvider extends ServiceProvider
     {
         $this->app->singleton(UserTypeAccessControlService::class);
         $this->app->bind(MemberSportsIdentityProvider::class, MemberSportsIdentityService::class);
+        $this->app->bind(CompetitionFinanceGateway::class, CompetitionFinancialObligationService::class);
     }
 
     public function boot(): void

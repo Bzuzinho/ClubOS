@@ -2,6 +2,7 @@
 
 namespace App\Services\Desportivo;
 
+use App\Contracts\Financeiro\CompetitionFinanceGateway;
 use App\Models\Competition;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
@@ -12,6 +13,7 @@ final class CompetitionLifecycleService
     public function __construct(
         private readonly SportsClubContext $clubContext,
         private readonly CompetitionEventProjectionService $projectionService,
+        private readonly CompetitionFinanceGateway $financeGateway,
     ) {
     }
 
@@ -28,9 +30,10 @@ final class CompetitionLifecycleService
                 'updated_by' => $actor->id,
             ]);
 
+            $this->financeGateway->ensureDefaultPolicy((string) $competition->club_id, (string) $competition->id);
             $this->projectionService->sync($competition, $actor);
 
-            return $competition->fresh(['eventProjection', 'evento']);
+            return $competition->fresh(['eventProjection', 'evento', 'financePolicy']);
         });
     }
 
@@ -63,7 +66,7 @@ final class CompetitionLifecycleService
 
             $this->projectionService->sync($lockedCompetition, $actor);
 
-            return $lockedCompetition->fresh(['eventProjection', 'evento']);
+            return $lockedCompetition->fresh(['eventProjection', 'evento', 'financePolicy']);
         });
     }
 

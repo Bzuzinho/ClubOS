@@ -14,16 +14,17 @@ class SportsArchitectureBoundaryGuardTest extends TestCase
         $this->assertSame([], $guard->violations(), $this->failureMessage($guard));
     }
 
-    public function test_known_foundation_debt_is_explicit_and_phase_scoped(): void
+    public function test_foundation_boundaries_are_closed_for_completed_phases(): void
     {
         $rules = app(SportsArchitectureBoundaryGuard::class)->rules();
 
-        $this->assertSame(
-            ['app/Services/Desportivo/CreateCompetitionRegistrationAction.php'],
-            $rules['sports_finance_persistence_boundary']['allowed_files']
-        );
+        $this->assertSame([], $rules['sports_finance_persistence_boundary']['allowed_files']);
         $this->assertSame([], $rules['events_competition_master_boundary']['allowed_files']);
         $this->assertSame([], $rules['sports_member_read_coupling_boundary']['allowed_files']);
+        $this->assertContains(
+            'use App\\Models\\PaymentAllocation;',
+            $rules['sports_finance_persistence_boundary']['needles']
+        );
         $this->assertContains(
             'use App\\Services\\Members\\MemberTypeResolver;',
             $rules['sports_member_read_coupling_boundary']['needles']
