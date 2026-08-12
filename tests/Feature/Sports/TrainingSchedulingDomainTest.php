@@ -5,9 +5,10 @@ declare(strict_types=1);
 namespace Tests\Feature\Sports;
 
 use App\Models\ClubSetting;
+use App\Models\SportsPool;
+use App\Models\SportsPoolLane;
 use App\Models\SportsVenue;
 use App\Models\SportsVenueClosure;
-use App\Models\SportsVenueLane;
 use App\Models\Training;
 use App\Models\TrainingScheduleException;
 use App\Models\User;
@@ -31,11 +32,13 @@ class TrainingSchedulingDomainTest extends TestCase
         config()->set('sports.club_id', 'bscn');
     }
 
-    public function test_pr5_schema_is_additive_and_tenant_aware(): void
+    public function test_planning_schema_is_additive_tenant_aware_and_has_canonical_lane_keys(): void
     {
         foreach ([
             'sports_venues',
             'sports_venue_lanes',
+            'sports_pools',
+            'sports_pool_lanes',
             'sports_venue_closures',
             'training_recurrences',
             'training_recurrence_groups',
@@ -49,11 +52,14 @@ class TrainingSchedulingDomainTest extends TestCase
 
         $this->assertTrue(Schema::hasColumns('trainings', [
             'sports_venue_id',
+            'sports_pool_id',
             'training_recurrence_id',
             'recurrence_occurrence_key',
             'schedule_review_required',
             'schedule_conflicts_snapshot',
         ]));
+        $this->assertTrue(Schema::hasColumn('training_session_group_lanes', 'sports_pool_lane_id'));
+        $this->assertTrue(Schema::hasColumn('training_recurrence_group_lanes', 'sports_pool_lane_id'));
 
         $this->assertTrue(Schema::hasColumns('club_settings', [
             'sports_lane_overlap_policy',
@@ -62,12 +68,12 @@ class TrainingSchedulingDomainTest extends TestCase
         ]));
     }
 
-    public function test_group_session_uses_dated_membership_and_keeps_lane_assignment(): void
+    public function test_group_session_uses_dated_membership_and_keeps_canonical_lane_assignment(): void
     {
         $coach = User::factory()->create();
         $athlete = User::factory()->athlete()->create();
         $unrelated = User::factory()->athlete()->create();
-        [$venue, $lanes] = $this->venue(8, 2);
+        [$venue, $pool, $lanes] = $this->venue(8, 2);
         $group = $this->group('COMP-A');
 
         app(TrainingGroupMembershipService::class)->assign(
@@ -84,7 +90,7 @@ class TrainingSchedulingDomainTest extends TestCase
             'data' => '2026-09-15',
             'hora_inicio' => '18:00',
             'hora_fim' => '19:30',
-            'sports_venue_id' => $venue->id,
+            'sports_pool_id' => $pool->id,
             'responsavel_id' => $coach->id,
             'tipo_treino' => 'Técnico',
             'instrucao' => 'Trabalho técnico por grupo.',
@@ -95,6 +101,8 @@ class TrainingSchedulingDomainTest extends TestCase
         ], $coach);
 
         $this->assertSame('bscn', $session->club_id);
+        $this->assertSame((string) $venue->id, (string) $session->sports_venue_id);
+        $this->assertSame((string) $pool->id, (string) $session->sports_pool_id);
         $this->assertSame(1, $session->sessionGroups()->count());
         $this->assertSame(
             (string) $lanes[0]->id,
@@ -102,12 +110,15 @@ class TrainingSchedulingDomainTest extends TestCase
         );
         $this->assertSame([$athlete->id], $session->athleteRecords()->pluck('user_id')->all());
         $this->assertFalse($session->athleteRecords()->where('user_id', $unrelated->id)->exists());
+        $this->assertDatabaseHas('training_session_group_lanes', [
+            'sports_pool_lane_id' => $lanes[0]->id,
+        ]);
     }
 
     public function test_lane_overlap_warns_or_blocks_according_to_club_policy(): void
     {
         $coach = User::factory()->create();
-        [$venue, $lanes] = $this->venue(8, 1);
+        [, $pool, $lanes] = $this->venue(8, 1);
         $groupA = $this->group('G-A');
         $groupB = $this->group('G-B');
 
@@ -125,18 +136,22 @@ class TrainingSchedulingDomainTest extends TestCase
         );
 
         $this->settings('warn', 'allow', 'allow');
-        $first = $this->groupSession($coach, $venue, $lanes[0], $groupA, '#L001');
-        $second = $this->groupSession($coach, $venue, $lanes[0], $groupB, '#L002');
+        $first = $this->groupSession($coach, $pool, $lanes[0], $groupA, '#L001');
+        $second = $this->groupSession($coach, $pool, $lanes[0], $groupB, '#L002');
 
         $this->assertTrue($first->fresh()->schedule_review_required === false);
         $this->assertTrue($second->fresh()->schedule_review_required);
         $this->assertSame('lane_overlap', $second->fresh()->schedule_conflicts_snapshot[0]['type']);
         $this->assertSame('warning', $second->fresh()->schedule_conflicts_snapshot[0]['severity']);
+        $this->assertSame(
+            (string) $lanes[0]->id,
+            (string) $second->fresh()->schedule_conflicts_snapshot[0]['context']['sports_pool_lane_ids'][0]
+        );
 
         ClubSetting::query()->update(['sports_lane_overlap_policy' => 'block']);
 
         try {
-            $this->groupSession($coach, $venue, $lanes[0], $this->group('G-C'), '#L003');
+            $this->groupSession($coach, $pool, $lanes[0], $this->group('G-C'), '#L003');
             $this->fail('A third overlapping session should have been blocked.');
         } catch (ValidationException $exception) {
             $this->assertArrayHasKey('schedule', $exception->errors());
@@ -148,7 +163,7 @@ class TrainingSchedulingDomainTest extends TestCase
     public function test_athlete_double_booking_and_capacity_can_be_blocked_independently(): void
     {
         $coach = User::factory()->create();
-        [$venue, $lanes] = $this->venue(2, 2);
+        [, $pool, $lanes] = $this->venue(2, 2);
         $athlete = User::factory()->athlete()->create();
         $groupA = $this->group('A');
         $groupB = $this->group('B');
@@ -158,10 +173,10 @@ class TrainingSchedulingDomainTest extends TestCase
         $memberships->assign($groupB, $athlete, false, '2026-09-01');
 
         $this->settings('allow', 'block', 'allow');
-        $this->groupSession($coach, $venue, $lanes[0], $groupA, '#A001');
+        $this->groupSession($coach, $pool, $lanes[0], $groupA, '#A001');
 
         try {
-            $this->groupSession($coach, $venue, $lanes[1], $groupB, '#A002');
+            $this->groupSession($coach, $pool, $lanes[1], $groupB, '#A002');
             $this->fail('Double booked athlete should have been blocked.');
         } catch (ValidationException $exception) {
             $this->assertArrayHasKey('schedule', $exception->errors());
@@ -183,14 +198,14 @@ class TrainingSchedulingDomainTest extends TestCase
         }
 
         $this->expectException(ValidationException::class);
-        $this->groupSession($coach, $venue, $lanes[1], $fullGroup, '#C001');
+        $this->groupSession($coach, $pool, $lanes[1], $fullGroup, '#C001');
     }
 
     public function test_recurrence_creates_canonical_drafts_preserves_closure_and_is_idempotent(): void
     {
         $this->settings('warn', 'warn', 'warn');
         $coach = User::factory()->create();
-        [$venue, $lanes] = $this->venue(8, 1);
+        [$venue, $pool, $lanes] = $this->venue(8, 1);
         $group = $this->group('REC');
         $athlete = User::factory()->athlete()->create();
 
@@ -199,6 +214,8 @@ class TrainingSchedulingDomainTest extends TestCase
         SportsVenueClosure::query()->create([
             'club_id' => 'bscn',
             'sports_venue_id' => $venue->id,
+            'sports_pool_id' => $pool->id,
+            'sports_pool_lane_id' => $lanes[0]->id,
             'starts_at' => '2026-09-14 17:00:00',
             'ends_at' => '2026-09-14 20:00:00',
             'reason' => 'Manutenção',
@@ -216,7 +233,7 @@ class TrainingSchedulingDomainTest extends TestCase
             'weekdays' => [1, 3],
             'start_time' => '18:00',
             'end_time' => '19:00',
-            'sports_venue_id' => $venue->id,
+            'sports_pool_id' => $pool->id,
             'responsavel_id' => $coach->id,
             'session_status_template' => 'published',
             'groups' => [[
@@ -239,10 +256,39 @@ class TrainingSchedulingDomainTest extends TestCase
         $this->assertTrue($monday->schedule_review_required);
         $this->assertSame('closure', $monday->schedule_conflicts_snapshot[0]['type']);
         $this->assertSame('decision_required', $monday->schedule_conflicts_snapshot[0]['severity']);
+        $this->assertSame(
+            (string) $lanes[0]->id,
+            (string) $monday->schedule_conflicts_snapshot[0]['context']['sports_pool_lane_id']
+        );
+        $this->assertDatabaseHas('training_recurrence_group_lanes', [
+            'sports_pool_lane_id' => $lanes[0]->id,
+        ]);
 
         $secondRun = $service->generateUntil($recurrence->fresh(), '2026-09-20', $coach);
         $this->assertCount(0, $secondRun['created']);
         $this->assertCount(2, $secondRun['skipped']);
+    }
+
+    public function test_manual_athlete_can_be_added_without_parallel_roster(): void
+    {
+        $coach = User::factory()->create();
+        $athlete = User::factory()->athlete()->create();
+        [, $pool] = $this->venue(8, 1);
+
+        $session = app(CreateTrainingAction::class)->execute([
+            'data' => '2026-09-15',
+            'hora_inicio' => '17:00',
+            'hora_fim' => '18:00',
+            'sports_pool_id' => $pool->id,
+            'tipo_treino' => 'Individual',
+            'instrucao' => 'Sessão individual.',
+            'athlete_ids' => [$athlete->id],
+        ], $coach);
+
+        $this->assertDatabaseHas('training_athletes', [
+            'treino_id' => $session->id,
+            'user_id' => $athlete->id,
+        ]);
     }
 
     public function test_operational_schedule_exception_is_audited_without_rewriting_planning(): void
@@ -275,7 +321,7 @@ class TrainingSchedulingDomainTest extends TestCase
         $this->assertSame('operational-lane', $exception->after_state['lane_id']);
     }
 
-    /** @return array{0:SportsVenue,1:array<int,SportsVenueLane>} */
+    /** @return array{0:SportsVenue,1:SportsPool,2:array<int,SportsPoolLane>} */
     private function venue(int $laneCapacity, int $laneCount): array
     {
         $venue = SportsVenue::query()->create([
@@ -286,20 +332,28 @@ class TrainingSchedulingDomainTest extends TestCase
             'active' => true,
         ]);
 
+        $pool = SportsPool::query()->create([
+            'club_id' => 'bscn',
+            'sports_venue_id' => $venue->id,
+            'code' => 'MAIN',
+            'name' => 'Tanque principal',
+            'length_m' => 25,
+            'active' => true,
+        ]);
+
         $lanes = [];
         foreach (range(1, $laneCount) as $number) {
-            $lanes[] = SportsVenueLane::query()->create([
+            $lanes[] = SportsPoolLane::query()->create([
                 'club_id' => 'bscn',
-                'sports_venue_id' => $venue->id,
-                'code' => 'P' . $number,
-                'name' => 'Pista ' . $number,
+                'sports_pool_id' => $pool->id,
                 'lane_number' => $number,
+                'name' => 'Pista ' . $number,
                 'capacity' => $laneCapacity,
                 'active' => true,
             ]);
         }
 
-        return [$venue, $lanes];
+        return [$venue, $pool, $lanes];
     }
 
     private function group(string $code)
@@ -312,8 +366,8 @@ class TrainingSchedulingDomainTest extends TestCase
 
     private function groupSession(
         User $coach,
-        SportsVenue $venue,
-        SportsVenueLane $lane,
+        SportsPool $pool,
+        SportsPoolLane $lane,
         $group,
         string $number,
     ): Training {
@@ -322,7 +376,7 @@ class TrainingSchedulingDomainTest extends TestCase
             'data' => '2026-09-15',
             'hora_inicio' => '18:00',
             'hora_fim' => '19:00',
-            'sports_venue_id' => $venue->id,
+            'sports_pool_id' => $pool->id,
             'responsavel_id' => $coach->id,
             'tipo_treino' => 'Técnico',
             'instrucao' => 'Sessão planeada.',

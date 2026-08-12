@@ -51,6 +51,7 @@ class AppServiceProvider extends ServiceProvider
         $this->app['router']->pushMiddlewareToGroup('web', PersistInAppNotificationPreference::class);
         $this->loadRoutesFrom(base_path('routes/desportivo_configuration.php'));
         $this->loadRoutesFrom(base_path('routes/desportivo_structure.php'));
+        $this->loadRoutesFrom(base_path('routes/desportivo_planning.php'));
         $this->loadRoutesFrom(base_path('routes/desportivo_member_contract.php'));
         $this->loadRoutesFrom(base_path('routes/desportivo_communication_logistics.php'));
         $this->loadRoutesFrom(base_path('routes/member_documents.php'));
