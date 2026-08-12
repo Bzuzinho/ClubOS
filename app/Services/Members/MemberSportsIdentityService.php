@@ -12,6 +12,7 @@ final class MemberSportsIdentityService implements MemberSportsIdentityProvider
     public function __construct(
         private readonly MemberDataReadService $memberDataReadService,
         private readonly MemberTypeResolver $memberTypeResolver,
+        private readonly MemberIdentityDisplayResolver $identityDisplay,
     ) {
     }
 
@@ -22,6 +23,7 @@ final class MemberSportsIdentityService implements MemberSportsIdentityProvider
 
         return [
             'user_id' => (string) $user->getKey(),
+            'display_name' => $this->identityDisplay->displayName($user),
             'birth_date' => $personal['data_nascimento'] ?? null,
             'sex' => $personal['sexo'] ?? null,
             'is_athlete' => $this->memberTypeResolver->isAthlete($user),
