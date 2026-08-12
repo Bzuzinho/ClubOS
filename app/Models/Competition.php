@@ -62,6 +62,11 @@ class Competition extends Model
         return $this->hasOne(CompetitionEventProjection::class);
     }
 
+    public function financePolicy(): HasOne
+    {
+        return $this->hasOne(CompetitionFinancePolicy::class);
+    }
+
     public function provas(): HasMany
     {
         return $this->hasMany(Prova::class, 'competicao_id');

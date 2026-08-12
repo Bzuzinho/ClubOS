@@ -10,8 +10,9 @@ final class SportsArchitectureBoundaryGuard
     /**
      * Existing violations are explicit temporary debt. The guard prevents the
      * same boundary violation from spreading before the owning foundation phase
-     * removes it. F3 closed direct Desportivo -> Members service coupling and F4
-     * closes Eventos -> Competition master ownership.
+     * removes it. F3 closed direct Desportivo -> Members service coupling, F4
+     * closed Eventos -> Competition ownership and F5 closes direct financial
+     * persistence from the Sports service layer.
      *
      * @return array<string,array{scope:string,needles:list<string>,allowed_files:list<string>}>
      */
@@ -25,19 +26,19 @@ final class SportsArchitectureBoundaryGuard
                     'use App\\Models\\InvoiceItem;',
                     'use App\\Models\\Movement;',
                     'use App\\Models\\FinancialEntry;',
+                    'use App\\Models\\PaymentAllocation;',
+                    'use App\\Models\\FiscalDocumentRequest;',
+                    'use App\\Models\\BankTransactionAllocation;',
                 ],
-                'allowed_files' => [
-                    // F5 debt: replace direct invoice creation with a Financeiro contract.
-                    'app/Services/Desportivo/CreateCompetitionRegistrationAction.php',
-                ],
+                // F5 closed this debt. Sports may request finance operations
+                // only through App\Contracts\Financeiro\CompetitionFinanceGateway.
+                'allowed_files' => [],
             ],
             'events_competition_master_boundary' => [
                 'scope' => 'app/Services/Eventos',
                 'needles' => [
                     'use App\\Models\\Competition;',
                 ],
-                // F4 closed this debt. Eventos may interact only with the
-                // projection record, never with Competition master persistence.
                 'allowed_files' => [],
             ],
             'sports_member_read_coupling_boundary' => [
