@@ -587,6 +587,21 @@ class CrossModuleFinancialIntegrationTest extends TestCase
             'evento_id' => $event->id,
         ]);
 
+        if ($eventFee !== null) {
+            \App\Models\CompetitionFinancePolicy::query()->updateOrCreate(
+                [
+                    'club_id' => (string) $competition->club_id,
+                    'competition_id' => (string) $competition->id,
+                ],
+                [
+                    'payer_mode' => 'athlete',
+                    'charge_mode' => 'per_race',
+                    'per_race_amount' => $eventFee,
+                    'active' => true,
+                ],
+            );
+        }
+
         return Prova::query()->create([
             'competicao_id' => $competition->id,
             'estilo' => 'LIVRE',

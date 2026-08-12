@@ -44,6 +44,7 @@ class CompetitionEventProjectionFoundationTest extends TestCase
         $this->assertSame(config('sports.club_id', 'bscn'), $competition->club_id);
         $this->assertSame('linked', $projection->status);
         $this->assertNotNull($projection->event_id);
+        $this->assertNull($competition->getRawOriginal('evento_id'));
         $this->assertSame((string) $projection->event_id, (string) $competition->evento_id);
         $this->assertSame(1, CompetitionEventProjection::query()->where('competition_id', $competition->id)->count());
 

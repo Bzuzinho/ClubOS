@@ -8,7 +8,6 @@ use App\Contracts\Financeiro\CompetitionFinanceGateway;
 use App\Contracts\Financeiro\CompetitionFinanceRequest;
 use App\Models\CompetitionFinancePolicy;
 use App\Models\CompetitionFinancialObligation;
-use App\Models\CompetitionRegistration;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\User;
@@ -50,16 +49,19 @@ final class CompetitionFinancialObligationService implements CompetitionFinanceG
     public function synchronize(CompetitionFinanceRequest $request): void
     {
         DB::transaction(function () use ($request): void {
+            // F7 cutover: every competition must have a canonical policy. The
+            // default is club-pays/none; runtime no longer infers finance from Event.
+            $this->ensureDefaultPolicy($request->clubId, $request->competitionId);
+
             $policy = CompetitionFinancePolicy::query()
                 ->where('club_id', $request->clubId)
                 ->where('competition_id', $request->competitionId)
                 ->where('active', true)
                 ->lockForUpdate()
-                ->first();
+                ->firstOrFail();
 
-            $policyData = $this->policyData($policy, $request);
+            $policyData = $this->policyData($policy);
             $obligation = $this->lockOrCreateObligation($request);
-            $obligation = $this->adoptLegacyInvoiceReference($obligation, $request);
             $activeRegistrations = collect($request->registrations)
                 ->filter(fn (array $row): bool => in_array($row['state'], self::CHARGEABLE_STATES, true))
                 ->values();
@@ -120,8 +122,6 @@ final class CompetitionFinancialObligationService implements CompetitionFinanceG
                     $invoice->delete();
                 }
 
-                $this->clearCompatibilityInvoicePointers($request, $obligation->invoice_id);
-
                 $obligation->fill([
                     'invoice_id' => null,
                     'status' => $registrationIds === [] ? 'cancelled' : 'no_charge',
@@ -138,11 +138,8 @@ final class CompetitionFinancialObligationService implements CompetitionFinanceG
                 return;
             }
 
-            $anchorRegistrationId = (string) $registrationIds[0];
-            $descriptionTitle = $policy === null && filled($request->legacyEventTitle)
-                ? $request->legacyEventTitle
-                : $request->competitionName;
-            $description = 'Inscricao em prova - '.$descriptionTitle;
+            $anchorRegistrationId = (string) ($registrationIds[0] ?? '');
+            $description = 'Inscricao em prova - '.$request->competitionName;
 
             if (! $invoice) {
                 $emissionDate = now();
@@ -160,8 +157,6 @@ final class CompetitionFinancialObligationService implements CompetitionFinanceG
                     'estado_pagamento' => 'pendente',
                     'centro_custo_id' => $costCenterId,
                     'tipo' => 'inscricao',
-                    // Compatibility alias kept until F7. Canonical ownership is
-                    // competition_financial_obligations.invoice_id.
                     'origem_tipo' => 'competition_registration',
                     'origem_id' => $anchorRegistrationId,
                     'observacoes' => $description,
@@ -216,8 +211,6 @@ final class CompetitionFinancialObligationService implements CompetitionFinanceG
                 }
             }
 
-            $this->syncCompatibilityInvoicePointers($request, $invoice->id, $registrationIds);
-
             $obligation->fill([
                 'invoice_id' => $invoice->id,
                 'status' => 'active',
@@ -226,9 +219,10 @@ final class CompetitionFinancialObligationService implements CompetitionFinanceG
                     'registration_ids' => $registrationIds,
                     'policy' => $policyData,
                     'calculation' => $calculationMeta,
-                    'invoice_origin_compatibility' => [
+                    'invoice_origin' => [
                         'type' => 'competition_registration',
                         'id' => $anchorRegistrationId,
+                        'canonical_obligation_id' => (string) $obligation->id,
                     ],
                 ],
                 'manual_review_reason' => null,
@@ -237,67 +231,17 @@ final class CompetitionFinancialObligationService implements CompetitionFinanceG
         });
     }
 
-    private function adoptLegacyInvoiceReference(
-        CompetitionFinancialObligation $obligation,
-        CompetitionFinanceRequest $request
-    ): CompetitionFinancialObligation {
-        if ($obligation->invoice_id || $request->legacyInvoiceIds === []) {
-            return $obligation;
-        }
-
-        $invoiceIds = collect($request->legacyInvoiceIds)
-            ->filter()
-            ->map(fn ($id) => (string) $id)
-            ->unique()
-            ->values();
-
-        if ($invoiceIds->count() > 1) {
-            throw ValidationException::withMessages([
-                'competition_registration' => 'A obrigação financeira tem múltiplas faturas legacy e requer revisão manual antes de alterar inscrições.',
-            ]);
-        }
-
-        $invoiceId = (string) $invoiceIds->first();
-        if (! Invoice::query()->whereKey($invoiceId)->exists()) {
-            return $obligation;
-        }
-
-        $obligation->fill([
-            'invoice_id' => $invoiceId,
-            'status' => 'legacy_linked',
-        ])->save();
-
-        return $obligation->fresh();
-    }
-
     /** @return array<string,mixed> */
-    private function policyData(?CompetitionFinancePolicy $policy, CompetitionFinanceRequest $request): array
+    private function policyData(CompetitionFinancePolicy $policy): array
     {
-        if ($policy) {
-            return [
-                'source' => 'canonical',
-                'payer_mode' => (string) $policy->payer_mode,
-                'charge_mode' => (string) $policy->charge_mode,
-                'fixed_amount' => $policy->fixed_amount !== null ? (float) $policy->fixed_amount : 0.0,
-                'per_race_amount' => $policy->per_race_amount !== null ? (float) $policy->per_race_amount : 0.0,
-                'age_group_rates' => is_array($policy->age_group_rates) ? $policy->age_group_rates : [],
-                'cost_center_id' => $policy->cost_center_id ? (string) $policy->cost_center_id : null,
-            ];
-        }
-
-        $hasExplicitValue = collect($request->registrations)
-            ->contains(fn (array $row): bool => ($row['amount_override'] ?? null) !== null && (float) $row['amount_override'] > 0.009);
-        $legacyFee = $request->legacyEventFee !== null ? max(0, round($request->legacyEventFee, 2)) : 0.0;
-        $chargeable = $hasExplicitValue || $legacyFee > 0.009;
-
         return [
-            'source' => 'legacy_adapter',
-            'payer_mode' => $chargeable ? 'athlete' : 'club',
-            'charge_mode' => $chargeable ? 'per_race' : 'none',
-            'fixed_amount' => 0.0,
-            'per_race_amount' => $legacyFee,
-            'age_group_rates' => [],
-            'cost_center_id' => $request->legacyCostCenterId,
+            'source' => 'canonical',
+            'payer_mode' => (string) $policy->payer_mode,
+            'charge_mode' => (string) $policy->charge_mode,
+            'fixed_amount' => $policy->fixed_amount !== null ? (float) $policy->fixed_amount : 0.0,
+            'per_race_amount' => $policy->per_race_amount !== null ? (float) $policy->per_race_amount : 0.0,
+            'age_group_rates' => is_array($policy->age_group_rates) ? $policy->age_group_rates : [],
+            'cost_center_id' => $policy->cost_center_id ? (string) $policy->cost_center_id : null,
         ];
     }
 
@@ -459,33 +403,6 @@ final class CompetitionFinancialObligationService implements CompetitionFinanceG
             throw ValidationException::withMessages([
                 'competition_registration' => 'Nao e possivel alterar a inscricao: a obrigação financeira associada já entrou num lifecycle fechado.',
             ]);
-        }
-    }
-
-    private function syncCompatibilityInvoicePointers(
-        CompetitionFinanceRequest $request,
-        string $invoiceId,
-        array $activeRegistrationIds
-    ): void {
-        $allIds = collect($request->registrations)->pluck('registration_id')->map(fn ($id) => (string) $id)->all();
-
-        if ($allIds !== []) {
-            CompetitionRegistration::query()->whereIn('id', $allIds)->update(['fatura_id' => null]);
-        }
-        if ($activeRegistrationIds !== []) {
-            CompetitionRegistration::query()->whereIn('id', $activeRegistrationIds)->update(['fatura_id' => $invoiceId]);
-        }
-    }
-
-    private function clearCompatibilityInvoicePointers(CompetitionFinanceRequest $request, ?string $invoiceId): void
-    {
-        $allIds = collect($request->registrations)->pluck('registration_id')->map(fn ($id) => (string) $id)->all();
-        if ($allIds !== []) {
-            CompetitionRegistration::query()->whereIn('id', $allIds)->update(['fatura_id' => null]);
-        }
-
-        if ($invoiceId) {
-            CompetitionRegistration::query()->where('fatura_id', $invoiceId)->update(['fatura_id' => null]);
         }
     }
 

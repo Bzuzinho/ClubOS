@@ -24,6 +24,9 @@ class LegacySportsGuardTest extends TestCase
             'presences',
             'event_results',
             'event_attendances',
+            'teams',
+            'team_members',
+            'call_ups',
         ], $guard->forbiddenTables());
     }
 

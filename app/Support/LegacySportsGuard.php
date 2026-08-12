@@ -13,6 +13,9 @@ class LegacySportsGuard
         'presences',
         'event_results',
         'event_attendances',
+        'teams',
+        'team_members',
+        'call_ups',
     ];
 
     public function forbiddenTables(): array

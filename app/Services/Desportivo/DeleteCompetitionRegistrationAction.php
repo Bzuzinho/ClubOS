@@ -25,15 +25,14 @@ class DeleteCompetitionRegistrationAction
 
             $competitionId = (string) $registration->prova->competition->id;
             $athleteId = (string) $registration->user_id;
-            $legacyInvoiceIds = $registration->fatura_id ? [(string) $registration->fatura_id] : [];
 
             $registration->delete();
 
             // Financeiro owns cancellation/recalculation and may throw if the
-            // invoice already entered a closed financial lifecycle. The outer
-            // transaction then restores the sports registration automatically.
+            // obligation already entered a closed financial lifecycle. The
+            // outer transaction then restores the sports registration.
             $this->financeGateway->synchronize(
-                $this->financeContext->forAthleteCompetition($competitionId, $athleteId, $legacyInvoiceIds)
+                $this->financeContext->forAthleteCompetition($competitionId, $athleteId)
             );
         });
     }

@@ -73,19 +73,11 @@ class Training extends Model
 
     public function macrocycle(): BelongsTo
     {
-        if (array_key_exists('macrocycle_id', $this->attributes)) {
-            return $this->belongsTo(Macrocycle::class, 'macrocycle_id');
-        }
-
-        return $this->belongsTo(Macrocycle::class, 'macrociclo_id');
+        return $this->belongsTo(Macrocycle::class, 'macrocycle_id');
     }
 
     public function mesocycle(): BelongsTo
     {
-        if (array_key_exists('mesocycle_id', $this->attributes)) {
-            return $this->belongsTo(Mesocycle::class, 'mesocycle_id');
-        }
-
         return $this->belongsTo(Mesocycle::class, 'mesociclo_id');
     }
 
@@ -155,11 +147,6 @@ class Training extends Model
         return $this->hasMany(TrainingAthlete::class, 'treino_id');
     }
 
-    public function athleteRecordsByTrainingId(): HasMany
-    {
-        return $this->hasMany(TrainingAthlete::class, 'training_id');
-    }
-
     public function ageGroups(): BelongsToMany
     {
         return $this->belongsToMany(AgeGroup::class, 'training_age_group', 'treino_id', 'age_group_id')
@@ -167,7 +154,8 @@ class Training extends Model
     }
 
     /**
-     * Sync age groups while supporting legacy pivot schemas where `id` is required.
+     * Sync age groups while supporting a historical pivot primary-key shape.
+     * The relation itself has one canonical physical FK: treino_id.
      */
     public function syncAgeGroupsWithPivot(array $ageGroupIds): void
     {

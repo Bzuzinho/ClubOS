@@ -22,11 +22,6 @@ final readonly class CompetitionFinanceRequest
         public string $competitionName,
         public string $competitionDate,
         public array $registrations,
-        public ?float $legacyEventFee = null,
-        public ?string $legacyCostCenterId = null,
-        public ?string $legacyEventTitle = null,
-        /** @var list<string> */
-        public array $legacyInvoiceIds = [],
     ) {
     }
 }

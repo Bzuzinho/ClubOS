@@ -52,6 +52,35 @@ final class SportsArchitectureBoundaryGuard
                 ],
                 'allowed_files' => [],
             ],
+            'sports_legacy_runtime_boundary' => [
+                'scope' => 'app/Services/Desportivo',
+                'needles' => [
+                    'use App\\Models\\TrainingSession;',
+                    'use App\\Models\\Team;',
+                    'use App\\Models\\TeamMember;',
+                    'use App\\Models\\CallUp;',
+                    'use App\\Models\\EventAttendance;',
+                ],
+                'allowed_files' => [],
+            ],
+            'finance_competition_legacy_pointer_boundary' => [
+                'scope' => 'app/Services/Financeiro/CompetitionFinancialObligationService.php',
+                'needles' => [
+                    'syncCompatibilityInvoicePointers',
+                    'clearCompatibilityInvoicePointers',
+                    'legacyEventFee',
+                    'legacyCostCenterId',
+                ],
+                'allowed_files' => [],
+            ],
+            'communication_sports_legacy_audience_boundary' => [
+                'scope' => 'app/Services/Communication/SegmentResolverService.php',
+                'needles' => [
+                    'use App\\Models\\TeamMember;',
+                    'usersHaveAgeGroupColumn',
+                ],
+                'allowed_files' => [],
+            ],
             'events_competition_master_boundary' => [
                 'scope' => 'app/Services/Eventos',
                 'needles' => [
@@ -104,6 +133,11 @@ final class SportsArchitectureBoundaryGuard
     private function phpFiles(string $scope): array
     {
         $absoluteScope = base_path($scope);
+
+        if (is_file($absoluteScope)) {
+            return [str_replace('\\', '/', $scope) => (string) file_get_contents($absoluteScope)];
+        }
+
         if (! is_dir($absoluteScope)) {
             return [];
         }

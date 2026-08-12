@@ -97,7 +97,9 @@ final class CompetitionEventProjectionService
                 'club_id' => $clubId,
                 'competition_id' => $lockedCompetition->id,
                 'event_id' => $event->id,
-                'legacy_event_id' => $projection->legacy_event_id ?: $lockedCompetition->evento_id ?: $event->id,
+                // Historical source pointer is preserved when one already
+                // exists, but new F7 projections do not create a second alias.
+                'legacy_event_id' => $projection->legacy_event_id,
                 'status' => 'linked',
                 'manual_review_reason' => null,
                 'projected_at' => now(),
@@ -105,12 +107,6 @@ final class CompetitionEventProjectionService
                 'updated_by' => $actor?->id,
             ]);
             $projection->save();
-
-            if ((string) $lockedCompetition->evento_id !== (string) $event->id) {
-                $lockedCompetition->evento_id = $event->id;
-                $lockedCompetition->updated_by = $actor?->id ?: $lockedCompetition->updated_by;
-                $lockedCompetition->save();
-            }
 
             return $event->fresh();
         });
@@ -120,40 +116,22 @@ final class CompetitionEventProjectionService
         Competition $competition,
         ?CompetitionEventProjection $projection
     ): ?Event {
-        if ($projection?->event_id) {
-            $event = Event::query()->lockForUpdate()->find($projection->event_id);
-            if ($event) {
-                return $event;
-            }
-        }
-
-        $legacyEventId = $competition->evento_id ?: $projection?->legacy_event_id;
-        if (! $legacyEventId) {
+        if (! $projection?->event_id) {
             return null;
         }
 
-        $claimedByAnotherCompetition = CompetitionEventProjection::query()
-            ->where('event_id', $legacyEventId)
-            ->where('competition_id', '!=', $competition->id)
-            ->exists();
-
-        $legacyEvent = $claimedByAnotherCompetition
-            ? null
-            : Event::query()->lockForUpdate()->find($legacyEventId);
-
-        if ($legacyEvent !== null) {
-            return $legacyEvent;
+        $event = Event::query()->lockForUpdate()->find($projection->event_id);
+        if ($event) {
+            return $event;
         }
 
         $this->savePendingProjection(
             $competition,
             $projection,
             'manual_review',
-            $claimedByAnotherCompetition
-                ? 'legacy_event_claimed_by_another_competition'
-                : 'legacy_event_missing',
+            'projected_event_missing',
             null,
-            (string) $legacyEventId,
+            $projection->legacy_event_id,
         );
 
         return null;
@@ -172,7 +150,7 @@ final class CompetitionEventProjectionService
             'club_id' => $this->clubContext->id(),
             'competition_id' => $competition->id,
             'event_id' => null,
-            'legacy_event_id' => $legacyEventId ?: $projection->legacy_event_id ?: $competition->evento_id,
+            'legacy_event_id' => $legacyEventId ?: $projection->legacy_event_id,
             'status' => $status,
             'manual_review_reason' => $reason,
             'created_by' => $projection->created_by ?: $actor?->id,

@@ -15,29 +15,21 @@ final class CompetitionFinanceContextService
     {
     }
 
-    /** @param list<string> $additionalLegacyInvoiceIds */
-    public function forAthleteCompetition(
-        string $competitionId,
-        string $athleteId,
-        array $additionalLegacyInvoiceIds = [],
-    ): CompetitionFinanceRequest
+    public function forAthleteCompetition(string $competitionId, string $athleteId): CompetitionFinanceRequest
     {
         $clubId = $this->clubContext->id();
 
         $competition = Competition::query()
             ->forClub($clubId)
-            ->with(['evento', 'eventProjection.event'])
             ->findOrFail($competitionId);
 
-        $registrationModels = CompetitionRegistration::query()
+        $registrations = CompetitionRegistration::query()
             ->where('user_id', $athleteId)
             ->whereHas('prova', fn ($query) => $query->where('competicao_id', $competition->id))
             ->with('prova')
             ->orderBy('created_at')
             ->orderBy('id')
-            ->get();
-
-        $registrations = $registrationModels
+            ->get()
             ->map(function (CompetitionRegistration $registration): array {
                 $prova = $registration->prova;
                 $label = trim(implode(' ', array_filter([
@@ -59,16 +51,6 @@ final class CompetitionFinanceContextService
             ->values()
             ->all();
 
-        $legacyEvent = $competition->eventProjection?->event ?: $competition->evento;
-        $legacyInvoiceIds = $registrationModels
-            ->pluck('fatura_id')
-            ->merge($additionalLegacyInvoiceIds)
-            ->filter()
-            ->map(fn ($id) => (string) $id)
-            ->unique()
-            ->values()
-            ->all();
-
         return new CompetitionFinanceRequest(
             clubId: $clubId,
             competitionId: (string) $competition->id,
@@ -76,10 +58,6 @@ final class CompetitionFinanceContextService
             competitionName: (string) $competition->nome,
             competitionDate: $competition->data_inicio?->toDateString() ?? now()->toDateString(),
             registrations: $registrations,
-            legacyEventFee: $legacyEvent?->taxa_inscricao !== null ? (float) $legacyEvent->taxa_inscricao : null,
-            legacyCostCenterId: $legacyEvent?->centro_custo_id ? (string) $legacyEvent->centro_custo_id : null,
-            legacyEventTitle: filled($legacyEvent?->titulo) ? (string) $legacyEvent->titulo : null,
-            legacyInvoiceIds: $legacyInvoiceIds,
         );
     }
 }

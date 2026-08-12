@@ -55,8 +55,10 @@ class CompetitionFinanceContractFoundationTest extends TestCase
             ->assertCreated()
             ->json('id');
 
-        $registration = CompetitionRegistration::query()->findOrFail($registrationId);
-        $this->assertNull($registration->fatura_id);
+        $this->assertDatabaseHas('competition_registrations', [
+            'id' => $registrationId,
+            'fatura_id' => null,
+        ]);
         $this->assertSame(0, Invoice::query()->count());
         $this->assertDatabaseHas('competition_financial_obligations', [
             'competition_id' => $competition->id,
@@ -84,18 +86,21 @@ class CompetitionFinanceContractFoundationTest extends TestCase
         ]);
 
         $firstId = $this->register($admin, $athlete, $firstProva);
-        $firstInvoiceId = (string) CompetitionRegistration::query()->findOrFail($firstId)->fatura_id;
+        $firstInvoiceId = $this->obligationInvoiceId($competition, $athlete);
 
         $secondId = $this->register($admin, $athlete, $secondProva);
-        $first = CompetitionRegistration::query()->findOrFail($firstId);
-        $second = CompetitionRegistration::query()->findOrFail($secondId);
+        $secondInvoiceId = $this->obligationInvoiceId($competition, $athlete);
 
-        $this->assertSame($firstInvoiceId, (string) $first->fatura_id);
-        $this->assertSame($firstInvoiceId, (string) $second->fatura_id);
+        $this->assertSame($firstInvoiceId, $secondInvoiceId);
         $this->assertSame(1, Invoice::query()->count());
+        $this->assertDatabaseHas('competition_registrations', ['id' => $firstId, 'fatura_id' => null]);
+        $this->assertDatabaseHas('competition_registrations', ['id' => $secondId, 'fatura_id' => null]);
+        $this->assertSame($firstInvoiceId, (string) CompetitionRegistration::query()->findOrFail($firstId)->fatura_id);
+        $this->assertSame($firstInvoiceId, (string) CompetitionRegistration::query()->findOrFail($secondId)->fatura_id);
 
         $invoice = Invoice::query()->findOrFail($firstInvoiceId);
         $this->assertSame(25.0, (float) $invoice->valor_total);
+        $this->assertSame('competition_registration', $invoice->origem_tipo);
         $this->assertSame(1, $invoice->items()->count());
         $this->assertSame(0, FinancialEntry::query()->where('fatura_id', $invoice->id)->count());
 
@@ -104,6 +109,7 @@ class CompetitionFinanceContractFoundationTest extends TestCase
             ->where('user_id', $athlete->id)
             ->sole();
         $this->assertSame((string) $invoice->id, (string) $obligation->invoice_id);
+        $this->assertSame($firstId, (string) $invoice->origem_id);
         $this->assertSame('active', $obligation->status);
         $this->assertSame(25.0, (float) $obligation->calculated_amount);
     }
@@ -127,7 +133,7 @@ class CompetitionFinanceContractFoundationTest extends TestCase
 
         $firstId = $this->register($admin, $athlete, $firstProva);
         $secondId = $this->register($admin, $athlete, $secondProva);
-        $invoiceId = (string) CompetitionRegistration::query()->findOrFail($firstId)->fatura_id;
+        $invoiceId = $this->obligationInvoiceId($competition, $athlete);
 
         $this->actingAs($admin)
             ->deleteJson('/api/desportivo/competition-registrations/'.$secondId)
@@ -135,7 +141,8 @@ class CompetitionFinanceContractFoundationTest extends TestCase
 
         $this->assertDatabaseMissing('competition_registrations', ['id' => $secondId]);
         $this->assertSame(10.0, (float) Invoice::query()->findOrFail($invoiceId)->valor_total);
-        $this->assertSame($invoiceId, (string) CompetitionRegistration::query()->findOrFail($firstId)->fatura_id);
+        $this->assertDatabaseHas('competition_registrations', ['id' => $firstId, 'fatura_id' => null]);
+        $this->assertSame($invoiceId, $this->obligationInvoiceId($competition, $athlete));
     }
 
     public function test_closed_aggregate_invoice_blocks_sports_registration_removal(): void
@@ -155,8 +162,8 @@ class CompetitionFinanceContractFoundationTest extends TestCase
         ]);
 
         $registrationId = $this->register($admin, $athlete, $prova);
-        $registration = CompetitionRegistration::query()->findOrFail($registrationId);
-        Invoice::query()->whereKey($registration->fatura_id)->update([
+        $invoiceId = $this->obligationInvoiceId($competition, $athlete);
+        Invoice::query()->whereKey($invoiceId)->update([
             'estado_pagamento' => 'pago',
             'valor_pago' => 30,
             'valor_em_aberto' => 0,
@@ -188,10 +195,10 @@ class CompetitionFinanceContractFoundationTest extends TestCase
             'active' => true,
         ]);
 
-        $firstId = $this->register($admin, $athlete, $firstProva);
+        $this->register($admin, $athlete, $firstProva);
         $this->register($admin, $athlete, $secondProva);
 
-        $invoiceId = (string) CompetitionRegistration::query()->findOrFail($firstId)->fatura_id;
+        $invoiceId = $this->obligationInvoiceId($competition, $athlete);
         $this->assertSame(20.0, (float) Invoice::query()->findOrFail($invoiceId)->valor_total);
     }
 
@@ -239,5 +246,14 @@ class CompetitionFinanceContractFoundationTest extends TestCase
             ])
             ->assertCreated()
             ->json('id');
+    }
+
+    private function obligationInvoiceId(Competition $competition, User $athlete): string
+    {
+        return (string) CompetitionFinancialObligation::query()
+            ->where('competition_id', $competition->id)
+            ->where('user_id', $athlete->id)
+            ->sole()
+            ->invoice_id;
     }
 }

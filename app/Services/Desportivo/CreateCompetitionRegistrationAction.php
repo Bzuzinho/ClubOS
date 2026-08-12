@@ -40,7 +40,7 @@ class CreateCompetitionRegistrationAction
                 )
             );
 
-            return $registration->fresh(['prova.competition', 'athlete', 'fatura.items']);
+            return $registration->fresh(['prova.competition', 'athlete']);
         });
     }
 }
