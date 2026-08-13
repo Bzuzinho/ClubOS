@@ -26,13 +26,12 @@ return new class extends Migration
             $table->uuid('evaluation_model_id');
             $table->unsignedInteger('version_number');
             $table->string('state', 20)->default('draft');
-            $table->uuid('based_on_version_id')->nullable();
+            $table->uuid('based_on_version_id')->nullable()->index();
             $table->uuid('created_by')->nullable();
             $table->timestamp('published_at')->nullable();
             $table->timestamp('archived_at')->nullable();
             $table->timestamps();
             $table->foreign('evaluation_model_id')->references('id')->on('sports_evaluation_models')->cascadeOnDelete();
-            $table->foreign('based_on_version_id')->references('id')->on('sports_evaluation_model_versions')->nullOnDelete();
             $table->unique(['evaluation_model_id', 'version_number'], 'sports_eval_model_version_unique');
         });
 
