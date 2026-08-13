@@ -41,7 +41,10 @@ final class TrainingSessionOperationService
     {
         $this->assertMutable($training); $this->assertVersionTenant($version);
         $training->loadMissing('planVersion');
-        if ($training->planVersion && (string) $training->planVersion->training_plan_id !== (string) $version->training_plan_id) {
+        if (! $training->planVersion) {
+            throw ValidationException::withMessages(['training_plan_version_id' => 'Esta sessão não tem um plano global aplicado. A atribuição de conteúdo pertence ao Planeamento.']);
+        }
+        if ((string) $training->planVersion->training_plan_id !== (string) $version->training_plan_id) {
             throw ValidationException::withMessages(['training_plan_version_id' => 'A nova versão tem de pertencer ao mesmo plano atualmente aplicado à sessão.']);
         }
         $before = $this->snapshot($training->fresh(['series', 'planVersion']));
@@ -58,6 +61,9 @@ final class TrainingSessionOperationService
     public function overrideSnapshot(Training $training, array $blocks, string $reason, User $actor): Training
     {
         $this->assertMutable($training);
+        if (! $training->series()->exists()) {
+            throw ValidationException::withMessages(['blocks' => 'Esta sessão não tem um snapshot técnico global para adaptar. O conteúdo por grupo deve ser alterado no Planeamento.']);
+        }
         $reason = trim($reason);
         if ($reason === '') throw ValidationException::withMessages(['reason' => 'O motivo da adaptação desta sessão é obrigatório.']);
         $normalized = $this->normalizeBlocks($blocks);
