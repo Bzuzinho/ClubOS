@@ -90,7 +90,6 @@ return new class extends Migration
         });
 
         Schema::create('sports_evaluation_campaign_groups', function (Blueprint $table): void {
-            $table->uuid('id')->primary();
             $table->uuid('campaign_id');
             $table->uuid('training_group_id');
             $table->timestamps();
