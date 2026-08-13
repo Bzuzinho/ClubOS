@@ -8,6 +8,7 @@ use App\Contracts\Financeiro\CompetitionFinanceGateway;
 use App\Contracts\Logistica\SportsLogisticsGateway;
 use App\Contracts\Members\MemberSportsIdentityProvider;
 use App\Http\Controllers\Desportivo\SportsCaisWorkspaceController;
+use App\Http\Controllers\Desportivo\SportsLiveWorkspaceController;
 use App\Http\Controllers\Desportivo\SportsPlanningWorkspaceController;
 use App\Http\Middleware\EnforceSportsLegacyCutover;
 use App\Http\Middleware\PersistInAppNotificationPreference;
@@ -56,14 +57,12 @@ class AppServiceProvider extends ServiceProvider
         $this->loadRoutesFrom(base_path('routes/desportivo_structure.php'));
         $this->loadRoutesFrom(base_path('routes/desportivo_planning.php'));
         $this->loadRoutesFrom(base_path('routes/desportivo_cais.php'));
+        $this->loadRoutesFrom(base_path('routes/desportivo_live.php'));
         $this->loadRoutesFrom(base_path('routes/desportivo_member_contract.php'));
         $this->loadRoutesFrom(base_path('routes/desportivo_communication_logistics.php'));
         $this->loadRoutesFrom(base_path('routes/member_documents.php'));
 
         if (! $this->app->routesAreCached()) {
-            // routes/web.php is loaded after AppServiceProvider::boot in Laravel 11.
-            // Register canonical workspace GET routes once the application has booted so
-            // they replace the historical DesportivoController handlers by URI/name.
             $this->app->booted(function (): void {
                 Route::middleware(['web', 'auth', 'verified', 'module.access:desportivo'])
                     ->get('/desportivo/planeamento', [SportsPlanningWorkspaceController::class, 'index'])
@@ -73,6 +72,10 @@ class AppServiceProvider extends ServiceProvider
                     ->get('/desportivo/cais', [SportsCaisWorkspaceController::class, 'index'])
                     ->middleware('permission.access:desportivo.treinos.cais,view')
                     ->name('desportivo.cais');
+                Route::middleware(['web', 'auth', 'verified', 'module.access:desportivo'])
+                    ->get('/desportivo/live', [SportsLiveWorkspaceController::class, 'index'])
+                    ->middleware('permission.access:desportivo.treinos.cais,view')
+                    ->name('desportivo.live');
             });
         }
 
