@@ -70,7 +70,7 @@ final class SportsLiveWorkspaceService
         }
         $clientMeasurementId = $clientMeasurementId ?: (string) Str::uuid();
         if ($existing = SportsLiveMeasurement::query()->where('client_measurement_id', $clientMeasurementId)->first()) {
-            return $this->monitoringPayload($existing->monitoring()->firstOrFail());
+            return $this->monitoringPayload($existing->monitoring()->firstOrFail(), $existing);
         }
 
         return DB::transaction(function () use ($training, $series, $trainingAthleteIds, $actor, $clientMeasurementId): array {
@@ -88,8 +88,8 @@ final class SportsLiveWorkspaceService
             foreach ($records as $record) {
                 SportsLiveMonitoringAthlete::query()->create(['monitoring_id'=>$monitoring->id,'training_athlete_id'=>$record->id,'user_id'=>$record->user_id,'active'=>true]);
             }
-            $this->createMeasurement($monitoring, $actor, $clientMeasurementId);
-            return $this->monitoringPayload($monitoring->fresh());
+            $measurement = $this->createMeasurement($monitoring, $actor, $clientMeasurementId);
+            return $this->monitoringPayload($monitoring->fresh(), $measurement);
         }, 3);
     }
 
@@ -98,7 +98,7 @@ final class SportsLiveWorkspaceService
         $this->assertTrainingMutable($training);
         $clientMeasurementId = $clientMeasurementId ?: (string) Str::uuid();
         if ($existing = SportsLiveMeasurement::query()->where('client_measurement_id', $clientMeasurementId)->first()) {
-            return $this->monitoringPayload($existing->monitoring()->firstOrFail());
+            return $this->monitoringPayload($existing->monitoring()->firstOrFail(), $existing);
         }
         return DB::transaction(function () use ($training, $athlete, $actor, $clientMeasurementId): array {
             $record = TrainingAthlete::query()->where('treino_id', $training->id)->where('user_id', $athlete->id)->where('presente', true)->lockForUpdate()->first();
@@ -109,15 +109,15 @@ final class SportsLiveWorkspaceService
                 'type'=>'free','state'=>'active','current_repetition'=>1,'current_round'=>1,'created_by'=>$actor->id,
             ]);
             SportsLiveMonitoringAthlete::query()->create(['monitoring_id'=>$monitoring->id,'training_athlete_id'=>$record->id,'user_id'=>$record->user_id,'active'=>true]);
-            $this->createMeasurement($monitoring, $actor, $clientMeasurementId);
-            return $this->monitoringPayload($monitoring->fresh());
+            $measurement = $this->createMeasurement($monitoring, $actor, $clientMeasurementId);
+            return $this->monitoringPayload($monitoring->fresh(), $measurement);
         }, 3);
     }
 
     public function split(SportsLiveMeasurement $measurement, User $athlete, int $elapsedMs, string $occurredAt, string $clientEventId, User $actor): array
     {
         $this->assertMeasurementClub($measurement);
-        if (SportsLiveMeasurementEvent::query()->where('client_event_id', $clientEventId)->exists()) return $this->monitoringPayload($measurement->monitoring);
+        if (SportsLiveMeasurementEvent::query()->where('client_event_id', $clientEventId)->exists()) return $this->monitoringPayload($measurement->monitoring, $measurement);
         return DB::transaction(function () use ($measurement, $athlete, $elapsedMs, $occurredAt, $clientEventId, $actor): array {
             $row = SportsLiveMeasurementAthlete::query()->where('measurement_id', $measurement->id)->where('user_id', $athlete->id)->lockForUpdate()->firstOrFail();
             if ($row->state !== 'active') throw ValidationException::withMessages(['athlete' => 'A medição deste atleta já terminou.']);
@@ -126,17 +126,17 @@ final class SportsLiveWorkspaceService
                 'measurement_id'=>$measurement->id,'measurement_athlete_id'=>$row->id,'event_type'=>'split','sequence'=>$sequence,
                 'elapsed_ms'=>$elapsedMs,'occurred_at'=>$occurredAt,'client_event_id'=>$clientEventId,'recorded_by'=>$actor->id,
             ]);
-            return $this->monitoringPayload($measurement->monitoring()->firstOrFail());
+            return $this->monitoringPayload($measurement->monitoring()->firstOrFail(), $measurement->fresh());
         }, 3);
     }
 
     public function stop(SportsLiveMeasurement $measurement, User $athlete, int $elapsedMs, string $occurredAt, string $clientEventId, User $actor): array
     {
         $this->assertMeasurementClub($measurement);
-        if (SportsLiveMeasurementEvent::query()->where('client_event_id', $clientEventId)->exists()) return $this->monitoringPayload($measurement->monitoring);
+        if (SportsLiveMeasurementEvent::query()->where('client_event_id', $clientEventId)->exists()) return $this->monitoringPayload($measurement->monitoring, $measurement);
         return DB::transaction(function () use ($measurement, $athlete, $elapsedMs, $occurredAt, $clientEventId, $actor): array {
             $row = SportsLiveMeasurementAthlete::query()->where('measurement_id', $measurement->id)->where('user_id', $athlete->id)->lockForUpdate()->firstOrFail();
-            if ($row->state !== 'active') return $this->monitoringPayload($measurement->monitoring()->firstOrFail());
+            if ($row->state !== 'active') return $this->monitoringPayload($measurement->monitoring()->firstOrFail(), $measurement);
             $sequence = (int) SportsLiveMeasurementEvent::query()->where('measurement_athlete_id', $row->id)->max('sequence') + 1;
             SportsLiveMeasurementEvent::query()->create([
                 'measurement_id'=>$measurement->id,'measurement_athlete_id'=>$row->id,'event_type'=>'stop','sequence'=>$sequence,
@@ -144,7 +144,7 @@ final class SportsLiveWorkspaceService
             ]);
             $row->forceFill(['state'=>'stopped','duration_ms'=>$elapsedMs,'stopped_at'=>$occurredAt])->save();
             $this->closeMeasurementIfFinished($measurement, $occurredAt);
-            return $this->monitoringPayload($measurement->monitoring()->firstOrFail());
+            return $this->monitoringPayload($measurement->monitoring()->firstOrFail(), $measurement->fresh());
         }, 3);
     }
 
@@ -165,7 +165,7 @@ final class SportsLiveWorkspaceService
                 $row->forceFill(['state'=>'stopped','duration_ms'=>$elapsedMs,'stopped_at'=>$occurredAt])->save();
             }
             $measurement->forceFill(['state'=>'stopped','ended_at'=>$occurredAt])->save();
-            return $this->monitoringPayload($measurement->monitoring()->firstOrFail());
+            return $this->monitoringPayload($measurement->monitoring()->firstOrFail(), $measurement->fresh());
         }, 3);
     }
 
@@ -176,7 +176,7 @@ final class SportsLiveWorkspaceService
         $latest = $monitoring->measurements()->latest('created_at')->first();
         if (! $latest || $latest->state !== 'stopped') throw ValidationException::withMessages(['monitoring' => 'Termina a medição atual antes de avançar.']);
         $clientMeasurementId = $clientMeasurementId ?: (string) Str::uuid();
-        if ($existing = SportsLiveMeasurement::query()->where('client_measurement_id', $clientMeasurementId)->first()) return $this->monitoringPayload($existing->monitoring);
+        if ($existing = SportsLiveMeasurement::query()->where('client_measurement_id', $clientMeasurementId)->first()) return $this->monitoringPayload($existing->monitoring, $existing);
 
         return DB::transaction(function () use ($monitoring, $actor, $clientMeasurementId): array {
             $monitoring = SportsLiveMonitoring::query()->whereKey($monitoring->id)->lockForUpdate()->firstOrFail();
@@ -193,8 +193,8 @@ final class SportsLiveWorkspaceService
                 }
                 $monitoring->forceFill(['training_series_id'=>$next['series']->id,'current_repetition'=>1,'current_round'=>$next['round']])->save();
             }
-            $this->createMeasurement($monitoring, $actor, $clientMeasurementId);
-            return $this->monitoringPayload($monitoring->fresh());
+            $measurement = $this->createMeasurement($monitoring, $actor, $clientMeasurementId);
+            return $this->monitoringPayload($monitoring->fresh(), $measurement);
         }, 3);
     }
 
@@ -202,6 +202,14 @@ final class SportsLiveWorkspaceService
     {
         $this->assertMonitoringClub($monitoring);
         if ($monitoring->measurements()->where('state', 'running')->exists()) throw ValidationException::withMessages(['monitoring'=>'Existe uma medição ainda em curso.']);
+        if ($monitoring->type === 'free') {
+            $latest = $monitoring->measurements()->latest('created_at')->first();
+            $hasUnclassified = $latest?->athletes()->where('state', 'stopped')->whereDoesntHave('classification')->exists() ?? false;
+            if ($hasUnclassified) {
+                throw ValidationException::withMessages(['monitoring'=>'Classifica ou apaga a medição livre antes de fechar.']);
+            }
+        }
+        $monitoring->athletes()->update(['active'=>false]);
         $monitoring->forceFill(['state'=>'completed','completed_at'=>now()])->save();
         return $this->monitoringPayload($monitoring);
     }
@@ -233,7 +241,7 @@ final class SportsLiveWorkspaceService
             'total_distance_m'=>$distanceM,'segment_count'=>$segments,'segment_distance_m'=>$distanceM / max(1,$segments),
             'sports_stroke_id'=>$strokeId,'stroke_label'=>$strokeLabel,'classified_at'=>now(),'classified_by'=>$actor->id,
         ]);
-        return $this->monitoringPayload($monitoring);
+        return $this->monitoringPayload($monitoring, $measurement);
     }
 
     public function saveMetric(Training $training, User $athlete, SportsLiveMetricDefinition $definition, mixed $value, ?string $note, ?string $seriesId, ?string $measurementId, User $actor): array
@@ -339,12 +347,18 @@ final class SportsLiveWorkspaceService
             ->orderBy('created_at')->get()->map(fn (SportsLiveMonitoring $row): array => $this->monitoringPayload($row))->values()->all();
     }
 
-    private function monitoringPayload(SportsLiveMonitoring $monitoring): array
+    private function monitoringPayload(SportsLiveMonitoring $monitoring, ?SportsLiveMeasurement $preferredMeasurement = null): array
     {
-        $monitoring->load(['series.stroke','series.zone','athletes.athlete.dadosPessoais','measurements.athletes.athlete.dadosPessoais','measurements.athletes.events','measurements.athletes.classification','measurements.events']);
+        $monitoring->load(['series.stroke','series.zone','athletes.athlete.dadosPessoais']);
         $users = $monitoring->athletes->pluck('athlete')->filter()->values();
         $names = $this->identityDisplayResolver->mapDisplayNames($users);
-        $latest = $monitoring->measurements->last();
+        $latest = $preferredMeasurement;
+        if ($latest === null) {
+            $latest = $monitoring->measurements()->latest('created_at')->first();
+        }
+        if ($latest !== null) {
+            $latest->loadMissing(['athletes.athlete.dadosPessoais','athletes.events','athletes.classification']);
+        }
         return [
             'id'=>(string)$monitoring->id,'type'=>$monitoring->type,'state'=>$monitoring->state,
             'training_id'=>(string)$monitoring->training_id,'training_series_id'=>$monitoring->training_series_id ? (string)$monitoring->training_series_id : null,
