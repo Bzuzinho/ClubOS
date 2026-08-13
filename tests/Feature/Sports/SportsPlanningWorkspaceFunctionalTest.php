@@ -32,7 +32,7 @@ class SportsPlanningWorkspaceFunctionalTest extends TestCase
     {
         $route = Route::getRoutes()->getByName('desportivo.planeamento');
         $this->assertNotNull($route);
-        $this->assertSame(SportsPlanningWorkspaceController::class . '@index', $route->getActionName());
+        $this->assertSame(SportsPlanningWorkspaceController::class . '@index', ltrim($route->getActionName(), '\\'));
 
         foreach ([
             'desportivo.planeamento.macros.store',
