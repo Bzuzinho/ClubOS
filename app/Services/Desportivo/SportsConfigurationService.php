@@ -9,6 +9,7 @@ use App\Models\PoolTypeConfig;
 use App\Models\ProvaTipo;
 use App\Models\SportsCaisMetricDefinition;
 use App\Models\SportsLimitationType;
+use App\Models\SportsLiveMetricDefinition;
 use App\Models\TrainingTypeConfig;
 use App\Models\TrainingZoneConfig;
 use App\Models\User;
@@ -30,6 +31,7 @@ final class SportsConfigurationService
         'race_types' => ProvaTipo::class,
         'limitation_types' => SportsLimitationType::class,
         'cais_metrics' => SportsCaisMetricDefinition::class,
+        'live_metrics' => SportsLiveMetricDefinition::class,
     ];
 
     /** @var array<string,list<array{0:string,1:string}>> */
@@ -42,6 +44,7 @@ final class SportsConfigurationService
         'race_types' => [],
         'limitation_types' => [],
         'cais_metrics' => [['training_metrics', 'metrica']],
+        'live_metrics' => [['sports_live_metric_records', 'metric_code']],
     ];
 
     public function __construct(private readonly SportsClubContext $clubContext) {}
@@ -77,7 +80,7 @@ final class SportsConfigurationService
 
         return $rows->map(function (Model $row) use ($catalog): array {
             $data = $row->toArray();
-            if ($catalog === 'cais_metrics') {
+            if (in_array($catalog, ['cais_metrics', 'live_metrics'], true)) {
                 $data['options'] = collect($row->getAttribute('options_json') ?? [])->join(', ');
             }
             $used = $this->isUsed($catalog, $row);
@@ -107,14 +110,23 @@ final class SportsConfigurationService
     {
         $row = $this->findForClub($catalog, $id);
         $payload = $this->normalizePayload($catalog, $data, false);
+        $used = $this->isUsed($catalog, $row);
 
         if (array_key_exists('codigo', $payload)) {
             $newCode = (string) $payload['codigo'];
             $oldCode = (string) $row->getAttribute('codigo');
-            if ($newCode !== $oldCode && $this->isUsed($catalog, $row)) {
+            if ($newCode !== $oldCode && $used) {
                 throw ValidationException::withMessages(['codigo' => 'O código técnico já está referenciado historicamente e não pode ser alterado.']);
             }
             if ($newCode !== $oldCode) $this->ensureCodeAvailable($row::class, $this->clubContext->id(), $newCode, (string) $row->getKey());
+        }
+
+        if ($catalog === 'live_metrics' && $used) {
+            foreach (['input_type', 'unit'] as $lockedField) {
+                if (array_key_exists($lockedField, $payload) && (string) $payload[$lockedField] !== (string) $row->getAttribute($lockedField)) {
+                    throw ValidationException::withMessages([$lockedField => 'O tipo e a unidade ficam bloqueados depois de existir histórico, para preservar a coerência estatística.']);
+                }
+            }
         }
 
         $payload['updated_by'] = $actor?->id;
@@ -176,6 +188,7 @@ final class SportsConfigurationService
             'race_types' => ['codigo', 'nome', 'distancia', 'unidade', 'modalidade', 'ativo', 'ordem'],
             'limitation_types' => ['codigo', 'nome', 'descricao', 'instrucao_padrao', 'allows_training', 'allows_competition', 'requires_end_date', 'ativo', 'ordem'],
             'cais_metrics' => ['codigo', 'nome', 'input_type', 'unit', 'options', 'quick_action', 'ativo', 'ordem'],
+            'live_metrics' => ['codigo', 'nome', 'input_type', 'unit', 'options', 'ativo', 'ordem'],
             default => [],
         };
 
@@ -186,7 +199,7 @@ final class SportsConfigurationService
             throw ValidationException::withMessages(['codigo' => 'O código técnico é obrigatório.']);
         }
 
-        if ($catalog === 'cais_metrics' && array_key_exists('options', $payload)) {
+        if (in_array($catalog, ['cais_metrics', 'live_metrics'], true) && array_key_exists('options', $payload)) {
             $options = collect(preg_split('/[,\n]+/', (string) $payload['options']))
                 ->map(fn (string $item): string => trim($item))->filter()->unique()->values()->all();
             $payload['options_json'] = $options === [] ? null : $options;
