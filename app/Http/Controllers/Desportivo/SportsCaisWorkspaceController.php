@@ -18,7 +18,7 @@ final class SportsCaisWorkspaceController extends Controller
 
     public function index(Request $request): Response
     {
-        return Inertia::render('Desportivo/Cais', $this->service->payload($request));
+        return Inertia::render('Desportivo/CaisWorkspace', $this->service->payload($request));
     }
 
     public function presence(Request $request, Training $training, User $athlete): JsonResponse|RedirectResponse
@@ -33,10 +33,7 @@ final class SportsCaisWorkspaceController extends Controller
 
     public function quick(Request $request, Training $training, User $athlete): JsonResponse
     {
-        $data = $request->validate([
-            'code' => 'required|string|max:96',
-            'value' => 'nullable',
-        ]);
+        $data = $request->validate(['code' => 'required|string|max:96', 'value' => 'nullable']);
         return response()->json($this->service->saveQuick($training, $athlete, $data['code'], $data['value'] ?? null, $request->user()));
     }
 
