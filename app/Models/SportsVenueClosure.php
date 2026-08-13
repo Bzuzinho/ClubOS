@@ -11,15 +11,8 @@ class SportsVenueClosure extends Model
     use HasUuids;
 
     protected $fillable = [
-        'club_id',
-        'sports_venue_id',
-        'sports_venue_lane_id',
-        'starts_at',
-        'ends_at',
-        'reason',
-        'notes',
-        'status',
-        'created_by',
+        'club_id', 'sports_venue_id', 'sports_pool_id', 'sports_pool_lane_id',
+        'sports_venue_lane_id', 'starts_at', 'ends_at', 'reason', 'notes', 'status', 'created_by',
     ];
 
     protected $casts = [
@@ -27,12 +20,11 @@ class SportsVenueClosure extends Model
         'ends_at' => 'datetime',
     ];
 
-    public function venue(): BelongsTo
-    {
-        return $this->belongsTo(SportsVenue::class, 'sports_venue_id');
-    }
+    public function venue(): BelongsTo { return $this->belongsTo(SportsVenue::class, 'sports_venue_id'); }
+    public function pool(): BelongsTo { return $this->belongsTo(SportsPool::class, 'sports_pool_id'); }
+    public function lane(): BelongsTo { return $this->belongsTo(SportsPoolLane::class, 'sports_pool_lane_id'); }
 
-    public function lane(): BelongsTo
+    public function legacyLane(): BelongsTo
     {
         return $this->belongsTo(SportsVenueLane::class, 'sports_venue_lane_id');
     }

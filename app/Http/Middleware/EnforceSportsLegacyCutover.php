@@ -18,20 +18,28 @@ final class EnforceSportsLegacyCutover
         'convocatorias' => '/desportivo/competicoes',
     ];
 
+    /** @var list<string> */
+    private const LEGACY_PLANNING_MUTATION_SEGMENTS = ['epocas', 'macrociclos', 'mesociclos'];
+
     public function handle(Request $request, Closure $next): Response
     {
         $firstSegment = (string) ($request->segment(1) ?? '');
         $target = self::LEGACY_PREFIXES[$firstSegment] ?? null;
 
-        if ($target === null) {
-            return $next($request);
+        if ($target !== null) {
+            if ($request->isMethod('GET') || $request->isMethod('HEAD')) {
+                return redirect($target, 302)
+                    ->with('warning', 'Este fluxo desportivo foi substituído pela estrutura canónica do módulo Desportivo.');
+            }
+            abort(410, 'Este endpoint desportivo legacy está encerrado. Utilize o fluxo canónico do módulo Desportivo.');
         }
 
-        if ($request->isMethod('GET') || $request->isMethod('HEAD')) {
-            return redirect($target, 302)
-                ->with('warning', 'Este fluxo desportivo foi substituído pela estrutura canónica do módulo Desportivo.');
+        if ($firstSegment === 'desportivo'
+            && in_array((string) ($request->segment(2) ?? ''), self::LEGACY_PLANNING_MUTATION_SEGMENTS, true)
+            && ! ($request->isMethod('GET') || $request->isMethod('HEAD'))) {
+            abort(410, 'Este endpoint de planeamento legacy está encerrado. Utilize a workspace canónica de Planeamento.');
         }
 
-        abort(410, 'Este endpoint desportivo legacy está encerrado. Utilize o fluxo canónico do módulo Desportivo.');
+        return $next($request);
     }
 }

@@ -11,29 +11,22 @@ class Mesocycle extends Model
 {
     use HasUuids;
 
-
     protected $fillable = [
-        'macrociclo_id',
-        'nome',
-        'foco',
-        'data_inicio',
-        'data_fim',
-        'objetivo_principal',
-        'objetivo_secundario',
+        'club_id', 'macrociclo_id', 'nome', 'foco', 'data_inicio', 'data_fim',
+        'objetivo_principal', 'objetivo_secundario', 'active', 'archived_at',
+        'created_by', 'updated_by',
     ];
 
     protected $casts = [
         'data_inicio' => 'date',
         'data_fim' => 'date',
+        'active' => 'boolean',
+        'archived_at' => 'datetime',
     ];
 
-    public function macrocycle(): BelongsTo
-    {
-        return $this->belongsTo(Macrocycle::class, 'macrociclo_id');
-    }
-
-    public function microcycles(): HasMany
-    {
-        return $this->hasMany(Microcycle::class, 'mesociclo_id');
-    }
+    public function macrocycle(): BelongsTo { return $this->belongsTo(Macrocycle::class, 'macrociclo_id'); }
+    public function microcycles(): HasMany { return $this->hasMany(Microcycle::class, 'mesociclo_id')->orderBy('data_inicio'); }
+    public function trainings(): HasMany { return $this->hasMany(Training::class, 'mesociclo_id'); }
+    public function recurrences(): HasMany { return $this->hasMany(TrainingRecurrence::class, 'mesocycle_id'); }
+    public function scopeForClub($query, string $clubId) { return $query->where('club_id', $clubId); }
 }
