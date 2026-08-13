@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\TrainingPlan;
 use App\Services\Desportivo\SportsClubContext;
 use App\Services\Desportivo\SportsTrainingLibraryQueryService;
+use App\Services\Desportivo\TrainingPlanDuplicateService;
 use App\Services\Desportivo\TrainingPlanService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -17,6 +18,7 @@ final class SportsTrainingLibraryController extends Controller
     public function __construct(
         private readonly SportsTrainingLibraryQueryService $query,
         private readonly TrainingPlanService $plans,
+        private readonly TrainingPlanDuplicateService $duplicates,
         private readonly SportsClubContext $clubContext,
     ) {
     }
@@ -41,8 +43,11 @@ final class SportsTrainingLibraryController extends Controller
 
     public function duplicate(Request $request, TrainingPlan $plan): RedirectResponse
     {
-        $validated = $request->validate(['nome' => 'nullable|string|max:255', 'codigo' => 'nullable|string|max:80']);
-        $this->plans->duplicate($plan, $request->user(), $validated);
+        $validated = $request->validate([
+            'nome' => 'nullable|string|max:255',
+            'codigo' => 'nullable|string|max:80',
+        ]);
+        $this->duplicates->duplicate($plan, $request->user(), $validated);
         return redirect()->route('desportivo.biblioteca')->with('success', 'Plano duplicado como novo rascunho.');
     }
 

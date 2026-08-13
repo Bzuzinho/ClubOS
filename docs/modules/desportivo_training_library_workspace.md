@@ -27,11 +27,20 @@ Um bloco pode ter `rounds > 1`. O volume da versão é `Σ(volume das linhas do 
 
 Uma linha `8×50` mantém simultaneamente `repeticoes = 8`, `distancia_m = 50` e `distancia_total_m = 400`. O total nunca substitui a unidade de execução. Isto é obrigatório para o futuro Live.
 
+## Saída e descanso
+
+A semântica fica congelada para evitar ambiguidade futura:
+
+- `saida`: send-off/partida da repetição, por exemplo `@1:30`;
+- `intervalo`: descanso entre execuções, por exemplo `c/15"`.
+
+O parser de escrita rápida aplica esta mesma regra. Os snapshots da sessão preservam ambos os valores separadamente.
+
 ## Timing / futuro Live
 
 Cada linha define `timing_mode`: `none`, `each_rep` ou `whole_series`.
 
-Ao aplicar uma versão a uma sessão, o snapshot em `training_series` preserva bloco, ordem e rondas; repetições e distância unitária; zona e estilo canónicos + snapshots textuais; modo de cronometragem; e material técnico.
+Ao aplicar uma versão a uma sessão, o snapshot em `training_series` preserva bloco, ordem e rondas; repetições e distância unitária; zona e estilo canónicos + snapshots textuais; saída e descanso; modo de cronometragem; e material técnico.
 
 ## Versionamento
 
@@ -41,6 +50,7 @@ Ao aplicar uma versão a uma sessão, o snapshot em `training_series` preserva b
 - Atualizar sessões futuras continua explícito através de `TrainingSessionPlanService`.
 - Planos arquivados usam soft delete e continuam disponíveis para histórico.
 - Duplicar cria uma nova identidade de plano em `draft`, com conteúdo copiado da versão corrente.
+- Planos legacy sem `training_plan_blocks` também podem ser duplicados: as séries são agrupadas apenas pelo valor exato de `bloco`, sem inferência por nomes.
 
 ## Compatibilidade legacy
 
