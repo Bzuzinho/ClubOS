@@ -7,6 +7,7 @@ use App\Models\Training;
 use App\Models\TrainingAthlete;
 use App\Models\TrainingMetric;
 use App\Models\User;
+use App\Services\Members\MemberIdentityDisplayResolver;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -20,6 +21,7 @@ final class SportsCaisWorkspaceService
     public function __construct(
         private readonly SportsClubContext $clubContext,
         private readonly UpdateTrainingAthleteAction $updateAthlete,
+        private readonly MemberIdentityDisplayResolver $identityDisplayResolver,
     ) {}
 
     public function payload(Request $request): array
@@ -29,7 +31,7 @@ final class SportsCaisWorkspaceService
             ->where('club_id', $this->clubContext->id())
             ->whereDate('data', $date)
             ->whereNotIn('session_status', ['cancelled', 'completed'])
-            ->with(['responsibleCoach:id,nome_completo', 'venue:id,name', 'pool:id,name,length_m', 'sessionGroups.group'])
+            ->with(['venue:id,name', 'pool:id,name,length_m', 'sessionGroups.group'])
             ->orderBy('hora_inicio')
             ->get();
 
@@ -123,23 +125,36 @@ final class SportsCaisWorkspaceService
     private function sessionPayload(Training $training, Collection $definitions): array
     {
         $training->load([
-            'responsibleCoach:id,nome_completo', 'venue:id,name', 'pool:id,name,length_m',
-            'series.zone', 'series.stroke', 'sessionGroups.group', 'sessionGroups.lanes',
-            'athleteRecords.atleta:id,nome_completo', 'scheduleExceptions.recordedBy:id,nome_completo',
+            'responsibleCoach:id,name',
+            'responsibleCoach.dadosPessoais:id,user_id,nome_completo',
+            'venue:id,name',
+            'pool:id,name,length_m',
+            'series.zone',
+            'series.stroke',
+            'sessionGroups.group',
+            'sessionGroups.lanes',
+            'athleteRecords.atleta:id,name',
+            'athleteRecords.atleta.dadosPessoais:id,user_id,nome_completo',
+            'scheduleExceptions.recordedBy:id,name',
+            'scheduleExceptions.recordedBy.dadosPessoais:id,user_id,nome_completo',
         ]);
         $metrics = TrainingMetric::query()->where('treino_id', $training->id)->get()->groupBy('user_id');
+        $athleteUsers = $training->athleteRecords->pluck('atleta')->filter()->values();
+        $athleteNames = $this->identityDisplayResolver->mapDisplayNames($athleteUsers);
 
         return [
             ...$this->sessionOption($training),
             'status' => $training->session_status,
-            'coach' => $training->responsibleCoach?->nome_completo,
+            'coach' => $training->responsibleCoach
+                ? $this->identityDisplayResolver->displayNameOrFallback($training->responsibleCoach, 'Treinador')
+                : null,
             'venue' => $training->venue?->name ?? $training->local,
             'pool' => $training->pool?->name,
             'pool_length_m' => $training->pool?->length_m,
             'blocks' => $this->blocks($training),
             'athletes' => $training->athleteRecords
-                ->sortBy(fn (TrainingAthlete $row): string => mb_strtolower((string) $row->atleta?->nome_completo))
-                ->map(function (TrainingAthlete $record) use ($metrics, $definitions, $training): array {
+                ->sortBy(fn (TrainingAthlete $row): string => mb_strtolower((string) ($athleteNames[(string) $row->user_id] ?? '')))
+                ->map(function (TrainingAthlete $record) use ($metrics, $definitions, $training, $athleteNames): array {
                     $athlete = $record->atleta;
                     if (! $athlete) return [];
                     $register = $this->registerFromRows($metrics->get((string) $record->user_id, collect()), $definitions);
@@ -148,7 +163,7 @@ final class SportsCaisWorkspaceService
                     return [
                         'id' => (string) $athlete->id,
                         'training_athlete_id' => (string) $record->id,
-                        'name' => $athlete->nome_completo,
+                        'name' => $athleteNames[(string) $athlete->id] ?? $this->identityDisplayResolver->displayNameOrFallback($athlete, 'Atleta'),
                         'status' => $record->estado ?: ($record->presente ? 'presente' : 'ausente'),
                         'lane' => $lane?->name ?: ($lane?->lane_number ? 'Pista '.$lane->lane_number : null),
                         'group' => $assignment?->group?->name,
@@ -160,7 +175,9 @@ final class SportsCaisWorkspaceService
                 'type' => $row->exception_type,
                 'reason' => $row->reason,
                 'recorded_at' => $row->recorded_at?->toIso8601String(),
-                'recorded_by' => $row->recordedBy?->nome_completo,
+                'recorded_by' => $row->recordedBy
+                    ? $this->identityDisplayResolver->displayNameOrFallback($row->recordedBy, 'Utilizador')
+                    : null,
                 'before' => $row->before_state,
                 'after' => $row->after_state,
             ])->values(),
