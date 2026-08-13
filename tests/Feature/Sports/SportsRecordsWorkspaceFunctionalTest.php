@@ -33,9 +33,10 @@ final class SportsRecordsWorkspaceFunctionalTest extends TestCase
         $before=TrainingMetric::query()->count();
 
         $payload=app(SportsRecordsReadModelService::class)->workspace(Request::create('/desportivo/registos','GET',['view'=>'training']));
+        $rows=$payload['trainings']->items();
 
         $this->assertSame('training',$payload['view']);
-        $this->assertSame((string)$training->id,(string)data_get($payload,'trainings.data.0.id'));
+        $this->assertSame((string)$training->id,(string)$rows[0]['id']);
         $this->assertSame($before,TrainingMetric::query()->count());
     }
 
@@ -80,7 +81,7 @@ final class SportsRecordsWorkspaceFunctionalTest extends TestCase
         [$actor,$athlete,$training]=$this->fixture();
         TrainingMetric::query()->create(['treino_id'=>$training->id,'user_id'=>$athlete->id,'ordem'=>1,'metrica'=>'behavior','valor'=>'Positivo','registado_por'=>$actor->id]);
         $payload=app(SportsRecordsReadModelService::class)->workspace(Request::create('/desportivo/registos','GET',['view'=>'type','record_type'=>'operational']));
-        $kinds=collect(data_get($payload,'records.data'))->pluck('kind');
+        $kinds=collect($payload['records']->items())->pluck('kind');
         $this->assertTrue($kinds->contains('attendance'));
         $this->assertTrue($kinds->contains('register'));
     }
