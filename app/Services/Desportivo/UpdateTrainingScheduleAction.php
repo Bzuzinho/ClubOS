@@ -31,8 +31,9 @@ final class UpdateTrainingScheduleAction
 
             if (array_key_exists('sports_pool_id', $data)) {
                 $poolId = trim((string) ($data['sports_pool_id'] ?? ''));
-                if ($poolId === '') $data['sports_pool_id'] = null;
-                else {
+                if ($poolId === '') {
+                    $data['sports_pool_id'] = null;
+                } else {
                     $pool = SportsPool::query()->with('venue')->where('club_id', $this->clubContext->id())->where('active', true)->whereKey($poolId)->first();
                     if (! $pool || ! $pool->venue?->active) throw ValidationException::withMessages(['sports_pool_id' => 'A piscina/área selecionada não pertence ao clube ativo ou está inativa.']);
                     $data['sports_pool_id'] = $pool->id; $data['sports_venue_id'] = $pool->sports_venue_id;
@@ -51,7 +52,10 @@ final class UpdateTrainingScheduleAction
                 }
             }
 
-            $training->fill(Arr::only($data, ['numero_treino','data','hora_inicio','hora_fim','local','sports_venue_id','sports_pool_id','epoca_id','macrocycle_id','mesociclo_id','microciclo_id','tipo_treino','volume_planeado_m','descricao_treino','notas_gerais','responsavel_id','session_status','instrucao']));
+            $training->fill(Arr::only($data, [
+                'numero_treino','data','hora_inicio','hora_fim','local','sports_venue_id','sports_pool_id','epoca_id','macrocycle_id','mesociclo_id','microciclo_id',
+                'tipo_treino','volume_planeado_m','descricao_treino','notas_gerais','responsavel_id','session_status','instrucao',
+            ]));
             if (! $wasPublished && ($data['session_status'] ?? null) === 'published') $training->published_at = now();
             $training->save();
 
@@ -65,11 +69,14 @@ final class UpdateTrainingScheduleAction
                 $groupIds = collect($groups)->pluck('training_group_id')->filter()->map('strval')->unique()->values()->all();
                 $this->prepareAthletesAction->executeForGroups($training->fresh(), $groupIds);
             }
-            if (array_key_exists('athlete_ids', $data)) $this->prepareAthletesAction->executeForUsers($training->fresh(), $data['athlete_ids'] ?? [], ['source' => 'planning_manual']);
+            if (array_key_exists('athlete_ids', $data)) {
+                $this->prepareAthletesAction->executeForUsers($training->fresh(), $data['athlete_ids'] ?? [], ['source' => 'planning_manual']);
+            }
 
             $fresh = $training->fresh(['series','sessionGroups.group','sessionGroups.planVersion','sessionGroups.lanes.pool']);
             if (! $wasPublished && $fresh->session_status === 'published') $this->assertPublishable($fresh);
             $this->conflictService->apply($fresh);
+
             return $fresh->fresh(['ageGroups','athleteRecords','series','venue','pool','recurrence','season','macrocycle','mesocycle','microcycle','sessionGroups.group','sessionGroups.planVersion','sessionGroups.lanes.pool']);
         });
     }
