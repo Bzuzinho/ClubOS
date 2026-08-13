@@ -11,7 +11,7 @@ use App\Models\TrainingMetric;
 use App\Models\TrainingSeries;
 use App\Models\User;
 use App\Services\Desportivo\SportsLiveWorkspaceService;
-use App\Services\Desportivo\SportsRecordsWorkspaceService;
+use App\Services\Desportivo\SportsRecordsReadModelService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
 use Tests\TestCase;
@@ -28,14 +28,15 @@ final class SportsRecordsWorkspaceFunctionalTest extends TestCase
 
     public function test_records_workspace_is_read_only_and_lists_training_history(): void
     {
-        [$actor,$athlete,$training,$record,$series]=$this->fixture();
+        [$actor,$athlete,$training]=$this->fixture();
         TrainingMetric::query()->create(['treino_id'=>$training->id,'user_id'=>$athlete->id,'ordem'=>1,'metrica'=>'behavior','valor'=>'Bom','registado_por'=>$actor->id]);
+        $before=TrainingMetric::query()->count();
 
-        $payload=app(SportsRecordsWorkspaceService::class)->workspace(Request::create('/desportivo/registos','GET',['view'=>'training']));
+        $payload=app(SportsRecordsReadModelService::class)->workspace(Request::create('/desportivo/registos','GET',['view'=>'training']));
 
         $this->assertSame('training',$payload['view']);
         $this->assertSame((string)$training->id,(string)data_get($payload,'trainings.data.0.id'));
-        $this->assertDatabaseCount('training_metrics',1);
+        $this->assertSame($before,TrainingMetric::query()->count());
     }
 
     public function test_training_detail_combines_live_timing_metrics_and_cais_without_copying_data(): void
@@ -50,7 +51,7 @@ final class SportsRecordsWorkspaceFunctionalTest extends TestCase
         $live->saveMetric($training,$athlete,$definition,'176',null,(string)$series->id,(string)$measurement->id,$actor);
         TrainingMetric::query()->create(['treino_id'=>$training->id,'user_id'=>$athlete->id,'ordem'=>1,'metrica'=>'material','valor'=>'OK','registado_por'=>$actor->id]);
 
-        $detail=app(SportsRecordsWorkspaceService::class)->trainingDetail($training->fresh());
+        $detail=app(SportsRecordsReadModelService::class)->trainingDetail($training->fresh());
 
         $this->assertSame(1,$detail['summary']['measurement_count']);
         $this->assertSame(1,$detail['summary']['metric_count']);
@@ -60,10 +61,35 @@ final class SportsRecordsWorkspaceFunctionalTest extends TestCase
         $this->assertSame('material',data_get($detail,'operational.registers.0.code'));
     }
 
+    public function test_unclassified_free_measurement_is_not_exposed_as_consolidated_result(): void
+    {
+        [$actor,$athlete,$training]=$this->fixture();
+        $live=app(SportsLiveWorkspaceService::class);
+        $monitor=$live->startFree($training,$athlete,$actor,'records-free');
+        $measurement=\App\Models\SportsLiveMeasurement::query()->findOrFail(data_get($monitor,'measurement.id'));
+        $live->stop($measurement,$athlete,30200,now()->toIso8601String(),'records-free-stop',$actor);
+
+        $detail=app(SportsRecordsReadModelService::class)->trainingDetail($training->fresh());
+
+        $this->assertSame(0,$detail['summary']['measurement_count']);
+        $this->assertCount(0,$detail['execution']);
+    }
+
+    public function test_operational_archive_includes_attendance_and_cais_registers(): void
+    {
+        [$actor,$athlete,$training]=$this->fixture();
+        TrainingMetric::query()->create(['treino_id'=>$training->id,'user_id'=>$athlete->id,'ordem'=>1,'metrica'=>'behavior','valor'=>'Positivo','registado_por'=>$actor->id]);
+        $payload=app(SportsRecordsReadModelService::class)->workspace(Request::create('/desportivo/registos','GET',['view'=>'type','record_type'=>'operational']));
+        $kinds=collect(data_get($payload,'records.data'))->pluck('kind');
+        $this->assertTrue($kinds->contains('attendance'));
+        $this->assertTrue($kinds->contains('register'));
+    }
+
     public function test_records_routes_expose_get_only_contract(): void
     {
         $source=file_get_contents(base_path('routes/desportivo_records.php'));
         $this->assertStringContainsString("Route::get('/',",$source);
+        $this->assertStringContainsString("Route::get('/export'",$source);
         $this->assertStringContainsString("Route::get('/treinos/{training}'",$source);
         $this->assertStringContainsString("Route::get('/atletas/{athlete}'",$source);
         $this->assertStringNotContainsString('Route::post(', $source);
