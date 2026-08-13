@@ -14,8 +14,10 @@ final class TrainingSessionReadinessService
 
         $checks = [];
         $hasGlobalContent = $training->training_plan_version_id !== null || filled($training->instrucao) || $training->series->isNotEmpty();
-        $groupsHaveContent = $training->sessionGroups->isEmpty() || $training->sessionGroups->every(fn ($assignment): bool => $hasGlobalContent || $assignment->training_plan_version_id !== null || filled($assignment->instruction));
-        $checks[] = $this->check('content', $hasGlobalContent || $groupsHaveContent, 'Conteúdo técnico', 'Existe plano, snapshot ou instrução para executar.', 'Falta conteúdo técnico num ou mais grupos.');
+        $groupsHaveContent = $training->sessionGroups->isNotEmpty()
+            && $training->sessionGroups->every(fn ($assignment): bool => $hasGlobalContent || $assignment->training_plan_version_id !== null || filled($assignment->instruction));
+        $contentReady = $training->sessionGroups->isEmpty() ? $hasGlobalContent : ($hasGlobalContent || $groupsHaveContent);
+        $checks[] = $this->check('content', $contentReady, 'Conteúdo técnico', 'Existe plano, snapshot ou instrução para executar.', 'Falta conteúdo técnico na sessão ou num ou mais grupos.');
         $checks[] = $this->check('participants', $training->athleteRecords->isNotEmpty(), 'Participantes', 'Atletas preparados para a ocorrência.', 'A sessão ainda não tem atletas preparados.');
         $checks[] = $this->check('coach', $training->responsavel_id !== null, 'Treinador', 'Treinador responsável definido.', 'Falta definir treinador responsável.');
         $checks[] = $this->check('location', $training->sports_venue_id !== null && $training->sports_pool_id !== null, 'Local e piscina/área', 'Local e piscina/área definidos.', 'Falta local ou piscina/área canónica.');
