@@ -23,6 +23,9 @@ final class TrainingSessionGroupService
         if ($session->isCompleted()) {
             throw ValidationException::withMessages(['training_groups' => 'A composição planeada de uma sessão concluída não pode ser alterada.']);
         }
+        if ($session->isCancelled()) {
+            throw ValidationException::withMessages(['training_groups' => 'A composição planeada de uma sessão cancelada não pode ser alterada.']);
+        }
 
         $normalized = collect($assignments)->values();
         $groupIds = $normalized->map(fn (array $row): string => trim((string) ($row['training_group_id'] ?? '')))->filter();

@@ -23,6 +23,7 @@ final class UpdateTrainingScheduleAction
     {
         if ((string) $training->club_id !== $this->clubContext->id()) throw ValidationException::withMessages(['training' => 'A sessão de treino pertence a outro clube.']);
         if ($training->isCompleted()) throw ValidationException::withMessages(['training' => 'Uma sessão concluída não pode ter o planeamento reescrito.']);
+        if ($training->isCancelled()) throw ValidationException::withMessages(['training' => 'Uma sessão cancelada não pode ter o planeamento reescrito.']);
 
         return DB::transaction(function () use ($training, $data, $actor): Training {
             $wasPublished = $training->session_status === 'published';

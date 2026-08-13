@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Desportivo\SportsPlanningWorkspaceController;
 use App\Http\Controllers\Desportivo\SportsTrainingLibraryController;
+use App\Http\Controllers\Desportivo\SportsTrainingWorkspaceController;
 use Illuminate\Support\Facades\Route;
 
 Route::middleware(['web', 'auth', 'verified', 'module.access:desportivo'])
@@ -30,4 +31,21 @@ Route::middleware(['web', 'auth', 'verified', 'module.access:desportivo'])
         Route::post('/planos/{plan}/reativar', [SportsTrainingLibraryController::class, 'restore'])
             ->middleware('permission.access:desportivo.treinos.biblioteca,edit')
             ->name('desportivo.biblioteca.planos.restore');
+    });
+
+Route::middleware(['web', 'auth', 'verified', 'module.access:desportivo'])
+    ->prefix('desportivo/treinos')
+    ->group(function (): void {
+        Route::get('/', [SportsTrainingWorkspaceController::class, 'index'])
+            ->middleware('permission.access:desportivo.treinos,view')
+            ->name('desportivo.treinos');
+        Route::post('/{training}/cancelar', [SportsTrainingWorkspaceController::class, 'cancel'])
+            ->middleware('permission.access:desportivo.treinos.agendamento,edit')
+            ->name('desportivo.treinos.sessions.cancel');
+        Route::post('/{training}/plano', [SportsTrainingWorkspaceController::class, 'applyPlanVersion'])
+            ->middleware('permission.access:desportivo.treinos.agendamento,edit')
+            ->name('desportivo.treinos.sessions.plan-version');
+        Route::put('/{training}/snapshot', [SportsTrainingWorkspaceController::class, 'overrideSnapshot'])
+            ->middleware('permission.access:desportivo.treinos.agendamento,edit')
+            ->name('desportivo.treinos.sessions.snapshot');
     });
