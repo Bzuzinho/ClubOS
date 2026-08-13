@@ -10,7 +10,7 @@ Route::middleware(['web', 'auth', 'verified', 'module.access:desportivo'])
     ->name('desportivo.planeamento');
 
 Route::middleware(['web', 'auth', 'verified', 'module.access:desportivo'])
-    ->prefix('/desportivo/biblioteca')
+    ->prefix('desportivo/biblioteca')
     ->group(function (): void {
         Route::get('/', [SportsTrainingLibraryController::class, 'index'])
             ->middleware('permission.access:desportivo.treinos.biblioteca,view')

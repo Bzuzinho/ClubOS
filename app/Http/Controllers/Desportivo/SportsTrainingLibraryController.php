@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Desportivo;
 
 use App\Http\Controllers\Controller;
 use App\Models\TrainingPlan;
+use App\Services\Desportivo\SportsClubContext;
 use App\Services\Desportivo\SportsTrainingLibraryQueryService;
 use App\Services\Desportivo\TrainingPlanService;
 use Illuminate\Http\RedirectResponse;
@@ -16,6 +17,7 @@ final class SportsTrainingLibraryController extends Controller
     public function __construct(
         private readonly SportsTrainingLibraryQueryService $query,
         private readonly TrainingPlanService $plans,
+        private readonly SportsClubContext $clubContext,
     ) {
     }
 
@@ -26,9 +28,7 @@ final class SportsTrainingLibraryController extends Controller
 
     public function store(Request $request): RedirectResponse
     {
-        $payload = $this->validatePayload($request, true);
-        $this->plans->create($payload, $request->user());
-
+        $this->plans->create($this->validatePayload($request, true), $request->user());
         return redirect()->route('desportivo.biblioteca')->with('success', 'Plano criado na Biblioteca.');
     }
 
@@ -36,37 +36,28 @@ final class SportsTrainingLibraryController extends Controller
     {
         $payload = $this->validatePayload($request, false);
         $this->plans->revise($plan, $payload, $request->user(), $payload['motivo_revisao'] ?? null);
-
         return redirect()->route('desportivo.biblioteca')->with('success', 'Nova versão do plano criada.');
     }
 
     public function duplicate(Request $request, TrainingPlan $plan): RedirectResponse
     {
-        $validated = $request->validate([
-            'nome' => 'nullable|string|max:255',
-            'codigo' => 'nullable|string|max:80',
-        ]);
-
+        $validated = $request->validate(['nome' => 'nullable|string|max:255', 'codigo' => 'nullable|string|max:80']);
         $this->plans->duplicate($plan, $request->user(), $validated);
-
         return redirect()->route('desportivo.biblioteca')->with('success', 'Plano duplicado como novo rascunho.');
     }
 
     public function archive(TrainingPlan $plan): RedirectResponse
     {
         $this->plans->archive($plan);
-
         return redirect()->route('desportivo.biblioteca')->with('success', 'Plano arquivado sem eliminar o histórico.');
     }
 
-    public function restore(Request $request, string $plan): RedirectResponse
+    public function restore(string $plan): RedirectResponse
     {
         $model = TrainingPlan::withTrashed()->findOrFail($plan);
-        abort_unless((string) $model->club_id === (string) config('sports.club_id', 'bscn'), 404);
-
+        abort_unless((string) $model->club_id === $this->clubContext->id(), 404);
         $model->restore();
         $model->forceFill(['estado' => 'draft'])->save();
-
         return redirect()->route('desportivo.biblioteca')->with('success', 'Plano reativado como rascunho.');
     }
 
