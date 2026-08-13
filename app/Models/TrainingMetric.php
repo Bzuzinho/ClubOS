@@ -42,6 +42,11 @@ class TrainingMetric extends Model
         return $this->belongsTo(User::class, 'user_id');
     }
 
+    public function atleta(): BelongsTo
+    {
+        return $this->athlete();
+    }
+
     public function trainingAthlete(): BelongsTo
     {
         return $this->belongsTo(TrainingAthlete::class, 'training_athlete_id');

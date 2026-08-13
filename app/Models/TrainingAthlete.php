@@ -40,6 +40,11 @@ class TrainingAthlete extends Model
         return $this->belongsTo(Training::class, 'treino_id');
     }
 
+    public function treino(): BelongsTo
+    {
+        return $this->training();
+    }
+
     public function athlete(): BelongsTo
     {
         return $this->belongsTo(User::class, 'user_id');

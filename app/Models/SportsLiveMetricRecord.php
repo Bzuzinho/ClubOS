@@ -16,5 +16,6 @@ final class SportsLiveMetricRecord extends Model
     public function definition(): BelongsTo { return $this->belongsTo(SportsLiveMetricDefinition::class, 'metric_definition_id'); }
     public function series(): BelongsTo { return $this->belongsTo(TrainingSeries::class, 'training_series_id'); }
     public function trainingAthlete(): BelongsTo { return $this->belongsTo(TrainingAthlete::class, 'training_athlete_id'); }
+    public function athlete(): BelongsTo { return $this->belongsTo(User::class, 'user_id'); }
     public function measurement(): BelongsTo { return $this->belongsTo(SportsLiveMeasurement::class, 'live_measurement_id'); }
 }
