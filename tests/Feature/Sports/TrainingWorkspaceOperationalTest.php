@@ -60,6 +60,15 @@ class TrainingWorkspaceOperationalTest extends TestCase
         $this->assertSame(4, (int) data_get($revision->after_snapshot, 'series.0.repeticoes'));
     }
 
+    public function test_snapshot_override_cannot_create_global_content_outside_planning(): void
+    {
+        $actor = User::factory()->create(); $training = $this->training($actor, 'published');
+        $this->expectException(ValidationException::class);
+        app(TrainingSessionOperationService::class)->overrideSnapshot($training, [[
+            'name' => 'Principal','rounds' => 1,'series' => [['repeticoes' => 4,'distancia_m' => 50,'exercicio' => 'Livre','timing_mode' => 'each_rep']],
+        ]], 'Tentativa de criar conteúdo global.', $actor);
+    }
+
     public function test_readiness_distinguishes_attention_decision_and_closed_sessions(): void
     {
         $actor = User::factory()->create(); $training = $this->training($actor, 'draft');
