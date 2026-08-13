@@ -19,7 +19,7 @@
  *   - alerts            → calculados no controller
  *
  * Tabs:
- *   dashboard | grupos | treinos | presencas | planeamento | competicoes | performance
+ *   dashboard | atletas | planeamento | biblioteca | treinos | cais | competicoes | performance
  */
 
 import { Suspense, lazy, useEffect, useState } from 'react';
@@ -37,6 +37,7 @@ import {
   Trophy,
   Lightning,
   GearSix,
+  Books,
 } from '@phosphor-icons/react';
 
 import type {
@@ -54,6 +55,7 @@ import type {
   Training,
   User,
 } from '@/types/sports';
+import type { TrainingLibraryOption, TrainingLibraryPlan } from '@/components/sports/tabs/TrainingLibraryTab';
 
 interface TrainingOption {
   id: string;
@@ -135,6 +137,12 @@ interface DesportivoProps {
   classificacaoOptions?: string[];
   volumeByAthlete?: VolumeRow[];
   athleteOperationalRows?: AthleteOperationalRow[];
+  libraryPlans?: TrainingLibraryPlan[];
+  libraryModalities?: TrainingLibraryOption[];
+  libraryTrainingTypes?: TrainingLibraryOption[];
+  libraryZones?: TrainingLibraryOption[];
+  libraryStrokes?: TrainingLibraryOption[];
+  libraryMaterials?: TrainingLibraryOption[];
 }
 
 type DesportivoPageProps = DesportivoProps & Record<string, unknown>;
@@ -144,14 +152,16 @@ const AthletesTab = lazy(() => import('@/components/sports/tabs/AthletesTab').th
 const TrainingsTab = lazy(() => import('@/components/sports/tabs/TrainingsTab').then((module) => ({ default: module.TrainingsTab })));
 const PoolDeckTab = lazy(() => import('@/components/sports/tabs/PoolDeckTab').then((module) => ({ default: module.PoolDeckTab })));
 const PlanningTab = lazy(() => import('@/components/sports/tabs/PlanningTab').then((module) => ({ default: module.PlanningTab })));
+const TrainingLibraryTab = lazy(() => import('@/components/sports/tabs/TrainingLibraryTab').then((module) => ({ default: module.TrainingLibraryTab })));
 const CompetitionsTab = lazy(() => import('@/components/sports/tabs/CompetitionsTab').then((module) => ({ default: module.CompetitionsTab })));
 const PerformanceTab = lazy(() => import('@/components/sports/tabs/PerformanceTab').then((module) => ({ default: module.PerformanceTab })));
 
 const TABS = [
   { value: 'dashboard',    label: 'Dashboard',    Icon: ChartBar },
   { value: 'atletas',      label: 'Atletas',      Icon: UsersThree },
-  { value: 'treinos',      label: 'Treinos',      Icon: CalendarBlank },
   { value: 'planeamento',  label: 'Planeamento',  Icon: MapTrifold },
+  { value: 'biblioteca',   label: 'Biblioteca',   Icon: Books },
+  { value: 'treinos',      label: 'Treinos',      Icon: CalendarBlank },
   { value: 'cais',         label: 'Cais',         Icon: CheckSquare },
   { value: 'competicoes',  label: 'Competições',  Icon: Trophy },
   { value: 'performance',  label: 'Performance',  Icon: Lightning },
@@ -170,8 +180,9 @@ const DEFAULT_STATS: Stats = {
 const TAB_ROUTES: Record<TabValue, () => string> = {
   dashboard: () => route('desportivo.index'),
   atletas: () => route('desportivo.index', { tab: 'atletas' }),
-  treinos: () => route('desportivo.treinos'),
   planeamento: () => route('desportivo.planeamento'),
+  biblioteca: () => route('desportivo.biblioteca'),
+  treinos: () => route('desportivo.treinos'),
   cais: () => route('desportivo.cais'),
   competicoes: () => route('desportivo.competicoes'),
   performance: () => route('desportivo.relatorios'),
@@ -219,6 +230,12 @@ export default function DesportivoIndex({
   statusOptions = ['presente', 'atrasado', 'falta', 'dispensado'],
   volumeByAthlete = [],
   athleteOperationalRows = [],
+  libraryPlans = [],
+  libraryModalities = [],
+  libraryTrainingTypes = [],
+  libraryZones = [],
+  libraryStrokes = [],
+  libraryMaterials = [],
 }: DesportivoProps) {
   const page = usePage<DesportivoPageProps>();
   const initialTab = (tab === 'presencas' ? 'cais' : tab === 'resultados' ? 'competicoes' : tab) as TabValue;
@@ -287,7 +304,7 @@ export default function DesportivoIndex({
           <div>
             <h1 className="text-lg sm:text-xl font-semibold tracking-tight">Desportivo</h1>
             <p className="text-muted-foreground text-xs mt-0.5">
-              Sistema técnico de gestão desportiva: treinos, cais, competições e performance
+              Sistema técnico de gestão desportiva: planeamento, biblioteca, sessões, cais, competições e performance
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -324,7 +341,7 @@ export default function DesportivoIndex({
         ) : (
           <>
             <Tabs value={activeTab} onValueChange={handleTabChange} className={moduleTabsClass}>
-              <TabsList className="grid w-full shrink-0 grid-cols-4 sm:grid-cols-7 h-auto">
+              <TabsList className="grid w-full shrink-0 grid-cols-4 sm:grid-cols-8 h-auto">
                 {TABS.map(({ value, label, Icon }) => (
                   <TabsTrigger
                     key={value}
@@ -364,6 +381,30 @@ export default function DesportivoIndex({
                 </Suspense>
               </TabsContent>
 
+              <TabsContent value="planeamento" className={moduleTabbedContentClass}>
+                <Suspense fallback={<TabLoadingState />}>
+                  <PlanningTab
+                    seasons={seasons}
+                    macrocycles={macrocycles}
+                    mesocycles={mesocycles}
+                    selectedSeasonId={selectedSeason?.id ?? null}
+                  />
+                </Suspense>
+              </TabsContent>
+
+              <TabsContent value="biblioteca" className={moduleTabbedContentClass}>
+                <Suspense fallback={<TabLoadingState />}>
+                  <TrainingLibraryTab
+                    plans={libraryPlans}
+                    modalities={libraryModalities}
+                    trainingTypes={libraryTrainingTypes}
+                    zones={libraryZones}
+                    strokes={libraryStrokes}
+                    materials={libraryMaterials}
+                  />
+                </Suspense>
+              </TabsContent>
+
               <TabsContent value="treinos" className={moduleTabbedContentClass}>
                 <Suspense fallback={<TabLoadingState />}>
                   <TrainingsTab
@@ -393,17 +434,6 @@ export default function DesportivoIndex({
                     selectedTraining={selectedTraining}
                     users={resolvedUsers}
                     ageGroups={ageGroups}
-                  />
-                </Suspense>
-              </TabsContent>
-
-              <TabsContent value="planeamento" className={moduleTabbedContentClass}>
-                <Suspense fallback={<TabLoadingState />}>
-                  <PlanningTab
-                    seasons={seasons}
-                    macrocycles={macrocycles}
-                    mesocycles={mesocycles}
-                    selectedSeasonId={selectedSeason?.id ?? null}
                   />
                 </Suspense>
               </TabsContent>
