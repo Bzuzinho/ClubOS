@@ -6,6 +6,7 @@ use App\Models\Competition;
 use App\Models\Prova;
 use App\Models\Result;
 use App\Models\SportsAthleteParticipation;
+use App\Models\SportsModality;
 use App\Models\Training;
 use App\Models\TrainingAthlete;
 use App\Models\User;
@@ -26,9 +27,15 @@ final class SportsAnalysisWorkspaceFunctionalTest extends TestCase
     public function test_analysis_derives_training_and_result_facts_without_legacy_performance_kv(): void
     {
         $athlete = User::factory()->create(['name' => 'Ana Analise']);
+        $modality = SportsModality::query()
+            ->where('club_id', 'bscn')
+            ->where('code', 'swimming')
+            ->firstOrFail();
+
         SportsAthleteParticipation::query()->create([
-            'club_id' => 'bscn', 'user_id' => $athlete->id, 'active' => true,
-            'current_slot' => 'current', 'starts_at' => now()->subYear()->toDateString(), 'source' => 'test',
+            'club_id' => 'bscn', 'user_id' => $athlete->id, 'sports_modality_id' => $modality->id,
+            'active' => true, 'current_slot' => 'current',
+            'starts_at' => now()->subYear()->toDateString(), 'source' => 'test',
         ]);
 
         $training = Training::query()->create([
@@ -68,8 +75,25 @@ final class SportsAnalysisWorkspaceFunctionalTest extends TestCase
     {
         $local = User::factory()->create(['name' => 'Local']);
         $foreign = User::factory()->create(['name' => 'Foreign']);
-        SportsAthleteParticipation::query()->create(['club_id'=>'bscn','user_id'=>$local->id,'active'=>true,'current_slot'=>'current','starts_at'=>now()->subYear(),'source'=>'test']);
-        SportsAthleteParticipation::query()->create(['club_id'=>'other-club','user_id'=>$foreign->id,'active'=>true,'current_slot'=>'current','starts_at'=>now()->subYear(),'source'=>'test']);
+        $localModality = SportsModality::query()
+            ->where('club_id', 'bscn')
+            ->where('code', 'swimming')
+            ->firstOrFail();
+        $foreignModality = SportsModality::query()->create([
+            'club_id' => 'other-club',
+            'code' => 'swimming-other-test',
+            'name' => 'Natação',
+            'active' => true,
+        ]);
+
+        SportsAthleteParticipation::query()->create([
+            'club_id' => 'bscn', 'user_id' => $local->id, 'sports_modality_id' => $localModality->id,
+            'active' => true, 'current_slot' => 'current', 'starts_at' => now()->subYear(), 'source' => 'test',
+        ]);
+        SportsAthleteParticipation::query()->create([
+            'club_id' => 'other-club', 'user_id' => $foreign->id, 'sports_modality_id' => $foreignModality->id,
+            'active' => true, 'current_slot' => 'current', 'starts_at' => now()->subYear(), 'source' => 'test',
+        ]);
 
         $payload = app(SportsAnalysisWorkspaceService::class)->workspace();
 
