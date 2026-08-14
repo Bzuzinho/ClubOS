@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { Head, router } from '@inertiajs/react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { Badge } from '@/Components/ui/badge';
@@ -54,6 +55,6 @@ export default function DashboardWorkspace({stats,today,upcoming_trainings,upcom
   </AuthenticatedLayout>;
 }
 
-function Metric({icon,label,value}:{icon:React.ReactNode;label:string;value:string|number}){return <Card><CardContent className="flex items-center gap-2 p-3"><span className="text-muted-foreground">{icon}</span><div><p className="text-base font-semibold leading-none">{value}</p><p className="mt-1 text-[10px] text-muted-foreground">{label}</p></div></CardContent></Card>}
+function Metric({icon,label,value}:{icon:ReactNode;label:string;value:string|number}){return <Card><CardContent className="flex items-center gap-2 p-3"><span className="text-muted-foreground">{icon}</span><div><p className="text-base font-semibold leading-none">{value}</p><p className="mt-1 text-[10px] text-muted-foreground">{label}</p></div></CardContent></Card>}
 function Empty({text}:{text:string}){return <p className="text-xs text-muted-foreground">{text}</p>}
 function TrainingRow({t}:{t:Training}){return <button onClick={()=>router.get(route('desportivo.treinos'))} className="flex w-full items-center justify-between rounded-md border p-2 text-left hover:bg-muted/40"><div><p className="text-xs font-medium">{t.number?`Treino ${t.number}`:t.type||'Treino'}</p><p className="text-[11px] text-muted-foreground">{t.date??'—'}{t.start?` · ${t.start}`:''}{t.location?` · ${t.location}`:''}</p></div>{t.review_required?<Badge variant="outline">Rever</Badge>:<Badge variant="secondary">{t.status||'agendado'}</Badge>}</button>}
