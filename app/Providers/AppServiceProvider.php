@@ -8,6 +8,7 @@ use App\Contracts\Financeiro\CompetitionFinanceGateway;
 use App\Contracts\Logistica\SportsLogisticsGateway;
 use App\Contracts\Members\MemberSportsIdentityProvider;
 use App\Http\Controllers\Desportivo\SportsCaisWorkspaceController;
+use App\Http\Controllers\Desportivo\SportsCompetitionWorkspaceController;
 use App\Http\Controllers\Desportivo\SportsLiveWorkspaceController;
 use App\Http\Controllers\Desportivo\SportsPlanningWorkspaceController;
 use App\Http\Middleware\EnforceSportsLegacyCutover;
@@ -60,6 +61,7 @@ class AppServiceProvider extends ServiceProvider
         $this->loadRoutesFrom(base_path('routes/desportivo_live.php'));
         $this->loadRoutesFrom(base_path('routes/desportivo_records.php'));
         $this->loadRoutesFrom(base_path('routes/desportivo_evaluations.php'));
+        $this->loadRoutesFrom(base_path('routes/desportivo_competitions.php'));
         $this->loadRoutesFrom(base_path('routes/desportivo_member_contract.php'));
         $this->loadRoutesFrom(base_path('routes/desportivo_communication_logistics.php'));
         $this->loadRoutesFrom(base_path('routes/member_documents.php'));
@@ -78,6 +80,10 @@ class AppServiceProvider extends ServiceProvider
                     ->get('/desportivo/live', [SportsLiveWorkspaceController::class, 'index'])
                     ->middleware('permission.access:desportivo.treinos.cais,view')
                     ->name('desportivo.live');
+                Route::middleware(['web', 'auth', 'verified', 'module.access:desportivo'])
+                    ->get('/desportivo/competicoes', [SportsCompetitionWorkspaceController::class, 'index'])
+                    ->middleware('permission.access:desportivo.competicoes,view')
+                    ->name('desportivo.competicoes');
             });
         }
 
