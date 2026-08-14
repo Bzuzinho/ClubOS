@@ -40,7 +40,8 @@ final class SportsAnalysisWorkspaceFunctionalTest extends TestCase
 
         $training = Training::query()->create([
             'club_id' => 'bscn', 'numero_treino' => 1,
-            'data' => now()->subDays(3)->toDateString(), 'session_status' => 'completed', 'volume_planeado_m' => 3000,
+            'data' => now()->subDays(3)->toDateString(), 'session_status' => 'completed',
+            'tipo_treino' => 'Técnico', 'volume_planeado_m' => 3000,
         ]);
         TrainingAthlete::query()->create([
             'treino_id' => $training->id, 'user_id' => $athlete->id,
