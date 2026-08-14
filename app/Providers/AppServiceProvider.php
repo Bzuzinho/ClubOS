@@ -7,6 +7,7 @@ use App\Contracts\Desportivo\SportsAudienceProvider;
 use App\Contracts\Financeiro\CompetitionFinanceGateway;
 use App\Contracts\Logistica\SportsLogisticsGateway;
 use App\Contracts\Members\MemberSportsIdentityProvider;
+use App\Http\Controllers\Desportivo\SportsAnalysisWorkspaceController;
 use App\Http\Controllers\Desportivo\SportsCaisWorkspaceController;
 use App\Http\Controllers\Desportivo\SportsCompetitionWorkspaceController;
 use App\Http\Controllers\Desportivo\SportsLiveWorkspaceController;
@@ -65,6 +66,7 @@ class AppServiceProvider extends ServiceProvider
         $this->loadRoutesFrom(base_path('routes/desportivo_competitions.php'));
         $this->loadRoutesFrom(base_path('routes/desportivo_convocations.php'));
         $this->loadRoutesFrom(base_path('routes/desportivo_results.php'));
+        $this->loadRoutesFrom(base_path('routes/desportivo_analysis.php'));
         $this->loadRoutesFrom(base_path('routes/desportivo_member_contract.php'));
         $this->loadRoutesFrom(base_path('routes/desportivo_communication_logistics.php'));
         $this->loadRoutesFrom(base_path('routes/member_documents.php'));
@@ -91,6 +93,10 @@ class AppServiceProvider extends ServiceProvider
                     ->get('/desportivo/resultados', [SportsResultsWorkspaceController::class, 'index'])
                     ->middleware('permission.access:desportivo.resultados,view')
                     ->name('desportivo.resultados');
+                Route::middleware(['web', 'auth', 'verified', 'module.access:desportivo'])
+                    ->get('/desportivo/relatorios', [SportsAnalysisWorkspaceController::class, 'index'])
+                    ->middleware('permission.access:desportivo.treinos.cais,view')
+                    ->name('desportivo.relatorios');
             });
         }
 
