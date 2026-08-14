@@ -11,13 +11,13 @@ class Result extends Model
 {
     use HasUuids;
 
-
     protected $fillable = [
         'prova_id',
         'user_id',
         'tempo_oficial',
         'posicao',
         'pontos_fina',
+        'status',
         'desclassificado',
         'observacoes',
     ];
