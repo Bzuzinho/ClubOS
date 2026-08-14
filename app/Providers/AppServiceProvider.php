@@ -65,6 +65,7 @@ class AppServiceProvider extends ServiceProvider
         $this->loadRoutesFrom(base_path('routes/desportivo_competitions.php'));
         $this->loadRoutesFrom(base_path('routes/desportivo_convocations.php'));
         $this->loadRoutesFrom(base_path('routes/desportivo_results.php'));
+        $this->loadRoutesFrom(base_path('routes/desportivo_analysis.php'));
         $this->loadRoutesFrom(base_path('routes/desportivo_member_contract.php'));
         $this->loadRoutesFrom(base_path('routes/desportivo_communication_logistics.php'));
         $this->loadRoutesFrom(base_path('routes/member_documents.php'));
