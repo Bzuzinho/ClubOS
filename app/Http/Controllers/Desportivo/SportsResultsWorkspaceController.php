@@ -42,8 +42,20 @@ final class SportsResultsWorkspaceController extends Controller
             'rows.*.splits.*.time' => ['required', 'numeric', 'min:0'],
         ]);
 
+        $rows = collect($data['rows'])
+            ->filter(fn (array $row): bool =>
+                filled($row['tempo_oficial'] ?? null)
+                || filled($row['posicao'] ?? null)
+                || filled($row['pontos_fina'] ?? null)
+                || (($row['status'] ?? 'ok') !== 'ok')
+                || filled($row['observacoes'] ?? null)
+                || ! empty($row['splits'] ?? [])
+            )
+            ->values()
+            ->all();
+
         return response()->json([
-            'saved_ids' => $this->workspace->saveBulk($competition, $data['rows']),
+            'saved_ids' => $rows === [] ? [] : $this->workspace->saveBulk($competition, $rows),
             'workspace' => $this->workspace->detail($competition),
         ]);
     }
