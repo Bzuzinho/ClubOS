@@ -69,7 +69,7 @@ final class SportsAnalysisWorkspaceFunctionalTest extends TestCase
         $this->assertNull($payload['kpis']['evaluation_average']);
         $this->assertSame(1, $payload['kpis']['podiums']);
         $this->assertSame('Regional', $payload['results'][0]['competition']);
-        $this->assertStringContainsString('não', $payload['disclaimer']);
+        $this->assertStringContainsString('Não', $payload['disclaimer']);
     }
 
     public function test_workspace_is_club_scoped_and_declares_read_only_analysis(): void
