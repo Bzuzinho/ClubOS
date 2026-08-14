@@ -35,6 +35,13 @@ final class EnforceSportsLegacyCutover
         }
 
         if ($firstSegment === 'desportivo'
+            && $request->segment(2) === null
+            && $request->query('tab') === 'atletas'
+            && ($request->isMethod('GET') || $request->isMethod('HEAD'))) {
+            return redirect('/desportivo/atletas', 302);
+        }
+
+        if ($firstSegment === 'desportivo'
             && in_array((string) ($request->segment(2) ?? ''), self::LEGACY_PLANNING_MUTATION_SEGMENTS, true)
             && ! ($request->isMethod('GET') || $request->isMethod('HEAD'))) {
             abort(410, 'Este endpoint de planeamento legacy está encerrado. Utilize a workspace canónica de Planeamento.');
