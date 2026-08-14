@@ -78,6 +78,10 @@ class SportsCompetitionWorkspaceFunctionalTest extends TestCase
             'data_criacao' => now(),
             'criado_por' => $actor->id,
             'atletas_ids' => [$wrongAthlete->id],
+            'tipo_custo' => 'por_salto',
+            'valor_por_salto' => 0,
+            'valor_por_estafeta' => 0,
+            'valor_inscricao_unitaria' => 0,
             'publication_status' => 'draft',
         ]);
         ConvocationAthlete::query()->create([
@@ -94,6 +98,10 @@ class SportsCompetitionWorkspaceFunctionalTest extends TestCase
             'data_criacao' => now(),
             'criado_por' => $actor->id,
             'atletas_ids' => [$rightAthlete->id],
+            'tipo_custo' => 'por_salto',
+            'valor_por_salto' => 0,
+            'valor_por_estafeta' => 0,
+            'valor_inscricao_unitaria' => 0,
             'publication_status' => 'published',
         ]);
         ConvocationAthlete::query()->create([
