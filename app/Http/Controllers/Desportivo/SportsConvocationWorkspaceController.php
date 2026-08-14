@@ -4,6 +4,8 @@ namespace App\Http\Controllers\Desportivo;
 
 use App\Http\Controllers\Controller;
 use App\Models\ConvocationGroup;
+use App\Models\ProvaTipo;
+use App\Services\Desportivo\SportsClubContext;
 use App\Services\Desportivo\SportsConvocationWorkspaceService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -13,13 +15,32 @@ use Inertia\Response;
 
 final class SportsConvocationWorkspaceController extends Controller
 {
-    public function __construct(private readonly SportsConvocationWorkspaceService $workspace)
-    {
+    public function __construct(
+        private readonly SportsConvocationWorkspaceService $workspace,
+        private readonly SportsClubContext $clubContext,
+    ) {
     }
 
     public function index(): Response
     {
-        return Inertia::render('Desportivo/ConvocationsWorkspace', $this->workspace->workspace());
+        $payload = $this->workspace->workspace();
+        $payload['race_catalog'] = ProvaTipo::query()
+            ->forClub($this->clubContext->id())
+            ->ativo()
+            ->ordenado()
+            ->get(['id', 'codigo', 'nome', 'distancia', 'unidade', 'modalidade'])
+            ->map(fn (ProvaTipo $race): array => [
+                'id' => (string) $race->id,
+                'code' => $race->codigo,
+                'name' => (string) $race->nome,
+                'distance' => $race->distancia,
+                'unit' => $race->unidade,
+                'modality' => $race->modalidade,
+            ])
+            ->values()
+            ->all();
+
+        return Inertia::render('Desportivo/ConvocationsWorkspace', $payload);
     }
 
     public function show(ConvocationGroup $convocationGroup): JsonResponse
@@ -34,7 +55,7 @@ final class SportsConvocationWorkspaceController extends Controller
             'athletes' => ['required','array','min:1'],
             'athletes.*.user_id' => ['required','uuid','exists:users,id'],
             'athletes.*.race_ids' => ['nullable','array'],
-            'athletes.*.race_ids.*' => ['string'],
+            'athletes.*.race_ids.*' => ['uuid','exists:prova_tipos,id'],
             'athletes.*.relays' => ['nullable','integer','min:0'],
             'meeting_time' => ['nullable','date_format:H:i'],
             'meeting_location' => ['nullable','string','max:255'],
