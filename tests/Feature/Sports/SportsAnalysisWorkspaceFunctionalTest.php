@@ -1,0 +1,105 @@
+<?php
+
+namespace Tests\Feature\Sports;
+
+use App\Models\Competition;
+use App\Models\Prova;
+use App\Models\Result;
+use App\Models\SportsAthleteParticipation;
+use App\Models\SportsEvaluation;
+use App\Models\SportsEvaluationCampaign;
+use App\Models\Training;
+use App\Models\TrainingAthlete;
+use App\Models\User;
+use App\Services\Desportivo\SportsAnalysisWorkspaceService;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\TestCase;
+
+final class SportsAnalysisWorkspaceFunctionalTest extends TestCase
+{
+    use RefreshDatabase;
+
+    public function test_analysis_derives_training_evaluation_and_result_facts_without_legacy_performance_kv(): void
+    {
+        $athlete = User::factory()->create(['name' => 'Ana Analise']);
+        SportsAthleteParticipation::query()->create([
+            'club_id' => config('sports.club_id', 'bscn'),
+            'user_id' => $athlete->id,
+            'active' => true,
+            'current_slot' => 'current',
+            'starts_at' => now()->subYear()->toDateString(),
+            'source' => 'test',
+        ]);
+
+        $training = Training::query()->create([
+            'club_id' => config('sports.club_id', 'bscn'),
+            'numero_treino' => 1,
+            'data' => now()->subDays(3)->toDateString(),
+            'session_status' => 'completed',
+            'volume_planeado_m' => 3000,
+        ]);
+        TrainingAthlete::query()->create([
+            'treino_id' => $training->id,
+            'user_id' => $athlete->id,
+            'presente' => true,
+            'estado' => 'presente',
+            'volume_real_m' => 2800,
+            'rpe' => 7,
+        ]);
+
+        $campaign = SportsEvaluationCampaign::query()->create([
+            'club_id' => config('sports.club_id', 'bscn'),
+            'name' => 'Trimestral',
+            'starts_at' => now()->subDays(10)->toDateString(),
+            'state' => 'closed',
+            'created_by' => $athlete->id,
+        ]);
+        SportsEvaluation::query()->create([
+            'campaign_id' => $campaign->id,
+            'athlete_user_id' => $athlete->id,
+            'evaluator_user_id' => $athlete->id,
+            'state' => 'completed',
+            'overall_score' => 7.5,
+            'completed_at' => now()->subDay(),
+        ]);
+
+        $competition = Competition::query()->create([
+            'club_id' => config('sports.club_id', 'bscn'),
+            'nome' => 'Regional', 'local' => 'Leiria',
+            'data_inicio' => now()->subDays(2)->toDateString(),
+            'tipo' => 'piscina', 'status' => 'completed',
+        ]);
+        $race = Prova::query()->create([
+            'competicao_id' => $competition->id,
+            'estilo' => 'LIVRE', 'distancia_m' => 100, 'genero' => 'F', 'ordem_prova' => 1,
+        ]);
+        Result::query()->create([
+            'prova_id' => $race->id, 'user_id' => $athlete->id,
+            'tempo_oficial' => 61.42, 'posicao' => 2, 'status' => 'ok',
+        ]);
+
+        $payload = app(SportsAnalysisWorkspaceService::class)->athlete($athlete, 12);
+
+        $this->assertSame(100.0, $payload['kpis']['attendance_rate']);
+        $this->assertSame(2800, $payload['kpis']['volume_m']);
+        $this->assertSame(7.0, $payload['kpis']['avg_rpe']);
+        $this->assertSame(7.5, $payload['kpis']['evaluation_average']);
+        $this->assertSame(1, $payload['kpis']['podiums']);
+        $this->assertSame('Regional', $payload['results'][0]['competition']);
+        $this->assertStringContainsString('não', $payload['disclaimer']);
+    }
+
+    public function test_workspace_is_club_scoped_and_declares_read_only_analysis(): void
+    {
+        $local = User::factory()->create(['name' => 'Local']);
+        $foreign = User::factory()->create(['name' => 'Foreign']);
+        SportsAthleteParticipation::query()->create(['club_id'=>config('sports.club_id','bscn'),'user_id'=>$local->id,'active'=>true,'current_slot'=>'current','starts_at'=>now()->subYear(),'source'=>'test']);
+        SportsAthleteParticipation::query()->create(['club_id'=>'other-club','user_id'=>$foreign->id,'active'=>true,'current_slot'=>'current','starts_at'=>now()->subYear(),'source'=>'test']);
+
+        $payload = app(SportsAnalysisWorkspaceService::class)->workspace();
+
+        $this->assertSame([(string)$local->id], collect($payload['athletes'])->pluck('id')->all());
+        $this->assertTrue($payload['principles']['read_only']);
+        $this->assertFalse($payload['principles']['legacy_performance_kv_active']);
+    }
+}
