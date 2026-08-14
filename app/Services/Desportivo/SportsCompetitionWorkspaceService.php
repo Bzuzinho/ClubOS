@@ -65,7 +65,6 @@ final class SportsCompetitionWorkspaceService
 
         $rows = $competitions->map(function (Competition $competition) use ($registrationCounts, $obligations): array {
             $competitionObligations = $obligations->get($competition->id, collect());
-            $readiness = $this->readiness($competition, $competitionObligations);
 
             return [
                 'id' => (string) $competition->id,
@@ -81,7 +80,7 @@ final class SportsCompetitionWorkspaceService
                 'result_count' => (int) ($competition->results_count ?? 0),
                 'registration_count' => (int) ($registrationCounts[$competition->id] ?? 0),
                 'financial_amount' => round((float) $competitionObligations->sum(fn ($row) => (float) ($row->manual_amount ?? $row->calculated_amount ?? 0)), 2),
-                'readiness' => $readiness,
+                'readiness' => $this->readiness($competition, $competitionObligations),
             ];
         })->values();
 
@@ -120,7 +119,6 @@ final class SportsCompetitionWorkspaceService
 
         $registrationRows = $competition->provas
             ->flatMap(fn ($race) => $race->registrations->map(fn ($registration) => [$race, $registration]));
-
         $athletes = $registrationRows->pluck(1)->pluck('athlete')->filter()->unique('id')->values();
         $convocationAthletes = $convocations->flatMap->convocationAthletes->pluck('atleta')->filter()->unique('id')->values();
         $names = $this->displayResolver->mapDisplayNames($athletes->concat($convocationAthletes)->unique('id')->values());
@@ -205,9 +203,11 @@ final class SportsCompetitionWorkspaceService
                 'id' => (string) $result->id,
                 'race_id' => (string) $race->id,
                 'race' => trim(($race->distancia_m ?: '').' '.($race->estilo ?: '')),
-                'user_id' => (string) ($result->user_id ?? ''),
-                'time_ms' => $result->tempo_ms ?? null,
-                'classification' => $result->classificacao ?? null,
+                'user_id' => (string) $result->user_id,
+                'official_time' => $result->tempo_oficial,
+                'position' => $result->posicao,
+                'fina_points' => $result->pontos_fina,
+                'disqualified' => (bool) $result->desclassificado,
             ]))->values(),
             'team_results' => $competition->teamResults->values(),
             'readiness' => $this->readiness($competition, $obligations),
