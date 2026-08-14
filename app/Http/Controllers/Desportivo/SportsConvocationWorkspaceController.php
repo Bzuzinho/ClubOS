@@ -67,7 +67,14 @@ final class SportsConvocationWorkspaceController extends Controller
             'cost_center_id' => ['nullable','uuid','exists:cost_centers,id'],
             'publish_now' => ['sometimes','boolean'],
         ]);
-        $this->workspace->create($data, $request->user());
+
+        $publishNow = (bool) ($data['publish_now'] ?? false);
+        $data['publish_now'] = false;
+        $group = $this->workspace->create($data, $request->user());
+        if ($publishNow) {
+            $this->workspace->publish($group, $request->user());
+        }
+
         return back();
     }
 
