@@ -324,8 +324,10 @@ final class SportsFoundationCutoverAuditor
         }
 
         $provider = (string) File::get($providerPath);
+        $middlewareRegistered = str_contains($provider, "pushMiddlewareToGroup('web', EnforceSportsLegacyCutover::class)")
+            || str_contains($provider, "prependMiddlewareToGroup('web', EnforceSportsLegacyCutover::class)");
 
         return str_contains($provider, 'EnforceSportsLegacyCutover::class')
-            && str_contains($provider, "pushMiddlewareToGroup('web', EnforceSportsLegacyCutover::class)");
+            && $middlewareRegistered;
     }
 }

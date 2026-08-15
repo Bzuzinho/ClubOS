@@ -42,11 +42,67 @@ final class EnforceSportsLegacyCutover
         }
 
         if ($firstSegment === 'desportivo'
+            && $request->segment(2) === 'presencas') {
+            if ($request->isMethod('GET') || $request->isMethod('HEAD')) {
+                $target = '/desportivo/cais';
+                if ($request->filled('training_id')) {
+                    $target .= '?training_id='.rawurlencode((string) $request->query('training_id'));
+                }
+
+                return redirect($target, 302)
+                    ->with('warning', 'Presenças passou a ser gerido no Cais.');
+            }
+
+            abort(410, 'O fluxo legacy de Presenças está encerrado. Utilize o Cais.');
+        }
+
+        if ($firstSegment === 'desportivo'
             && in_array((string) ($request->segment(2) ?? ''), self::LEGACY_PLANNING_MUTATION_SEGMENTS, true)
             && ! ($request->isMethod('GET') || $request->isMethod('HEAD'))) {
             abort(410, 'Este endpoint de planeamento legacy está encerrado. Utilize a workspace canónica de Planeamento.');
         }
 
+        if ($this->isLegacyTrainingMutation($request)) {
+            abort(410, 'Este endpoint de Treinos legacy está encerrado. Utilize Planeamento/Treinos canónicos.');
+        }
+
         return $next($request);
+    }
+
+    private function isLegacyTrainingMutation(Request $request): bool
+    {
+        if ($request->segment(1) !== 'desportivo' || $request->segment(2) !== 'treinos') {
+            return false;
+        }
+
+        $third = $request->segment(3);
+        $fourth = $request->segment(4);
+        $fifth = $request->segment(5);
+
+        if ($third === null) {
+            return $request->isMethod('POST');
+        }
+
+        if ($fourth === null) {
+            return $request->isMethod('PUT') || $request->isMethod('DELETE');
+        }
+
+        if (in_array($fourth, ['agendar', 'duplicar'], true)) {
+            return $request->isMethod('POST');
+        }
+
+        if ($fourth === 'presencas') {
+            return $request->isMethod('PUT');
+        }
+
+        if ($fourth === 'atletas' && $fifth === null) {
+            return $request->isMethod('POST');
+        }
+
+        if ($fourth === 'atletas' && $fifth !== null) {
+            return $request->isMethod('DELETE');
+        }
+
+        return false;
     }
 }
