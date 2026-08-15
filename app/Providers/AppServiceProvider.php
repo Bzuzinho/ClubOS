@@ -10,6 +10,7 @@ use App\Contracts\Members\MemberSportsIdentityProvider;
 use App\Http\Controllers\Desportivo\SportsAnalysisWorkspaceController;
 use App\Http\Controllers\Desportivo\SportsCaisWorkspaceController;
 use App\Http\Controllers\Desportivo\SportsCompetitionWorkspaceController;
+use App\Http\Controllers\Desportivo\SportsDashboardWorkspaceController;
 use App\Http\Controllers\Desportivo\SportsLiveWorkspaceController;
 use App\Http\Controllers\Desportivo\SportsPlanningWorkspaceController;
 use App\Http\Controllers\Desportivo\SportsResultsWorkspaceController;
@@ -68,12 +69,17 @@ class AppServiceProvider extends ServiceProvider
         $this->loadRoutesFrom(base_path('routes/desportivo_results.php'));
         $this->loadRoutesFrom(base_path('routes/desportivo_analysis.php'));
         $this->loadRoutesFrom(base_path('routes/desportivo_athletes.php'));
+        $this->loadRoutesFrom(base_path('routes/desportivo_dashboard.php'));
         $this->loadRoutesFrom(base_path('routes/desportivo_member_contract.php'));
         $this->loadRoutesFrom(base_path('routes/desportivo_communication_logistics.php'));
         $this->loadRoutesFrom(base_path('routes/member_documents.php'));
 
         if (! $this->app->routesAreCached()) {
             $this->app->booted(function (): void {
+                Route::middleware(['web', 'auth', 'verified', 'module.access:desportivo'])
+                    ->get('/desportivo', [SportsDashboardWorkspaceController::class, 'index'])
+                    ->middleware('permission.access:desportivo.dashboard,view')
+                    ->name('desportivo.index');
                 Route::middleware(['web', 'auth', 'verified', 'module.access:desportivo'])
                     ->get('/desportivo/planeamento', [SportsPlanningWorkspaceController::class, 'index'])
                     ->middleware('permission.access:desportivo.planeamento,view')

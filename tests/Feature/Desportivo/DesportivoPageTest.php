@@ -27,18 +27,18 @@ class DesportivoPageTest extends TestCase
 
         $response->assertOk();
         $response->assertHeader('X-Inertia', 'true');
-        $response->assertJsonPath('component', 'Desportivo/Index');
-        $response->assertJsonPath('props.tab', 'dashboard');
+        $response->assertJsonPath('component', 'Desportivo/DashboardWorkspace');
         $response->assertJsonStructure([
             'component',
             'props' => [
                 'stats',
+                'today',
+                'upcoming_trainings',
+                'upcoming_competitions',
                 'alerts',
-                'trainings',
-                'nextTrainings',
-                'upcomingCompetitions',
-                'competitions',
-                'eventos',
+                'top_athletes',
+                'quick_links',
+                'principles',
             ],
         ]);
     }
