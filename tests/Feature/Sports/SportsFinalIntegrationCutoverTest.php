@@ -4,11 +4,13 @@ namespace Tests\Feature\Sports;
 
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\Concerns\GrantsDesportivoAccess;
 use Tests\TestCase;
 
 final class SportsFinalIntegrationCutoverTest extends TestCase
 {
     use RefreshDatabase;
+    use GrantsDesportivoAccess;
 
     public function test_legacy_training_presence_and_cais_writes_are_closed(): void
     {
@@ -34,9 +36,10 @@ final class SportsFinalIntegrationCutoverTest extends TestCase
     public function test_canonical_training_and_cais_routes_are_not_blocked_by_cutover(): void
     {
         $admin = User::factory()->create();
+        $this->grantDesportivoAccess($admin);
 
-        $this->actingAs($admin)->get('/desportivo/treinos')->assertStatus(200);
-        $this->actingAs($admin)->get('/desportivo/cais')->assertStatus(200);
+        $this->actingAs($admin)->get('/desportivo/treinos')->assertOk();
+        $this->actingAs($admin)->get('/desportivo/cais')->assertOk();
     }
 
     public function test_cutover_middleware_declares_all_retired_runtime_boundaries(): void
