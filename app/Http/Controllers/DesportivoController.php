@@ -2,11 +2,16 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Controllers\Desportivo\SportsAnalysisWorkspaceController;
 use App\Http\Controllers\Desportivo\SportsCaisWorkspaceController;
+use App\Http\Controllers\Desportivo\SportsCompetitionWorkspaceController;
+use App\Http\Controllers\Desportivo\SportsDashboardWorkspaceController;
+use App\Http\Controllers\Desportivo\SportsPlanningWorkspaceController;
+use App\Http\Controllers\Desportivo\SportsTrainingWorkspaceController;
 use App\Http\Requests\Sports\StoreTrainingMetricRequest;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Inertia\Response;
 
 /**
  * Transitional route compatibility shell.
@@ -18,44 +23,39 @@ use Illuminate\Http\Request;
  */
 final class DesportivoController extends Controller
 {
-    public function index(): RedirectResponse
+    public function index(): Response
     {
-        return redirect()->route('desportivo.dashboard.index');
+        return app(SportsDashboardWorkspaceController::class)->index();
     }
 
-    public function planeamento(): RedirectResponse
+    public function planeamento(Request $request): Response
     {
-        return redirect()->route('desportivo.planeamento.index');
+        return app(SportsPlanningWorkspaceController::class)->index($request);
     }
 
-    public function treinos(): RedirectResponse
+    public function treinos(Request $request): Response
     {
-        return redirect()->route('desportivo.treinos.index');
+        return app(SportsTrainingWorkspaceController::class)->index($request);
     }
 
-    public function presencas(Request $request): RedirectResponse
+    public function presencas(Request $request): Response
     {
-        $parameters = [];
-        if ($request->filled('training_id')) {
-            $parameters['training_id'] = $request->string('training_id')->toString();
-        }
-
-        return redirect()->route('desportivo.cais', $parameters);
+        return app(SportsCaisWorkspaceController::class)->index($request);
     }
 
-    public function cais(): RedirectResponse
+    public function cais(Request $request): Response
     {
-        return redirect()->route('desportivo.cais');
+        return app(SportsCaisWorkspaceController::class)->index($request);
     }
 
-    public function competicoes(): RedirectResponse
+    public function competicoes(Request $request): Response
     {
-        return redirect()->route('desportivo.competicoes.index');
+        return app(SportsCompetitionWorkspaceController::class)->index($request);
     }
 
-    public function relatorios(): RedirectResponse
+    public function relatorios(): Response
     {
-        return redirect()->route('desportivo.analise.index');
+        return app(SportsAnalysisWorkspaceController::class)->index();
     }
 
     public function storeSeason(): never { $this->retired(); }
