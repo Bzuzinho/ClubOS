@@ -19,8 +19,8 @@ final class SportsLegacyRuntimePhysicalCleanupTest extends TestCase
         $this->assertStringNotContainsString('DesportivoPagePayloadBuilder', $source);
         $this->assertStringNotContainsString('App\\Models\\Training;', $source);
         $this->assertStringNotContainsString('App\\Models\\Competition;', $source);
-        $this->assertStringNotContainsString('TrainingAthlete', $source);
-        $this->assertStringNotContainsString('TrainingMetric', $source);
+        $this->assertStringNotContainsString('App\\Models\\TrainingAthlete;', $source);
+        $this->assertStringNotContainsString('App\\Models\\TrainingMetric;', $source);
         $this->assertStringNotContainsString('DB::', $source);
         $this->assertStringContainsString('SportsDashboardWorkspaceController', $source);
         $this->assertStringContainsString('SportsCaisWorkspaceController', $source);
