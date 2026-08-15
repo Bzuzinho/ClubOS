@@ -3,9 +3,7 @@
 namespace Tests\Feature\Desportivo;
 
 use App\Http\Middleware\HandleInertiaRequests;
-use App\Models\Event;
 use App\Models\Training;
-use App\Models\TrainingAthlete;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -43,61 +41,22 @@ class DesportivoPageTest extends TestCase
         ]);
     }
 
-    public function test_desportivo_presencas_route_sets_presencas_tab_and_selected_training(): void
+    public function test_legacy_presencas_route_redirects_to_cais_with_selected_training(): void
     {
         $admin = User::factory()->create();
-        $athlete = User::factory()->create([
-            'estado' => 'ativo',
-            'tipo_membro' => ['atleta'],
-        ]);
-
-        $event = Event::create([
-            'titulo' => 'Treino de presenças V2',
-            'descricao' => 'Evento treino',
-            'data_inicio' => now()->toDateString(),
-            'tipo' => 'treino',
-            'criado_por' => $admin->id,
-        ]);
-
-        $training = Training::create([
+        $training = Training::query()->create([
+            'club_id' => config('sports.club_id', 'bscn'),
             'numero_treino' => 'T-100',
             'data' => now()->toDateString(),
             'tipo_treino' => 'tecnico',
-            'evento_id' => $event->id,
+            'session_status' => 'published',
             'criado_por' => $admin->id,
         ]);
 
-        TrainingAthlete::create([
-            'treino_id' => $training->id,
-            'user_id' => $athlete->id,
-            'presente' => true,
-            'estado' => 'presente',
-            'registado_por' => $admin->id,
-            'registado_em' => now(),
-        ]);
+        $response = $this->actingAs($admin)
+            ->get(route('desportivo.presencas', ['training_id' => $training->id]));
 
-        $inertiaVersion = app(HandleInertiaRequests::class)->version(request());
-
-        $response = $this->actingAs($admin)->withHeaders([
-            'X-Inertia' => 'true',
-            'X-Requested-With' => 'XMLHttpRequest',
-            'X-Inertia-Version' => (string) $inertiaVersion,
-        ])->get(route('desportivo.presencas', ['training_id' => $training->id]));
-
-        $response->assertOk();
-        $response->assertHeader('X-Inertia', 'true');
-        $response->assertJsonPath('component', 'Desportivo/Index');
-        $response->assertJsonPath('props.tab', 'presencas');
-        $response->assertJsonStructure([
-            'props' => [
-                'trainings',
-                'presences',
-                'trainingOptions',
-                'selectedTraining',
-                'statusOptions',
-            ],
-        ]);
-
-        $response->assertJsonPath('props.trainingOptions.0.id', $training->id);
+        $response->assertRedirect('/desportivo/cais?training_id='.rawurlencode((string) $training->id));
+        $response->assertSessionHas('warning');
     }
 }
