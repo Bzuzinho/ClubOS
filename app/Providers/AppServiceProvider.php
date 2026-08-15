@@ -55,7 +55,7 @@ class AppServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
-        $this->app['router']->pushMiddlewareToGroup('web', EnforceSportsLegacyCutover::class);
+        $this->app['router']->prependMiddlewareToGroup('web', EnforceSportsLegacyCutover::class);
         $this->app['router']->pushMiddlewareToGroup('web', PersistInAppNotificationPreference::class);
         $this->loadRoutesFrom(base_path('routes/desportivo_configuration.php'));
         $this->loadRoutesFrom(base_path('routes/desportivo_structure.php'));
