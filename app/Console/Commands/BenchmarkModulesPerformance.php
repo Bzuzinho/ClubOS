@@ -3,7 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Http\Controllers\DashboardController;
-use App\Http\Controllers\DesportivoController;
+use App\Http\Controllers\Desportivo\SportsDashboardWorkspaceController;
 use App\Http\Controllers\EventosController;
 use App\Http\Controllers\FinanceiroController;
 use App\Http\Controllers\MembrosController;
@@ -48,7 +48,7 @@ class BenchmarkModulesPerformance extends Command
                 app(FinanceiroController::class)->index();
             },
             'desportivo' => function () {
-                app(DesportivoController::class)->index();
+                app(SportsDashboardWorkspaceController::class)->index();
             },
         ];
 

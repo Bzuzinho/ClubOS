@@ -5,7 +5,7 @@ namespace App\Services\Performance;
 use App\Http\Controllers\ComunicacaoController;
 use App\Http\Controllers\ConfiguracoesController;
 use App\Http\Controllers\DashboardController;
-use App\Http\Controllers\DesportivoController;
+use App\Http\Controllers\Desportivo\SportsDashboardWorkspaceController;
 use App\Http\Controllers\EventosController;
 use App\Http\Controllers\FinanceiroController;
 use App\Models\InAppAlert;
@@ -68,7 +68,7 @@ class AuthenticatedModuleWarmupService
             $this->runWithRequest($user, '/configuracoes', fn (Request $request) => app(ConfiguracoesController::class)->index($request));
             $this->runWithRequest($user, '/eventos', fn (Request $request) => app(EventosController::class)->index($request));
             $this->runWithRequest($user, '/financeiro', fn () => app(FinanceiroController::class)->index());
-            $this->runWithRequest($user, '/desportivo', fn () => app(DesportivoController::class)->index());
+            $this->runWithRequest($user, '/desportivo', fn () => app(SportsDashboardWorkspaceController::class)->index());
 
             Cache::put($this->freshKey($user->id), true, now()->addMinutes(5));
         } finally {
