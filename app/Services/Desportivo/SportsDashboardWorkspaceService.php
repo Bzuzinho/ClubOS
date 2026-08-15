@@ -29,7 +29,8 @@ final class SportsDashboardWorkspaceService
 
         $trainings30 = Training::query()
             ->where('club_id', $clubId)
-            ->whereBetween('data', [$from30->toDateString(), $today->toDateString()])
+            ->whereDate('data', '>=', $from30->toDateString())
+            ->whereDate('data', '<=', $today->toDateString())
             ->where('session_status', '!=', 'cancelled')
             ->get();
 
@@ -46,7 +47,8 @@ final class SportsDashboardWorkspaceService
 
         $upcomingTrainings = Training::query()
             ->where('club_id', $clubId)
-            ->whereBetween('data', [$today->toDateString(), $to30->toDateString()])
+            ->whereDate('data', '>=', $today->toDateString())
+            ->whereDate('data', '<=', $to30->toDateString())
             ->where('session_status', '!=', 'cancelled')
             ->orderBy('data')
             ->orderBy('hora_inicio')
@@ -57,6 +59,7 @@ final class SportsDashboardWorkspaceService
             ->whereHas('training', fn ($query) => $query
                 ->where('club_id', $clubId)
                 ->whereDate('data', '>=', $from30->toDateString())
+                ->whereDate('data', '<=', $today->toDateString())
                 ->where('session_status', '!=', 'cancelled'))
             ->get();
         $presentRows = $attendanceRows->filter(fn (TrainingAthlete $row): bool =>
@@ -71,7 +74,8 @@ final class SportsDashboardWorkspaceService
             ->forClub($clubId)
             ->whereNull('archived_at')
             ->where('status', '!=', 'cancelled')
-            ->whereBetween('data_inicio', [$today->toDateString(), $to30->toDateString()])
+            ->whereDate('data_inicio', '>=', $today->toDateString())
+            ->whereDate('data_inicio', '<=', $to30->toDateString())
             ->orderBy('data_inicio')
             ->limit(6)
             ->get();
