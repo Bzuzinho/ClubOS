@@ -66,10 +66,6 @@ final class EnforceSportsLegacyCutover
             abort(410, 'Este endpoint de Treinos legacy está encerrado. Utilize Planeamento/Treinos canónicos.');
         }
 
-        if ($this->isLegacyCaisMetricEndpoint($request)) {
-            abort(410, 'Este endpoint de métricas do Cais legacy está encerrado. Utilize os registos canónicos do Cais.');
-        }
-
         return $next($request);
     }
 
@@ -108,12 +104,5 @@ final class EnforceSportsLegacyCutover
         }
 
         return false;
-    }
-
-    private function isLegacyCaisMetricEndpoint(Request $request): bool
-    {
-        return $request->segment(1) === 'desportivo'
-            && $request->segment(2) === 'cais'
-            && $request->segment(3) === 'metricas';
     }
 }
