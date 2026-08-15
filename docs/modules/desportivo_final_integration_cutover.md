@@ -35,4 +35,4 @@ Não são removidas tabelas, colunas ou dados históricos nesta fase. Remoção 
 
 ## PR histórica #138
 
-A PR #138 pertence à arquitetura anterior à fundação F0–F7. O seu objetivo foi substituído pelas workspaces Cais (#151) e Live (#152) já integradas. Deve permanecer fechada como `superseded`, sem merge.
+A PR #138 pertence à arquitetura anterior à fundação F0–F7. O seu objetivo foi substituído pelas workspaces Cais (#151) e Live (#152) já integradas. Permanece fechada como `superseded`, sem merge.
