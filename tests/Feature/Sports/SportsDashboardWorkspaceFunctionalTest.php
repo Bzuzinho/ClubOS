@@ -84,7 +84,7 @@ final class SportsDashboardWorkspaceFunctionalTest extends TestCase
         $routes = file_get_contents(base_path('routes/desportivo_dashboard.php'));
         $provider = file_get_contents(base_path('app/Providers/AppServiceProvider.php'));
 
-        $this->assertStringContainsString("->get('/dashboard'", $routes);
+        $this->assertStringContainsString("Route::get('/dashboard'", $routes);
         $this->assertStringContainsString("SportsDashboardWorkspaceController::class", $provider);
         $this->assertStringContainsString("->get('/desportivo', [SportsDashboardWorkspaceController::class, 'index'])", $provider);
     }
