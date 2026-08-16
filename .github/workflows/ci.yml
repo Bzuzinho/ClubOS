@@ -169,6 +169,45 @@ jobs:
       - name: Deploy main to production
         run: npm run deploy:vm
 
+      - name: Collect Desportivo production legacy readiness audit
+        id: sports_legacy_audit
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          local_report="${RUNNER_TEMP}/desportivo-legacy-schema-data-readiness.json"
+          remote_report="/tmp/clubos-desportivo-legacy-schema-data-${GITHUB_SHA}.json"
+
+          ssh \
+            -o BatchMode=yes \
+            "${VM_USER}@${VM_HOST}" \
+            "cd '${VM_APP_DIR}' && php artisan desportivo:audit-legacy-schema-data --json='${remote_report}' >/dev/null && cat '${remote_report}' && rm -f '${remote_report}'" \
+            > "${local_report}"
+
+          jq -e '.read_only == true and .version == "sports-legacy-schema-data-readiness-v1"' "${local_report}" >/dev/null
+          cp "${local_report}" "${GITHUB_WORKSPACE}/desportivo-legacy-schema-data-readiness.json"
+
+          {
+            echo '## Desportivo production legacy readiness audit'
+            echo ''
+            echo "- Commit: \`${GITHUB_SHA}\`"
+            echo "- Read-only: \`$(jq -r '.read_only' "${local_report}")\`"
+            echo "- Forbidden tables inventoried: \`$(jq -r '.summary.forbidden_table_count' "${local_report}")\`"
+            echo "- Removal candidates: \`$(jq -r '.summary.removal_candidate_count' "${local_report}")\`"
+            echo "- Candidates already removal-ready: \`$(jq -r '.summary.removal_ready_count' "${local_report}")\`"
+            echo "- Candidate rows requiring review: \`$(jq -r '.summary.candidate_rows_requiring_review' "${local_report}")\`"
+            echo "- Unreconciled legacy presences: \`$(jq -r '.summary.presence_unreconciled_count' "${local_report}")\`"
+            echo "- Legacy alias columns still present: \`$(jq -r '.summary.legacy_alias_columns_present' "${local_report}")\`"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload Desportivo production legacy readiness audit
+        uses: actions/upload-artifact@v4
+        with:
+          name: desportivo-production-legacy-readiness-${{ github.sha }}
+          path: desportivo-legacy-schema-data-readiness.json
+          if-no-files-found: error
+          retention-days: 30
+
       - name: Deployment summary
         if: success()
         shell: bash
@@ -179,5 +218,6 @@ jobs:
             echo "- Commit: \`${GITHUB_SHA}\`"
             echo "- Target: \`${VM_USER}@${VM_HOST}:${VM_APP_DIR}\`"
             echo '- Validation: CI and PostgreSQL concurrency passed'
+            echo '- Desportivo legacy readiness audit: collected read-only from production'
             echo '- Result: successful'
           } >> "${GITHUB_STEP_SUMMARY}"
