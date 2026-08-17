@@ -93,12 +93,69 @@ return new class extends Migration
             return;
         }
 
-        // Laravel rebuilds the table when needed on SQLite. This matters because
-        // leaving the FK declaration behind would make later unrelated writes or
-        // deletes fail with "no such table: training_sessions".
+        if (DB::getDriverName() === 'sqlite') {
+            $this->rebuildSqliteTrainingSessionDependentWithoutLegacyForeignKey($table);
+
+            return;
+        }
+
         Schema::table($table, function (Blueprint $blueprint): void {
             $blueprint->dropForeign(['training_session_id']);
         });
+    }
+
+    private function rebuildSqliteTrainingSessionDependentWithoutLegacyForeignKey(string $table): void
+    {
+        $temporaryTable = $table.'_legacy_fk_cleanup';
+
+        if (Schema::hasTable($temporaryTable)) {
+            throw new RuntimeException('Refusing Desportivo legacy cleanup: temporary SQLite table already exists ['.$temporaryTable.'].');
+        }
+
+        match ($table) {
+            'training_session_attendance' => Schema::create($temporaryTable, function (Blueprint $blueprint): void {
+                $blueprint->uuid('id')->primary();
+                $blueprint->uuid('training_session_id');
+                $blueprint->uuid('user_id');
+                $blueprint->boolean('presente')->default(true);
+                $blueprint->string('estado')->default('presente');
+                $blueprint->integer('volume_real_m')->nullable();
+                $blueprint->integer('rpe')->nullable();
+                $blueprint->text('observacoes_tecnicas')->nullable();
+                $blueprint->timestamps();
+
+                $blueprint->foreign('user_id')->references('id')->on('users')->cascadeOnDelete();
+                $blueprint->unique(['training_session_id', 'user_id']);
+                $blueprint->index(['presente']);
+                $blueprint->index(['estado']);
+            }),
+            'training_session_metrics' => Schema::create($temporaryTable, function (Blueprint $blueprint): void {
+                $blueprint->uuid('id')->primary();
+                $blueprint->uuid('training_session_id');
+                $blueprint->uuid('user_id');
+                $blueprint->integer('volume_m')->nullable();
+                $blueprint->integer('rpe')->nullable();
+                $blueprint->string('zona_treino')->nullable();
+                $blueprint->string('tipo_metrica')->nullable();
+                $blueprint->decimal('valor', 10, 2)->nullable();
+                $blueprint->timestamps();
+
+                $blueprint->foreign('user_id')->references('id')->on('users')->cascadeOnDelete();
+                $blueprint->index(['training_session_id', 'user_id']);
+            }),
+            default => throw new RuntimeException('Unsupported SQLite training_sessions dependent table ['.$table.'].'),
+        };
+
+        $rows = DB::table($table)->get()->map(
+            static fn (object $row): array => (array) $row,
+        )->all();
+
+        if ($rows !== []) {
+            DB::table($temporaryTable)->insert($rows);
+        }
+
+        Schema::drop($table);
+        Schema::rename($temporaryTable, $table);
     }
 
     private function restoreTrainingSessionForeignKey(string $table): void
