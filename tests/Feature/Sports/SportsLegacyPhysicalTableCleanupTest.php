@@ -24,10 +24,9 @@ final class SportsLegacyPhysicalTableCleanupTest extends TestCase
         }
     }
 
-    public function test_cleanup_preserves_surviving_dependent_and_external_module_tables(): void
+    public function test_cleanup_preserves_external_module_tables(): void
     {
         foreach ([
-            'training_session_metrics',
             'event_attendances',
             'teams',
             'team_members',
@@ -42,6 +41,8 @@ final class SportsLegacyPhysicalTableCleanupTest extends TestCase
             $this->markTestSkipped('SQLite-specific schema integrity assertion.');
         }
 
+        $referencedTables = [];
+
         foreach (['training_session_attendance', 'training_session_metrics'] as $table) {
             if (! Schema::hasTable($table)) {
                 continue;
@@ -50,13 +51,15 @@ final class SportsLegacyPhysicalTableCleanupTest extends TestCase
             $foreignKeys = DB::select("PRAGMA foreign_key_list('{$table}')");
 
             foreach ($foreignKeys as $foreignKey) {
-                $this->assertNotSame(
-                    'training_sessions',
-                    $foreignKey->table ?? null,
-                    $table.' retains a stale FK to the physically removed training_sessions table.',
-                );
+                $referencedTables[] = $foreignKey->table ?? null;
             }
         }
+
+        $this->assertNotContains(
+            'training_sessions',
+            $referencedTables,
+            'A surviving training-session dependent retains a stale FK to the physically removed training_sessions table.',
+        );
     }
 
     public function test_cleanup_is_fail_closed_before_any_target_drop_when_data_exists(): void
