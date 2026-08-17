@@ -82,14 +82,7 @@ return new class extends Migration
             return;
         }
 
-        $driver = DB::getDriverName();
-        if ($driver === 'sqlite') {
-            // SQLite keeps the FK declaration in the child schema. Because preflight
-            // guarantees both child tables are empty, dropping the empty parent is safe.
-            return;
-        }
-
-        if ($driver === 'pgsql') {
+        if (DB::getDriverName() === 'pgsql') {
             $constraint = $table.'_training_session_id_foreign';
             DB::statement(sprintf(
                 'ALTER TABLE "%s" DROP CONSTRAINT IF EXISTS "%s"',
@@ -100,6 +93,9 @@ return new class extends Migration
             return;
         }
 
+        // Laravel rebuilds the table when needed on SQLite. This matters because
+        // leaving the FK declaration behind would make later unrelated writes or
+        // deletes fail with "no such table: training_sessions".
         Schema::table($table, function (Blueprint $blueprint): void {
             $blueprint->dropForeign(['training_session_id']);
         });
@@ -110,11 +106,6 @@ return new class extends Migration
         if (! Schema::hasTable($table)
             || ! Schema::hasTable('training_sessions')
             || ! Schema::hasColumn($table, 'training_session_id')) {
-            return;
-        }
-
-        if (DB::getDriverName() === 'sqlite') {
-            // The original SQLite child-table FK declaration was never removed.
             return;
         }
 
