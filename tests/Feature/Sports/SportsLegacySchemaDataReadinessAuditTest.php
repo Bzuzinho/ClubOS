@@ -6,6 +6,7 @@ namespace Tests\Feature\Sports;
 
 use App\Services\SportsFoundation\SportsLegacySchemaDataReadinessAuditor;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
 
@@ -52,6 +53,40 @@ final class SportsLegacySchemaDataReadinessAuditTest extends TestCase
         $this->assertArrayHasKey('reconciled_count', $presence);
         $this->assertArrayHasKey('unreconciled_count', $presence);
         $this->assertGreaterThanOrEqual(0, $presence['unreconciled_count']);
+    }
+
+    public function test_removal_candidates_have_no_operational_runtime_references(): void
+    {
+        $report = app(SportsLegacySchemaDataReadinessAuditor::class)->audit();
+
+        foreach (['presences', 'training_sessions', 'call_ups'] as $table) {
+            $this->assertSame([], $report['tables'][$table]['runtime_references'], $table.' still has operational runtime references.');
+            $this->assertSame(0, $report['tables'][$table]['runtime_reference_count']);
+        }
+    }
+
+    public function test_runtime_scanner_still_detects_real_legacy_table_access(): void
+    {
+        $fixture = app_path('Actions/__SportsLegacyAuditFixture.php');
+        File::ensureDirectoryExists(dirname($fixture));
+        File::put($fixture, <<<'PHP'
+<?php
+
+use Illuminate\Support\Facades\DB;
+
+DB::table('presences')->count();
+PHP);
+
+        try {
+            $report = app(SportsLegacySchemaDataReadinessAuditor::class)->audit();
+
+            $this->assertContains(
+                'app'.DIRECTORY_SEPARATOR.'Actions'.DIRECTORY_SEPARATOR.'__SportsLegacyAuditFixture.php',
+                $report['tables']['presences']['runtime_references'],
+            );
+        } finally {
+            File::delete($fixture);
+        }
     }
 
     public function test_audit_command_exposes_json_contract_without_writes(): void
