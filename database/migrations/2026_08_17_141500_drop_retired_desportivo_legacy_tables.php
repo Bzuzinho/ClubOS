@@ -6,7 +6,6 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
-use RuntimeException;
 
 return new class extends Migration
 {
@@ -83,9 +82,15 @@ return new class extends Migration
             return;
         }
 
-        $constraint = $table.'_training_session_id_foreign';
+        $driver = DB::getDriverName();
+        if ($driver === 'sqlite') {
+            // SQLite keeps the FK declaration in the child schema. Because preflight
+            // guarantees both child tables are empty, dropping the empty parent is safe.
+            return;
+        }
 
-        if (DB::getDriverName() === 'pgsql') {
+        if ($driver === 'pgsql') {
+            $constraint = $table.'_training_session_id_foreign';
             DB::statement(sprintf(
                 'ALTER TABLE "%s" DROP CONSTRAINT IF EXISTS "%s"',
                 $table,
@@ -105,6 +110,11 @@ return new class extends Migration
         if (! Schema::hasTable($table)
             || ! Schema::hasTable('training_sessions')
             || ! Schema::hasColumn($table, 'training_session_id')) {
+            return;
+        }
+
+        if (DB::getDriverName() === 'sqlite') {
+            // The original SQLite child-table FK declaration was never removed.
             return;
         }
 
