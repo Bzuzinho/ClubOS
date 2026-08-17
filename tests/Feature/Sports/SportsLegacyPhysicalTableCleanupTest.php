@@ -24,17 +24,38 @@ final class SportsLegacyPhysicalTableCleanupTest extends TestCase
         }
     }
 
-    public function test_cleanup_preserves_dependents_and_external_module_tables(): void
+    public function test_cleanup_preserves_surviving_dependent_and_external_module_tables(): void
     {
         foreach ([
-            'training_session_attendance',
             'training_session_metrics',
-            'event_results',
             'event_attendances',
             'teams',
             'team_members',
         ] as $table) {
             $this->assertTrue(Schema::hasTable($table), $table.' is outside this physical cleanup scope.');
+        }
+    }
+
+    public function test_sqlite_has_no_foreign_key_left_pointing_to_removed_training_sessions(): void
+    {
+        if (DB::getDriverName() !== 'sqlite') {
+            $this->markTestSkipped('SQLite-specific schema integrity assertion.');
+        }
+
+        foreach (['training_session_attendance', 'training_session_metrics'] as $table) {
+            if (! Schema::hasTable($table)) {
+                continue;
+            }
+
+            $foreignKeys = DB::select("PRAGMA foreign_key_list('{$table}')");
+
+            foreach ($foreignKeys as $foreignKey) {
+                $this->assertNotSame(
+                    'training_sessions',
+                    $foreignKey->table ?? null,
+                    $table.' retains a stale FK to the physically removed training_sessions table.',
+                );
+            }
         }
     }
 
