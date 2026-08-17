@@ -71,8 +71,8 @@ final class SportsLegacyPhysicalTableCleanupTest extends TestCase
     {
         $source = (string) file_get_contents(base_path(self::MIGRATION));
 
+        $this->assertSame(1, substr_count($source, 'Schema::dropIfExists($table)'));
         foreach (self::TARGETS as $table) {
-            $this->assertStringContainsString("Schema::dropIfExists(\$table)", $source);
             $this->assertStringContainsString("'{$table}'", $source);
         }
 
@@ -88,12 +88,17 @@ final class SportsLegacyPhysicalTableCleanupTest extends TestCase
             $this->assertStringNotContainsString("Schema::drop('{$table}')", $source);
         }
 
-        $this->assertStringNotContainsString('CASCADE', strtoupper($source));
+        $this->assertStringNotContainsString('DROP TABLE', strtoupper($source));
         $this->assertStringNotContainsString('disableForeignKeyConstraints', $source);
-        $this->assertLessThan(
-            strpos($source, 'foreach (self::TRAINING_SESSION_DEPENDENTS as $table)'),
-            strpos($source, '$this->assertCleanupIsSafe();'),
-            'All row-count preflight checks must happen before foreign keys or tables are mutated.',
-        );
+
+        $preflightPosition = strpos($source, '$this->assertCleanupIsSafe();');
+        $foreignKeyPosition = strpos($source, '$this->dropTrainingSessionForeignKey($table);');
+        $dropPosition = strpos($source, 'Schema::dropIfExists($table);');
+
+        $this->assertNotFalse($preflightPosition);
+        $this->assertNotFalse($foreignKeyPosition);
+        $this->assertNotFalse($dropPosition);
+        $this->assertLessThan($foreignKeyPosition, $preflightPosition);
+        $this->assertLessThan($dropPosition, $preflightPosition);
     }
 }
