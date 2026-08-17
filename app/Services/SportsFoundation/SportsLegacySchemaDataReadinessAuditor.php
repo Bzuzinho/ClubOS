@@ -57,6 +57,14 @@ final class SportsLegacySchemaDataReadinessAuditor
         ],
     ];
 
+    /** @var list<string> */
+    private const AUDIT_TOOLING_FILES = [
+        'SportsLegacySchemaDataReadinessAuditor.php',
+        'MigrateLegacyPresencesAction.php',
+        'SportsFoundationCutoverAuditor.php',
+        'SportsLegacyCutoverLedgerService.php',
+    ];
+
     public function __construct(private readonly LegacySportsGuard $guard)
     {
     }
@@ -194,14 +202,12 @@ final class SportsLegacySchemaDataReadinessAuditor
 
             foreach (File::allFiles($root) as $file) {
                 $path = $file->getPathname();
-                if (str_contains($path, 'SportsLegacySchemaDataReadinessAuditor.php')
-                    || str_contains($path, 'MigrateLegacyPresencesAction.php')
-                    || str_contains($path, 'SportsFoundationCutoverAuditor.php')) {
+                if ($this->isAuditTooling($path)) {
                     continue;
                 }
 
                 $source = strtolower((string) File::get($path));
-                if (str_contains($source, $table)) {
+                if ($this->sourceReferencesLegacyTable($source, $table)) {
                     $references[] = str_replace(base_path().DIRECTORY_SEPARATOR, '', $path);
                 }
             }
@@ -210,5 +216,35 @@ final class SportsLegacySchemaDataReadinessAuditor
         sort($references);
 
         return array_values(array_unique($references));
+    }
+
+    private function isAuditTooling(string $path): bool
+    {
+        foreach (self::AUDIT_TOOLING_FILES as $file) {
+            if (str_contains($path, $file)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function sourceReferencesLegacyTable(string $source, string $table): bool
+    {
+        $quotedTable = preg_quote(strtolower($table), '/');
+        $patterns = [
+            '/(?:db|schema)::(?:table|hastable)\s*\(\s*[\'\"]'.$quotedTable.'(?:\s+as\s+[a-z0-9_]+)?[\'\"]/i',
+            '/->(?:from|join|leftjoin|rightjoin|crossjoin)\s*\(\s*[\'\"]'.$quotedTable.'(?:\s+as\s+[a-z0-9_]+)?[\'\"]/i',
+            '/(?:from|join|into|update|delete\s+from)\s+[\"`]?'.$quotedTable.'[\"`]?\b/i',
+            '/\$table\s*=\s*[\'\"]'.$quotedTable.'[\'\"]/i',
+        ];
+
+        foreach ($patterns as $pattern) {
+            if (preg_match($pattern, $source) === 1) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }
