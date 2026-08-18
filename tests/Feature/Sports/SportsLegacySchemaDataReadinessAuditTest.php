@@ -40,8 +40,26 @@ final class SportsLegacySchemaDataReadinessAuditTest extends TestCase
         $this->assertSame('desportivo_legacy', $report['tables']['presences']['owner']);
         $this->assertTrue($report['tables']['presences']['removal_candidate']);
         $this->assertFalse($report['tables']['event_attendances']['removal_candidate']);
+        $this->assertSame('not_applicable', $report['tables']['event_attendances']['retirement_state']);
         $this->assertSame('external_module_owned', $report['tables']['teams']['classification']);
         $this->assertSame($before, $after);
+    }
+
+    public function test_physically_retired_candidates_are_reported_as_completed(): void
+    {
+        $report = app(SportsLegacySchemaDataReadinessAuditor::class)->audit();
+
+        foreach (['presences', 'training_sessions', 'call_ups'] as $table) {
+            $this->assertFalse($report['tables'][$table]['exists']);
+            $this->assertTrue($report['tables'][$table]['removal_complete']);
+            $this->assertFalse($report['tables'][$table]['removal_ready']);
+            $this->assertSame('removed', $report['tables'][$table]['retirement_state']);
+        }
+
+        $this->assertSame(3, $report['summary']['removal_candidate_count']);
+        $this->assertSame(3, $report['summary']['removal_complete_count']);
+        $this->assertSame(0, $report['summary']['removal_ready_count']);
+        $this->assertSame(0, $report['summary']['removal_blocked_count']);
     }
 
     public function test_presence_reconciliation_never_guesses_missing_links(): void
@@ -84,6 +102,8 @@ PHP);
                 'app'.DIRECTORY_SEPARATOR.'Actions'.DIRECTORY_SEPARATOR.'__SportsLegacyAuditFixture.php',
                 $report['tables']['presences']['runtime_references'],
             );
+            $this->assertFalse($report['tables']['presences']['removal_complete']);
+            $this->assertSame('blocked', $report['tables']['presences']['retirement_state']);
         } finally {
             File::delete($fixture);
         }
@@ -101,6 +121,8 @@ PHP);
         $payload = json_decode((string) file_get_contents($path), true, 512, JSON_THROW_ON_ERROR);
         $this->assertTrue($payload['read_only']);
         $this->assertSame('sports-legacy-schema-data-readiness-v1', $payload['version']);
+        $this->assertArrayHasKey('removal_complete_count', $payload['summary']);
+        $this->assertArrayHasKey('removal_blocked_count', $payload['summary']);
 
         @unlink($path);
     }
