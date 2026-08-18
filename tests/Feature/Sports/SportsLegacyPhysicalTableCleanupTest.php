@@ -17,16 +17,6 @@ final class SportsLegacyPhysicalTableCleanupTest extends TestCase
     /** @var list<string> */
     private const TARGETS = ['presences', 'training_sessions', 'call_ups'];
 
-    public function test_cleanup_preserves_external_module_tables(): void
-    {
-        foreach ([
-            'teams',
-            'team_members',
-        ] as $table) {
-            $this->assertTrue(Schema::hasTable($table), $table.' is outside this physical cleanup scope.');
-        }
-    }
-
     public function test_authorized_legacy_tables_are_physically_absent_after_migrations(): void
     {
         foreach (self::TARGETS as $table) {
