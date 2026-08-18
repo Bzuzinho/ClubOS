@@ -112,8 +112,8 @@ return new class extends Migration
             throw new RuntimeException('Refusing Desportivo legacy cleanup: temporary SQLite table already exists ['.$temporaryTable.'].');
         }
 
-        match ($table) {
-            'training_session_attendance' => Schema::create($temporaryTable, function (Blueprint $blueprint): void {
+        if ($table === 'training_session_attendance') {
+            Schema::create($temporaryTable, function (Blueprint $blueprint): void {
                 $blueprint->uuid('id')->primary();
                 $blueprint->uuid('training_session_id');
                 $blueprint->uuid('user_id');
@@ -128,8 +128,9 @@ return new class extends Migration
                 $blueprint->unique(['training_session_id', 'user_id']);
                 $blueprint->index(['presente']);
                 $blueprint->index(['estado']);
-            }),
-            'training_session_metrics' => Schema::create($temporaryTable, function (Blueprint $blueprint): void {
+            });
+        } elseif ($table === 'training_session_metrics') {
+            Schema::create($temporaryTable, function (Blueprint $blueprint): void {
                 $blueprint->uuid('id')->primary();
                 $blueprint->uuid('training_session_id');
                 $blueprint->uuid('user_id');
@@ -142,9 +143,10 @@ return new class extends Migration
 
                 $blueprint->foreign('user_id')->references('id')->on('users')->cascadeOnDelete();
                 $blueprint->index(['training_session_id', 'user_id']);
-            }),
-            default => throw new RuntimeException('Unsupported SQLite training_sessions dependent table ['.$table.'].'),
-        };
+            });
+        } else {
+            throw new RuntimeException('Unsupported SQLite training_sessions dependent table ['.$table.'].');
+        }
 
         $rows = DB::table($table)->get()->map(
             static fn (object $row): array => (array) $row,
