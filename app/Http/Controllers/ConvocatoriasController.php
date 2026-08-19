@@ -2,78 +2,56 @@
 
 namespace App\Http\Controllers;
 
-use App\Http\Requests\StoreCallUpRequest;
-use App\Http\Requests\UpdateCallUpRequest;
-use App\Models\CallUp;
-use App\Models\Team;
-use App\Models\Event;
-use App\Models\User;
-use Inertia\Inertia;
-use Inertia\Response;
 use Illuminate\Http\RedirectResponse;
 
 class ConvocatoriasController extends Controller
 {
-    public function index(): Response
+    public function index(): RedirectResponse
     {
-        return Inertia::render('Desportivo/CallUps/Index', [
-            'callUps' => CallUp::with(['event', 'team'])
-                ->latest()
-                ->paginate(15),
-        ]);
+        return $this->moved();
     }
 
-    public function create(): Response
+    public function create(): RedirectResponse
     {
-        return Inertia::render('Desportivo/CallUps/Create', [
-            'teams' => Team::where('ativo', true)->get(['id', 'nome']),
-            'events' => Event::where('data_inicio', '>=', now())
-                ->orderBy('data_inicio')
-                ->get(['id', 'titulo', 'data_inicio']),
-            'athletes' => User::whereJsonContains('tipo_membro', 'atleta')
-                ->where('estado', 'ativo')
-                ->get(['id', 'nome_completo']),
-        ]);
+        return $this->moved();
     }
 
-    public function store(StoreCallUpRequest $request): RedirectResponse
+    public function store(): never
     {
-        CallUp::create($request->validated());
-
-        return redirect()->route('call-ups.index')
-            ->with('success', 'Convocatória criada com sucesso!');
+        $this->retiredWrite();
     }
 
-    public function show(CallUp $callUp): Response
+    public function show(string $convocatoria): RedirectResponse
     {
-        return Inertia::render('Desportivo/CallUps/Show', [
-            'callUp' => $callUp->load(['event', 'team']),
-        ]);
+        return $this->moved();
     }
 
-    public function edit(CallUp $callUp): Response
+    public function edit(string $convocatoria): RedirectResponse
     {
-        return Inertia::render('Desportivo/CallUps/Edit', [
-            'callUp' => $callUp,
-            'athletes' => User::whereJsonContains('tipo_membro', 'atleta')
-                ->where('status', 'ativo')
-                ->get(['id', 'nome_completo']),
-        ]);
+        return $this->moved();
     }
 
-    public function update(UpdateCallUpRequest $request, CallUp $callUp): RedirectResponse
+    public function update(string $convocatoria): never
     {
-        $callUp->update($request->validated());
-
-        return redirect()->route('call-ups.index')
-            ->with('success', 'Convocatória atualizada com sucesso!');
+        $this->retiredWrite();
     }
 
-    public function destroy(CallUp $callUp): RedirectResponse
+    public function destroy(string $convocatoria): never
     {
-        $callUp->delete();
+        $this->retiredWrite();
+    }
 
-        return redirect()->route('call-ups.index')
-            ->with('success', 'Convocatória eliminada com sucesso!');
+    private function moved(): RedirectResponse
+    {
+        return redirect()->route('desportivo.convocatorias.index')
+            ->with('warning', 'As convocatórias passaram a ser geridas na workspace canónica do Desportivo.');
+    }
+
+    private function retiredWrite(): never
+    {
+        abort(
+            410,
+            'O fluxo legacy de call_ups foi retirado. Utilize a workspace canónica de Convocatórias.'
+        );
     }
 }

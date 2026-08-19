@@ -31,7 +31,7 @@ final class SportsFoundationCutoverAuditTest extends TestCase
 
         $this->actingAs($user)
             ->get('/convocatorias')
-            ->assertRedirect('/desportivo/competicoes');
+            ->assertRedirect('/desportivo/convocatorias');
 
         $this->actingAs($user)
             ->post('/sessoes-formacao', [])
