@@ -2,13 +2,13 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\MarketingCampaign;
 use App\Http\Requests\StoreCampaignRequest;
 use App\Http\Requests\UpdateCampaignRequest;
-use Inertia\Inertia;
-use Inertia\Response;
+use App\Models\MarketingCampaign;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Inertia\Inertia;
+use Inertia\Response;
 
 class CampanhasMarketingController extends Controller
 {
@@ -16,26 +16,24 @@ class CampanhasMarketingController extends Controller
     {
         $query = MarketingCampaign::query();
 
-        // Apply filters
         if ($request->filled('type')) {
-            $query->ofType($request->type);
+            $query->ofType($request->string('type')->toString());
         }
 
         if ($request->filled('status')) {
-            $query->ofStatus($request->status);
+            $query->ofStatus($request->string('status')->toString());
         }
 
         if ($request->filled('search')) {
-            $query->search($request->search);
+            $query->search($request->string('search')->toString());
         }
 
-        $campaigns = $query->latest()->paginate(15);
+        $campaigns = $query->latest()->paginate(15)->withQueryString();
 
-        // Calculate stats
         $stats = [
             'total_campaigns' => MarketingCampaign::count(),
             'active_campaigns' => MarketingCampaign::active()->count(),
-            'budget_total' => MarketingCampaign::sum('budget') ?? 0,
+            'budget_total' => (float) (MarketingCampaign::sum('budget') ?? 0),
             'planned_campaigns' => MarketingCampaign::ofStatus('planned')->count(),
             'completed_campaigns' => MarketingCampaign::completed()->count(),
         ];
@@ -44,53 +42,49 @@ class CampanhasMarketingController extends Controller
             'campaigns' => $campaigns,
             'stats' => $stats,
             'filters' => [
-                'type' => $request->type,
-                'status' => $request->status,
-                'search' => $request->search,
+                'type' => $request->input('type'),
+                'status' => $request->input('status'),
+                'search' => $request->input('search'),
             ],
         ]);
     }
 
-    public function create(): Response
+    public function create(): RedirectResponse
     {
-        return Inertia::render('CampanhasMarketing/Create');
+        return redirect()->route('campanhas-marketing.index');
     }
 
     public function store(StoreCampaignRequest $request): RedirectResponse
     {
         MarketingCampaign::create($request->validated());
 
-        return redirect()->route('marketing.index')
+        return redirect()->route('campanhas-marketing.index')
             ->with('success', 'Campanha criada com sucesso!');
     }
 
-    public function show(MarketingCampaign $marketing): Response
+    public function show(MarketingCampaign $campanhas_marketing): RedirectResponse
     {
-        return Inertia::render('CampanhasMarketing/Show', [
-            'campaign' => $marketing,
-        ]);
+        return redirect()->route('campanhas-marketing.index');
     }
 
-    public function edit(MarketingCampaign $marketing): Response
+    public function edit(MarketingCampaign $campanhas_marketing): RedirectResponse
     {
-        return Inertia::render('CampanhasMarketing/Edit', [
-            'campaign' => $marketing,
-        ]);
+        return redirect()->route('campanhas-marketing.index');
     }
 
-    public function update(UpdateCampaignRequest $request, MarketingCampaign $marketing): RedirectResponse
+    public function update(UpdateCampaignRequest $request, MarketingCampaign $campanhas_marketing): RedirectResponse
     {
-        $marketing->update($request->validated());
+        $campanhas_marketing->update($request->validated());
 
-        return redirect()->route('marketing.index')
+        return redirect()->route('campanhas-marketing.index')
             ->with('success', 'Campanha atualizada com sucesso!');
     }
 
-    public function destroy(MarketingCampaign $marketing): RedirectResponse
+    public function destroy(MarketingCampaign $campanhas_marketing): RedirectResponse
     {
-        $marketing->delete();
+        $campanhas_marketing->delete();
 
-        return redirect()->route('marketing.index')
+        return redirect()->route('campanhas-marketing.index')
             ->with('success', 'Campanha eliminada com sucesso!');
     }
 }
