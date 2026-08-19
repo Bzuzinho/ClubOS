@@ -32,7 +32,6 @@ use App\Observers\LogisticsRequestObserver;
 use App\Observers\MovementDocumentObserver;
 use App\Observers\MovementObserver;
 use App\Observers\SupplierPurchaseObserver;
-use App\Services\AccessControl\OperationalPermissionRouteGuardRegistrar;
 use App\Services\AccessControl\UserTypeAccessControlService;
 use App\Services\Communication\SportsCommunicationGatewayService;
 use App\Services\Desportivo\CanonicalSportsAudienceService;
@@ -105,8 +104,6 @@ class AppServiceProvider extends ServiceProvider
                     ->get('/desportivo/relatorios', [SportsAnalysisWorkspaceController::class, 'index'])
                     ->middleware('permission.access:desportivo.treinos.cais,view')
                     ->name('desportivo.relatorios');
-
-                app(OperationalPermissionRouteGuardRegistrar::class)->register();
             });
         }
 
