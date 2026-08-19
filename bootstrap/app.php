@@ -15,6 +15,8 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
         then: function (Application $app): void {
             require $app->basePath('routes/desportivo_planning_canonical.php');
+
+            app(\App\Services\AccessControl\OperationalPermissionRouteGuardRegistrar::class)->register();
         },
     )
     ->withCommands([
