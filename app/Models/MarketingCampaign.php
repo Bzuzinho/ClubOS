@@ -2,9 +2,9 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Builder;
 
 class MarketingCampaign extends Model
 {
@@ -29,51 +29,36 @@ class MarketingCampaign extends Model
         'estimated_reach' => 'integer',
     ];
 
-    /**
-     * Scope to filter active campaigns
-     */
     public function scopeActive(Builder $query): Builder
     {
-        return $query->where('status', 'ativo');
+        return $query->where('status', 'active');
     }
 
-    /**
-     * Scope to filter completed campaigns
-     */
     public function scopeCompleted(Builder $query): Builder
     {
-        return $query->where('status', 'concluido');
+        return $query->where('status', 'completed');
     }
 
-    /**
-     * Scope to filter by type
-     */
     public function scopeOfType(Builder $query, string $type): Builder
     {
         return $query->where('type', $type);
     }
 
-    /**
-     * Scope to filter by status
-     */
     public function scopeOfStatus(Builder $query, string $status): Builder
     {
         return $query->where('status', $status);
     }
 
-    /**
-     * Scope to search campaigns
-     */
     public function scopeSearch(Builder $query, ?string $search): Builder
     {
-        if (!$search) {
+        if (! $search) {
             return $query;
         }
 
-        return $query->where(function ($q) use ($search) {
-            $q->where('name', 'like', "%{$search}%")
-              ->orWhere('description', 'like', "%{$search}%")
-              ->orWhere('notes', 'like', "%{$search}%");
+        return $query->where(function (Builder $nested) use ($search) {
+            $nested->where('name', 'like', "%{$search}%")
+                ->orWhere('description', 'like', "%{$search}%")
+                ->orWhere('notes', 'like', "%{$search}%");
         });
     }
 }
