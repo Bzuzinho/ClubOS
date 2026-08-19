@@ -85,6 +85,14 @@ final class SportsLegacySchemaDataReadinessAuditor
             $exists = Schema::hasTable($table);
             $rows = $exists ? (int) DB::table($table)->count() : 0;
             $runtimeReferences = $this->runtimeReferences($table);
+            $removalReady = $policy['removal_candidate'] && $exists && $rows === 0 && $runtimeReferences === [];
+            $removalComplete = $policy['removal_candidate'] && ! $exists && $runtimeReferences === [];
+            $retirementState = match (true) {
+                ! $policy['removal_candidate'] => 'not_applicable',
+                $removalComplete => 'removed',
+                $removalReady => 'ready',
+                default => 'blocked',
+            };
 
             $tables[$table] = [
                 'exists' => $exists,
@@ -95,7 +103,9 @@ final class SportsLegacySchemaDataReadinessAuditor
                 'runtime_reference_count' => count($runtimeReferences),
                 'runtime_references' => $runtimeReferences,
                 'reason' => $policy['reason'],
-                'removal_ready' => $policy['removal_candidate'] && $exists && $rows === 0 && $runtimeReferences === [],
+                'removal_ready' => $removalReady,
+                'removal_complete' => $removalComplete,
+                'retirement_state' => $retirementState,
             ];
         }
 
@@ -103,7 +113,9 @@ final class SportsLegacySchemaDataReadinessAuditor
         $aliases = $this->legacyAliasColumns();
 
         $removalCandidates = collect($tables)->filter(fn (array $row): bool => $row['removal_candidate'])->count();
-        $removalReady = collect($tables)->filter(fn (array $row): bool => $row['removal_ready'])->count();
+        $removalReady = collect($tables)->filter(fn (array $row): bool => $row['retirement_state'] === 'ready')->count();
+        $removalComplete = collect($tables)->filter(fn (array $row): bool => $row['retirement_state'] === 'removed')->count();
+        $removalBlocked = collect($tables)->filter(fn (array $row): bool => $row['retirement_state'] === 'blocked')->count();
         $manualReviewRows = collect($tables)
             ->filter(fn (array $row): bool => $row['removal_candidate'] && $row['row_count'] > 0)
             ->sum(fn (array $row): int => $row['row_count']);
@@ -114,7 +126,9 @@ final class SportsLegacySchemaDataReadinessAuditor
             'summary' => [
                 'forbidden_table_count' => count($tables),
                 'removal_candidate_count' => $removalCandidates,
+                'removal_complete_count' => $removalComplete,
                 'removal_ready_count' => $removalReady,
+                'removal_blocked_count' => $removalBlocked,
                 'candidate_rows_requiring_review' => $manualReviewRows,
                 'presence_unreconciled_count' => $presenceReconciliation['unreconciled_count'],
                 'legacy_alias_columns_present' => collect($aliases)->where('present', true)->count(),
@@ -122,7 +136,7 @@ final class SportsLegacySchemaDataReadinessAuditor
             'tables' => $tables,
             'presence_reconciliation' => $presenceReconciliation,
             'legacy_alias_columns' => $aliases,
-            'decision_rule' => 'No destructive migration is safe until candidate rows are zero or explicitly reconciled/classified and runtime references are zero.',
+            'decision_rule' => 'A removal candidate is complete when the table is absent and runtime references are zero; a still-present candidate may only be removed after row counts and runtime references are zero or explicitly reconciled/classified.',
         ];
     }
 

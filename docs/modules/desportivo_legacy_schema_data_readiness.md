@@ -1,7 +1,7 @@
 # Desportivo — Legacy Schema/Data Readiness
 
-Date: 2026-08-17
-Status: production readiness confirmed; guarded physical cleanup authorized for three Desportivo-owned legacy tables
+Date: 2026-08-18
+Status: production readiness confirmed; guarded physical cleanup completed for three Desportivo-owned legacy tables
 
 ## Goal
 
@@ -35,9 +35,9 @@ A table being forbidden in active Sports business logic does **not** mean it is 
 
 | Table | Sports status | Ownership / action |
 |---|---|---|
-| `presences` | retired legacy | physically removable after the confirmed zero-row / zero-runtime-reference production gate |
-| `training_sessions` | retired legacy parallel session domain | physically removable after the confirmed zero-row / zero-runtime-reference production gate |
-| `call_ups` | retired legacy convocation domain | physically removable after the confirmed zero-row / zero-runtime-reference production gate |
+| `presences` | retired legacy | physically retired after the confirmed zero-row / zero-runtime-reference production gate |
+| `training_sessions` | retired legacy parallel session domain | physically retired after the confirmed zero-row / zero-runtime-reference production gate |
+| `call_ups` | retired legacy convocation domain | physically retired after the confirmed zero-row / zero-runtime-reference production gate |
 | `event_results` | forbidden as Sports source | preserve until Eventos/history ownership is audited |
 | `event_attendances` | forbidden as Sports source | owned by Eventos; not removable by this Sports cleanup |
 | `teams` | forbidden as Sports source | owned outside the canonical Sports spine; not removable by this Sports cleanup |
@@ -53,12 +53,21 @@ The report is read-only and includes:
 - explicit owner/classification;
 - whether the table is a Sports removal candidate;
 - active runtime references under `app/Http`, `app/Services` and `app/Actions`;
-- reconciliation counts from legacy `presences` to canonical `training_athletes` using exact `(treino_id, user_id)` keys only;
+- reconciliation counts from legacy `presences` to canonical `training_athletes` using exact `(treino_id, user_id)` keys only when the legacy table still exists;
 - presence of known legacy alias columns and mismatch counts where direct equivalence is meaningful;
-- a `removal_ready` flag which is intentionally conservative.
+- `removal_ready`, for an authorized candidate that still exists, is empty and has zero runtime references;
+- `removal_complete`, for an authorized candidate that is physically absent and has zero runtime references;
+- `retirement_state`, with one of `removed`, `ready`, `blocked` or `not_applicable`.
 
-After a candidate is physically absent, `removal_ready` is no longer the operative state for that table: the schema itself is already retired. The audit remains useful for the non-removal candidates and alias inventory.
+The summary separates the lifecycle explicitly:
+
+- `removal_candidate_count`: authorized Sports-owned candidates tracked by policy;
+- `removal_complete_count`: candidates already physically absent with zero runtime references;
+- `removal_ready_count`: candidates still present but safe to retire;
+- `removal_blocked_count`: candidates that still fail a safety precondition.
+
+This preserves the existing `sports-legacy-schema-data-readiness-v1` JSON version while extending it backwards-compatibly. Post-cleanup production audits should therefore report the three retired Sports candidates as `removed`, rather than incorrectly making the zero `removal_ready_count` look like a readiness regression.
 
 ## Safety rule
 
-No destructive migration may proceed while any authorized target has rows, unresolved exact-key reconciliation, or active runtime references. The physical cleanup also validates preserved child-table rows before touching foreign keys. Cross-module tables require an owner-specific audit and remain outside this operation even when Sports itself no longer reads them.
+A candidate is only complete when the physical table is absent **and** operational runtime references remain zero. A still-present candidate may not be removed while it has rows, unresolved exact-key reconciliation, or active runtime references. Cross-module tables require an owner-specific audit and remain outside this operation even when Sports itself no longer reads them.
