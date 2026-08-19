@@ -15,7 +15,7 @@ final class EnforceSportsLegacyCutover
         'equipas' => '/desportivo/estrutura',
         'membros-equipa' => '/desportivo/estrutura',
         'sessoes-formacao' => '/desportivo/treinos',
-        'convocatorias' => '/desportivo/competicoes',
+        'convocatorias' => '/desportivo/convocatorias',
     ];
 
     /** @var list<string> */
