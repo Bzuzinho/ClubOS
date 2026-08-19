@@ -220,7 +220,7 @@ final class AccessControlReadinessAuditCommand extends Command
             }
 
             $middleware = collect($route->gatherMiddleware())
-                ->filter('is_string')
+                ->filter(static fn (mixed $item): bool => is_string($item))
                 ->values();
 
             $hasModuleGuard = $middleware->contains('module.access:' . $moduleKey);
