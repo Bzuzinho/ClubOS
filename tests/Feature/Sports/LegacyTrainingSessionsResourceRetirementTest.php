@@ -19,7 +19,7 @@ class LegacyTrainingSessionsResourceRetirementTest extends TestCase
             ->assertRedirect(route('desportivo.treinos'));
 
         $this->actingAs($user)
-            ->get('/sessoes-formacao/criar')
+            ->get('/sessoes-formacao/create')
             ->assertRedirect(route('desportivo.treinos'));
 
         $this->actingAs($user)
