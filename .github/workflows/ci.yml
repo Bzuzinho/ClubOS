@@ -210,6 +210,47 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+      - name: Collect Access Control production readiness audit
+        id: access_control_audit
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          local_report="${RUNNER_TEMP}/access-control-readiness.json"
+          remote_report="/tmp/clubos-access-control-readiness-${GITHUB_SHA}.json"
+
+          ssh \
+            -o BatchMode=yes \
+            "${VM_USER}@${VM_HOST}" \
+            "cd '${VM_APP_DIR}' && php artisan access:audit-readiness --report-path='${remote_report}' >/dev/null && cat '${remote_report}' && rm -f '${remote_report}'" \
+            > "${local_report}"
+
+          jq -e '.read_only == true and .contract == "access-control-readiness-v1"' "${local_report}" >/dev/null
+          cp "${local_report}" "${GITHUB_WORKSPACE}/access-control-readiness.json"
+
+          {
+            echo '## Access Control production readiness audit'
+            echo ''
+            echo "- Commit: \`${GITHUB_SHA}\`"
+            echo "- Read-only: \`$(jq -r '.read_only' "${local_report}")\`"
+            echo "- Platform access users: \`$(jq -r '.summary.platform_access_user_count' "${local_report}")\`"
+            echo "- Resolved UserTypes: \`$(jq -r '.summary.resolved_user_type_count' "${local_report}")\`"
+            echo "- Unresolved UserTypes: \`$(jq -r '.summary.unresolved_user_type_count' "${local_report}")\`"
+            echo "- Modules without granular permission tree: \`$(jq -r '.summary.modules_without_granular_permission_tree_count' "${local_report}")\`"
+            echo "- Mutating routes without module guard: \`$(jq -r '.summary.mutating_routes_without_module_guard_count' "${local_report}")\`"
+            echo "- Mutating routes with module-only guard: \`$(jq -r '.summary.mutating_routes_with_module_only_guard_count' "${local_report}")\`"
+            echo "- Critical findings: \`$(jq -r '.summary.critical_count' "${local_report}")\`"
+            echo "- Warnings: \`$(jq -r '.summary.warning_count' "${local_report}")\`"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload Access Control production readiness audit
+        uses: actions/upload-artifact@v4
+        with:
+          name: access-control-production-readiness-${{ github.sha }}
+          path: access-control-readiness.json
+          if-no-files-found: error
+          retention-days: 30
+
       - name: Deployment summary
         if: success()
         shell: bash
@@ -221,5 +262,6 @@ jobs:
             echo "- Target: \`${VM_USER}@${VM_HOST}:${VM_APP_DIR}\`"
             echo '- Validation: CI and PostgreSQL concurrency passed'
             echo '- Desportivo legacy readiness audit: collected read-only from production'
+            echo '- Access Control readiness audit: collected read-only from production'
             echo '- Result: successful'
           } >> "${GITHUB_STEP_SUMMARY}"
