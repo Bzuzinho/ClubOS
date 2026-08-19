@@ -165,13 +165,24 @@ final class AccessControlReadinessAuditCommand extends Command
      */
     private function auditAdministrativeRoutes(): array
     {
+        // Canonical administrative surfaces plus the remaining legacy Sports aliases.
+        // Public/portal routes such as /loja and /portal/* are deliberately excluded.
         $prefixes = [
-            'configuracoes' => 'configuracoes',
-            'logistica' => 'logistica',
             'admin/loja' => 'loja',
-            'patrocinios' => 'patrocinios',
-            'comunicacao' => 'comunicacao',
             'campanhas-marketing' => 'marketing',
+            'configuracoes' => 'configuracoes',
+            'comunicacao' => 'comunicacao',
+            'desportivo' => 'desportivo',
+            'eventos' => 'eventos',
+            'financeiro' => 'financeiro',
+            'logistica' => 'logistica',
+            'membros' => 'membros',
+            'patrocinios' => 'patrocinios',
+            'website' => 'website',
+            'equipas' => 'desportivo',
+            'membros-equipa' => 'desportivo',
+            'sessoes-formacao' => 'desportivo',
+            'convocatorias' => 'desportivo',
         ];
 
         $findings = [];
