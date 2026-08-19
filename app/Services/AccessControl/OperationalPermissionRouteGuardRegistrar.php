@@ -29,6 +29,7 @@ final class OperationalPermissionRouteGuardRegistrar
 
             if (! in_array($middleware, $route->gatherMiddleware(), true)) {
                 $route->middleware($middleware);
+                $route->computedMiddleware = null;
             }
         }
     }
