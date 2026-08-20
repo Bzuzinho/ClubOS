@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Console\Commands\AccessControl;
 
 use App\Models\User;
+use App\Services\AccessControl\OperationalPermissionRouteGuardRegistrar;
 use App\Services\AccessControl\ResolveCurrentUserType;
 use App\Support\AccessControl\AccessControlCatalog;
 use Illuminate\Console\Command;
@@ -25,12 +26,18 @@ final class AccessControlReadinessAuditCommand extends Command
 
     public function __construct(
         private readonly ResolveCurrentUserType $resolveCurrentUserType,
+        private readonly OperationalPermissionRouteGuardRegistrar $routeGuardRegistrar,
     ) {
         parent::__construct();
     }
 
     public function handle(): int
     {
+        // HTTP applies the operational guards on the first matched route. CLI has no
+        // matched route event, so materialize the same idempotent in-memory guards
+        // before inspecting the route collection. This does not write schema/data.
+        $this->routeGuardRegistrar->register();
+
         $findings = [];
         $platformUsers = [];
         $schemaReady = $this->hasRequiredSchema();
