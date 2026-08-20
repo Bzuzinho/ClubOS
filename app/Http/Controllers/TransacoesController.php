@@ -2,66 +2,35 @@
 
 namespace App\Http\Controllers;
 
-use App\Http\Requests\StoreTransactionRequest;
-use App\Http\Requests\UpdateTransactionRequest;
-use App\Models\Transaction;
-use App\Models\FinancialCategory;
-use App\Models\User;
-use Illuminate\Http\RedirectResponse;
-use Illuminate\Support\Facades\Storage;
+use Illuminate\Http\JsonResponse;
 
 class TransacoesController extends Controller
 {
-    public function index()
+    public function index(): JsonResponse
     {
-        $transactions = Transaction::with(['user', 'category'])
-            ->orderBy('date', 'desc')
-            ->paginate(15);
-
-        return response()->json($transactions);
+        return $this->retired();
     }
 
-    public function store(StoreTransactionRequest $request): RedirectResponse
+    public function store(): JsonResponse
     {
-        $data = $request->validated();
-
-        // Handle file upload
-        if ($request->hasFile('receipt')) {
-            $data['receipt'] = $request->file('receipt')->store('comprovatives', 'public');
-        }
-
-        Transaction::create($data);
-
-        return redirect()->back()->with('success', 'Transação criada com sucesso!');
+        return $this->retired();
     }
 
-    public function update(UpdateTransactionRequest $request, Transaction $transaction): RedirectResponse
+    public function update(string $transaction): JsonResponse
     {
-        $data = $request->validated();
-
-        // Handle file upload
-        if ($request->hasFile('receipt')) {
-            // Delete old file if exists
-            if ($transaction->receipt) {
-                Storage::disk('public')->delete($transaction->receipt);
-            }
-            $data['receipt'] = $request->file('receipt')->store('comprovatives', 'public');
-        }
-
-        $transaction->update($data);
-
-        return redirect()->back()->with('success', 'Transação atualizada com sucesso!');
+        return $this->retired();
     }
 
-    public function destroy(Transaction $transaction): RedirectResponse
+    public function destroy(string $transaction): JsonResponse
     {
-        // Delete file if exists
-        if ($transaction->receipt) {
-            Storage::disk('public')->delete($transaction->receipt);
-        }
+        return $this->retired();
+    }
 
-        $transaction->delete();
-
-        return redirect()->back()->with('success', 'Transação eliminada com sucesso!');
+    private function retired(): JsonResponse
+    {
+        return response()->json([
+            'message' => 'O CRUD legacy de transações foi aposentado. Utilize os Movimentos do módulo Financeiro.',
+            'canonical_route' => route('financeiro.index'),
+        ], 410);
     }
 }
