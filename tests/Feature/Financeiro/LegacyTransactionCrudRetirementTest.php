@@ -3,10 +3,13 @@
 namespace Tests\Feature\Financeiro;
 
 use App\Models\User;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
 class LegacyTransactionCrudRetirementTest extends TestCase
 {
+    use RefreshDatabase;
+
     public function test_legacy_transaction_and_category_endpoints_are_gone(): void
     {
         $user = User::factory()->admin()->create();
