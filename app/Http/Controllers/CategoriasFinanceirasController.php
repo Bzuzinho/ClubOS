@@ -2,38 +2,35 @@
 
 namespace App\Http\Controllers;
 
-use App\Http\Requests\StoreFinancialCategoryRequest;
-use App\Http\Requests\UpdateFinancialCategoryRequest;
-use App\Models\FinancialCategory;
-use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\JsonResponse;
 
 class CategoriasFinanceirasController extends Controller
 {
-    public function index()
+    public function index(): JsonResponse
     {
-        $categories = FinancialCategory::orderBy('name')->get();
-
-        return response()->json($categories);
+        return $this->retired();
     }
 
-    public function store(StoreFinancialCategoryRequest $request): RedirectResponse
+    public function store(): JsonResponse
     {
-        FinancialCategory::create($request->validated());
-
-        return redirect()->back()->with('success', 'Categoria criada com sucesso!');
+        return $this->retired();
     }
 
-    public function update(UpdateFinancialCategoryRequest $request, FinancialCategory $category): RedirectResponse
+    public function update(string $category): JsonResponse
     {
-        $category->update($request->validated());
-
-        return redirect()->back()->with('success', 'Categoria atualizada com sucesso!');
+        return $this->retired();
     }
 
-    public function destroy(FinancialCategory $category): RedirectResponse
+    public function destroy(string $category): JsonResponse
     {
-        $category->delete();
+        return $this->retired();
+    }
 
-        return redirect()->back()->with('success', 'Categoria eliminada com sucesso!');
+    private function retired(): JsonResponse
+    {
+        return response()->json([
+            'message' => 'O CRUD legacy de categorias financeiras foi aposentado. Utilize a classificação e os centros de custo do Financeiro canónico.',
+            'canonical_route' => route('financeiro.index'),
+        ], 410);
     }
 }
