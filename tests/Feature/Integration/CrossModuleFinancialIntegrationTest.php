@@ -616,7 +616,7 @@ class CrossModuleFinancialIntegrationTest extends TestCase
      */
     private function createInvoicedRequest(): array
     {
-        $admin = User::factory()->create();
+        $admin = User::factory()->admin()->create();
         $requester = User::factory()->create([
             'perfil' => 'user',
             'tipo_membro' => ['atleta'],
