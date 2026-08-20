@@ -46,6 +46,36 @@ class OperationalPermissionRouteGuardTest extends TestCase
         }
     }
 
+    public function test_core_administrative_routes_are_never_left_without_their_module_guard(): void
+    {
+        $prefixes = [
+            'financeiro' => 'financeiro',
+            'configuracoes' => 'configuracoes',
+        ];
+
+        foreach (Route::getRoutes() as $route) {
+            $uri = ltrim($route->uri(), '/');
+            $moduleKey = null;
+
+            foreach ($prefixes as $prefix => $candidateModuleKey) {
+                if ($uri === $prefix || str_starts_with($uri, $prefix.'/')) {
+                    $moduleKey = $candidateModuleKey;
+                    break;
+                }
+            }
+
+            if ($moduleKey === null) {
+                continue;
+            }
+
+            $this->assertContains(
+                "module.access:{$moduleKey}",
+                $route->gatherMiddleware(),
+                "Route [{$route->getName()}] ({$route->uri()}) is missing the [{$moduleKey}] module guard.",
+            );
+        }
+    }
+
     public function test_admin_store_api_mutations_receive_granular_guards(): void
     {
         $expectations = [
