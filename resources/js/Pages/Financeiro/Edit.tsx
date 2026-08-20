@@ -1,26 +1,19 @@
-import { Head } from '@inertiajs/react';
-import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
-import { moduleScrollableContentClass, moduleViewportClass } from '@/lib/module-layout';
+import { Head, router } from '@inertiajs/react';
+import { useEffect } from 'react';
 
 export default function FinanceiroEditPage() {
-    return (
-        <AuthenticatedLayout
-            header={
-                <div>
-                    <h1 className="text-lg sm:text-xl font-semibold tracking-tight">Financeiro - Edit</h1>
-                    <p className="text-muted-foreground text-xs mt-0.5">Em desenvolvimento</p>
-                </div>
-            }
-        >
-            <Head title="Financeiro - Edit" />
+    useEffect(() => {
+        router.visit('/financeiro?tab=faturas', {
+            replace: true,
+        });
+    }, []);
 
-            <div className={moduleViewportClass}>
-                <div className={moduleScrollableContentClass}>
-                    <div className="rounded-lg border bg-card p-4 text-sm text-muted-foreground sm:p-6">
-                        Pagina Financeiro (Edit) em desenvolvimento.
-                    </div>
-                </div>
+    return (
+        <>
+            <Head title="Financeiro" />
+            <div className="flex min-h-screen items-center justify-center bg-background p-6 text-sm text-muted-foreground">
+                A abrir a área de Faturas do Financeiro…
             </div>
-        </AuthenticatedLayout>
+        </>
     );
 }
