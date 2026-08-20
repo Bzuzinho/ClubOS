@@ -49,20 +49,34 @@ class AccessControlReadinessAuditCommandTest extends TestCase
         $this->assertSame(1, $payload['summary']['resolved_user_type_count']);
         $this->assertSame(1, $payload['summary']['unresolved_user_type_count']);
         $this->assertSame(0, $payload['summary']['modules_without_granular_permission_tree_count']);
-        $this->assertGreaterThan(0, $payload['summary']['mutating_routes_without_module_guard_count']);
-        $this->assertSame(0, $payload['summary']['mutating_routes_with_module_only_guard_count']);
+        $this->assertSame(0, $payload['summary']['mutating_routes_without_module_guard_count']);
+        $this->assertGreaterThan(0, $payload['summary']['mutating_routes_with_module_only_guard_count']);
 
         $codes = collect($payload['findings'])->pluck('code');
         $this->assertTrue($codes->contains('platform_user_without_resolved_user_type'));
         $this->assertFalse($codes->contains('menu_module_without_granular_permission_tree'));
-        $this->assertTrue($codes->contains('mutating_admin_route_without_module_guard'));
-        $this->assertFalse($codes->contains('mutating_admin_route_with_module_only_guard'));
+        $this->assertFalse($codes->contains('mutating_admin_route_without_module_guard'));
+        $this->assertTrue($codes->contains('mutating_admin_route_with_module_only_guard'));
 
         $this->assertSame($before, [
             'users' => User::query()->count(),
             'user_types' => UserType::query()->count(),
             'dados_configuracao' => DadosConfiguracao::query()->count(),
         ]);
+    }
+
+    public function test_fail_on_critical_is_green_when_only_granular_route_warnings_remain(): void
+    {
+        $exitCode = Artisan::call('access:audit-readiness', [
+            '--json' => true,
+            '--fail-on-critical' => true,
+        ]);
+        $payload = json_decode(Artisan::output(), true, 512, JSON_THROW_ON_ERROR);
+
+        $this->assertSame(Command::SUCCESS, $exitCode);
+        $this->assertSame(0, $payload['summary']['mutating_routes_without_module_guard_count']);
+        $this->assertSame(0, $payload['summary']['critical_count']);
+        $this->assertGreaterThan(0, $payload['summary']['warning_count']);
     }
 
     public function test_fail_on_critical_returns_failure_when_unresolved_platform_user_exists(): void
