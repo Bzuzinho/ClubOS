@@ -41,6 +41,10 @@ class AccessControlReadinessAuditCommandTest extends TestCase
 
         $exitCode = Artisan::call('access:audit-readiness', ['--json' => true]);
         $payload = json_decode(Artisan::output(), true, 512, JSON_THROW_ON_ERROR);
+        $missingModuleGuardFindings = collect($payload['findings'])
+            ->where('code', 'mutating_admin_route_without_module_guard')
+            ->values()
+            ->all();
 
         $this->assertSame(Command::SUCCESS, $exitCode);
         $this->assertSame('access-control-readiness-v1', $payload['contract']);
@@ -49,7 +53,11 @@ class AccessControlReadinessAuditCommandTest extends TestCase
         $this->assertSame(1, $payload['summary']['resolved_user_type_count']);
         $this->assertSame(1, $payload['summary']['unresolved_user_type_count']);
         $this->assertSame(0, $payload['summary']['modules_without_granular_permission_tree_count']);
-        $this->assertSame(0, $payload['summary']['mutating_routes_without_module_guard_count']);
+        $this->assertSame(
+            0,
+            $payload['summary']['mutating_routes_without_module_guard_count'],
+            'Rotas mutáveis sem module guard: '.json_encode($missingModuleGuardFindings, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)
+        );
         $this->assertGreaterThan(0, $payload['summary']['mutating_routes_with_module_only_guard_count']);
 
         $codes = collect($payload['findings'])->pluck('code');
@@ -72,9 +80,17 @@ class AccessControlReadinessAuditCommandTest extends TestCase
             '--fail-on-critical' => true,
         ]);
         $payload = json_decode(Artisan::output(), true, 512, JSON_THROW_ON_ERROR);
+        $missingModuleGuardFindings = collect($payload['findings'])
+            ->where('code', 'mutating_admin_route_without_module_guard')
+            ->values()
+            ->all();
 
         $this->assertSame(Command::SUCCESS, $exitCode);
-        $this->assertSame(0, $payload['summary']['mutating_routes_without_module_guard_count']);
+        $this->assertSame(
+            0,
+            $payload['summary']['mutating_routes_without_module_guard_count'],
+            'Rotas mutáveis sem module guard: '.json_encode($missingModuleGuardFindings, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)
+        );
         $this->assertSame(0, $payload['summary']['critical_count']);
         $this->assertGreaterThan(0, $payload['summary']['warning_count']);
     }
