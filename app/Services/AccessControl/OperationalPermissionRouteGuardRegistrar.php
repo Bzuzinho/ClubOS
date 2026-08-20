@@ -23,6 +23,7 @@ final class OperationalPermissionRouteGuardRegistrar
      * expansion is handled separately so existing grants are not invalidated.
      */
     private const CORE_ADMIN_PREFIXES = [
+        'desportivo' => 'desportivo',
         'financeiro' => 'financeiro',
         'configuracoes' => 'configuracoes',
     ];
