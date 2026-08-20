@@ -33,7 +33,7 @@ class DeadPlaceholderPagesCleanupTest extends TestCase
     public function test_canonical_module_workspaces_remain_present(): void
     {
         $canonicalPages = [
-            'Loja/Index.tsx',
+            'Store/StoreHomePage.tsx',
             'Comunicacao/Index.tsx',
             'Eventos/Index.tsx',
             'CampanhasMarketing/Index.tsx',
