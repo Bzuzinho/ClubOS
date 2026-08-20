@@ -3,12 +3,28 @@
 import { existsSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 
-const VM_USER = process.env.VM_USER || 'ubuntu';
-const VM_HOST = process.env.VM_HOST || '129.159.13.211';
-const VM_APP_DIR = process.env.VM_APP_DIR || '/var/www/clubmanager';
+function requiredEnv(name) {
+    const value = process.env[name]?.trim();
+
+    if (!value) {
+        console.error(`\n❌ Variável de ambiente obrigatória em falta: ${name}`);
+        process.exit(1);
+    }
+
+    return value;
+}
+
+const VM_USER = requiredEnv('VM_USER');
+const VM_HOST = requiredEnv('VM_HOST');
+const VM_APP_DIR = requiredEnv('VM_APP_DIR');
 const REMOTE_BACKEND_SCRIPT = 'bin/remote-deploy-backend.sh';
 const remote = `${VM_USER}@${VM_HOST}`;
 const npmCli = process.env.npm_execpath;
+
+if (!VM_APP_DIR.startsWith('/')) {
+    console.error('\n❌ VM_APP_DIR tem de ser um caminho absoluto.');
+    process.exit(1);
+}
 
 function run(command, args, options = {}) {
     console.log(`\n> ${command} ${args.join(' ')}`);
