@@ -1,10 +1,21 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-APP_DIR="${1:-/var/www/clubmanager}"
-DEPLOY_USER="${2:-ubuntu}"
-RUNTIME_USER="${3:-www-data}"
-RUNTIME_GROUP="${4:-www-data}"
+if [[ "$#" -ne 4 ]]; then
+  printf '[backend] ERROR: uso: %s <app-dir> <deploy-user> <runtime-user> <runtime-group>\n' "$0" >&2
+  exit 1
+fi
+
+APP_DIR="$1"
+DEPLOY_USER="$2"
+RUNTIME_USER="$3"
+RUNTIME_GROUP="$4"
+
+[[ -n "${APP_DIR}" ]] || { printf '[backend] ERROR: app-dir vazio\n' >&2; exit 1; }
+[[ -n "${DEPLOY_USER}" ]] || { printf '[backend] ERROR: deploy-user vazio\n' >&2; exit 1; }
+[[ -n "${RUNTIME_USER}" ]] || { printf '[backend] ERROR: runtime-user vazio\n' >&2; exit 1; }
+[[ -n "${RUNTIME_GROUP}" ]] || { printf '[backend] ERROR: runtime-group vazio\n' >&2; exit 1; }
+[[ "${APP_DIR}" == /* ]] || { printf '[backend] ERROR: app-dir tem de ser absoluto\n' >&2; exit 1; }
 
 log() {
   printf '[backend] %s\n' "$*"
