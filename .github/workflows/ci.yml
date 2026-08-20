@@ -38,8 +38,14 @@ jobs:
       - name: Install Composer dependencies
         run: composer install --no-interaction --prefer-dist
 
+      - name: Audit Composer dependencies
+        run: composer audit --locked --no-interaction
+
       - name: Install Node dependencies
         run: npm ci
+
+      - name: Audit Node dependencies
+        run: npm audit --audit-level=critical
 
       - name: Prepare environment
         run: |
@@ -123,9 +129,10 @@ jobs:
       cancel-in-progress: false
 
     env:
-      VM_USER: ${{ secrets.ORACLE_VM_USER || 'ubuntu' }}
-      VM_HOST: ${{ secrets.ORACLE_VM_HOST || '129.159.13.211' }}
-      VM_APP_DIR: ${{ secrets.ORACLE_VM_APP_DIR || '/var/www/clubmanager' }}
+      VM_USER: ${{ secrets.ORACLE_VM_USER }}
+      VM_HOST: ${{ secrets.ORACLE_VM_HOST }}
+      VM_APP_DIR: ${{ secrets.ORACLE_VM_APP_DIR }}
+      VM_KNOWN_HOSTS: ${{ secrets.ORACLE_VM_KNOWN_HOSTS }}
 
     steps:
       - name: Checkout main
@@ -139,6 +146,25 @@ jobs:
           node-version: '20'
           cache: npm
 
+      - name: Validate production deployment configuration
+        shell: bash
+        env:
+          ORACLE_VM_SSH_KEY: ${{ secrets.ORACLE_VM_SSH_KEY }}
+        run: |
+          set -euo pipefail
+
+          for variable in VM_USER VM_HOST VM_APP_DIR VM_KNOWN_HOSTS ORACLE_VM_SSH_KEY; do
+            if [[ -z "${!variable:-}" ]]; then
+              echo "::error::Missing required production deployment secret/configuration: ${variable}"
+              exit 1
+            fi
+          done
+
+          if [[ "${VM_APP_DIR}" != /* ]]; then
+            echo "::error::VM_APP_DIR must be an absolute path"
+            exit 1
+          fi
+
       - name: Configure SSH access
         shell: bash
         env:
@@ -146,23 +172,25 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [[ -z "${ORACLE_VM_SSH_KEY}" ]]; then
-            echo "::error::Missing GitHub secret ORACLE_VM_SSH_KEY"
-            exit 1
-          fi
-
           mkdir -p "${HOME}/.ssh"
           chmod 700 "${HOME}/.ssh"
           printf '%s\n' "${ORACLE_VM_SSH_KEY}" | tr -d '\r' > "${HOME}/.ssh/id_ed25519"
           chmod 600 "${HOME}/.ssh/id_ed25519"
 
           ssh-keygen -y -f "${HOME}/.ssh/id_ed25519" > /dev/null
-          ssh-keyscan -H "${VM_HOST}" >> "${HOME}/.ssh/known_hosts"
+          printf '%s\n' "${VM_KNOWN_HOSTS}" | tr -d '\r' > "${HOME}/.ssh/known_hosts"
           chmod 644 "${HOME}/.ssh/known_hosts"
+
+          if ! ssh-keygen -F "${VM_HOST}" -f "${HOME}/.ssh/known_hosts" > /dev/null; then
+            echo "::error::Pinned known_hosts does not contain an entry for ${VM_HOST}"
+            exit 1
+          fi
 
           ssh \
             -o BatchMode=yes \
             -o ConnectTimeout=15 \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="${HOME}/.ssh/known_hosts" \
             "${VM_USER}@${VM_HOST}" \
             'echo SSH_OK'
 
@@ -180,6 +208,8 @@ jobs:
 
           ssh \
             -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="${HOME}/.ssh/known_hosts" \
             "${VM_USER}@${VM_HOST}" \
             "cd '${VM_APP_DIR}' && php artisan desportivo:audit-legacy-schema-data --json='${remote_report}' >/dev/null && cat '${remote_report}' && rm -f '${remote_report}'" \
             > "${local_report}"
@@ -221,12 +251,16 @@ jobs:
 
           ssh \
             -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="${HOME}/.ssh/known_hosts" \
             "${VM_USER}@${VM_HOST}" \
             "cd '${VM_APP_DIR}' && php artisan access:audit-readiness --report-path='${remote_report}' >/dev/null && cat '${remote_report}' && rm -f '${remote_report}'" \
             > "${local_report}"
 
           jq -e '.read_only == true and .contract == "access-control-readiness-v1"' "${local_report}" >/dev/null
           cp "${local_report}" "${GITHUB_WORKSPACE}/access-control-readiness.json"
+
+          critical_count="$(jq -r '.summary.critical_count' "${local_report}")"
 
           {
             echo '## Access Control production readiness audit'
@@ -239,9 +273,19 @@ jobs:
             echo "- Modules without granular permission tree: \`$(jq -r '.summary.modules_without_granular_permission_tree_count' "${local_report}")\`"
             echo "- Mutating routes without module guard: \`$(jq -r '.summary.mutating_routes_without_module_guard_count' "${local_report}")\`"
             echo "- Mutating routes with module-only guard: \`$(jq -r '.summary.mutating_routes_with_module_only_guard_count' "${local_report}")\`"
-            echo "- Critical findings: \`$(jq -r '.summary.critical_count' "${local_report}")\`"
+            echo "- Critical findings: \`${critical_count}\`"
             echo "- Warnings: \`$(jq -r '.summary.warning_count' "${local_report}")\`"
           } >> "${GITHUB_STEP_SUMMARY}"
+
+          if ! [[ "${critical_count}" =~ ^[0-9]+$ ]]; then
+            echo "::error::Invalid Access Control critical_count: ${critical_count}"
+            exit 1
+          fi
+
+          if (( critical_count > 0 )); then
+            echo "::error::Access Control readiness audit reported ${critical_count} critical finding(s)"
+            exit 1
+          fi
 
       - name: Upload Access Control production readiness audit
         uses: actions/upload-artifact@v4
@@ -260,8 +304,9 @@ jobs:
             echo ''
             echo "- Commit: \`${GITHUB_SHA}\`"
             echo "- Target: \`${VM_USER}@${VM_HOST}:${VM_APP_DIR}\`"
-            echo '- Validation: CI and PostgreSQL concurrency passed'
+            echo '- Validation: CI, dependency security audits and PostgreSQL concurrency passed'
+            echo '- SSH host identity: pinned known_hosts entry enforced'
             echo '- Desportivo legacy readiness audit: collected read-only from production'
-            echo '- Access Control readiness audit: collected read-only from production'
+            echo '- Access Control readiness audit: collected read-only from production and critical findings gated'
             echo '- Result: successful'
           } >> "${GITHUB_STEP_SUMMARY}"
