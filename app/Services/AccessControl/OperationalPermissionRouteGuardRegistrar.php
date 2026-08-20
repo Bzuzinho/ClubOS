@@ -15,9 +15,23 @@ final class OperationalPermissionRouteGuardRegistrar
         'marketing',
     ];
 
+    /**
+     * Core administrative prefixes that historically contain routes declared
+     * inside auth/verified without an explicit module guard on every route.
+     *
+     * This pass only restores the module boundary. Granular permission
+     * expansion is handled separately so existing grants are not invalidated.
+     */
+    private const CORE_ADMIN_PREFIXES = [
+        'financeiro' => 'financeiro',
+        'configuracoes' => 'configuracoes',
+    ];
+
     public function register(): void
     {
         foreach (Route::getRoutes() as $route) {
+            $this->ensureCoreAdministrativeModuleGuard($route);
+
             $moduleKey = $this->guardedOperationalModule($route);
             if ($moduleKey === null) {
                 continue;
@@ -32,6 +46,35 @@ final class OperationalPermissionRouteGuardRegistrar
                 $route->computedMiddleware = null;
             }
         }
+    }
+
+    private function ensureCoreAdministrativeModuleGuard(RoutingRoute $route): void
+    {
+        $moduleKey = $this->coreAdministrativeModule($route->uri());
+        if ($moduleKey === null) {
+            return;
+        }
+
+        $middleware = "module.access:{$moduleKey}";
+        if (in_array($middleware, $route->gatherMiddleware(), true)) {
+            return;
+        }
+
+        $route->middleware($middleware);
+        $route->computedMiddleware = null;
+    }
+
+    private function coreAdministrativeModule(string $uri): ?string
+    {
+        $uri = ltrim($uri, '/');
+
+        foreach (self::CORE_ADMIN_PREFIXES as $prefix => $moduleKey) {
+            if ($uri === $prefix || str_starts_with($uri, $prefix.'/')) {
+                return $moduleKey;
+            }
+        }
+
+        return null;
     }
 
     private function guardedOperationalModule(RoutingRoute $route): ?string
