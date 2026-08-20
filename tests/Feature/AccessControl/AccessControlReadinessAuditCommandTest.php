@@ -50,13 +50,13 @@ class AccessControlReadinessAuditCommandTest extends TestCase
         $this->assertSame(1, $payload['summary']['unresolved_user_type_count']);
         $this->assertSame(0, $payload['summary']['modules_without_granular_permission_tree_count']);
         $this->assertGreaterThan(0, $payload['summary']['mutating_routes_without_module_guard_count']);
-        $this->assertGreaterThan(0, $payload['summary']['mutating_routes_with_module_only_guard_count']);
+        $this->assertSame(0, $payload['summary']['mutating_routes_with_module_only_guard_count']);
 
         $codes = collect($payload['findings'])->pluck('code');
         $this->assertTrue($codes->contains('platform_user_without_resolved_user_type'));
         $this->assertFalse($codes->contains('menu_module_without_granular_permission_tree'));
         $this->assertTrue($codes->contains('mutating_admin_route_without_module_guard'));
-        $this->assertTrue($codes->contains('mutating_admin_route_with_module_only_guard'));
+        $this->assertFalse($codes->contains('mutating_admin_route_with_module_only_guard'));
 
         $this->assertSame($before, [
             'users' => User::query()->count(),
