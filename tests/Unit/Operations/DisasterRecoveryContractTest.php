@@ -160,6 +160,10 @@ BASH);
         self::assertStringContainsString('public_table_count', $script);
         self::assertStringContainsString('migration_count', $script);
         self::assertStringContainsString('last-restore-test-success', $script);
+        self::assertStringContainsString('chgrp postgres "${WORK_DIR}"', $script);
+        self::assertStringContainsString('chmod 710 "${WORK_DIR}"', $script);
+        self::assertStringContainsString('install -o postgres -g postgres -m 600', $script);
+        self::assertStringNotContainsString('chmod 777', $script);
     }
 
     public function test_health_monitor_becomes_strict_after_dr_is_enabled(): void

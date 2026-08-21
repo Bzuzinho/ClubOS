@@ -71,6 +71,10 @@ dr_require_file "${EXTRACT_DIR}/application/.env"
 ) >/dev/null
 "${DR_PG_RESTORE}" --list "${EXTRACT_DIR}/database/database.dump" >/dev/null
 
+# mktemp creates WORK_DIR as 0700 root. The postgres restore process only needs
+# traverse permission on this parent directory to read its own 0600 dump copy.
+chgrp postgres "${WORK_DIR}"
+chmod 710 "${WORK_DIR}"
 TEMP_DUMP="${WORK_DIR}/database-postgres.dump"
 install -o postgres -g postgres -m 600 "${EXTRACT_DIR}/database/database.dump" "${TEMP_DUMP}"
 
