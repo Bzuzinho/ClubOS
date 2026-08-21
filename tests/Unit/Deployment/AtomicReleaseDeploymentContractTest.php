@@ -62,6 +62,29 @@ final class AtomicReleaseDeploymentContractTest extends TestCase
         self::assertStringNotContainsString('git pull', $wrapper);
     }
 
+    public function test_all_shell_deployment_scripts_have_valid_bash_syntax(): void
+    {
+        foreach ([
+            'bin/deploy-vm.sh',
+            'bin/remote-deploy-backend.sh',
+            'bin/remote-healthcheck.sh',
+            'bin/remote-release-rollback.sh',
+        ] as $relativePath) {
+            $path = $this->root.'/'.$relativePath;
+            self::assertFileExists($path);
+
+            $output = [];
+            $exitCode = 0;
+            exec('bash -n '.escapeshellarg($path).' 2>&1', $output, $exitCode);
+
+            self::assertSame(
+                0,
+                $exitCode,
+                sprintf("Bash syntax invalid in %s:\n%s", $relativePath, implode("\n", $output)),
+            );
+        }
+    }
+
     private function read(string $relativePath): string
     {
         $path = $this->root.'/'.$relativePath;
