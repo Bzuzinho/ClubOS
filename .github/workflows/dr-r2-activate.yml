@@ -1,0 +1,196 @@
+name: DR R2 Production Activation
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - ops/h0-2-r2-activate
+
+permissions:
+  contents: read
+
+concurrency:
+  group: clubos-dr-r2-production-activation
+  cancel-in-progress: false
+
+env:
+  VM_USER: ${{ secrets.ORACLE_VM_USER }}
+  VM_HOST: ${{ secrets.ORACLE_VM_HOST }}
+  VM_APP_DIR: ${{ secrets.ORACLE_VM_APP_DIR }}
+  VM_KNOWN_HOSTS: ${{ secrets.ORACLE_VM_KNOWN_HOSTS }}
+
+jobs:
+  activate-r2-dr:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Validate activation configuration
+        shell: bash
+        env:
+          ORACLE_VM_SSH_KEY: ${{ secrets.ORACLE_VM_SSH_KEY }}
+          CLUBOS_DR_R2_ENDPOINT: ${{ secrets.CLUBOS_DR_R2_ENDPOINT }}
+          CLUBOS_DR_R2_BUCKET: ${{ secrets.CLUBOS_DR_R2_BUCKET }}
+          CLUBOS_DR_R2_ACCESS_KEY_ID: ${{ secrets.CLUBOS_DR_R2_ACCESS_KEY_ID }}
+          CLUBOS_DR_R2_SECRET_ACCESS_KEY: ${{ secrets.CLUBOS_DR_R2_SECRET_ACCESS_KEY }}
+          CLUBOS_DR_BACKUP_PASSPHRASE: ${{ secrets.CLUBOS_DR_BACKUP_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          for variable in \
+            VM_USER VM_HOST VM_APP_DIR VM_KNOWN_HOSTS ORACLE_VM_SSH_KEY \
+            CLUBOS_DR_R2_ENDPOINT CLUBOS_DR_R2_BUCKET \
+            CLUBOS_DR_R2_ACCESS_KEY_ID CLUBOS_DR_R2_SECRET_ACCESS_KEY \
+            CLUBOS_DR_BACKUP_PASSPHRASE; do
+            [[ -n "${!variable:-}" ]] || {
+              echo "::error::Missing required production DR secret/configuration: ${variable}"
+              exit 1
+            }
+          done
+          [[ "${VM_APP_DIR}" == /* ]] || {
+            echo "::error::VM_APP_DIR must be an absolute path"
+            exit 1
+          }
+          [[ "${CLUBOS_DR_R2_ENDPOINT}" == https://* ]] || {
+            echo "::error::CLUBOS_DR_R2_ENDPOINT must use HTTPS"
+            exit 1
+          }
+
+      - name: Configure pinned SSH access
+        shell: bash
+        env:
+          ORACLE_VM_SSH_KEY: ${{ secrets.ORACLE_VM_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p "${HOME}/.ssh"
+          chmod 700 "${HOME}/.ssh"
+          printf '%s\n' "${ORACLE_VM_SSH_KEY}" | tr -d '\r' > "${HOME}/.ssh/id_ed25519"
+          chmod 600 "${HOME}/.ssh/id_ed25519"
+          printf '%s\n' "${VM_KNOWN_HOSTS}" | tr -d '\r' > "${HOME}/.ssh/known_hosts"
+          chmod 644 "${HOME}/.ssh/known_hosts"
+          ssh-keygen -F "${VM_HOST}" -f "${HOME}/.ssh/known_hosts" >/dev/null
+
+      - name: Bootstrap R2 and prove backup plus restore
+        id: activate
+        shell: bash
+        env:
+          CLUBOS_DR_R2_ENDPOINT: ${{ secrets.CLUBOS_DR_R2_ENDPOINT }}
+          CLUBOS_DR_R2_BUCKET: ${{ secrets.CLUBOS_DR_R2_BUCKET }}
+          CLUBOS_DR_R2_ACCESS_KEY_ID: ${{ secrets.CLUBOS_DR_R2_ACCESS_KEY_ID }}
+          CLUBOS_DR_R2_SECRET_ACCESS_KEY: ${{ secrets.CLUBOS_DR_R2_SECRET_ACCESS_KEY }}
+          CLUBOS_DR_BACKUP_PASSPHRASE: ${{ secrets.CLUBOS_DR_BACKUP_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          umask 077
+          bootstrap_env="${RUNNER_TEMP}/clubos-dr-bootstrap-${GITHUB_RUN_ID}.env"
+          remote_env="/tmp/clubos-dr-bootstrap-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.env"
+          report="${RUNNER_TEMP}/clubos-dr-r2-activation-report.txt"
+
+          cleanup_runner() {
+            rm -f -- "${bootstrap_env}"
+          }
+          trap cleanup_runner EXIT
+
+          {
+            printf 'DR_R2_ENDPOINT=%q\n' "${CLUBOS_DR_R2_ENDPOINT}"
+            printf 'DR_R2_BUCKET=%q\n' "${CLUBOS_DR_R2_BUCKET}"
+            printf 'DR_R2_ACCESS_KEY_ID=%q\n' "${CLUBOS_DR_R2_ACCESS_KEY_ID}"
+            printf 'DR_R2_SECRET_ACCESS_KEY=%q\n' "${CLUBOS_DR_R2_SECRET_ACCESS_KEY}"
+            printf 'DR_BACKUP_PASSPHRASE=%q\n' "${CLUBOS_DR_BACKUP_PASSPHRASE}"
+          } > "${bootstrap_env}"
+          chmod 600 "${bootstrap_env}"
+
+          scp \
+            -o BatchMode=yes \
+            -o ConnectTimeout=15 \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="${HOME}/.ssh/known_hosts" \
+            "${bootstrap_env}" \
+            "${VM_USER}@${VM_HOST}:${remote_env}"
+
+          ssh \
+            -o BatchMode=yes \
+            -o ConnectTimeout=15 \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=6 \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="${HOME}/.ssh/known_hosts" \
+            "${VM_USER}@${VM_HOST}" \
+            "APP_DIR='${VM_APP_DIR}' REMOTE_ENV='${remote_env}' bash -s" <<'REMOTE' | tee "${report}"
+          set -Eeuo pipefail
+
+          cleanup_remote() {
+            rm -f -- "${REMOTE_ENV}" >/dev/null 2>&1 || true
+          }
+          trap cleanup_remote EXIT
+
+          chmod 600 "${REMOTE_ENV}"
+          set -a
+          # shellcheck disable=SC1090
+          source "${REMOTE_ENV}"
+          set +a
+
+          echo "timestamp=$(date -Is)"
+          echo "release_sha=$(sed -n 's/^commit_sha=//p' "${APP_DIR}/.clubos-release" 2>/dev/null || true)"
+          echo 'phase=configure-r2'
+          sudo env \
+            DR_R2_ENDPOINT="${DR_R2_ENDPOINT}" \
+            DR_R2_BUCKET="${DR_R2_BUCKET}" \
+            DR_R2_ACCESS_KEY_ID="${DR_R2_ACCESS_KEY_ID}" \
+            DR_R2_SECRET_ACCESS_KEY="${DR_R2_SECRET_ACCESS_KEY}" \
+            DR_BACKUP_PASSPHRASE="${DR_BACKUP_PASSPHRASE}" \
+            bash "${APP_DIR}/scripts/ops/dr/configure-r2.sh"
+
+          cleanup_remote
+          trap - EXIT
+          unset DR_R2_SECRET_ACCESS_KEY DR_BACKUP_PASSPHRASE
+
+          echo 'phase=ensure-rclone'
+          if ! command -v rclone >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo DEBIAN_FRONTEND=noninteractive apt-get install -y rclone >/dev/null
+          fi
+          command -v rclone >/dev/null 2>&1
+
+          echo 'phase=first-offsite-backup'
+          sudo bash "${APP_DIR}/scripts/ops/dr/backup-offsite.sh"
+
+          echo 'phase=first-offsite-restore-test'
+          sudo bash "${APP_DIR}/scripts/ops/dr/restore-test-offsite.sh"
+
+          echo 'phase=install-cron-and-enable-strict-health'
+          sudo bash "${APP_DIR}/scripts/ops/dr/install-dr-cron.sh"
+
+          echo 'phase=strict-health-check'
+          sudo bash "${APP_DIR}/scripts/ops/dr/check-dr-health.sh"
+
+          echo 'phase=cron-contract'
+          sudo crontab -l | grep -A 1 -F '# ClubOS DR offsite backup'
+          sudo crontab -l | grep -A 1 -F '# ClubOS DR weekly restore test'
+          sudo crontab -l | grep -A 1 -F '# ClubOS DR health check'
+
+          sudo test -s /var/lib/clubos-dr/enabled
+          sudo test -s /var/lib/clubos-dr/last-offsite-success
+          sudo test -s /var/lib/clubos-dr/last-restore-test-success
+          echo 'dr_r2_activation=ok'
+          REMOTE
+
+          {
+            echo '## ClubOS R2 Disaster Recovery activation'
+            echo ''
+            echo '```text'
+            cat "${report}"
+            echo '```'
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Activation summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo '## Activation result'
+            echo ''
+            if [[ "${{ steps.activate.outcome }}" == 'success' ]]; then
+              echo 'R2 bootstrap, first encrypted backup, remote restore test and strict DR health completed successfully.'
+            else
+              echo 'R2 activation did not complete. Production application deployment is independent from this workflow; inspect the failed phase before retrying.'
+            fi
+          } >> "${GITHUB_STEP_SUMMARY}"
