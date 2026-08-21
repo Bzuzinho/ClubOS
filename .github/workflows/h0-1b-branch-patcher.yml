@@ -1,0 +1,241 @@
+name: H0.1b Branch Patcher
+
+on:
+  push:
+    branches:
+      - hardening/h0-1b-atomic-releases
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: hardening/h0-1b-atomic-releases
+          fetch-depth: 0
+
+      - name: Patch CI and live status
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          ci_path = Path('.github/workflows/ci.yml')
+          ci = ci_path.read_text()
+
+          old_validation = """      - name: Validate deployment scripts
+                  run: |
+                    node --check bin/deploy-vm.mjs
+                    bash -n bin/remote-deploy-backend.sh
+          """
+          new_validation = """      - name: Validate deployment scripts
+                  run: |
+                    node --check bin/deploy-vm.mjs
+                    bash -n bin/deploy-vm.sh
+                    bash -n bin/remote-deploy-backend.sh
+                    bash -n bin/remote-healthcheck.sh
+                    bash -n bin/remote-release-rollback.sh
+          """
+          if old_validation not in ci:
+              raise SystemExit('validation step pattern not found')
+          ci = ci.replace(old_validation, new_validation, 1)
+
+          marker = """      - name: Deploy main to production
+                  run: npm run deploy:vm
+
+                - name: Collect Desportivo production legacy readiness audit
+          """
+          replacement = """      - name: Deploy main to production
+                  run: npm run deploy:vm
+
+                - name: Validate atomic release layout
+                  shell: bash
+                  run: |
+                    set -euo pipefail
+
+                    layout_report="$(
+                      ssh \\
+                        -o BatchMode=yes \\
+                        -o StrictHostKeyChecking=yes \\
+                        -o UserKnownHostsFile=\"${HOME}/.ssh/known_hosts\" \\
+                        \"${VM_USER}@${VM_HOST}\" \\
+                        \"APP_DIR='${VM_APP_DIR}' EXPECTED_SHA='${GITHUB_SHA}' bash -s\" <<'REMOTE'
+                    set -euo pipefail
+                    DEPLOY_ROOT=\"${APP_DIR}.deploy\"
+                    test -L \"${APP_DIR}\"
+                    test -L \"${DEPLOY_ROOT}/current\"
+                    test -L \"${DEPLOY_ROOT}/previous\"
+                    test -L \"${APP_DIR}/.env\"
+                    test -L \"${APP_DIR}/storage\"
+                    test -L \"${APP_DIR}/public/storage\"
+                    test -f \"${APP_DIR}/.clubos-release\"
+
+                    app_real=\"$(readlink -f \"${APP_DIR}\")\"
+                    current_real=\"$(readlink -f \"${DEPLOY_ROOT}/current\")\"
+                    previous_real=\"$(readlink -f \"${DEPLOY_ROOT}/previous\")\"
+                    deployed_sha=\"$(sed -n 's/^commit_sha=//p' \"${APP_DIR}/.clubos-release\")\"
+
+                    [[ \"${app_real}\" == \"${current_real}\" ]]
+                    [[ \"${deployed_sha}\" == \"${EXPECTED_SHA}\" ]]
+
+                    printf 'current=%s\\nprevious=%s\\ncommit=%s\\n' \\
+                      \"${app_real}\" \"${previous_real}\" \"${deployed_sha}\"
+                    REMOTE
+                    )"
+
+                    echo \"${layout_report}\"
+                    current_release=\"$(printf '%s\\n' \"${layout_report}\" | sed -n 's/^current=//p')\"
+                    previous_release=\"$(printf '%s\\n' \"${layout_report}\" | sed -n 's/^previous=//p')\"
+                    {
+                      echo '## Atomic release layout'
+                      echo ''
+                      echo \"- Current: \\`${current_release}\\`\"
+                      echo \"- Previous: \\`${previous_release}\\`\"
+                      echo \"- Commit: \\`${GITHUB_SHA}\\`\"
+                      echo '- Compatibility path: `/var/www/clubmanager -> current`'
+                      echo '- Persistent state: `.env` and `storage` are shared symlinks'
+                    } >> \"${GITHUB_STEP_SUMMARY}\"
+
+                - name: Collect Desportivo production legacy readiness audit
+          """
+          if marker not in ci:
+              raise SystemExit('deploy marker not found')
+          ci = ci.replace(marker, replacement, 1)
+
+          ci = ci.replace(
+              "echo '- Validation: CI, dependency security audits and PostgreSQL concurrency passed'",
+              "echo '- Validation: CI, dependency security audits and PostgreSQL concurrency passed'\n            echo '- Deployment: isolated immutable release + atomic current symlink cutover'\n            echo '- Healthcheck: Laravel /up through Nginx + PHP-FPM returned HTTP 200'",
+              1,
+          )
+          ci_path.write_text(ci)
+
+          status_path = Path('docs/ESTADO_VIVO_DESENVOLVIMENTO.md')
+          status = status_path.read_text()
+
+          old_deploy = """Permanece aberto H0.1b:
+
+          - deploy ainda trabalha diretamente no working tree produtivo;
+          - migrations e backend podem ser aplicados antes de uma falha posterior;
+          - falta arquitetura `releases/`, `shared/`, `current -> release`;
+          - falta rollback automático para release anterior quando tecnicamente seguro.
+          """
+          new_deploy = """H0.1b está implementado na branch de hardening e aguarda validação produtiva do primeiro cutover:
+
+          - `/var/www/clubmanager` mantém-se como path compatível para Nginx, cron e backups, mas passa a apontar para `${APP_DIR}.deploy/current`;
+          - releases imutáveis são construídas fora do path servido, com `vendor` e `public/build` próprios;
+          - `.env` e `storage` passam para estado partilhado em `shared/`;
+          - o SHA de `origin/main` tem de coincidir exatamente com o SHA que a CI está a promover;
+          - migrations têm preflight e são aplicadas antes do cutover, exigindo compatibilidade backward/expand-contract;
+          - a release é validada em `/up` antes do cutover e novamente através de Nginx + PHP-FPM depois da troca;
+          - `current`/`previous` suportam rollback automático e manual de código; migrations não são revertidas automaticamente;
+          - o primeiro cutover usa `renameat2(RENAME_EXCHANGE)` para converter o diretório produtivo em symlink sem janela de path inexistente;
+          - retenção padrão de 5 releases, preservando sempre `current` e `previous`.
+          """
+          if old_deploy not in status:
+              raise SystemExit('live-status deploy block not found')
+          status = status.replace(old_deploy, new_deploy, 1)
+
+          stale_access = """Pelo contrato atual de `access:audit-readiness`, findings críticos só podem resultar de: schema de Access Control incompleto; conta com acesso explícito sem `UserType` resolvido; ou rota administrativa mutável sem o `module.access` correspondente. A distribuição real dos 92 findings deve ser determinada exclusivamente pelo relatório produtivo antes de alterar severidades ou permissões.
+          """
+          access_done = """A validação produtiva posterior à H0.1a.2 confirmou `critical_count=0`, `mutating_routes_without_module_guard_count=0`, schema pronto e zero utilizadores com acesso sem `UserType` resolvido. Permanecem 83 warnings não críticos de granularidade (`module.access` sem capability específica): 57 em Configurações, 25 em Financeiro e 1 em Desportivo. Estes warnings ficam como dívida de refinamento da matriz de permissões e não representam bypass crítico de módulo.
+          """
+          if stale_access in status:
+              status = status.replace(stale_access, access_done, 1)
+
+          status = re.sub(
+              r'^\| Autenticação / Access Control \| 75% \|.*$',
+              '| Autenticação / Access Control | 78% | Auditoria e gates produtivos ativos; validação real confirmou zero findings críticos e zero rotas mutáveis sem `module.access`. Permanecem 83 warnings de capability granular a consolidar. |',
+              status,
+              count=1,
+              flags=re.M,
+          )
+
+          priorities_pattern = re.compile(
+              r'\| Ordem \| Sprint \| Objetivo \|\n\|---:.*?\n(?=\n### Próximo bloco)',
+              re.S,
+          )
+          priorities = """| Ordem | Sprint | Objetivo |
+          |---:|---|---|
+          | 1 | H0.1b | Releases atómicas, estado partilhado, healthcheck real, `current/previous` e rollback; implementação concluída em branch, falta primeiro cutover produtivo. |
+          | 2 | H0.2 | Disaster Recovery: backup externo cifrado, retenção, checksum, restore test, alertas e RPO/RTO. |
+          | 3 | H1 | QA transversal e dependency remediation: typecheck, lint, Larastan/PHPStan, frontend tests, E2E, accessibility, mobile matrix e advisories não críticos. |
+          | 4 | H2 | Consolidação estrutural: Família/EE, stock variantes, legacy e rotas modulares. |
+          | 5 | H3 | Fecho Desportivo ponta a ponta. |
+          | 6 | H4 | Decisão e fecho Fiscal. |
+          | 7 | H5 | Loja + Logística lifecycle completo. |
+          | 8 | H6 | Comunicação assíncrona e futura integração Redes. |
+          | 9 | H7 | Portal/PWA/mobile. |
+          | 10 | H8 | Reporting consolidado. |
+          | 11 | H9 | Website: header/footer, notícias e polish final. |
+          """
+          status, count = priorities_pattern.subn(priorities.rstrip(), status, count=1)
+          if count != 1:
+              raise SystemExit('priority table not found')
+
+          status = re.sub(
+              r'### Próximo bloco após H0\.1a\n\n.*?(?=\n---\n\n## 7\.)',
+              """### Próximo bloco
+
+          H0.1a/H0.1a.1/H0.1a.2 estão fechadas: o hardening SSH/CI está ativo e a auditoria produtiva de Access Control confirma zero críticos. H0.1b é o bloco atual. Após a primeira execução produtiva confirmar layout atómico, SHA, healthcheck e rollback path, avançar para H0.2 Disaster Recovery.
+          """.rstrip(),
+              status,
+              count=1,
+              flags=re.S,
+          )
+
+          lines = status.splitlines()
+          updated = []
+          for line in lines:
+              if line.startswith('| 2026-08-21 | Access Control / Rotas | H0.1a.2:'):
+                  parts = line.split(' | ')
+                  if len(parts) >= 7:
+                      parts[-1] = 'Validação produtiva concluída: `critical_count=0`; permanecem 83 warnings de granularidade para consolidação posterior.'
+                      line = ' | '.join(parts)
+              updated.append(line)
+          status = '\n'.join(updated) + ('\n' if status.endswith('\n') else '')
+
+          history_marker = '|---|---|---|---|---:|---:|---|\n'
+          h01b_row = "| 2026-08-21 | Infraestrutura / Deploy | H0.1b: implementada arquitetura de releases atómicas mantendo `/var/www/clubmanager` como path compatível; código passa a ser extraído por SHA para release isolada, `.env`/`storage` tornam-se partilhados, `public/build` vem do runner, migrations têm preflight, `/up` é validado antes e depois do cutover, `current/previous` suportam rollback e o primeiro cutover usa troca atómica de path. | `bin/deploy-vm.mjs`, `bin/deploy-vm.sh`, `bin/remote-deploy-backend.sh`, `bin/remote-healthcheck.sh`, `bin/remote-release-rollback.sh`, `.github/workflows/ci.yml`, `tests/Unit/Deployment/AtomicReleaseDeploymentContractTest.php`, `docs/deploy/DEPLOY_WORKFLOW.md`, `docs/OPERACOES_SERVIDOR.md` | Base técnica 82% | Base técnica 82% | Executar primeiro cutover em produção após CI verde; confirmar symlinks `current/previous`, SHA da release, shared state, healthcheck Nginx/PHP 200 e rollback path. Migrations continuam a exigir expand/contract. |\n"
+          if h01b_row not in status:
+              pos = status.find(history_marker)
+              if pos == -1:
+                  raise SystemExit('history table marker not found')
+              insert_at = pos + len(history_marker)
+              status = status[:insert_at] + h01b_row + status[insert_at:]
+
+          status_path.write_text(status)
+          PY
+
+      - name: Validate patched files
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check bin/deploy-vm.mjs
+          bash -n bin/deploy-vm.sh
+          bash -n bin/remote-deploy-backend.sh
+          bash -n bin/remote-healthcheck.sh
+          bash -n bin/remote-release-rollback.sh
+          php -l tests/Unit/Deployment/AtomicReleaseDeploymentContractTest.php
+          python3 - <<'PY'
+          import yaml
+          from pathlib import Path
+          yaml.safe_load(Path('.github/workflows/ci.yml').read_text())
+          PY
+
+      - name: Commit patches and remove patcher
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git rm .github/workflows/h0-1b-branch-patcher.yml
+          git add -- .github/workflows/ci.yml docs/ESTADO_VIVO_DESENVOLVIMENTO.md
+          git diff --cached --check
+          git commit -m 'hardening: fechar integração CI do deploy atómico'
+          git push origin HEAD:hardening/h0-1b-atomic-releases
