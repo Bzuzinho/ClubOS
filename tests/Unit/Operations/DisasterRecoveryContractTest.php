@@ -10,6 +10,18 @@ final class DisasterRecoveryContractTest extends TestCase
 {
     private string $root;
 
+    /** @var list<string> */
+    private array $drShellScripts = [
+        'scripts/ops/database/backup-local-postgres.sh',
+        'scripts/ops/database/restore-local-postgres.sh',
+        'scripts/ops/dr/common.sh',
+        'scripts/ops/dr/configure-r2.sh',
+        'scripts/ops/dr/backup-offsite.sh',
+        'scripts/ops/dr/restore-test-offsite.sh',
+        'scripts/ops/dr/check-dr-health.sh',
+        'scripts/ops/dr/install-dr-cron.sh',
+    ];
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -123,6 +135,8 @@ BASH);
         self::assertStringContainsString('apply_retention daily', $script);
         self::assertStringContainsString('apply_retention weekly', $script);
         self::assertStringContainsString('apply_retention monthly', $script);
+        self::assertStringContainsString("local tier=\"$1\"\n    local keep=\"$2\"\n    local remote_path=\"\${DR_REMOTE_BASE}/\${tier}\"", $script);
+        self::assertStringNotContainsString('local tier="$1" keep="$2" remote_path="${DR_REMOTE_BASE}/${tier}"', $script);
     }
 
     public function test_common_dr_contract_defaults_to_7_daily_4_weekly_12_monthly(): void
@@ -159,18 +173,50 @@ BASH);
         self::assertStringContainsString('rclone lsf', $script);
     }
 
+    public function test_dr_shell_local_declarations_do_not_reference_a_variable_declared_earlier_on_the_same_line(): void
+    {
+        foreach ($this->drShellScripts as $relativePath) {
+            $lines = preg_split('/\R/', $this->read($relativePath));
+            self::assertIsArray($lines);
+
+            foreach ($lines as $index => $line) {
+                if (! preg_match('/^\s*local\s+(.+)$/', $line, $declaration)) {
+                    continue;
+                }
+
+                preg_match_all(
+                    '/\b([A-Za-z_][A-Za-z0-9_]*)=/',
+                    $declaration[1],
+                    $assignments,
+                    PREG_OFFSET_CAPTURE,
+                );
+
+                foreach ($assignments[1] as [$variable, $offset]) {
+                    $tail = substr($declaration[1], $offset + strlen($variable) + 1);
+                    $quotedVariable = preg_quote($variable, '/');
+                    $referencesVariable = preg_match(
+                        '/\$(?:\{'.$quotedVariable.'(?:\}|[:?+\-])|'.$quotedVariable.'\b)/',
+                        $tail,
+                    ) === 1;
+
+                    self::assertFalse(
+                        $referencesVariable,
+                        sprintf(
+                            '%s:%d declares %s and references it later in the same local statement; this is unsafe under set -u: %s',
+                            $relativePath,
+                            $index + 1,
+                            $variable,
+                            trim($line),
+                        ),
+                    );
+                }
+            }
+        }
+    }
+
     public function test_all_disaster_recovery_shell_scripts_have_valid_bash_syntax(): void
     {
-        foreach ([
-            'scripts/ops/database/backup-local-postgres.sh',
-            'scripts/ops/database/restore-local-postgres.sh',
-            'scripts/ops/dr/common.sh',
-            'scripts/ops/dr/configure-r2.sh',
-            'scripts/ops/dr/backup-offsite.sh',
-            'scripts/ops/dr/restore-test-offsite.sh',
-            'scripts/ops/dr/check-dr-health.sh',
-            'scripts/ops/dr/install-dr-cron.sh',
-        ] as $relativePath) {
+        foreach ($this->drShellScripts as $relativePath) {
             $path = $this->root.'/'.$relativePath;
             self::assertFileExists($path);
 

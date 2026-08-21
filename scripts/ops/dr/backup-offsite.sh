@@ -107,7 +107,9 @@ if [[ "${DATE_DAY}" == '01' ]]; then
 fi
 
 apply_retention() {
-    local tier="$1" keep="$2" remote_path="${DR_REMOTE_BASE}/${tier}"
+    local tier="$1"
+    local keep="$2"
+    local remote_path="${DR_REMOTE_BASE}/${tier}"
     local -a files=()
     local candidate
 
