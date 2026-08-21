@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
 
 log() { printf '[%s] %s\n' "$(date -Is)" "$*"; }
 die() { printf '[%s] ERROR: %s\n' "$(date -Is)" "$*" >&2; exit 1; }
@@ -10,6 +10,7 @@ ENV_FILE="${ENV_FILE:-${APP_DIR}/.env}"
 BACKUP_DIR="${BACKUP_DIR:-/var/backups/clubmanager/postgres-local}"
 LOCK_FILE="${LOCK_FILE:-/tmp/clubmanager-postgres-backup.lock}"
 PG_DUMP_PREFERRED="/usr/lib/postgresql/17/bin/pg_dump"
+PG_RESTORE_PREFERRED="/usr/lib/postgresql/17/bin/pg_restore"
 BACKUPS_TO_KEEP=7
 
 read_env_value() {
@@ -30,8 +31,39 @@ read_env_value() {
     printf '%s' "${value}"
 }
 
+resolve_pg17_tool() {
+    local preferred="$1" fallback="$2" tool version major
+
+    if [[ -x "${preferred}" ]]; then
+        tool="${preferred}"
+    elif command -v "${fallback}" >/dev/null 2>&1; then
+        tool="$(command -v "${fallback}")"
+    else
+        die "PostgreSQL ${fallback} was not found"
+    fi
+
+    version="$("${tool}" --version)"
+    major="$(printf '%s\n' "${version}" | grep -oE '[0-9]+(\.[0-9]+)?' | head -n 1 | cut -d. -f1)"
+    [[ "${major}" == "17" ]] || die "PostgreSQL 17 ${fallback} is required; found: ${version}"
+    printf '%s' "${tool}"
+}
+
+validate_dump() {
+    local dump="$1" checksum="${dump}.sha256"
+
+    [[ -s "${dump}" && -s "${checksum}" ]] || die "Backup or checksum is incomplete: ${dump}"
+    (cd "${BACKUP_DIR}" && sha256sum -c "$(basename "${checksum}")") >/dev/null \
+        || die "Checksum verification failed: ${dump}"
+    "${PG_RESTORE}" --list "${dump}" >/dev/null \
+        || die "pg_restore --list validation failed: ${dump}"
+}
+
 [[ -f "${ENV_FILE}" ]] || die "Production environment file not found: ${ENV_FILE}"
 command -v flock >/dev/null 2>&1 || die "flock is required"
+command -v sha256sum >/dev/null 2>&1 || die "sha256sum is required"
+
+PG_DUMP="$(resolve_pg17_tool "${PG_DUMP_PREFERRED}" pg_dump)"
+PG_RESTORE="$(resolve_pg17_tool "${PG_RESTORE_PREFERRED}" pg_restore)"
 
 exec 9>"${LOCK_FILE}"
 if ! flock -n 9; then
@@ -53,20 +85,6 @@ DB_PASSWORD="$(read_env_value DB_PASSWORD)"
 [[ -n "${DB_PASSWORD}" ]] || die "DB_PASSWORD is missing from ${ENV_FILE}"
 DB_PORT="${DB_PORT:-5433}"
 
-if [[ -x "${PG_DUMP_PREFERRED}" ]]; then
-    PG_DUMP="${PG_DUMP_PREFERRED}"
-elif command -v pg_dump >/dev/null 2>&1; then
-    PG_DUMP="$(command -v pg_dump)"
-else
-    die "PostgreSQL pg_dump was not found"
-fi
-
-command -v sha256sum >/dev/null 2>&1 || die "sha256sum is required"
-
-PG_DUMP_VERSION="$("${PG_DUMP}" --version)"
-PG_DUMP_MAJOR="$(printf '%s\n' "${PG_DUMP_VERSION}" | grep -oE '[0-9]+(\.[0-9]+)?' | head -n 1 | cut -d. -f1)"
-[[ "${PG_DUMP_MAJOR}" == "17" ]] || die "PostgreSQL 17 pg_dump is required; found: ${PG_DUMP_VERSION}"
-
 umask 077
 mkdir -p "${BACKUP_DIR}"
 [[ -d "${BACKUP_DIR}" && -w "${BACKUP_DIR}" ]] || die "Backup directory is not writable: ${BACKUP_DIR}"
@@ -77,8 +95,8 @@ mapfile -t TODAY_BACKUPS < <(
 )
 if (( ${#TODAY_BACKUPS[@]} > 0 )); then
     [[ ${#TODAY_BACKUPS[@]} -eq 1 ]] || die "More than one backup already exists for ${TODAY_UTC}; manual review is required"
-    [[ -s "${TODAY_BACKUPS[0]}" && -s "${TODAY_BACKUPS[0]}.sha256" ]] || die "Today's backup or checksum is incomplete: ${TODAY_BACKUPS[0]}"
-    log "A valid daily backup already exists for ${TODAY_UTC}; nothing to do."
+    validate_dump "${TODAY_BACKUPS[0]}"
+    log "A valid daily backup already exists for ${TODAY_UTC}; checksum and pg_restore catalogue are OK."
     ls -lh -- "${TODAY_BACKUPS[0]}" "${TODAY_BACKUPS[0]}.sha256"
     exit 0
 fi
@@ -113,6 +131,9 @@ sha256sum "${DUMP_PATH}" > "${CHECKSUM_PATH}"
 [[ -s "${CHECKSUM_PATH}" ]] || die "Checksum was not created: ${CHECKSUM_PATH}"
 chmod 600 "${DUMP_PATH}" "${CHECKSUM_PATH}"
 
+log "Validating checksum and PostgreSQL 17 restore catalogue"
+validate_dump "${DUMP_PATH}"
+
 mapfile -t BACKUPS < <(
     find "${BACKUP_DIR}" -maxdepth 1 -type f -name 'clubmanager-prod-*.dump' -printf '%T@ %p\n' \
         | sort -rn \
@@ -136,5 +157,5 @@ mapfile -t REMAINING_BACKUPS < <(
 
 BACKUP_COMPLETE=true
 trap - EXIT
-log "Backup completed; ${#REMAINING_BACKUPS[@]} daily dump(s) retained"
+log "Backup completed and restore catalogue validated; ${#REMAINING_BACKUPS[@]} daily dump(s) retained"
 ls -lh -- "${DUMP_PATH}" "${CHECKSUM_PATH}"
