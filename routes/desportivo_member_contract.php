@@ -3,7 +3,7 @@
 use App\Http\Controllers\Desportivo\SportsMemberContractController;
 use Illuminate\Support\Facades\Route;
 
-Route::middleware(['web', 'auth', 'verified'])
+Route::middleware(['web', 'auth', 'verified', 'module.access:desportivo'])
     ->prefix('desportivo/contratos/membros')
     ->group(function (): void {
         Route::get('/{member}/perfil', [SportsMemberContractController::class, 'show'])
