@@ -1,0 +1,96 @@
+name: H0.1b Healthcheck PR Patcher
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.head_ref == 'fix/h0-1b-release-healthcheck-cwd'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout hotfix branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/h0-1b-release-healthcheck-cwd
+          fetch-depth: 0
+
+      - name: Apply hotfix
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          remote_path = Path('bin/remote-deploy-backend.sh')
+          remote = remote_path.read_text()
+          old = '''  pid="$(sudo -u "${RUNTIME_USER}" -H bash -c '\n    cd "$1"\n    php -S "127.0.0.1:$2" -t public vendor/laravel/framework/src/Illuminate/Foundation/resources/server.php >"$3" 2>&1 &\n    echo $!\n  ' _ "${release}" "${port}" "${log_file}")"\n'''
+          new = '''  pid="$(sudo -u "${RUNTIME_USER}" -H bash -c '\n    cd "$1/public"\n    php -S "127.0.0.1:$2" "$1/vendor/laravel/framework/src/Illuminate/Foundation/resources/server.php" >"$3" 2>&1 &\n    echo $!\n  ' _ "${release}" "${port}" "${log_file}")"\n'''
+          if old not in remote:
+              raise SystemExit('remote healthcheck launch pattern not found')
+          remote_path.write_text(remote.replace(old, new, 1))
+
+          ci_path = Path('.github/workflows/ci.yml')
+          ci = ci_path.read_text()
+          marker = '''      - name: Prepare environment\n        run: |\n          cp .env.example .env\n          php artisan key:generate --force\n\n      - name: Build frontend\n'''
+          replacement = '''      - name: Prepare environment\n        run: |\n          cp .env.example .env\n          php artisan key:generate --force\n\n      - name: Smoke-test isolated release healthcheck\n        shell: bash\n        run: |\n          set -euo pipefail\n          port="$(python3 - <<'PYPORT'\n          import socket\n          with socket.socket() as sock:\n              sock.bind(("127.0.0.1", 0))\n              print(sock.getsockname()[1])\n          PYPORT\n          )"\n          log_file="${RUNNER_TEMP}/isolated-release-healthcheck.log"\n          pushd public >/dev/null\n          php -S "127.0.0.1:${port}" "../vendor/laravel/framework/src/Illuminate/Foundation/resources/server.php" >"${log_file}" 2>&1 &\n          server_pid=$!\n          popd >/dev/null\n          cleanup() { kill "${server_pid}" >/dev/null 2>&1 || true; }\n          trap cleanup EXIT\n          status=""\n          for _ in $(seq 1 30); do\n            status="$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 2 "http://127.0.0.1:${port}/up" 2>/dev/null || true)"\n            [[ "${status}" == "200" ]] && break\n            if ! kill -0 "${server_pid}" >/dev/null 2>&1; then break; fi\n            sleep 0.2\n          done\n          if [[ "${status}" != "200" ]]; then\n            echo "::error::Isolated release /up returned ${status:-no-response}"\n            sed -n '1,160p' "${log_file}" || true\n            exit 1\n          fi\n\n      - name: Build frontend\n'''
+          if marker not in ci:
+              raise SystemExit('CI Prepare environment marker not found')
+          ci_path.write_text(ci.replace(marker, replacement, 1))
+
+          test_path = Path('tests/Unit/Deployment/AtomicReleaseDeploymentContractTest.php')
+          test = test_path.read_text()
+          marker = '''        self::assertStringContainsString('migrate --force', $remote);\n        self::assertStringNotContainsString('reset --hard origin/main', $remote);\n'''
+          replacement = '''        self::assertStringContainsString('migrate --force', $remote);\n        self::assertStringContainsString('cd "$1/public"', $remote);\n        self::assertStringContainsString('"$1/vendor/laravel/framework/src/Illuminate/Foundation/resources/server.php"', $remote);\n        self::assertStringNotContainsString('php -S "127.0.0.1:$2" -t public', $remote);\n        self::assertStringNotContainsString('reset --hard origin/main', $remote);\n'''
+          if marker not in test:
+              raise SystemExit('deployment contract marker not found')
+          test_path.write_text(test.replace(marker, replacement, 1))
+
+          status_path = Path('docs/ESTADO_VIVO_DESENVOLVIMENTO.md')
+          status = status_path.read_text()
+          marker = 'O diagnóstico read-only da VM confirmou que esta estratégia não exige alterar o root do Nginx nem os crons existentes. O primeiro cutover produtivo é o próximo gate da H0.1b.\n'
+          replacement = 'O diagnóstico read-only da VM confirmou que esta estratégia não exige alterar o root do Nginx nem os crons existentes. O primeiro cutover produtivo de `bcb6422f` foi abortado de forma segura **antes da troca do path**: o servidor PHP interno do healthcheck pré-cutover era iniciado a partir da raiz da release e o router Laravel procurava `index.php` fora de `public/`. Produção permaneceu no layout legado, sem maintenance mode e com `/up = 200`. O hotfix H0.1b.1 passa a arrancar o servidor com working directory `public/` e acrescenta um smoke test real desta sequência ao CI antes de novo cutover.\n'
+          if marker not in status:
+              raise SystemExit('live status cutover marker not found')
+          status = status.replace(marker, replacement, 1)
+          old_row = '| 2026-08-21 | Infraestrutura / Deploy | H0.1b implementa releases atómicas mantendo `/var/www/clubmanager` como path compatível, estado partilhado, healthchecks pre/pós-cutover e rollback. | `bin/deploy-vm.mjs`, `bin/deploy-vm.sh`, `bin/remote-deploy-backend.sh`, `bin/remote-healthcheck.sh`, `bin/remote-release-rollback.sh`, `tests/Unit/Deployment/AtomicReleaseDeploymentContractTest.php`, `docs/deploy/DEPLOY_WORKFLOW.md`, `docs/OPERACOES_SERVIDOR.md` | CI e primeiro cutover produtivo ainda por validar; migrations exigem expand/contract. |'
+          new_row = '| 2026-08-21 | Infraestrutura / Deploy | H0.1b implementa releases atómicas mantendo `/var/www/clubmanager` como path compatível, estado partilhado, healthchecks pre/pós-cutover e rollback. O primeiro cutover foi recusado antes da troca porque o healthcheck PHP interno arrancava fora de `public/`; H0.1b.1 corrige o CWD e adiciona smoke test real em CI. | `bin/remote-deploy-backend.sh`, `.github/workflows/ci.yml`, `tests/Unit/Deployment/AtomicReleaseDeploymentContractTest.php`, diagnóstico produtivo read-only | Produção manteve layout legado saudável; repetir CI e primeiro cutover após hotfix. |'
+          if old_row in status:
+              status = status.replace(old_row, new_row, 1)
+          status_path.write_text(status)
+
+          deploy_path = Path('docs/deploy/DEPLOY_WORKFLOW.md')
+          deploy = deploy_path.read_text()
+          marker = 'A release candidata é validada em `/up` antes de qualquer cutover.'
+          if marker in deploy:
+              deploy = deploy.replace(marker, marker + ' O servidor PHP interno é iniciado com `public/` como working directory, reproduzindo corretamente o front controller Laravel.', 1)
+          deploy_path.write_text(deploy)
+          PY
+
+      - name: Validate patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n bin/remote-deploy-backend.sh
+          php -l tests/Unit/Deployment/AtomicReleaseDeploymentContractTest.php
+          python3 - <<'PY'
+          import yaml
+          from pathlib import Path
+          yaml.safe_load(Path('.github/workflows/ci.yml').read_text())
+          PY
+
+      - name: Commit and self-remove
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git rm .github/workflows/h0-1b-healthcheck-pr-patcher.yml .github/workflows/h0-1b-healthcheck-hotfix-patcher.yml
+          git add -- bin/remote-deploy-backend.sh .github/workflows/ci.yml tests/Unit/Deployment/AtomicReleaseDeploymentContractTest.php docs/ESTADO_VIVO_DESENVOLVIMENTO.md docs/deploy/DEPLOY_WORKFLOW.md
+          git diff --cached --check
+          git commit -m 'fix(deploy): corrigir CWD do healthcheck pre-cutover'
+          git push origin HEAD:fix/h0-1b-release-healthcheck-cwd
