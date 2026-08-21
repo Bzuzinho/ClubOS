@@ -25,6 +25,91 @@ final class DisasterRecoveryContractTest extends TestCase
         self::assertStringContainsString('sha256sum -c', $script);
         self::assertStringContainsString('--list', $script);
         self::assertStringContainsString('BACKUPS_TO_KEEP=7', $script);
+        self::assertStringContainsString("local dump=\"$1\"\n    local checksum=\"\${dump}.sha256\"", $script);
+        self::assertStringNotContainsString('local dump="$1" checksum="${dump}.sha256"', $script);
+    }
+
+    public function test_existing_daily_backup_is_validated_successfully_under_nounset(): void
+    {
+        $tmp = sys_get_temp_dir().'/clubos-dr-contract-'.bin2hex(random_bytes(6));
+        $backupDir = $tmp.'/backups';
+        $binDir = $tmp.'/bin';
+        $envFile = $tmp.'/.env';
+        $lockFile = $tmp.'/backup.lock';
+
+        mkdir($backupDir, 0700, true);
+        mkdir($binDir, 0700, true);
+
+        $pgDump = $binDir.'/pg_dump';
+        $pgRestore = $binDir.'/pg_restore';
+
+        file_put_contents($pgDump, <<<'BASH'
+#!/usr/bin/env bash
+if [[ "${1:-}" == "--version" ]]; then
+  echo 'pg_dump (PostgreSQL) 17.0'
+  exit 0
+fi
+exit 0
+BASH);
+        file_put_contents($pgRestore, <<<'BASH'
+#!/usr/bin/env bash
+if [[ "${1:-}" == "--version" ]]; then
+  echo 'pg_restore (PostgreSQL) 17.0'
+  exit 0
+fi
+if [[ "${1:-}" == "--list" ]]; then
+  exit 0
+fi
+exit 0
+BASH);
+        chmod($pgDump, 0755);
+        chmod($pgRestore, 0755);
+
+        file_put_contents($envFile, implode("\n", [
+            'DB_CONNECTION=pgsql',
+            'DB_HOST=127.0.0.1',
+            'DB_PORT=5433',
+            'DB_DATABASE=clubos_test',
+            'DB_USERNAME=clubos_test',
+            'DB_PASSWORD=clubos_test',
+            '',
+        ]));
+
+        $dump = $backupDir.'/clubmanager-prod-'.gmdate('Ymd').'-010101.dump';
+        file_put_contents($dump, 'fixture');
+        file_put_contents(
+            $dump.'.sha256',
+            hash_file('sha256', $dump).'  '.basename($dump).PHP_EOL,
+        );
+
+        $output = [];
+        $exitCode = 0;
+        $command = sprintf(
+            'env ENV_FILE=%s BACKUP_DIR=%s LOCK_FILE=%s PG_DUMP_PREFERRED=%s PG_RESTORE_PREFERRED=%s PATH=%s bash %s 2>&1',
+            escapeshellarg($envFile),
+            escapeshellarg($backupDir),
+            escapeshellarg($lockFile),
+            escapeshellarg($pgDump),
+            escapeshellarg($pgRestore),
+            escapeshellarg($binDir.':'.(getenv('PATH') ?: '/usr/bin:/bin')),
+            escapeshellarg($this->root.'/scripts/ops/database/backup-local-postgres.sh'),
+        );
+
+        try {
+            exec($command, $output, $exitCode);
+
+            self::assertSame(
+                0,
+                $exitCode,
+                "Existing daily backup validation failed:\n".implode("\n", $output),
+            );
+            self::assertStringContainsString(
+                'checksum and pg_restore catalogue are OK',
+                implode("\n", $output),
+            );
+        } finally {
+            exec('rm -rf -- '.escapeshellarg($tmp));
+        }
     }
 
     public function test_offsite_backup_is_client_side_encrypted_and_has_tiered_retention(): void
