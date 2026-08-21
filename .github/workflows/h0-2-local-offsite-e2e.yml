@@ -1,0 +1,123 @@
+name: H0.2 Local Offsite E2E Simulation
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  simulate-offsite:
+    if: github.head_ref == 'diag/h0-2-postmerge-local'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      VM_USER: ${{ secrets.ORACLE_VM_USER }}
+      VM_HOST: ${{ secrets.ORACLE_VM_HOST }}
+      VM_APP_DIR: ${{ secrets.ORACLE_VM_APP_DIR }}
+      VM_KNOWN_HOSTS: ${{ secrets.ORACLE_VM_KNOWN_HOSTS }}
+    steps:
+      - name: Configure pinned SSH
+        shell: bash
+        env:
+          ORACLE_VM_SSH_KEY: ${{ secrets.ORACLE_VM_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p "${HOME}/.ssh"
+          chmod 700 "${HOME}/.ssh"
+          printf '%s\n' "${ORACLE_VM_SSH_KEY}" | tr -d '\r' > "${HOME}/.ssh/id_ed25519"
+          chmod 600 "${HOME}/.ssh/id_ed25519"
+          printf '%s\n' "${VM_KNOWN_HOSTS}" | tr -d '\r' > "${HOME}/.ssh/known_hosts"
+          chmod 644 "${HOME}/.ssh/known_hosts"
+
+      - name: Exercise full DR pipeline with ephemeral local remote
+        shell: bash
+        run: |
+          set -euo pipefail
+          report="${GITHUB_WORKSPACE}/h0-2-local-offsite-e2e.txt"
+          ssh \
+            -o BatchMode=yes \
+            -o ConnectTimeout=15 \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="${HOME}/.ssh/known_hosts" \
+            "${VM_USER}@${VM_HOST}" \
+            "APP_DIR='${VM_APP_DIR}' bash -s" <<'REMOTE' | tee "${report}"
+          set -Eeuo pipefail
+
+          if ! command -v rclone >/dev/null 2>&1; then
+            echo 'installing_rclone=yes'
+            sudo apt-get update -qq
+            sudo DEBIAN_FRONTEND=noninteractive apt-get install -y rclone >/dev/null
+          fi
+
+          for command in rclone gpg rsync tar sha256sum; do
+            command -v "${command}" >/dev/null 2>&1 || { echo "missing_command=${command}"; exit 1; }
+          done
+
+          TEST_ROOT="/tmp/clubos-dr-e2e-${RANDOM}-$$"
+          CONFIG_FILE="${TEST_ROOT}/dr.env"
+          PASSPHRASE_FILE="${TEST_ROOT}/passphrase"
+          STATE_DIR="${TEST_ROOT}/state"
+          REMOTE_BASE="${TEST_ROOT}/remote/clubos-prod"
+          ENABLED_MARKER="${STATE_DIR}/enabled"
+
+          cleanup() {
+            sudo rm -rf -- "${TEST_ROOT}" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+
+          sudo install -d -o root -g root -m 700 "${TEST_ROOT}" "${STATE_DIR}" "${REMOTE_BASE}"
+          printf 'clubos-dr-e2e-%s-%s\n' "$(date +%s)" "${RANDOM}" | sudo tee "${PASSPHRASE_FILE}" >/dev/null
+          sudo chmod 600 "${PASSPHRASE_FILE}"
+          {
+            printf 'DR_REMOTE_BASE=%s\n' "${REMOTE_BASE}"
+            printf 'DR_GPG_PASSPHRASE_FILE=%s\n' "${PASSPHRASE_FILE}"
+          } | sudo tee "${CONFIG_FILE}" >/dev/null
+          sudo chmod 600 "${CONFIG_FILE}"
+
+          echo "rclone_version=$(rclone version | head -n1)"
+          echo '--- simulated offsite backup ---'
+          sudo env \
+            DR_CONFIG_FILE="${CONFIG_FILE}" \
+            DR_STATE_DIR="${STATE_DIR}" \
+            DR_ENABLED_MARKER="${ENABLED_MARKER}" \
+            bash "${APP_DIR}/scripts/ops/dr/backup-offsite.sh"
+
+          object_count="$(sudo find "${REMOTE_BASE}" -type f -name '*.tar.gz.gpg' | wc -l | tr -d ' ')"
+          [[ "${object_count}" =~ ^[0-9]+$ && "${object_count}" -ge 1 ]]
+          echo "encrypted_object_count=${object_count}"
+          echo "plaintext_remote_count=$(sudo find "${REMOTE_BASE}" -type f ! -name '*.tar.gz.gpg' | wc -l | tr -d ' ')"
+          [[ "$(sudo find "${REMOTE_BASE}" -type f ! -name '*.tar.gz.gpg' | wc -l | tr -d ' ')" == '0' ]]
+
+          sudo touch "${ENABLED_MARKER}"
+          sudo chmod 600 "${ENABLED_MARKER}"
+
+          echo '--- simulated offsite restore test ---'
+          sudo env \
+            DR_CONFIG_FILE="${CONFIG_FILE}" \
+            DR_STATE_DIR="${STATE_DIR}" \
+            DR_ENABLED_MARKER="${ENABLED_MARKER}" \
+            bash "${APP_DIR}/scripts/ops/dr/restore-test-offsite.sh"
+
+          echo '--- strict DR health against simulated remote ---'
+          sudo env \
+            DR_CONFIG_FILE="${CONFIG_FILE}" \
+            DR_STATE_DIR="${STATE_DIR}" \
+            DR_ENABLED_MARKER="${ENABLED_MARKER}" \
+            bash "${APP_DIR}/scripts/ops/dr/check-dr-health.sh"
+
+          sudo test -s "${STATE_DIR}/last-offsite-success"
+          sudo test -s "${STATE_DIR}/last-restore-test-success"
+          echo 'local_offsite_e2e=ok'
+          REMOTE
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: h0-2-local-offsite-e2e-${{ github.sha }}
+          path: h0-2-local-offsite-e2e.txt
+          if-no-files-found: warn
+          retention-days: 7
