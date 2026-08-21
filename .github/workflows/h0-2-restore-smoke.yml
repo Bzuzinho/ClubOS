@@ -72,14 +72,17 @@ jobs:
           sudo "${PG_RESTORE}" --list "${latest}" >/dev/null
 
           TEST_DB="clubos_dr_restore_$(date -u +%Y%m%d%H%M%S)_$$"
+          TEMP_DUMP="/tmp/${TEST_DB}.dump"
           cleanup() {
             sudo -u postgres "${DROPDB}" -p "${DB_PORT}" --if-exists "${TEST_DB}" >/dev/null 2>&1 || true
+            sudo rm -f "${TEMP_DUMP}" >/dev/null 2>&1 || true
           }
           trap cleanup EXIT
 
+          sudo install -o postgres -g postgres -m 600 "${latest}" "${TEMP_DUMP}"
           sudo -u postgres "${CREATEDB}" -p "${DB_PORT}" "${TEST_DB}"
           started="$(date +%s)"
-          sudo -u postgres "${PG_RESTORE}" -p "${DB_PORT}" --no-owner --no-acl --dbname="${TEST_DB}" "${latest}"
+          sudo -u postgres "${PG_RESTORE}" -p "${DB_PORT}" --no-owner --no-acl --dbname="${TEST_DB}" "${TEMP_DUMP}"
           finished="$(date +%s)"
           table_count="$(sudo -u postgres "${PSQL}" -p "${DB_PORT}" -d "${TEST_DB}" -Atqc "select count(*) from information_schema.tables where table_schema='public';")"
           migration_count="$(sudo -u postgres "${PSQL}" -p "${DB_PORT}" -d "${TEST_DB}" -Atqc "select count(*) from migrations;")"
@@ -95,9 +98,10 @@ jobs:
           REMOTE
 
       - name: Upload restore evidence
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: h0-2-restore-smoke-${{ github.sha }}
           path: h0-2-restore-smoke.txt
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 7
