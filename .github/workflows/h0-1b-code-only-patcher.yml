@@ -1,0 +1,139 @@
+name: H0.1b Code-only Patcher
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.head_ref == 'fix/h0-1b-release-healthcheck-cwd'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout hotfix branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/h0-1b-release-healthcheck-cwd
+          fetch-depth: 0
+
+      - name: Apply code-only hotfix
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          remote_path = Path('bin/remote-deploy-backend.sh')
+          remote = remote_path.read_text()
+          old = '''  pid="$(sudo -u "${RUNTIME_USER}" -H bash -c '\n    cd "$1"\n    php -S "127.0.0.1:$2" -t public vendor/laravel/framework/src/Illuminate/Foundation/resources/server.php >"$3" 2>&1 &\n    echo $!\n  ' _ "${release}" "${port}" "${log_file}")"\n'''
+          new = '''  pid="$(sudo -u "${RUNTIME_USER}" -H bash -c '\n    cd "$1/public"\n    php -S "127.0.0.1:$2" "$1/vendor/laravel/framework/src/Illuminate/Foundation/resources/server.php" >"$3" 2>&1 &\n    echo $!\n  ' _ "${release}" "${port}" "${log_file}")"\n'''
+          if old not in remote:
+              raise SystemExit('remote healthcheck launch pattern not found')
+          remote_path.write_text(remote.replace(old, new, 1))
+
+          test_path = Path('tests/Unit/Deployment/AtomicReleaseDeploymentContractTest.php')
+          test = test_path.read_text()
+          marker = '''        self::assertStringContainsString('migrate --force', $remote);\n        self::assertStringNotContainsString('reset --hard origin/main', $remote);\n'''
+          replacement = '''        self::assertStringContainsString('migrate --force', $remote);\n        self::assertStringContainsString('cd "$1/public"', $remote);\n        self::assertStringContainsString('"$1/vendor/laravel/framework/src/Illuminate/Foundation/resources/server.php"', $remote);\n        self::assertStringNotContainsString('php -S "127.0.0.1:$2" -t public', $remote);\n        self::assertStringNotContainsString('reset --hard origin/main', $remote);\n'''
+          if marker not in test:
+              raise SystemExit('deployment contract marker not found')
+          test = test.replace(marker, replacement, 1)
+
+          method_marker = '''    public function test_all_shell_deployment_scripts_have_valid_bash_syntax(): void\n    {\n'''
+          smoke = r'''    public function test_isolated_release_healthcheck_serves_up_from_public_working_directory(): void
+    {
+        $socket = stream_socket_server('tcp://127.0.0.1:0', $errno, $error);
+        self::assertIsResource($socket, sprintf('Could not reserve local port: %s (%d)', $error, $errno));
+
+        $address = stream_socket_get_name($socket, false);
+        fclose($socket);
+        self::assertIsString($address);
+        $separator = strrpos($address, ':');
+        self::assertNotFalse($separator);
+        $port = (int) substr($address, $separator + 1);
+        self::assertGreaterThan(0, $port);
+
+        $logPath = sys_get_temp_dir().'/clubos-isolated-healthcheck-'.getmypid().'-'.$port.'.log';
+        $process = proc_open(
+            [PHP_BINARY, '-S', '127.0.0.1:'.$port, '../vendor/laravel/framework/src/Illuminate/Foundation/resources/server.php'],
+            [
+                0 => ['pipe', 'r'],
+                1 => ['file', $logPath, 'a'],
+                2 => ['file', $logPath, 'a'],
+            ],
+            $pipes,
+            $this->root.'/public',
+        );
+
+        self::assertIsResource($process, 'Could not start isolated PHP server');
+        foreach ($pipes as $pipe) {
+            if (is_resource($pipe)) {
+                fclose($pipe);
+            }
+        }
+
+        $status = '';
+        try {
+            for ($attempt = 0; $attempt < 30; $attempt++) {
+                $output = [];
+                $exitCode = 0;
+                exec(
+                    'curl --silent --output /dev/null --write-out '.escapeshellarg('%{http_code}')
+                    .' --max-time 2 '.escapeshellarg('http://127.0.0.1:'.$port.'/up').' 2>/dev/null',
+                    $output,
+                    $exitCode,
+                );
+                $status = trim(implode("\n", $output));
+                if ($exitCode === 0 && $status === '200') {
+                    break;
+                }
+                $processStatus = proc_get_status($process);
+                if (! $processStatus['running']) {
+                    break;
+                }
+                usleep(200000);
+            }
+        } finally {
+            proc_terminate($process);
+            proc_close($process);
+        }
+
+        $log = is_file($logPath) ? (string) file_get_contents($logPath) : '';
+        @unlink($logPath);
+        self::assertSame('200', $status, "Isolated /up did not return 200.\n{$log}");
+    }
+
+'''
+          if method_marker not in test:
+              raise SystemExit('bash syntax method marker not found')
+          test_path.write_text(test.replace(method_marker, smoke + method_marker, 1))
+
+          status_path = Path('docs/ESTADO_VIVO_DESENVOLVIMENTO.md')
+          status = status_path.read_text()
+          marker = 'O diagnóstico read-only da VM confirmou que esta estratégia não exige alterar o root do Nginx nem os crons existentes. O primeiro cutover produtivo é o próximo gate da H0.1b.\n'
+          replacement = 'O diagnóstico read-only da VM confirmou que esta estratégia não exige alterar o root do Nginx nem os crons existentes. O primeiro cutover produtivo de `bcb6422f` foi abortado de forma segura **antes da troca do path**: o servidor PHP interno do healthcheck pré-cutover era iniciado a partir da raiz da release e o router Laravel procurava `index.php` fora de `public/`. Produção permaneceu no layout legado, sem maintenance mode e com `/up = 200`. O hotfix H0.1b.1 passa a arrancar o servidor com working directory `public/` e acrescenta um smoke test real desta sequência à suite PHPUnit antes de novo cutover.\n'
+          if marker in status:
+              status = status.replace(marker, replacement, 1)
+          status_path.write_text(status)
+          PY
+
+      - name: Validate code-only hotfix
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n bin/remote-deploy-backend.sh
+          php -l tests/Unit/Deployment/AtomicReleaseDeploymentContractTest.php
+
+      - name: Commit code-only hotfix
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- bin/remote-deploy-backend.sh tests/Unit/Deployment/AtomicReleaseDeploymentContractTest.php docs/ESTADO_VIVO_DESENVOLVIMENTO.md
+          git diff --cached --check
+          git commit -m 'fix(deploy): corrigir healthcheck interno pre-cutover'
+          git push origin HEAD:fix/h0-1b-release-healthcheck-cwd
