@@ -31,7 +31,7 @@ jobs:
           chmod 600 "${HOME}/.ssh/id_ed25519"
           printf '%s\n' "${VM_KNOWN_HOSTS}" | tr -d '\r' > "${HOME}/.ssh/known_hosts"
           chmod 644 "${HOME}/.ssh/known_hosts"
-      - name: Probe commands after mirror fetch
+      - name: Probe failed deployment stage
         shell: bash
         run: |
           set -euo pipefail
@@ -47,6 +47,8 @@ jobs:
           DEPLOY_ROOT="${APP_DIR}.deploy"
           REPOSITORY_DIR="${DEPLOY_ROOT}/repository.git"
           RELEASES_DIR="${DEPLOY_ROOT}/releases"
+          SHARED_DIR="${DEPLOY_ROOT}/shared"
+          PERSIST_ROOT="${DEPLOY_ROOT}/legacy-persistence"
 
           run() {
             label="$1"; shift
@@ -57,20 +59,68 @@ jobs:
             return 0
           }
 
-          run 'repository ownership' stat -c '%U:%G %a %n' "${REPOSITORY_DIR}" "${RELEASES_DIR}"
-          run 'deploy user identity' id "${DEPLOY_USER}"
-          run 'mirror fetch refspec' sudo -u "${DEPLOY_USER}" -H git --git-dir="${REPOSITORY_DIR}" config --get-all remote.origin.fetch
-          run 'origin url' sudo -u "${DEPLOY_USER}" -H git --git-dir="${REPOSITORY_DIR}" remote get-url origin
           run 'refs/remotes/origin/main' sudo -u "${DEPLOY_USER}" -H git --git-dir="${REPOSITORY_DIR}" rev-parse refs/remotes/origin/main
-          run 'refs/heads/main' sudo -u "${DEPLOY_USER}" -H git --git-dir="${REPOSITORY_DIR}" rev-parse refs/heads/main
           run 'expected commit exists' sudo -u "${DEPLOY_USER}" -H git --git-dir="${REPOSITORY_DIR}" cat-file -e "${EXPECTED_SHA}^{commit}"
           run 'deploy user can write releases' sudo -u "${DEPLOY_USER}" -H test -w "${RELEASES_DIR}"
-          run 'deploy user can read mirror' sudo -u "${DEPLOY_USER}" -H test -r "${REPOSITORY_DIR}/HEAD"
-          run 'git fsck connectivity' sudo -u "${DEPLOY_USER}" -H git --git-dir="${REPOSITORY_DIR}" fsck --connectivity-only --no-progress
-          echo '--- all main-like refs ---'
-          sudo -u "${DEPLOY_USER}" -H git --git-dir="${REPOSITORY_DIR}" show-ref | grep -E 'main$|origin/HEAD$' || true
-          echo '--- fetch head ---'
-          cat "${REPOSITORY_DIR}/FETCH_HEAD" 2>/dev/null | head -n 10 || true
+
+          echo '--- live persistence state ---'
+          printf 'app_env_kind=%s\n' "$(if [[ -L "${APP_DIR}/.env" ]]; then echo symlink; elif [[ -f "${APP_DIR}/.env" ]]; then echo file; else echo missing; fi)"
+          printf 'app_storage_kind=%s\n' "$(if [[ -L "${APP_DIR}/storage" ]]; then echo symlink; elif [[ -d "${APP_DIR}/storage" ]]; then echo directory; else echo missing; fi)"
+          printf 'app_env_real=%s\n' "$(readlink -f "${APP_DIR}/.env" 2>/dev/null || true)"
+          printf 'app_storage_real=%s\n' "$(readlink -f "${APP_DIR}/storage" 2>/dev/null || true)"
+          printf 'shared_env_real=%s\n' "$(readlink -f "${SHARED_DIR}/.env" 2>/dev/null || true)"
+          printf 'shared_storage_real=%s\n' "$(readlink -f "${SHARED_DIR}/storage" 2>/dev/null || true)"
+          echo '--- persistence backups ---'
+          find "${PERSIST_ROOT}" -mindepth 1 -maxdepth 2 -printf '%y %M %u:%g %p -> %l\n' 2>/dev/null | sort || true
+
+          echo '--- helper timestamps ---'
+          stat -c '%y %U:%G %a %n' /usr/local/bin/clubmanager-healthcheck.sh /usr/local/bin/clubmanager-rollback-release.sh /usr/local/bin/clubmanager-deploy-backend.sh 2>/dev/null || true
+
+          echo '--- current app migration preflight ---'
+          run 'migrate status' sudo -u www-data -H php "${APP_DIR}/artisan" migrate:status --no-ansi
+          run 'migrate pretend' sudo -u www-data -H php "${APP_DIR}/artisan" migrate --pretend --force --no-ansi
+
+          echo '--- current app internal /up via php built-in server ---'
+          port="$(python3 - <<'PY'
+          import socket
+          s=socket.socket(); s.bind(('127.0.0.1',0)); print(s.getsockname()[1]); s.close()
+          PY
+          )"
+          log_file="/tmp/h01b-probe-php-server.log"
+          pid="$(sudo -u www-data -H bash -c 'cd "$1"; php -S "127.0.0.1:$2" -t public vendor/laravel/framework/src/Illuminate/Foundation/resources/server.php >"$3" 2>&1 & echo $!' _ "${APP_DIR}" "${port}" "${log_file}")"
+          status=""
+          for _ in $(seq 1 20); do
+            status="$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 2 "http://127.0.0.1:${port}/up" 2>/dev/null || true)"
+            [[ "${status}" == "200" ]] && break
+            sleep 0.2
+          done
+          echo "internal_up_http=${status:-none}"
+          kill "${pid}" >/dev/null 2>&1 || true
+          if [[ "${status}" != "200" ]]; then
+            sed -n '1,160p' "${log_file}" 2>/dev/null || true
+          fi
+          rm -f "${log_file}"
+
+          echo '--- renameat2 exchange probe ---'
+          test_dir="${DEPLOY_ROOT}/.probe-exchange-dir.$$"
+          test_link="${DEPLOY_ROOT}/.probe-exchange-link.$$"
+          mkdir "${test_dir}"
+          ln -s "${test_dir}" "${test_link}"
+          python3 - "${test_dir}" "${test_link}" <<'PY'
+          import ctypes, os, sys
+          libc=ctypes.CDLL(None,use_errno=True)
+          fn=getattr(libc,'renameat2',None)
+          if fn is None:
+              print('renameat2=missing'); raise SystemExit(1)
+          fn.argtypes=[ctypes.c_int,ctypes.c_char_p,ctypes.c_int,ctypes.c_char_p,ctypes.c_uint]
+          fn.restype=ctypes.c_int
+          rc=fn(-100,os.fsencode(sys.argv[1]),-100,os.fsencode(sys.argv[2]),2)
+          print(f'renameat2_rc={rc} errno={ctypes.get_errno()}')
+          raise SystemExit(0 if rc == 0 else 1)
+          PY
+          exchange_rc=$?
+          echo "renameat2_probe_rc=${exchange_rc}"
+          rm -rf "${test_dir}" "${test_link}"
           REMOTE
       - name: Upload probe
         uses: actions/upload-artifact@v4
