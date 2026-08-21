@@ -139,20 +139,25 @@ jobs:
             DR_BACKUP_PASSPHRASE="${DR_BACKUP_PASSPHRASE}" \
             bash "${APP_DIR}/scripts/ops/dr/configure-r2.sh"
 
-          # The transient bootstrap file is no longer needed after configure-r2.sh
-          # persisted root-only configuration and the GPG passphrase.
           cleanup_remote
           trap - EXIT
           unset DR_R2_SECRET_ACCESS_KEY DR_BACKUP_PASSPHRASE
 
-          echo 'phase=install-cron-and-validate-remote'
-          sudo bash "${APP_DIR}/scripts/ops/dr/install-dr-cron.sh"
+          echo 'phase=ensure-rclone'
+          if ! command -v rclone >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo DEBIAN_FRONTEND=noninteractive apt-get install -y rclone >/dev/null
+          fi
+          command -v rclone >/dev/null 2>&1
 
           echo 'phase=first-offsite-backup'
           sudo bash "${APP_DIR}/scripts/ops/dr/backup-offsite.sh"
 
           echo 'phase=first-offsite-restore-test'
           sudo bash "${APP_DIR}/scripts/ops/dr/restore-test-offsite.sh"
+
+          echo 'phase=install-cron-and-enable-strict-health'
+          sudo bash "${APP_DIR}/scripts/ops/dr/install-dr-cron.sh"
 
           echo 'phase=strict-health-check'
           sudo bash "${APP_DIR}/scripts/ops/dr/check-dr-health.sh"
