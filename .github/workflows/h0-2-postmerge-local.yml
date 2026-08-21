@@ -1,0 +1,84 @@
+name: H0.2 Post-merge Local Validation
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  verify-production-local-dr:
+    if: github.head_ref == 'diag/h0-2-postmerge-local'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      VM_USER: ${{ secrets.ORACLE_VM_USER }}
+      VM_HOST: ${{ secrets.ORACLE_VM_HOST }}
+      VM_APP_DIR: ${{ secrets.ORACLE_VM_APP_DIR }}
+      VM_KNOWN_HOSTS: ${{ secrets.ORACLE_VM_KNOWN_HOSTS }}
+      EXPECTED_SHA: bdacacc8224ddb2b6a88df51a5df7c4afa7f37f1
+    steps:
+      - name: Configure pinned SSH
+        shell: bash
+        env:
+          ORACLE_VM_SSH_KEY: ${{ secrets.ORACLE_VM_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p "${HOME}/.ssh"
+          chmod 700 "${HOME}/.ssh"
+          printf '%s\n' "${ORACLE_VM_SSH_KEY}" | tr -d '\r' > "${HOME}/.ssh/id_ed25519"
+          chmod 600 "${HOME}/.ssh/id_ed25519"
+          printf '%s\n' "${VM_KNOWN_HOSTS}" | tr -d '\r' > "${HOME}/.ssh/known_hosts"
+          chmod 644 "${HOME}/.ssh/known_hosts"
+
+      - name: Wait for deploy and validate local DR
+        shell: bash
+        run: |
+          set -euo pipefail
+          report="${GITHUB_WORKSPACE}/h0-2-postmerge-local.txt"
+          ssh \
+            -o BatchMode=yes \
+            -o ConnectTimeout=15 \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="${HOME}/.ssh/known_hosts" \
+            "${VM_USER}@${VM_HOST}" \
+            "APP_DIR='${VM_APP_DIR}' EXPECTED_SHA='${EXPECTED_SHA}' bash -s" <<'REMOTE' | tee "${report}"
+          set -Eeuo pipefail
+          echo "timestamp=$(date -Is)"
+          active_sha=""
+          for _ in $(seq 1 90); do
+            active_sha="$(sed -n 's/^commit_sha=//p' "${APP_DIR}/.clubos-release" 2>/dev/null || true)"
+            if [[ "${active_sha}" == "${EXPECTED_SHA}" ]]; then
+              break
+            fi
+            sleep 10
+          done
+          [[ "${active_sha}" == "${EXPECTED_SHA}" ]] || { echo "expected_sha_not_active=${active_sha}"; exit 1; }
+          echo "active_sha=${active_sha}"
+          echo "app_real=$(readlink -f "${APP_DIR}")"
+          echo "current_real=$(readlink -f "${APP_DIR}.deploy/current")"
+
+          echo '--- local backup validation ---'
+          sudo bash "${APP_DIR}/scripts/ops/database/backup-local-postgres.sh"
+
+          echo '--- local DR health ---'
+          sudo bash "${APP_DIR}/scripts/ops/dr/check-dr-health.sh"
+
+          echo '--- activation state ---'
+          if sudo test -e /var/lib/clubos-dr/enabled; then
+            echo 'dr_enabled=yes'
+          else
+            echo 'dr_enabled=no'
+          fi
+          REMOTE
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: h0-2-postmerge-local-${{ github.sha }}
+          path: h0-2-postmerge-local.txt
+          if-no-files-found: warn
+          retention-days: 7
