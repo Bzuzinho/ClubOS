@@ -49,7 +49,8 @@ resolve_pg17_tool() {
 }
 
 validate_dump() {
-    local dump="$1" checksum="${dump}.sha256"
+    local dump="$1"
+    local checksum="${dump}.sha256"
 
     [[ -s "${dump}" && -s "${checksum}" ]] || die "Backup or checksum is incomplete: ${dump}"
     (cd "${BACKUP_DIR}" && sha256sum -c "$(basename "${checksum}")") >/dev/null \
