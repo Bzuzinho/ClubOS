@@ -1,0 +1,111 @@
+name: H0.1b Production Layout Diagnostic
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  inspect-production-layout:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      VM_USER: ${{ secrets.ORACLE_VM_USER }}
+      VM_HOST: ${{ secrets.ORACLE_VM_HOST }}
+      VM_APP_DIR: ${{ secrets.ORACLE_VM_APP_DIR }}
+      VM_KNOWN_HOSTS: ${{ secrets.ORACLE_VM_KNOWN_HOSTS }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure pinned SSH
+        shell: bash
+        env:
+          ORACLE_VM_SSH_KEY: ${{ secrets.ORACLE_VM_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          for variable in VM_USER VM_HOST VM_APP_DIR VM_KNOWN_HOSTS ORACLE_VM_SSH_KEY; do
+            [[ -n "${!variable:-}" ]] || { echo "::error::Missing ${variable}"; exit 1; }
+          done
+          mkdir -p "${HOME}/.ssh"
+          chmod 700 "${HOME}/.ssh"
+          printf '%s\n' "${ORACLE_VM_SSH_KEY}" | tr -d '\r' > "${HOME}/.ssh/id_ed25519"
+          chmod 600 "${HOME}/.ssh/id_ed25519"
+          printf '%s\n' "${VM_KNOWN_HOSTS}" | tr -d '\r' > "${HOME}/.ssh/known_hosts"
+          chmod 644 "${HOME}/.ssh/known_hosts"
+
+      - name: Inspect production layout read-only
+        shell: bash
+        run: |
+          set -euo pipefail
+          report="${GITHUB_WORKSPACE}/h0-1b-production-layout.txt"
+          ssh \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="${HOME}/.ssh/known_hosts" \
+            "${VM_USER}@${VM_HOST}" \
+            "APP_DIR='${VM_APP_DIR}' bash -s" > "${report}" <<'REMOTE'
+          set -u
+          section() { printf '\n===== %s =====\n' "$1"; }
+
+          section "identity"
+          hostname
+          id
+          printf 'APP_DIR=%s\n' "${APP_DIR}"
+          ls -ld "${APP_DIR}" 2>&1 || true
+          readlink -f "${APP_DIR}" 2>&1 || true
+
+          section "git"
+          git -C "${APP_DIR}" rev-parse --show-toplevel 2>&1 || true
+          git -C "${APP_DIR}" rev-parse HEAD 2>&1 || true
+          git -C "${APP_DIR}" status --porcelain=v1 2>&1 || true
+          git -C "${APP_DIR}" remote -v 2>&1 | sed -E 's#(https://)[^/@]+@#\1***@#g' || true
+
+          section "app-layout"
+          find "${APP_DIR}" -maxdepth 2 -mindepth 1 \( -type d -o -type l \) -printf '%y %p -> %l\n' 2>/dev/null | sort | head -n 250 || true
+          for path in .env storage storage/app/public storage/logs bootstrap/cache public public/build vendor; do
+            printf '%-24s ' "$path"
+            stat -c 'type=%F mode=%a owner=%U:%G inode=%i' "${APP_DIR}/${path}" 2>&1 || true
+          done
+          df -h "${APP_DIR}" 2>&1 || true
+          du -sh "${APP_DIR}" 2>/dev/null || true
+
+          section "nginx-site"
+          sudo cat /etc/nginx/sites-enabled/clubmanager 2>&1 || true
+          section "nginx-path-references"
+          sudo nginx -T 2>/dev/null | grep -nE '(^|[[:space:]])(root|alias)[[:space:]]|clubmanager|fastcgi_param[[:space:]]+SCRIPT_FILENAME' | head -n 250 || true
+
+          section "deploy-helper-scripts"
+          for script in /usr/local/bin/clubmanager-deploy-backend.sh /usr/local/bin/clubmanager-frontend-reload.sh /usr/local/bin/clubmanager-healthcheck.sh; do
+            echo "--- ${script} ---"
+            sudo sed -n '1,260p' "${script}" 2>&1 || true
+          done
+
+          section "service-and-cron-path-references"
+          sudo grep -RIn --exclude='*.log' --exclude-dir='private' '/var/www/clubmanager' \
+            /etc/systemd/system /lib/systemd/system /etc/supervisor /etc/supervisor/conf.d \
+            /etc/cron.d /etc/cron.daily /etc/cron.hourly /etc/cron.weekly /var/spool/cron 2>/dev/null | head -n 300 || true
+
+          section "running-artisan-processes"
+          ps -eo pid,user,args | grep -E '[p]hp .*artisan|[q]ueue:work|[s]chedule:work|[h]orizon' || true
+
+          section "systemd-clubmanager"
+          systemctl list-unit-files --type=service 2>/dev/null | grep -Ei 'clubmanager|clubos|laravel|queue|scheduler|horizon' || true
+          systemctl list-units --type=service --all 2>/dev/null | grep -Ei 'clubmanager|clubos|laravel|queue|scheduler|horizon' || true
+
+          section "user-crontab"
+          crontab -l 2>&1 || true
+          REMOTE
+
+          sed -n '1,500p' "${report}"
+
+      - name: Upload diagnostic
+        uses: actions/upload-artifact@v4
+        with:
+          name: h0-1b-production-layout-${{ github.sha }}
+          path: h0-1b-production-layout.txt
+          if-no-files-found: error
+          retention-days: 7
