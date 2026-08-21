@@ -1,0 +1,106 @@
+name: H0.2 DR Readiness Diagnostic
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  inspect-production-dr:
+    if: github.head_ref == 'diag/h0-2-dr-readiness'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      VM_USER: ${{ secrets.ORACLE_VM_USER }}
+      VM_HOST: ${{ secrets.ORACLE_VM_HOST }}
+      VM_APP_DIR: ${{ secrets.ORACLE_VM_APP_DIR }}
+      VM_KNOWN_HOSTS: ${{ secrets.ORACLE_VM_KNOWN_HOSTS }}
+    steps:
+      - name: Configure pinned SSH
+        shell: bash
+        env:
+          ORACLE_VM_SSH_KEY: ${{ secrets.ORACLE_VM_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p "${HOME}/.ssh"
+          chmod 700 "${HOME}/.ssh"
+          printf '%s\n' "${ORACLE_VM_SSH_KEY}" | tr -d '\r' > "${HOME}/.ssh/id_ed25519"
+          chmod 600 "${HOME}/.ssh/id_ed25519"
+          printf '%s\n' "${VM_KNOWN_HOSTS}" | tr -d '\r' > "${HOME}/.ssh/known_hosts"
+          chmod 644 "${HOME}/.ssh/known_hosts"
+
+      - name: Inspect DR readiness read-only
+        shell: bash
+        run: |
+          set -euo pipefail
+          report="${GITHUB_WORKSPACE}/h0-2-dr-readiness.txt"
+          ssh \
+            -o BatchMode=yes \
+            -o ConnectTimeout=15 \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="${HOME}/.ssh/known_hosts" \
+            "${VM_USER}@${VM_HOST}" \
+            "APP_DIR='${VM_APP_DIR}' bash -s" <<'REMOTE' | tee "${report}"
+          set -u
+          BACKUP_DIR=/var/backups/clubmanager/postgres-local
+          LOG_FILE=/var/log/clubmanager-postgres-backup.log
+          echo "timestamp=$(date -Is)"
+          echo "app_dir=${APP_DIR}"
+          echo "backup_dir=${BACKUP_DIR}"
+          echo "disk=$(df -hP /var/backups 2>/dev/null | tail -n1 || true)"
+          echo '--- cron ---'
+          sudo crontab -l 2>/dev/null | grep -A1 -F '# ClubOS local PostgreSQL daily backup' || true
+          echo '--- backup inventory ---'
+          if [[ -d "${BACKUP_DIR}" ]]; then
+            find "${BACKUP_DIR}" -maxdepth 1 -type f -name 'clubmanager-prod-*.dump' -printf '%T@ %s %p\n' | sort -rn | head -n 20
+          else
+            echo 'backup directory missing'
+          fi
+          latest="$(find "${BACKUP_DIR}" -maxdepth 1 -type f -name 'clubmanager-prod-*.dump' -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -n1 | cut -d' ' -f2- || true)"
+          echo "latest=${latest}"
+          if [[ -n "${latest}" ]]; then
+            echo "latest_mtime=$(stat -c '%y' "${latest}")"
+            echo "latest_age_seconds=$(( $(date +%s) - $(stat -c %Y "${latest}") ))"
+            echo "latest_size_bytes=$(stat -c %s "${latest}")"
+            echo "checksum_file=$(test -s "${latest}.sha256" && echo yes || echo no)"
+            if [[ -s "${latest}.sha256" ]]; then
+              (cd "${BACKUP_DIR}" && sha256sum -c "$(basename "${latest}.sha256")") || true
+            fi
+            pg_restore_bin="$(command -v pg_restore || true)"
+            if [[ -n "${pg_restore_bin}" ]]; then
+              echo "pg_restore=$(${pg_restore_bin} --version)"
+              "${pg_restore_bin}" --list "${latest}" >/dev/null && echo 'pg_restore_list=ok' || echo 'pg_restore_list=failed'
+            fi
+          fi
+          echo '--- recent backup log ---'
+          sudo tail -n 80 "${LOG_FILE}" 2>/dev/null || true
+          echo '--- tooling ---'
+          for cmd in age gpg openssl rclone aws oci restic borg curl jq; do
+            if command -v "${cmd}" >/dev/null 2>&1; then
+              printf '%s=' "${cmd}"
+              command -v "${cmd}"
+            else
+              echo "${cmd}=missing"
+            fi
+          done
+          echo '--- existing offsite config presence only ---'
+          for path in /root/.config/rclone/rclone.conf /root/.aws/credentials /root/.oci/config /etc/restic /etc/clubos-backup /etc/clubmanager-backup; do
+            if sudo test -e "${path}"; then echo "${path}=present"; else echo "${path}=absent"; fi
+          done
+          echo '--- mounts ---'
+          findmnt -rn -o TARGET,SOURCE,FSTYPE | grep -E '/mnt|/media|s3|fuse|rclone|nfs|cifs' || true
+          echo '--- timers/services related to backup ---'
+          systemctl list-timers --all --no-pager 2>/dev/null | grep -Ei 'backup|postgres|club' || true
+          systemctl list-unit-files --no-pager 2>/dev/null | grep -Ei 'backup|restic|rclone|borg' || true
+          REMOTE
+
+      - name: Upload diagnostic
+        uses: actions/upload-artifact@v4
+        with:
+          name: h0-2-dr-readiness-${{ github.sha }}
+          path: h0-2-dr-readiness.txt
+          if-no-files-found: error
+          retention-days: 7
