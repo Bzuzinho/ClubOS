@@ -1,0 +1,80 @@
+name: H0.1b Instant Production State
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      VM_USER: ${{ secrets.ORACLE_VM_USER }}
+      VM_HOST: ${{ secrets.ORACLE_VM_HOST }}
+      VM_APP_DIR: ${{ secrets.ORACLE_VM_APP_DIR }}
+      VM_KNOWN_HOSTS: ${{ secrets.ORACLE_VM_KNOWN_HOSTS }}
+    steps:
+      - name: Configure SSH
+        shell: bash
+        env:
+          ORACLE_VM_SSH_KEY: ${{ secrets.ORACLE_VM_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p "${HOME}/.ssh"
+          chmod 700 "${HOME}/.ssh"
+          printf '%s\n' "${ORACLE_VM_SSH_KEY}" | tr -d '\r' > "${HOME}/.ssh/id_ed25519"
+          chmod 600 "${HOME}/.ssh/id_ed25519"
+          printf '%s\n' "${VM_KNOWN_HOSTS}" | tr -d '\r' > "${HOME}/.ssh/known_hosts"
+          chmod 644 "${HOME}/.ssh/known_hosts"
+      - name: Snapshot production state
+        shell: bash
+        run: |
+          set -euo pipefail
+          report="${GITHUB_WORKSPACE}/h0-1b-instant-state.txt"
+          ssh \
+            -o BatchMode=yes \
+            -o ConnectTimeout=15 \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="${HOME}/.ssh/known_hosts" \
+            "${VM_USER}@${VM_HOST}" \
+            "APP_DIR='${VM_APP_DIR}' bash -s" <<'REMOTE' | tee "${report}"
+          set -u
+          DEPLOY_ROOT="${APP_DIR}.deploy"
+          echo "timestamp=$(date -Is)"
+          echo "app_dir=${APP_DIR}"
+          echo "app_kind=$(if [[ -L "${APP_DIR}" ]]; then echo symlink; elif [[ -d "${APP_DIR}" ]]; then echo directory; else echo missing; fi)"
+          echo "app_real=$(readlink -f "${APP_DIR}" 2>/dev/null || true)"
+          echo "current_real=$(readlink -f "${DEPLOY_ROOT}/current" 2>/dev/null || true)"
+          echo "previous_real=$(readlink -f "${DEPLOY_ROOT}/previous" 2>/dev/null || true)"
+          echo "release_sha=$(sed -n 's/^commit_sha=//p' "${APP_DIR}/.clubos-release" 2>/dev/null || true)"
+          echo "release_layout=$(sed -n 's/^layout=//p' "${APP_DIR}/.clubos-release" 2>/dev/null || true)"
+          echo "release_count=$(find "${DEPLOY_ROOT}/releases" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l)"
+          echo "deploy_root_exists=$(test -d "${DEPLOY_ROOT}" && echo yes || echo no)"
+          echo "current_link=$(test -L "${DEPLOY_ROOT}/current" && echo yes || echo no)"
+          echo "previous_link=$(test -L "${DEPLOY_ROOT}/previous" && echo yes || echo no)"
+          echo "shared_env=$(test -f "${DEPLOY_ROOT}/shared/.env" && echo yes || echo no)"
+          echo "shared_storage=$(test -d "${DEPLOY_ROOT}/shared/storage" && echo yes || echo no)"
+          echo "maintenance=$(test -f "${APP_DIR}/storage/framework/down" && echo yes || echo no)"
+          echo "frontend_manifest=$(test -f "${APP_DIR}/public/build/manifest.json" && echo yes || echo no)"
+          echo '--- latest releases ---'
+          find "${DEPLOY_ROOT}/releases" -mindepth 1 -maxdepth 1 -type d -printf '%TY-%Tm-%Td %TH:%TM:%TS %p\n' 2>/dev/null | sort -r | head -n 10 || true
+          echo '--- legacy dirs ---'
+          find "${DEPLOY_ROOT}/legacy" -mindepth 1 -maxdepth 1 -type d -printf '%p\n' 2>/dev/null | head -n 10 || true
+          echo '--- healthcheck ---'
+          if [[ -x /usr/local/bin/clubmanager-healthcheck.sh ]]; then
+            /usr/local/bin/clubmanager-healthcheck.sh "${APP_DIR}" || true
+          else
+            echo 'healthcheck helper not installed'
+          fi
+          REMOTE
+      - name: Upload snapshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: h0-1b-instant-production-state-${{ github.sha }}
+          path: h0-1b-instant-state.txt
+          if-no-files-found: error
+          retention-days: 7
