@@ -20,6 +20,13 @@ const VM_APP_DIR = requiredEnv('VM_APP_DIR');
 const REMOTE_BACKEND_SCRIPT = 'bin/remote-deploy-backend.sh';
 const remote = `${VM_USER}@${VM_HOST}`;
 const npmCli = process.env.npm_execpath;
+const knownHosts = `${requiredEnv('HOME')}/.ssh/known_hosts`;
+const sshOptions = [
+    '-o', 'BatchMode=yes',
+    '-o', 'ConnectTimeout=15',
+    '-o', 'StrictHostKeyChecking=yes',
+    '-o', `UserKnownHostsFile=${knownHosts}`,
+];
 
 if (!VM_APP_DIR.startsWith('/')) {
     console.error('\n❌ VM_APP_DIR tem de ser um caminho absoluto.');
@@ -76,7 +83,7 @@ function shellQuote(value) {
     return `'${String(value).replaceAll("'", `'"'"'`)}'`;
 }
 
-console.log('==> ClubOS deploy VM');
+console.log('==> ClubOS deploy VM — atomic releases');
 console.log(`    Repo: ${process.cwd()}`);
 console.log(`    VM:   ${remote}:${VM_APP_DIR}`);
 
@@ -101,7 +108,9 @@ if (localHead !== remoteHead) {
     process.exit(1);
 }
 
-console.log('\n==> Build frontend');
+const repoUrl = output('git', ['remote', 'get-url', 'origin']).replace(/^(https:\/\/)[^/@]+@/, '$1');
+
+console.log('\n==> Build frontend isolado no runner');
 runNpm(['ci']);
 runNpm(['run', 'build'], {
     env: {
@@ -111,7 +120,7 @@ runNpm(['run', 'build'], {
 });
 
 if (!existsSync('public/build/manifest.json')) {
-    console.error('\n❌ Build não gerou public/build/manifest.json. Deploy abortado.');
+    console.error('\n❌ Build não gerou public/build/manifest.json. Deploy abortado antes de tocar na VM.');
     process.exit(1);
 }
 
@@ -120,41 +129,33 @@ if (!existsSync(REMOTE_BACKEND_SCRIPT)) {
     process.exit(1);
 }
 
-const tempBackendScript = `/tmp/clubos-backend-deploy-${process.pid}.sh`;
+const remoteTempDir = `/tmp/clubos-atomic-deploy-${localHead.slice(0, 12)}-${process.pid}`;
+const remoteBackendScript = `${remoteTempDir}/remote-deploy-backend.sh`;
+const remoteBuildDir = `${remoteTempDir}/build`;
 
-console.log('\n==> Deploy backend versionado');
-run('scp', [REMOTE_BACKEND_SCRIPT, `${remote}:${tempBackendScript}`]);
+console.log('\n==> Preparar payload remoto da release');
+run('ssh', [...sshOptions, remote, `rm -rf ${shellQuote(remoteTempDir)} && mkdir -p ${shellQuote(remoteTempDir)} ${shellQuote(remoteBuildDir)}`]);
+run('scp', [...sshOptions, REMOTE_BACKEND_SCRIPT, `${remote}:${remoteBackendScript}`]);
+run('scp', [...sshOptions, '-r', 'public/build/.', `${remote}:${remoteBuildDir}/`]);
 
 const executeBackend = [
-    `chmod 700 ${shellQuote(tempBackendScript)}`,
-    `sudo bash ${shellQuote(tempBackendScript)} ${shellQuote(VM_APP_DIR)} ${shellQuote(VM_USER)} 'www-data' 'www-data'`,
+    `chmod 700 ${shellQuote(remoteBackendScript)}`,
+    `sudo bash ${shellQuote(remoteBackendScript)} ${shellQuote(VM_APP_DIR)} ${shellQuote(VM_USER)} 'www-data' 'www-data' ${shellQuote(localHead)} ${shellQuote(remoteBuildDir)} ${shellQuote(repoUrl)}`,
 ].join(' && ');
 
 const executeAndCleanup = [
     executeBackend,
     'status=$?',
-    `rm -f ${shellQuote(tempBackendScript)}`,
+    `rm -rf ${shellQuote(remoteTempDir)}`,
     'exit $status',
 ].join('; ');
 
-run('ssh', [remote, executeAndCleanup]);
+console.log('\n==> Construir release, validar, migrar e fazer cutover atómico');
+run('ssh', [...sshOptions, remote, executeAndCleanup]);
 
-const tempBuildDir = `/tmp/clubos-build-${process.pid}`;
+console.log('\n==> Verificação final através do path produtivo');
+run('ssh', [...sshOptions, remote, `/usr/local/bin/clubmanager-healthcheck.sh ${shellQuote(VM_APP_DIR)}`]);
 
-console.log('\n==> Upload frontend');
-run('scp', ['-r', 'public/build', `${remote}:${tempBuildDir}`]);
-
-const publishFrontend = [
-    `sudo rm -rf '${VM_APP_DIR}/public/build'`,
-    `sudo mkdir -p '${VM_APP_DIR}/public/build'`,
-    `sudo cp -R '${tempBuildDir}/.' '${VM_APP_DIR}/public/build/'`,
-    `sudo chown -R www-data:www-data '${VM_APP_DIR}/public/build'`,
-    `rm -rf '${tempBuildDir}'`,
-    '/usr/local/bin/clubmanager-frontend-reload.sh',
-    `/usr/local/bin/clubmanager-healthcheck.sh '${VM_APP_DIR}'`,
-].join(' && ');
-
-run('ssh', [remote, publishFrontend]);
-
-console.log('\n✅ Deploy completo OK.');
+console.log('\n✅ Deploy atómico completo OK.');
 console.log(`🌍 Produção actualizada em ${VM_HOST}`);
+console.log(`🔖 Commit: ${localHead}`);
