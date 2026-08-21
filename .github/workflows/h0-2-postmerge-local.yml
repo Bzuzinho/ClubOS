@@ -18,7 +18,7 @@ jobs:
       VM_HOST: ${{ secrets.ORACLE_VM_HOST }}
       VM_APP_DIR: ${{ secrets.ORACLE_VM_APP_DIR }}
       VM_KNOWN_HOSTS: ${{ secrets.ORACLE_VM_KNOWN_HOSTS }}
-      EXPECTED_SHA: bdacacc8224ddb2b6a88df51a5df7c4afa7f37f1
+      EXPECTED_SHA: a959ab6266fca461083c756781e44c97ef0c834c
     steps:
       - name: Configure pinned SSH
         shell: bash
