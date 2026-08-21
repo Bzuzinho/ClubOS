@@ -58,12 +58,25 @@ jobs:
           echo "previous_link=$(test -L "${DEPLOY_ROOT}/previous" && echo yes || echo no)"
           echo "shared_env=$(test -f "${DEPLOY_ROOT}/shared/.env" && echo yes || echo no)"
           echo "shared_storage=$(test -d "${DEPLOY_ROOT}/shared/storage" && echo yes || echo no)"
+          echo "repository_git=$(test -d "${DEPLOY_ROOT}/repository.git" && echo yes || echo no)"
+          echo "repository_objects=$(find "${DEPLOY_ROOT}/repository.git/objects" -type f 2>/dev/null | wc -l)"
           echo "maintenance=$(test -f "${APP_DIR}/storage/framework/down" && echo yes || echo no)"
           echo "frontend_manifest=$(test -f "${APP_DIR}/public/build/manifest.json" && echo yes || echo no)"
+          echo '--- deploy root ---'
+          ls -la "${DEPLOY_ROOT}" 2>/dev/null || true
+          echo '--- sizes ---'
+          du -sh "${DEPLOY_ROOT}" "${DEPLOY_ROOT}/repository.git" "${DEPLOY_ROOT}/shared" 2>/dev/null || true
           echo '--- latest releases ---'
           find "${DEPLOY_ROOT}/releases" -mindepth 1 -maxdepth 1 -type d -printf '%TY-%Tm-%Td %TH:%TM:%TS %p\n' 2>/dev/null | sort -r | head -n 10 || true
           echo '--- legacy dirs ---'
           find "${DEPLOY_ROOT}/legacy" -mindepth 1 -maxdepth 1 -type d -printf '%p\n' 2>/dev/null | head -n 10 || true
+          echo '--- relevant processes ---'
+          ps -eo pid,ppid,etime,user,args | grep -E 'remote-deploy-backend|clubos-backend-deploy|git clone|git fetch|git pack|composer|rsync|npm run deploy|deploy-vm' | grep -v grep || true
+          echo '--- git mirror state ---'
+          if [[ -d "${DEPLOY_ROOT}/repository.git" ]]; then
+            git --git-dir="${DEPLOY_ROOT}/repository.git" remote -v 2>/dev/null || true
+            git --git-dir="${DEPLOY_ROOT}/repository.git" show-ref 2>/dev/null | head -n 20 || true
+          fi
           echo '--- healthcheck ---'
           if [[ -x /usr/local/bin/clubmanager-healthcheck.sh ]]; then
             /usr/local/bin/clubmanager-healthcheck.sh "${APP_DIR}" || true
