@@ -1,0 +1,81 @@
+name: H0.1b Failure Probe
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      VM_USER: ${{ secrets.ORACLE_VM_USER }}
+      VM_HOST: ${{ secrets.ORACLE_VM_HOST }}
+      VM_APP_DIR: ${{ secrets.ORACLE_VM_APP_DIR }}
+      VM_KNOWN_HOSTS: ${{ secrets.ORACLE_VM_KNOWN_HOSTS }}
+      EXPECTED_SHA: bcb6422f506790c538f38b73aeacfac23650af10
+    steps:
+      - name: Configure SSH
+        shell: bash
+        env:
+          ORACLE_VM_SSH_KEY: ${{ secrets.ORACLE_VM_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p "${HOME}/.ssh"
+          chmod 700 "${HOME}/.ssh"
+          printf '%s\n' "${ORACLE_VM_SSH_KEY}" | tr -d '\r' > "${HOME}/.ssh/id_ed25519"
+          chmod 600 "${HOME}/.ssh/id_ed25519"
+          printf '%s\n' "${VM_KNOWN_HOSTS}" | tr -d '\r' > "${HOME}/.ssh/known_hosts"
+          chmod 644 "${HOME}/.ssh/known_hosts"
+      - name: Probe commands after mirror fetch
+        shell: bash
+        run: |
+          set -euo pipefail
+          report="${GITHUB_WORKSPACE}/h0-1b-failure-probe.txt"
+          ssh \
+            -o BatchMode=yes \
+            -o ConnectTimeout=15 \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="${HOME}/.ssh/known_hosts" \
+            "${VM_USER}@${VM_HOST}" \
+            "APP_DIR='${VM_APP_DIR}' DEPLOY_USER='${VM_USER}' EXPECTED_SHA='${EXPECTED_SHA}' bash -s" <<'REMOTE' | tee "${report}"
+          set +e
+          DEPLOY_ROOT="${APP_DIR}.deploy"
+          REPOSITORY_DIR="${DEPLOY_ROOT}/repository.git"
+          RELEASES_DIR="${DEPLOY_ROOT}/releases"
+
+          run() {
+            label="$1"; shift
+            echo "--- ${label} ---"
+            "$@"
+            rc=$?
+            echo "rc=${rc}"
+            return 0
+          }
+
+          run 'repository ownership' stat -c '%U:%G %a %n' "${REPOSITORY_DIR}" "${RELEASES_DIR}"
+          run 'deploy user identity' id "${DEPLOY_USER}"
+          run 'mirror fetch refspec' sudo -u "${DEPLOY_USER}" -H git --git-dir="${REPOSITORY_DIR}" config --get-all remote.origin.fetch
+          run 'origin url' sudo -u "${DEPLOY_USER}" -H git --git-dir="${REPOSITORY_DIR}" remote get-url origin
+          run 'refs/remotes/origin/main' sudo -u "${DEPLOY_USER}" -H git --git-dir="${REPOSITORY_DIR}" rev-parse refs/remotes/origin/main
+          run 'refs/heads/main' sudo -u "${DEPLOY_USER}" -H git --git-dir="${REPOSITORY_DIR}" rev-parse refs/heads/main
+          run 'expected commit exists' sudo -u "${DEPLOY_USER}" -H git --git-dir="${REPOSITORY_DIR}" cat-file -e "${EXPECTED_SHA}^{commit}"
+          run 'deploy user can write releases' sudo -u "${DEPLOY_USER}" -H test -w "${RELEASES_DIR}"
+          run 'deploy user can read mirror' sudo -u "${DEPLOY_USER}" -H test -r "${REPOSITORY_DIR}/HEAD"
+          run 'git fsck connectivity' sudo -u "${DEPLOY_USER}" -H git --git-dir="${REPOSITORY_DIR}" fsck --connectivity-only --no-progress
+          echo '--- all main-like refs ---'
+          sudo -u "${DEPLOY_USER}" -H git --git-dir="${REPOSITORY_DIR}" show-ref | grep -E 'main$|origin/HEAD$' || true
+          echo '--- fetch head ---'
+          cat "${REPOSITORY_DIR}/FETCH_HEAD" 2>/dev/null | head -n 10 || true
+          REMOTE
+      - name: Upload probe
+        uses: actions/upload-artifact@v4
+        with:
+          name: h0-1b-failure-probe-${{ github.sha }}
+          path: h0-1b-failure-probe.txt
+          if-no-files-found: error
+          retention-days: 7
