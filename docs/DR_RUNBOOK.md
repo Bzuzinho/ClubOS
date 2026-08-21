@@ -38,7 +38,10 @@ O diagnóstico H0.2 confirmou:
 - `pg_restore` default do sistema era PostgreSQL 14 e não deve ser usado para validar/restaurar dumps PG17;
 - binários PostgreSQL 17 existem em `/usr/lib/postgresql/17/bin`;
 - restore smoke test real com PostgreSQL 17 concluído em 8 segundos;
-- restore smoke: 208 tabelas públicas e 214 migrations.
+- restore smoke: 208 tabelas públicas e 214 migrations;
+- pipeline off-site validado E2E na Oracle VM no commit `325b97c4e69b4c6432f26d373e807cd2d32be9c9`, com remote efémero: cifragem, upload, download, decifragem, restore temporário e health estrito concluídos;
+- restore E2E: 208 tabelas, 214 migrations, 14 segundos;
+- a configuração R2 real continua por ativar.
 
 ## Backend off-site recomendado
 
@@ -93,9 +96,31 @@ A passphrase deve ser longa, aleatória e guardada também fora da VM num gestor
 
 Nunca gravar estes valores no repositório, issues, PRs ou logs.
 
-## Configuração na VM
+## Ativação controlada via GitHub Actions
 
-O bootstrap recebe os secrets através de um workflow temporário/seguro e executa:
+O caminho canónico de ativação é o workflow manual `.github/workflows/dr-activate-r2.yml` (`H0.2 Activate R2 Offsite`). Não executar enquanto o bucket, locks e cinco secrets anteriores não estiverem configurados.
+
+O workflow exige duas confirmações explícitas:
+
+1. escrever `ACTIVATE-R2`;
+2. confirmar que os Bucket Locks 7d/28d/370d estão ativos nos prefixos `clubos-prod/daily/`, `clubos-prod/weekly/` e `clubos-prod/monthly/`.
+
+Garantias do workflow:
+
+- usa SSH com `known_hosts` pinned e `StrictHostKeyChecking=yes`;
+- exige que o SHA ativo na Oracle VM coincida com o SHA de `main` que está a executar o workflow;
+- não imprime os secrets; transfere-os por SSH num payload temporário `0600`, codificado apenas para transporte e removido depois da leitura;
+- executa `configure-r2.sh` na VM;
+- executa o **primeiro backup off-site real antes de ativar o cron**;
+- executa o **primeiro restore test real antes de ativar o cron**;
+- só depois de backup + restore verdes executa `install-dr-cron.sh`, que cria o marker de ativação;
+- termina com `check-dr-health.sh` em modo estrito e exige os markers de sucesso de backup e restore.
+
+A ordem é intencional: uma falha no primeiro backup ou restore não deve deixar `/var/lib/clubos-dr/enabled` ativo nem instalar um agendamento que já nasceu degradado.
+
+## Configuração manual na VM — fallback operacional
+
+O workflow anterior é o caminho recomendado. Em recuperação operacional excecional, o bootstrap equivalente recebe os secrets por canal seguro e executa:
 
 ```bash
 sudo env \
@@ -107,12 +132,12 @@ sudo env \
   bash /var/www/clubmanager/scripts/ops/dr/configure-r2.sh
 ```
 
-Depois:
+Depois, para preservar a mesma ordem segura do workflow:
 
 ```bash
-sudo bash /var/www/clubmanager/scripts/ops/dr/install-dr-cron.sh
 sudo bash /var/www/clubmanager/scripts/ops/dr/backup-offsite.sh
 sudo bash /var/www/clubmanager/scripts/ops/dr/restore-test-offsite.sh
+sudo bash /var/www/clubmanager/scripts/ops/dr/install-dr-cron.sh
 sudo bash /var/www/clubmanager/scripts/ops/dr/check-dr-health.sh
 ```
 
@@ -183,6 +208,8 @@ Após o upload, o script volta a ler o objeto remoto com `rclone cat` e compara 
 
 Nunca restaura por cima da BD produtiva durante o teste.
 
+O hotfix H0.2.3 garante que o utilizador `postgres` consegue atravessar o workspace temporário sem o tornar público: diretório pai `root:postgres 0710` e dump temporário `postgres:postgres 0600`.
+
 ## Health check e alertas
 
 `check-dr-health.sh` valida:
@@ -220,14 +247,14 @@ Sequência resumida:
 11. validar Access Control e auditorias operacionais;
 12. trocar DNS/IP apenas depois da validação.
 
-O objetivo RTO de 2 horas inclui provisionamento e validação. O restore puro da BD medido em 2026-08-21 demorou 8 segundos; o principal componente do RTO é reconstrução do runtime e validação, não o volume atual de dados.
+O objetivo RTO de 2 horas inclui provisionamento e validação. O restore puro da BD medido em 2026-08-21 demorou 8 segundos; no E2E off-site completo o restore mediu 14 segundos. O principal componente do RTO é reconstrução do runtime e validação, não o volume atual de dados.
 
 ## Regras de segurança
 
 - não usar `pg_restore` 14 nos dumps PG17;
 - não guardar a passphrase GPG no Git;
 - não imprimir credenciais R2 em logs;
-- usar token R2 limitado ao bucket de backup;
+- usar token R2 `Object Read & Write` limitado ao bucket de backup;
 - manter o bucket privado;
 - ativar Bucket Lock por prefixo;
 - não reutilizar a passphrase da aplicação, SSH ou base de dados;
