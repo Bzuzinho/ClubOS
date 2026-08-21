@@ -1,0 +1,84 @@
+name: H0.1b Final Cutover Validation
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    if: github.head_ref == 'diag/h0-1b-postcutover'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      VM_USER: ${{ secrets.ORACLE_VM_USER }}
+      VM_HOST: ${{ secrets.ORACLE_VM_HOST }}
+      VM_APP_DIR: ${{ secrets.ORACLE_VM_APP_DIR }}
+      VM_KNOWN_HOSTS: ${{ secrets.ORACLE_VM_KNOWN_HOSTS }}
+      EXPECTED_SHA: 44bef4288ec99d8dd57ad65958c77ad5cf893648
+    steps:
+      - name: Configure SSH
+        shell: bash
+        env:
+          ORACLE_VM_SSH_KEY: ${{ secrets.ORACLE_VM_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p "${HOME}/.ssh"
+          chmod 700 "${HOME}/.ssh"
+          printf '%s\n' "${ORACLE_VM_SSH_KEY}" | tr -d '\r' > "${HOME}/.ssh/id_ed25519"
+          chmod 600 "${HOME}/.ssh/id_ed25519"
+          printf '%s\n' "${VM_KNOWN_HOSTS}" | tr -d '\r' > "${HOME}/.ssh/known_hosts"
+          chmod 644 "${HOME}/.ssh/known_hosts"
+
+      - name: Wait for atomic production cutover
+        shell: bash
+        run: |
+          set -euo pipefail
+          report="${GITHUB_WORKSPACE}/h0-1b-final-cutover.txt"
+          for attempt in $(seq 1 60); do
+            state="$(ssh \
+              -o BatchMode=yes \
+              -o ConnectTimeout=15 \
+              -o StrictHostKeyChecking=yes \
+              -o UserKnownHostsFile="${HOME}/.ssh/known_hosts" \
+              "${VM_USER}@${VM_HOST}" \
+              "APP_DIR='${VM_APP_DIR}' EXPECTED_SHA='${EXPECTED_SHA}' bash -s" <<'REMOTE'
+          set -u
+          DEPLOY_ROOT="${APP_DIR}.deploy"
+          app_kind="$(if [[ -L "${APP_DIR}" ]]; then echo symlink; elif [[ -d "${APP_DIR}" ]]; then echo directory; else echo missing; fi)"
+          app_real="$(readlink -f "${APP_DIR}" 2>/dev/null || true)"
+          current_real="$(readlink -f "${DEPLOY_ROOT}/current" 2>/dev/null || true)"
+          previous_real="$(readlink -f "${DEPLOY_ROOT}/previous" 2>/dev/null || true)"
+          release_sha="$(sed -n 's/^commit_sha=//p' "${APP_DIR}/.clubos-release" 2>/dev/null || true)"
+          health="$(/usr/local/bin/clubmanager-healthcheck.sh "${APP_DIR}" 2>/dev/null | tail -n 1 || true)"
+          printf 'app_kind=%s\napp_real=%s\ncurrent_real=%s\nprevious_real=%s\nrelease_sha=%s\nhealth=%s\n' \
+            "${app_kind}" "${app_real}" "${current_real}" "${previous_real}" "${release_sha}" "${health}"
+          REMOTE
+            )"
+            printf '%s\n' "${state}" | tee "${report}"
+            release_sha="$(printf '%s\n' "${state}" | sed -n 's/^release_sha=//p')"
+            app_kind="$(printf '%s\n' "${state}" | sed -n 's/^app_kind=//p')"
+            app_real="$(printf '%s\n' "${state}" | sed -n 's/^app_real=//p')"
+            current_real="$(printf '%s\n' "${state}" | sed -n 's/^current_real=//p')"
+            previous_real="$(printf '%s\n' "${state}" | sed -n 's/^previous_real=//p')"
+            health="$(printf '%s\n' "${state}" | sed -n 's/^health=//p')"
+
+            if [[ "${release_sha}" == "${EXPECTED_SHA}" && "${app_kind}" == "symlink" && -n "${app_real}" && "${app_real}" == "${current_real}" && -n "${previous_real}" && "${health}" == *"HTTP 200"* ]]; then
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::Atomic cutover did not reach expected healthy state"
+          exit 1
+
+      - name: Upload validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: h0-1b-final-cutover-${{ github.sha }}
+          path: h0-1b-final-cutover.txt
+          if-no-files-found: error
+          retention-days: 7
