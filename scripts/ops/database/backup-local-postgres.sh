@@ -9,8 +9,8 @@ APP_DIR="$(cd -- "${SCRIPT_DIR}/../../.." && pwd)"
 ENV_FILE="${ENV_FILE:-${APP_DIR}/.env}"
 BACKUP_DIR="${BACKUP_DIR:-/var/backups/clubmanager/postgres-local}"
 LOCK_FILE="${LOCK_FILE:-/tmp/clubmanager-postgres-backup.lock}"
-PG_DUMP_PREFERRED="/usr/lib/postgresql/17/bin/pg_dump"
-PG_RESTORE_PREFERRED="/usr/lib/postgresql/17/bin/pg_restore"
+PG_DUMP_PREFERRED="${PG_DUMP_PREFERRED:-/usr/lib/postgresql/17/bin/pg_dump}"
+PG_RESTORE_PREFERRED="${PG_RESTORE_PREFERRED:-/usr/lib/postgresql/17/bin/pg_restore}"
 BACKUPS_TO_KEEP=7
 
 read_env_value() {
