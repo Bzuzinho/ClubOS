@@ -56,13 +56,13 @@ final class DisasterRecoveryActivationWorkflowContractTest extends TestCase
         self::assertStringContainsString('ServerAliveCountMax=6', $this->workflow);
     }
 
-    public function test_activation_proves_real_backup_restore_and_strict_health_before_success(): void
+    public function test_activation_proves_real_backup_restore_before_enabling_cron_and_strict_health(): void
     {
         $commands = [
             'configure-r2.sh',
-            'install-dr-cron.sh',
             'backup-offsite.sh',
             'restore-test-offsite.sh',
+            'install-dr-cron.sh',
             'check-dr-health.sh',
             'dr_r2_activation=ok',
         ];
@@ -75,11 +75,12 @@ final class DisasterRecoveryActivationWorkflowContractTest extends TestCase
             $previous = $position;
         }
 
+        self::assertStringContainsString('phase=ensure-rclone', $this->workflow);
         self::assertStringContainsString('/var/lib/clubos-dr/last-offsite-success', $this->workflow);
         self::assertStringContainsString('/var/lib/clubos-dr/last-restore-test-success', $this->workflow);
     }
 
-    public function test_transient_bootstrap_secret_file_is_root_private_and_removed(): void
+    public function test_transient_bootstrap_secret_file_is_private_and_removed(): void
     {
         self::assertStringContainsString('umask 077', $this->workflow);
         self::assertStringContainsString('chmod 600 "${bootstrap_env}"', $this->workflow);
