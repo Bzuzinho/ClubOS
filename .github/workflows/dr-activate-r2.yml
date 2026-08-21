@@ -1,0 +1,216 @@
+name: H0.2 Activate R2 Offsite
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Escrever ACTIVATE-R2 para confirmar a ativação real do DR off-site'
+        required: true
+        type: string
+      bucket_locks_confirmed:
+        description: 'Confirmo que os Bucket Lock rules 7d/28d/370d estão configurados nos prefixos clubos-prod/daily, weekly e monthly'
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: clubos-dr-r2-activation
+  cancel-in-progress: false
+
+jobs:
+  activate-r2:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      VM_USER: ${{ secrets.ORACLE_VM_USER }}
+      VM_HOST: ${{ secrets.ORACLE_VM_HOST }}
+      VM_APP_DIR: ${{ secrets.ORACLE_VM_APP_DIR }}
+      VM_KNOWN_HOSTS: ${{ secrets.ORACLE_VM_KNOWN_HOSTS }}
+      DR_R2_ENDPOINT: ${{ secrets.CLUBOS_DR_R2_ENDPOINT }}
+      DR_R2_BUCKET: ${{ secrets.CLUBOS_DR_R2_BUCKET }}
+      DR_R2_ACCESS_KEY_ID: ${{ secrets.CLUBOS_DR_R2_ACCESS_KEY_ID }}
+      DR_R2_SECRET_ACCESS_KEY: ${{ secrets.CLUBOS_DR_R2_SECRET_ACCESS_KEY }}
+      DR_BACKUP_PASSPHRASE: ${{ secrets.CLUBOS_DR_BACKUP_PASSPHRASE }}
+      EXPECTED_SHA: ${{ github.sha }}
+      CONFIRM_ACTIVATION: ${{ inputs.confirm }}
+      BUCKET_LOCKS_CONFIRMED: ${{ inputs.bucket_locks_confirmed }}
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+
+      - name: Validate activation gate and required secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          [[ "${CONFIRM_ACTIVATION}" == 'ACTIVATE-R2' ]] || {
+            echo '::error::Activation confirmation is invalid. Type ACTIVATE-R2.'
+            exit 1
+          }
+          [[ "${BUCKET_LOCKS_CONFIRMED}" == 'true' ]] || {
+            echo '::error::Bucket Lock confirmation is required before R2 activation.'
+            exit 1
+          }
+
+          for variable in \
+            VM_USER VM_HOST VM_APP_DIR VM_KNOWN_HOSTS \
+            DR_R2_ENDPOINT DR_R2_BUCKET DR_R2_ACCESS_KEY_ID \
+            DR_R2_SECRET_ACCESS_KEY DR_BACKUP_PASSPHRASE; do
+            if [[ -z "${!variable:-}" ]]; then
+              echo "::error::Missing required activation secret/configuration: ${variable}"
+              exit 1
+            fi
+          done
+
+          [[ "${VM_APP_DIR}" == /* ]] || {
+            echo '::error::VM_APP_DIR must be an absolute path'
+            exit 1
+          }
+          [[ "${DR_R2_ENDPOINT}" == https://* ]] || {
+            echo '::error::R2 endpoint must use HTTPS'
+            exit 1
+          }
+
+      - name: Configure pinned SSH
+        shell: bash
+        env:
+          ORACLE_VM_SSH_KEY: ${{ secrets.ORACLE_VM_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          [[ -n "${ORACLE_VM_SSH_KEY:-}" ]] || {
+            echo '::error::Missing ORACLE_VM_SSH_KEY'
+            exit 1
+          }
+
+          mkdir -p "${HOME}/.ssh"
+          chmod 700 "${HOME}/.ssh"
+          printf '%s\n' "${ORACLE_VM_SSH_KEY}" | tr -d '\r' > "${HOME}/.ssh/id_ed25519"
+          chmod 600 "${HOME}/.ssh/id_ed25519"
+          ssh-keygen -y -f "${HOME}/.ssh/id_ed25519" >/dev/null
+          printf '%s\n' "${VM_KNOWN_HOSTS}" | tr -d '\r' > "${HOME}/.ssh/known_hosts"
+          chmod 644 "${HOME}/.ssh/known_hosts"
+          ssh-keygen -F "${VM_HOST}" -f "${HOME}/.ssh/known_hosts" >/dev/null || {
+            echo '::error::Pinned known_hosts does not contain the production host'
+            exit 1
+          }
+
+      - name: Transfer bootstrap payload without logging secret values
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          payload="${RUNNER_TEMP}/clubos-dr-bootstrap-${GITHUB_RUN_ID}.env.b64"
+          remote_payload="/tmp/clubos-dr-bootstrap-${GITHUB_RUN_ID}.env.b64"
+          trap 'rm -f "${payload}"' EXIT
+
+          encode() {
+            printf '%s' "$1" | base64 -w0
+          }
+
+          {
+            printf 'DR_R2_ENDPOINT=%s\n' "$(encode "${DR_R2_ENDPOINT}")"
+            printf 'DR_R2_BUCKET=%s\n' "$(encode "${DR_R2_BUCKET}")"
+            printf 'DR_R2_ACCESS_KEY_ID=%s\n' "$(encode "${DR_R2_ACCESS_KEY_ID}")"
+            printf 'DR_R2_SECRET_ACCESS_KEY=%s\n' "$(encode "${DR_R2_SECRET_ACCESS_KEY}")"
+            printf 'DR_BACKUP_PASSPHRASE=%s\n' "$(encode "${DR_BACKUP_PASSPHRASE}")"
+          } > "${payload}"
+          chmod 600 "${payload}"
+
+          ssh \
+            -o BatchMode=yes \
+            -o ConnectTimeout=15 \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="${HOME}/.ssh/known_hosts" \
+            "${VM_USER}@${VM_HOST}" \
+            "umask 077; cat > '${remote_payload}'; chmod 600 '${remote_payload}'" \
+            < "${payload}"
+
+          echo "REMOTE_PAYLOAD=${remote_payload}" >> "${GITHUB_ENV}"
+
+      - name: Activate and prove R2 DR on production
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ssh \
+            -o BatchMode=yes \
+            -o ConnectTimeout=15 \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=10 \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="${HOME}/.ssh/known_hosts" \
+            "${VM_USER}@${VM_HOST}" \
+            "sudo env APP_DIR='${VM_APP_DIR}' REMOTE_PAYLOAD='${REMOTE_PAYLOAD}' EXPECTED_SHA='${EXPECTED_SHA}' bash -s" <<'REMOTE'
+          set -Eeuo pipefail
+
+          cleanup() {
+            rm -f -- "${REMOTE_PAYLOAD}" >/dev/null 2>&1 || true
+            unset DR_R2_ENDPOINT DR_R2_BUCKET DR_R2_ACCESS_KEY_ID DR_R2_SECRET_ACCESS_KEY DR_BACKUP_PASSPHRASE
+          }
+          trap cleanup EXIT
+
+          active_sha="$(sed -n 's/^commit_sha=//p' "${APP_DIR}/.clubos-release" 2>/dev/null || true)"
+          [[ "${active_sha}" == "${EXPECTED_SHA}" ]] || {
+            echo "production_sha_mismatch=${active_sha}"
+            exit 1
+          }
+          echo "active_sha=${active_sha}"
+
+          decode() {
+            local key="$1"
+            local encoded
+            encoded="$(awk -F= -v wanted="${key}" '$1 == wanted { print substr($0, length(wanted) + 2); exit }' "${REMOTE_PAYLOAD}")"
+            [[ -n "${encoded}" ]] || {
+              echo "missing_bootstrap_value=${key}"
+              exit 1
+            }
+            printf '%s' "${encoded}" | base64 -d
+          }
+
+          export DR_R2_ENDPOINT="$(decode DR_R2_ENDPOINT)"
+          export DR_R2_BUCKET="$(decode DR_R2_BUCKET)"
+          export DR_R2_ACCESS_KEY_ID="$(decode DR_R2_ACCESS_KEY_ID)"
+          export DR_R2_SECRET_ACCESS_KEY="$(decode DR_R2_SECRET_ACCESS_KEY)"
+          export DR_BACKUP_PASSPHRASE="$(decode DR_BACKUP_PASSPHRASE)"
+          rm -f -- "${REMOTE_PAYLOAD}"
+
+          bash "${APP_DIR}/scripts/ops/dr/configure-r2.sh"
+          unset DR_R2_ENDPOINT DR_R2_BUCKET DR_R2_ACCESS_KEY_ID DR_R2_SECRET_ACCESS_KEY DR_BACKUP_PASSPHRASE
+
+          echo '--- first real off-site backup ---'
+          bash "${APP_DIR}/scripts/ops/dr/backup-offsite.sh"
+
+          echo '--- first real off-site restore test ---'
+          bash "${APP_DIR}/scripts/ops/dr/restore-test-offsite.sh"
+
+          echo '--- install DR schedule only after backup + restore success ---'
+          bash "${APP_DIR}/scripts/ops/dr/install-dr-cron.sh"
+
+          echo '--- strict DR health ---'
+          bash "${APP_DIR}/scripts/ops/dr/check-dr-health.sh"
+
+          test -s /var/lib/clubos-dr/enabled
+          test -s /var/lib/clubos-dr/last-offsite-success
+          test -s /var/lib/clubos-dr/last-restore-test-success
+          echo 'dr_activation=ok'
+          REMOTE
+
+      - name: Activation summary
+        if: success()
+        shell: bash
+        run: |
+          {
+            echo '## H0.2 R2 activation'
+            echo ''
+            echo "- Production commit: \`${EXPECTED_SHA}\`"
+            echo '- Bucket Lock confirmation: yes'
+            echo '- R2 bootstrap: completed'
+            echo '- First real off-site backup: verified'
+            echo '- First real off-site restore test: verified'
+            echo '- DR cron: installed only after backup + restore succeeded'
+            echo '- Strict DR health: green'
+          } >> "${GITHUB_STEP_SUMMARY}"
