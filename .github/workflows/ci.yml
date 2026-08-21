@@ -298,6 +298,13 @@ jobs:
 
           critical_count="$(jq -r '.summary.critical_count' "${local_report}")"
 
+          if ! [[ "${critical_count}" =~ ^[0-9]+$ ]]; then
+            echo "::error::Invalid Access Control critical_count: ${critical_count}"
+            exit 1
+          fi
+
+          echo "critical_count=${critical_count}" >> "${GITHUB_OUTPUT}"
+
           {
             echo '## Access Control production readiness audit'
             echo ''
@@ -313,23 +320,32 @@ jobs:
             echo "- Warnings: \`$(jq -r '.summary.warning_count' "${local_report}")\`"
           } >> "${GITHUB_STEP_SUMMARY}"
 
-          if ! [[ "${critical_count}" =~ ^[0-9]+$ ]]; then
-            echo "::error::Invalid Access Control critical_count: ${critical_count}"
-            exit 1
-          fi
-
-          if (( critical_count > 0 )); then
-            echo "::error::Access Control readiness audit reported ${critical_count} critical finding(s)"
-            exit 1
-          fi
-
       - name: Upload Access Control production readiness audit
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: access-control-production-readiness-${{ github.sha }}
           path: access-control-readiness.json
           if-no-files-found: error
           retention-days: 30
+
+      - name: Gate Access Control critical findings
+        if: steps.access_control_audit.outcome == 'success'
+        shell: bash
+        env:
+          CRITICAL_COUNT: ${{ steps.access_control_audit.outputs.critical_count }}
+        run: |
+          set -euo pipefail
+
+          if ! [[ "${CRITICAL_COUNT}" =~ ^[0-9]+$ ]]; then
+            echo "::error::Invalid Access Control critical_count: ${CRITICAL_COUNT}"
+            exit 1
+          fi
+
+          if (( CRITICAL_COUNT > 0 )); then
+            echo "::error::Access Control readiness audit reported ${CRITICAL_COUNT} critical finding(s)"
+            exit 1
+          fi
 
       - name: Deployment summary
         if: success()
@@ -343,6 +359,6 @@ jobs:
             echo '- Validation: CI, dependency security audits and PostgreSQL concurrency passed'
             echo '- SSH host identity: pinned known_hosts entry enforced'
             echo '- Desportivo legacy readiness audit: collected read-only from production'
-            echo '- Access Control readiness audit: collected read-only from production and critical findings gated'
+            echo '- Access Control readiness audit: collected, artifact preserved and critical findings gated separately'
             echo '- Result: successful'
           } >> "${GITHUB_STEP_SUMMARY}"
