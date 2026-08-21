@@ -12,12 +12,13 @@ jobs:
   simulate-offsite:
     if: github.head_ref == 'diag/h0-2-postmerge-local'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     env:
       VM_USER: ${{ secrets.ORACLE_VM_USER }}
       VM_HOST: ${{ secrets.ORACLE_VM_HOST }}
       VM_APP_DIR: ${{ secrets.ORACLE_VM_APP_DIR }}
       VM_KNOWN_HOSTS: ${{ secrets.ORACLE_VM_KNOWN_HOSTS }}
+      EXPECTED_SHA: e3ce8fd83b40985a3db7524007e5fcf9cf712153
     steps:
       - name: Configure pinned SSH
         shell: bash
@@ -43,8 +44,17 @@ jobs:
             -o StrictHostKeyChecking=yes \
             -o UserKnownHostsFile="${HOME}/.ssh/known_hosts" \
             "${VM_USER}@${VM_HOST}" \
-            "APP_DIR='${VM_APP_DIR}' bash -s" <<'REMOTE' | tee "${report}"
+            "APP_DIR='${VM_APP_DIR}' EXPECTED_SHA='${EXPECTED_SHA}' bash -s" <<'REMOTE' | tee "${report}"
           set -Eeuo pipefail
+
+          active_sha=""
+          for _ in $(seq 1 90); do
+            active_sha="$(sed -n 's/^commit_sha=//p' "${APP_DIR}/.clubos-release" 2>/dev/null || true)"
+            [[ "${active_sha}" == "${EXPECTED_SHA}" ]] && break
+            sleep 10
+          done
+          [[ "${active_sha}" == "${EXPECTED_SHA}" ]] || { echo "expected_sha_not_active=${active_sha}"; exit 1; }
+          echo "active_sha=${active_sha}"
 
           if ! command -v rclone >/dev/null 2>&1; then
             echo 'installing_rclone=yes'
@@ -88,8 +98,9 @@ jobs:
           object_count="$(sudo find "${REMOTE_BASE}" -type f -name '*.tar.gz.gpg' | wc -l | tr -d ' ')"
           [[ "${object_count}" =~ ^[0-9]+$ && "${object_count}" -ge 1 ]]
           echo "encrypted_object_count=${object_count}"
-          echo "plaintext_remote_count=$(sudo find "${REMOTE_BASE}" -type f ! -name '*.tar.gz.gpg' | wc -l | tr -d ' ')"
-          [[ "$(sudo find "${REMOTE_BASE}" -type f ! -name '*.tar.gz.gpg' | wc -l | tr -d ' ')" == '0' ]]
+          plaintext_count="$(sudo find "${REMOTE_BASE}" -type f ! -name '*.tar.gz.gpg' | wc -l | tr -d ' ')"
+          echo "plaintext_remote_count=${plaintext_count}"
+          [[ "${plaintext_count}" == '0' ]]
 
           sudo touch "${ENABLED_MARKER}"
           sudo chmod 600 "${ENABLED_MARKER}"
