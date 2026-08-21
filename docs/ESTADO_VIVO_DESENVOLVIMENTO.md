@@ -122,15 +122,18 @@ Permanece aberto H0.1b:
 
 H0.1a passa a incluir:
 
-- `composer audit --locked --no-interaction`;
+- `composer audit --locked --no-interaction --format=json`, com todos os advisories reportados no summary e gate de CI apenas para severidade `critical` nesta fase;
 - `npm audit --audit-level=critical`;
 - validação obrigatória das variáveis produtivas;
 - `ORACLE_VM_KNOWN_HOSTS` como fonte pinned de identidade SSH;
 - `StrictHostKeyChecking=yes`;
 - Access Control `critical_count > 0` como falha de deployment.
 
+A primeira execução do novo `composer audit` encontrou 34 advisories em 12 packages e falhou por comportamento default do Composer, que devolve exit code não-zero perante qualquer advisory. Como existem advisories `high` e `medium` em dependências da linha Laravel 11/Symfony/Guzzle/CommonMark que não podem ser todos eliminados sem trabalho de atualização dedicado, H0.1a passa a usar baseline explícito: tudo é visível e contabilizado, mas apenas `critical` bloqueia a CI. A remediação de `high`/`medium` deve ser tratada numa sprint própria de dependências, com análise de compatibilidade e sem upgrade major implícito.
+
 Pendências para H1:
 
+- remediação planeada dos advisories Composer high/medium existentes;
 - PHPStan / Larastan;
 - TypeScript typecheck explícito;
 - lint;
@@ -159,7 +162,7 @@ Principais consolidações em aberto:
 | 1 | H0.1a | Hardening imediato CI/CD: secrets obrigatórios, SSH host pinning, dependency audits e gates críticos. |
 | 2 | H0.1b | Releases atómicas, `current` symlink, shared state, healthcheck e rollback. |
 | 3 | H0.2 | Disaster Recovery: backup externo cifrado, retenção, checksum, restore test, alertas e RPO/RTO. |
-| 4 | H1 | QA transversal: typecheck, lint, Larastan/PHPStan, frontend tests, E2E, accessibility e mobile matrix. |
+| 4 | H1 | QA transversal e dependency remediation: typecheck, lint, Larastan/PHPStan, frontend tests, E2E, accessibility, mobile matrix e advisories não críticos. |
 | 5 | H2 | Consolidação estrutural: Família/EE, stock variantes, legacy e rotas modulares. |
 | 6 | H3 | Fecho Desportivo ponta a ponta. |
 | 7 | H4 | Decisão e fecho Fiscal. |
@@ -183,7 +186,7 @@ O histórico detalhado até à consolidação de 2026-08-20 está preservado em:
 
 | Data | Módulo | Desenvolvimento / análise | Evidência | Percentagem antes | Percentagem depois | Pendências |
 |---|---|---|---|---:|---:|---|
-| 2026-08-20 | Infraestrutura / CI/CD | H0.1a: removidos IP/user/path produtivos hardcoded; parâmetros de deploy passam a ser obrigatórios; identidade SSH passa a usar `ORACLE_VM_KNOWN_HOSTS` pinned com `StrictHostKeyChecking=yes`; adicionados `composer audit` e `npm audit` crítico; auditoria de Access Control passa a reprovar o deployment quando `critical_count > 0`; scripts de deploy passam a validar parâmetros explicitamente. Documento vivo consolidado, preservando integralmente o histórico anterior em arquivo. | `.github/workflows/ci.yml`, `bin/deploy-vm.mjs`, `bin/remote-deploy-backend.sh`, `docs/ESTADO_VIVO_DESENVOLVIMENTO.md`, `docs/history/ESTADO_VIVO_DESENVOLVIMENTO_ATE_2026-08-20.md` | Base técnica 80% | Base técnica 82% | Configurar/confirmar `ORACLE_VM_USER`, `ORACLE_VM_HOST`, `ORACLE_VM_APP_DIR`, `ORACLE_VM_SSH_KEY` e `ORACLE_VM_KNOWN_HOSTS` no GitHub antes do primeiro deploy de `main`; concluir H0.1b com releases atómicas e rollback; depois H0.2 DR. |
+| 2026-08-20 | Infraestrutura / CI/CD | H0.1a: removidos IP/user/path produtivos hardcoded; parâmetros de deploy passam a ser obrigatórios; identidade SSH passa a usar `ORACLE_VM_KNOWN_HOSTS` pinned com `StrictHostKeyChecking=yes`; adicionados dependency audits; auditoria de Access Control passa a reprovar o deployment quando `critical_count > 0`; scripts de deploy passam a validar parâmetros explicitamente. A primeira CI revelou 34 advisories Composer em 12 packages; o gate foi corrigido para reportar todos e bloquear apenas severidade `critical`, mantendo high/medium como dívida explícita para remediação dedicada. Documento vivo consolidado, preservando integralmente o histórico anterior em arquivo. | `.github/workflows/ci.yml`, `bin/deploy-vm.mjs`, `bin/remote-deploy-backend.sh`, `docs/ESTADO_VIVO_DESENVOLVIMENTO.md`, `docs/history/ESTADO_VIVO_DESENVOLVIMENTO_ATE_2026-08-20.md`, PR #181 | Base técnica 80% | Base técnica 82% | Configurar/confirmar `ORACLE_VM_USER`, `ORACLE_VM_HOST`, `ORACLE_VM_APP_DIR`, `ORACLE_VM_SSH_KEY` e `ORACLE_VM_KNOWN_HOSTS` no GitHub antes do primeiro deploy de `main`; remediar advisories high/medium numa sprint de dependências; concluir H0.1b com releases atómicas e rollback; depois H0.2 DR. |
 
 ---
 
