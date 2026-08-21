@@ -1,243 +1,122 @@
 # Operações de Servidor — ClubOS
 
-Este documento define os comandos padrão para aplicar alterações do ClubOS no servidor.
+Este documento resume as operações produtivas do ClubOS. O detalhe do deployment está em `docs/deploy/DEPLOY_WORKFLOW.md`.
 
-Deve ser consultado sempre que um desenvolvimento inclua:
+## 1. Regra de deployment
 
-- migrations;
-- alterações em modelos/tabelas;
-- alterações de configuração;
-- alterações no frontend React/Vite;
-- novas dependências Composer ou NPM;
-- alterações em permissões, caches, rotas ou policies;
-- alterações que precisem de refletir no servidor depois do push para `main`.
+O deployment normal é automatizado pela CI após integração em `main`.
 
----
-
-## 1. Regra obrigatória
-
-Sempre que uma sprint ou correção exigir aplicação no servidor, o resumo final deve incluir uma secção:
-
-```txt
-Aplicação no servidor
-```
-
-Essa secção deve indicar explicitamente:
-
-- se é necessário `git pull`;
-- se é necessário `composer install`;
-- se é necessário `npm ci` / `npm run build`;
-- se é necessário `php artisan migrate --force`;
-- se é necessário limpar ou reconstruir cache;
-- se é necessário reiniciar filas/workers;
-- se há risco de impacto na base de dados.
-
----
-
-## 2. Comandos padrão para aplicar alterações no servidor
-
-Entrar no servidor por SSH:
+Não executar como rotina produtiva:
 
 ```bash
-ssh utilizador@IP_OU_DOMINIO_DO_SERVIDOR
-```
-
-Ir para a pasta da aplicação:
-
-```bash
-cd /var/www/clubmanager
-```
-
-Confirmar estado antes de mexer:
-
-```bash
-git status
-git log --oneline -5
-```
-
-Atualizar código:
-
-```bash
-git pull origin main
-```
-
-Instalar/atualizar dependências PHP, quando necessário:
-
-```bash
-composer install --no-dev --optimize-autoloader
-```
-
-Instalar/compilar frontend, quando necessário:
-
-```bash
-npm ci
-npm run build
-```
-
-Se o build falhar por falta de memória no Node/Vite, usar a alternativa da secção 3.1.
-
-Aplicar migrations em produção:
-
-```bash
-php artisan migrate --force
-```
-
-Limpar caches antigas:
-
-```bash
-php artisan optimize:clear
-```
-
-Recriar caches, quando adequado:
-
-```bash
-php artisan config:cache
-php artisan route:cache
-php artisan view:cache
-```
-
-Se existirem filas/workers:
-
-```bash
-php artisan queue:restart
-```
-
----
-
-## 3. Comando rápido para alterações com migration
-
-Usar quando o código já está em `main` e a alteração inclui migration, como criação de tabela.
-
-```bash
-ssh utilizador@IP_OU_DOMINIO_DO_SERVIDOR
-cd /var/www/clubmanager
-git pull origin main
-composer install --no-dev --optimize-autoloader
-npm ci
+git pull
+git reset --hard
+composer install
 npm run build
 php artisan migrate --force
-php artisan optimize:clear
-php artisan config:cache
-php artisan route:cache
-php artisan view:cache
-php artisan queue:restart
 ```
 
-Se o servidor não compila frontend e recebe `public/build` já gerado por outro processo, não executar `npm ci` / `npm run build` sem confirmar a estratégia de deploy.
+diretamente em `/var/www/clubmanager`.
 
----
+Após H0.1b esse path é um symlink para uma release imutável e deixa de ser uma working tree Git.
 
-## 3.1. Build frontend em servidor com pouca memória
+## 2. Estado da release
 
-Em servidores pequenos, o `npm run build` pode falhar com:
+```bash
+readlink -f /var/www/clubmanager
+cat /var/www/clubmanager/.clubos-release
+readlink -f /var/www/clubmanager.deploy/current
+readlink -f /var/www/clubmanager.deploy/previous
+ls -lah /var/www/clubmanager.deploy/releases
+```
+
+## 3. Healthcheck
+
+```bash
+sudo /usr/local/bin/clubmanager-healthcheck.sh /var/www/clubmanager
+```
+
+O healthcheck exige `GET /up = HTTP 200` através do Nginx e PHP-FPM reais. Um redirect HTTP não é aceite como sucesso.
+
+## 4. Rollback de código
+
+```bash
+sudo /usr/local/bin/clubmanager-rollback-release.sh \
+  /var/www/clubmanager \
+  www-data \
+  www-data
+```
+
+O rollback troca a release atual pela `previous`, recompõe caches, recarrega PHP-FPM e valida `/up`.
+
+O rollback de código não reverte migrations. Alterações de schema produtivas devem usar expand/contract e manter compatibilidade com a release anterior.
+
+## 5. Estado persistente
+
+A configuração e dados de filesystem que sobrevivem a releases estão em:
 
 ```txt
-FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory
+/var/www/clubmanager.deploy/shared/.env
+/var/www/clubmanager.deploy/shared/storage
 ```
 
-Primeira tentativa:
-
-```bash
-NODE_OPTIONS=--max-old-space-size=2048 npm run build
-```
-
-Se voltar a falhar, criar swap temporária antes do build:
-
-```bash
-sudo fallocate -l 2G /swapfile-build
-sudo chmod 600 /swapfile-build
-sudo mkswap /swapfile-build
-sudo swapon /swapfile-build
-NODE_OPTIONS=--max-old-space-size=2048 npm run build
-sudo swapoff /swapfile-build
-sudo rm /swapfile-build
-```
-
-Não correr `npm audit fix` diretamente no servidor de produção sem rever alterações em `package-lock.json` e sem validar o build/testes.
-
----
-
-## 4. Caso específico: Sprint F1.1
-
-A Sprint F1.1 criou a tabela:
+Na release atual:
 
 ```txt
-payment_methods
+.env     -> shared/.env
+storage  -> shared/storage
+public/storage -> shared/storage/app/public
 ```
 
-Migration:
+Nunca guardar uploads ou configuração persistente apenas dentro de `releases/<id>`.
+
+## 6. Scheduler e backups
+
+Os crons existentes continuam a usar o path de compatibilidade `/var/www/clubmanager`, pelo que seguem automaticamente a release atual.
+
+Verificar:
+
+```bash
+sudo crontab -u www-data -l
+sudo crontab -u ubuntu -l
+sudo crontab -u root -l
+```
+
+O backup PostgreSQL local continua em:
 
 ```txt
-database/migrations/2026_05_20_140000_create_payment_methods_table.php
+/var/backups/clubmanager/postgres-local
 ```
 
-Para aplicar no servidor:
+A H0.2 trata a cópia off-site, retenção alargada, restore test e alertas.
+
+## 7. Logs
+
+Laravel:
 
 ```bash
-ssh utilizador@IP_OU_DOMINIO_DO_SERVIDOR
-cd /var/www/clubmanager
-git pull origin main
-php artisan migrate --force
-php artisan optimize:clear
+tail -n 100 /var/www/clubmanager/storage/logs/laravel.log
 ```
 
-Se o servidor também compila assets frontend:
+Nginx:
 
 ```bash
-npm ci
-NODE_OPTIONS=--max-old-space-size=2048 npm run build
+sudo tail -n 100 /var/log/nginx/error.log
 ```
 
-Depois validar:
+PHP-FPM:
 
 ```bash
-php artisan tinker
+sudo journalctl -u php8.3-fpm -n 100 --no-pager
 ```
 
-Dentro do tinker:
+## 8. Aplicação no servidor em futuras sprints
 
-```php
-\App\Models\PaymentMethod::all(['codigo', 'nome', 'requer_linha_bancaria', 'ativo'])->toArray();
-```
+No resumo de qualquer desenvolvimento indicar sempre:
 
-Devem existir pelo menos:
-
-- `transferencia`, com `requer_linha_bancaria = true`;
-- `dinheiro`, com `requer_linha_bancaria = false`;
-- `multibanco`, com `requer_linha_bancaria = false`;
-- `tpa`, com `requer_linha_bancaria = false`;
-- `cheque`, com `requer_linha_bancaria = false`.
-
----
-
-## 5. Cuidados importantes
-
-Nunca correr migrations em produção sem saber que branch está aplicado.
-
-Antes de `php artisan migrate --force`, confirmar:
-
-```bash
-git branch --show-current
-git log --oneline -3
-```
-
-A branch deve ser `main` ou a branch de produção acordada.
-
-Se houver alterações locais no servidor, não fazer `git pull` à força. Primeiro analisar:
-
-```bash
-git status
-git diff --stat
-```
-
-Nunca usar `git reset --hard` em produção sem confirmação expressa.
-
----
-
-## 6. Regra para futuras sprints
-
-Todas as prompts de desenvolvimento devem pedir ao Copilot/IA:
-
-```txt
-Se esta alteração exigir aplicação no servidor, inclui no resumo final a secção Aplicação no servidor com os comandos exatos. Se criar migrations, indicar explicitamente php artisan migrate --force e php artisan optimize:clear.
-```
+- se existem migrations;
+- se as migrations são backward-compatible;
+- impacto em `.env` ou storage partilhado;
+- necessidade de reiniciar workers/queues;
+- validações pós-deploy específicas;
+- se o rollback de código é seguro perante o schema novo.
