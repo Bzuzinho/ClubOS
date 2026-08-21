@@ -1,0 +1,126 @@
+name: H0.1b Post-cutover Diagnostic
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  verify-production-cutover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      VM_USER: ${{ secrets.ORACLE_VM_USER }}
+      VM_HOST: ${{ secrets.ORACLE_VM_HOST }}
+      VM_APP_DIR: ${{ secrets.ORACLE_VM_APP_DIR }}
+      VM_KNOWN_HOSTS: ${{ secrets.ORACLE_VM_KNOWN_HOSTS }}
+      EXPECTED_SHA: bcb6422f506790c538f38b73aeacfac23650af10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure pinned SSH
+        shell: bash
+        env:
+          ORACLE_VM_SSH_KEY: ${{ secrets.ORACLE_VM_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          for variable in VM_USER VM_HOST VM_APP_DIR VM_KNOWN_HOSTS ORACLE_VM_SSH_KEY; do
+            test -n "${!variable:-}" || { echo "::error::Missing ${variable}"; exit 1; }
+          done
+          mkdir -p "${HOME}/.ssh"
+          chmod 700 "${HOME}/.ssh"
+          printf '%s\n' "${ORACLE_VM_SSH_KEY}" | tr -d '\r' > "${HOME}/.ssh/id_ed25519"
+          chmod 600 "${HOME}/.ssh/id_ed25519"
+          printf '%s\n' "${VM_KNOWN_HOSTS}" | tr -d '\r' > "${HOME}/.ssh/known_hosts"
+          chmod 644 "${HOME}/.ssh/known_hosts"
+          ssh-keygen -F "${VM_HOST}" -f "${HOME}/.ssh/known_hosts" >/dev/null
+
+      - name: Wait for and validate atomic cutover
+        shell: bash
+        run: |
+          set -euo pipefail
+          report="${RUNNER_TEMP}/h0-1b-postcutover.txt"
+
+          ssh \
+            -o BatchMode=yes \
+            -o ConnectTimeout=15 \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="${HOME}/.ssh/known_hosts" \
+            "${VM_USER}@${VM_HOST}" \
+            "APP_DIR='${VM_APP_DIR}' EXPECTED_SHA='${EXPECTED_SHA}' bash -s" <<'REMOTE' | tee "${report}"
+          set -euo pipefail
+          DEPLOY_ROOT="${APP_DIR}.deploy"
+          CURRENT_LINK="${DEPLOY_ROOT}/current"
+          PREVIOUS_LINK="${DEPLOY_ROOT}/previous"
+          SHARED_DIR="${DEPLOY_ROOT}/shared"
+
+          deployed_sha=""
+          for attempt in $(seq 1 40); do
+            if [[ -L "${APP_DIR}" && -f "${APP_DIR}/.clubos-release" ]]; then
+              deployed_sha="$(sed -n 's/^commit_sha=//p' "${APP_DIR}/.clubos-release" 2>/dev/null || true)"
+              if [[ "${deployed_sha}" == "${EXPECTED_SHA}" ]]; then
+                break
+              fi
+            fi
+            printf 'waiting_attempt=%s current_sha=%s\n' "${attempt}" "${deployed_sha:-legacy-or-unavailable}"
+            sleep 15
+          done
+
+          [[ "${deployed_sha}" == "${EXPECTED_SHA}" ]] || {
+            echo "ERROR expected SHA not active after wait: expected=${EXPECTED_SHA} actual=${deployed_sha:-none}"
+            ls -ld "${APP_DIR}" "${DEPLOY_ROOT}" "${CURRENT_LINK}" "${PREVIOUS_LINK}" 2>/dev/null || true
+            exit 1
+          }
+
+          [[ -L "${APP_DIR}" ]] || { echo 'ERROR app path is not a symlink'; exit 1; }
+          [[ -L "${CURRENT_LINK}" ]] || { echo 'ERROR current link missing'; exit 1; }
+          [[ -L "${PREVIOUS_LINK}" ]] || { echo 'ERROR previous link missing'; exit 1; }
+          [[ -f "${SHARED_DIR}/.env" ]] || { echo 'ERROR shared .env missing'; exit 1; }
+          [[ -d "${SHARED_DIR}/storage" ]] || { echo 'ERROR shared storage missing'; exit 1; }
+
+          app_real="$(readlink -f "${APP_DIR}")"
+          current_real="$(readlink -f "${CURRENT_LINK}")"
+          previous_real="$(readlink -f "${PREVIOUS_LINK}")"
+          [[ "${app_real}" == "${current_real}" ]] || { echo 'ERROR app and current differ'; exit 1; }
+          [[ -d "${previous_real}" && -f "${previous_real}/artisan" ]] || { echo 'ERROR previous rollback target invalid'; exit 1; }
+          [[ -L "${APP_DIR}/.env" ]] || { echo 'ERROR release .env is not shared symlink'; exit 1; }
+          [[ -L "${APP_DIR}/storage" ]] || { echo 'ERROR release storage is not shared symlink'; exit 1; }
+          [[ -L "${APP_DIR}/public/storage" ]] || { echo 'ERROR public/storage symlink missing'; exit 1; }
+          [[ -f "${APP_DIR}/public/build/manifest.json" ]] || { echo 'ERROR frontend manifest missing'; exit 1; }
+
+          release_layout="$(sed -n 's/^layout=//p' "${APP_DIR}/.clubos-release")"
+          release_id="$(sed -n 's/^release_id=//p' "${APP_DIR}/.clubos-release")"
+          [[ "${release_layout}" == "atomic-v1" ]] || { echo "ERROR unexpected layout=${release_layout}"; exit 1; }
+
+          /usr/local/bin/clubmanager-healthcheck.sh "${APP_DIR}"
+
+          printf 'status=ok\n'
+          printf 'commit=%s\n' "${deployed_sha}"
+          printf 'release_id=%s\n' "${release_id}"
+          printf 'current=%s\n' "${current_real}"
+          printf 'previous=%s\n' "${previous_real}"
+          printf 'shared_env=%s\n' "$(readlink -f "${APP_DIR}/.env")"
+          printf 'shared_storage=%s\n' "$(readlink -f "${APP_DIR}/storage")"
+          printf 'release_count=%s\n' "$(find "${DEPLOY_ROOT}/releases" -mindepth 1 -maxdepth 1 -type d | wc -l)"
+          REMOTE
+
+          cp "${report}" "${GITHUB_WORKSPACE}/h0-1b-postcutover.txt"
+          {
+            echo '## H0.1b post-cutover production validation'
+            echo ''
+            echo '- Expected commit: `'"${EXPECTED_SHA}"'`'
+            echo '- Atomic layout, shared state, rollback target and healthcheck: validated'
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload validation evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: h0-1b-postcutover-${{ env.EXPECTED_SHA }}
+          path: h0-1b-postcutover.txt
+          if-no-files-found: error
+          retention-days: 7
