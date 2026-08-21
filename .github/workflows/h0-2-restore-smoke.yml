@@ -1,0 +1,103 @@
+name: H0.2 Restore Smoke Test
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  restore-latest-backup:
+    if: github.head_ref == 'diag/h0-2-dr-readiness'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      VM_USER: ${{ secrets.ORACLE_VM_USER }}
+      VM_HOST: ${{ secrets.ORACLE_VM_HOST }}
+      VM_APP_DIR: ${{ secrets.ORACLE_VM_APP_DIR }}
+      VM_KNOWN_HOSTS: ${{ secrets.ORACLE_VM_KNOWN_HOSTS }}
+    steps:
+      - name: Configure pinned SSH
+        shell: bash
+        env:
+          ORACLE_VM_SSH_KEY: ${{ secrets.ORACLE_VM_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p "${HOME}/.ssh"
+          chmod 700 "${HOME}/.ssh"
+          printf '%s\n' "${ORACLE_VM_SSH_KEY}" | tr -d '\r' > "${HOME}/.ssh/id_ed25519"
+          chmod 600 "${HOME}/.ssh/id_ed25519"
+          printf '%s\n' "${VM_KNOWN_HOSTS}" | tr -d '\r' > "${HOME}/.ssh/known_hosts"
+          chmod 644 "${HOME}/.ssh/known_hosts"
+
+      - name: Restore latest backup into isolated temporary database
+        shell: bash
+        run: |
+          set -euo pipefail
+          report="${GITHUB_WORKSPACE}/h0-2-restore-smoke.txt"
+          ssh \
+            -o BatchMode=yes \
+            -o ConnectTimeout=15 \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="${HOME}/.ssh/known_hosts" \
+            "${VM_USER}@${VM_HOST}" \
+            "APP_DIR='${VM_APP_DIR}' bash -s" <<'REMOTE' | tee "${report}"
+          set -Eeuo pipefail
+          BACKUP_DIR=/var/backups/clubmanager/postgres-local
+          PG_RESTORE=/usr/lib/postgresql/17/bin/pg_restore
+          PSQL=/usr/lib/postgresql/17/bin/psql
+          CREATEDB=/usr/lib/postgresql/17/bin/createdb
+          DROPDB=/usr/lib/postgresql/17/bin/dropdb
+
+          for bin in "${PG_RESTORE}" "${PSQL}" "${CREATEDB}" "${DROPDB}"; do
+            [[ -x "${bin}" ]] || { echo "missing=${bin}"; exit 1; }
+          done
+
+          read_env() {
+            local key="$1" value
+            value="$(sudo grep -m1 -E "^${key}=" "${APP_DIR}/.env" | cut -d= -f2- || true)"
+            value="${value%$'\r'}"
+            value="${value#\"}"; value="${value%\"}"
+            value="${value#\'}"; value="${value%\'}"
+            printf '%s' "${value}"
+          }
+
+          DB_PORT="$(read_env DB_PORT)"
+          DB_PORT="${DB_PORT:-5433}"
+          latest="$(sudo find "${BACKUP_DIR}" -maxdepth 1 -type f -name 'clubmanager-prod-*.dump' -printf '%T@ %p\n' | sort -rn | head -n1 | cut -d' ' -f2-)"
+          [[ -n "${latest}" ]] || { echo 'no_backup'; exit 1; }
+          sudo bash -c "cd '${BACKUP_DIR}' && sha256sum -c '$(basename "${latest}.sha256")'" >/dev/null
+          sudo "${PG_RESTORE}" --list "${latest}" >/dev/null
+
+          TEST_DB="clubos_dr_restore_$(date -u +%Y%m%d%H%M%S)_$$"
+          cleanup() {
+            sudo -u postgres "${DROPDB}" -p "${DB_PORT}" --if-exists "${TEST_DB}" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+
+          sudo -u postgres "${CREATEDB}" -p "${DB_PORT}" "${TEST_DB}"
+          started="$(date +%s)"
+          sudo -u postgres "${PG_RESTORE}" -p "${DB_PORT}" --no-owner --no-acl --dbname="${TEST_DB}" "${latest}"
+          finished="$(date +%s)"
+          table_count="$(sudo -u postgres "${PSQL}" -p "${DB_PORT}" -d "${TEST_DB}" -Atqc "select count(*) from information_schema.tables where table_schema='public';")"
+          migration_count="$(sudo -u postgres "${PSQL}" -p "${DB_PORT}" -d "${TEST_DB}" -Atqc "select count(*) from migrations;")"
+          [[ "${table_count}" =~ ^[0-9]+$ && "${table_count}" -gt 0 ]]
+          [[ "${migration_count}" =~ ^[0-9]+$ && "${migration_count}" -gt 0 ]]
+
+          echo "backup=$(basename "${latest}")"
+          echo "pg_restore=$(${PG_RESTORE} --version)"
+          echo "restore_seconds=$((finished-started))"
+          echo "public_table_count=${table_count}"
+          echo "migration_count=${migration_count}"
+          echo 'restore_test=ok'
+          REMOTE
+
+      - name: Upload restore evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: h0-2-restore-smoke-${{ github.sha }}
+          path: h0-2-restore-smoke.txt
+          if-no-files-found: error
+          retention-days: 7
