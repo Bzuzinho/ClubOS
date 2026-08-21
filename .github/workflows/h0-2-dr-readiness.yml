@@ -51,28 +51,30 @@ jobs:
           echo "app_dir=${APP_DIR}"
           echo "backup_dir=${BACKUP_DIR}"
           echo "disk=$(df -hP /var/backups 2>/dev/null | tail -n1 || true)"
+          echo "public_storage_bytes=$(sudo du -sb "${APP_DIR}/storage/app/public" 2>/dev/null | awk '{print $1}' || echo 0)"
+          echo "shared_storage_bytes=$(sudo du -sb "${APP_DIR}.deploy/shared/storage" 2>/dev/null | awk '{print $1}' || echo 0)"
           echo '--- cron ---'
           sudo crontab -l 2>/dev/null | grep -A1 -F '# ClubOS local PostgreSQL daily backup' || true
           echo '--- backup inventory ---'
-          if [[ -d "${BACKUP_DIR}" ]]; then
-            find "${BACKUP_DIR}" -maxdepth 1 -type f -name 'clubmanager-prod-*.dump' -printf '%T@ %s %p\n' | sort -rn | head -n 20
+          if sudo test -d "${BACKUP_DIR}"; then
+            sudo find "${BACKUP_DIR}" -maxdepth 1 -type f -name 'clubmanager-prod-*.dump' -printf '%T@ %s %p\n' | sort -rn | head -n 20
           else
             echo 'backup directory missing'
           fi
-          latest="$(find "${BACKUP_DIR}" -maxdepth 1 -type f -name 'clubmanager-prod-*.dump' -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -n1 | cut -d' ' -f2- || true)"
+          latest="$(sudo find "${BACKUP_DIR}" -maxdepth 1 -type f -name 'clubmanager-prod-*.dump' -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -n1 | cut -d' ' -f2- || true)"
           echo "latest=${latest}"
           if [[ -n "${latest}" ]]; then
-            echo "latest_mtime=$(stat -c '%y' "${latest}")"
-            echo "latest_age_seconds=$(( $(date +%s) - $(stat -c %Y "${latest}") ))"
-            echo "latest_size_bytes=$(stat -c %s "${latest}")"
-            echo "checksum_file=$(test -s "${latest}.sha256" && echo yes || echo no)"
-            if [[ -s "${latest}.sha256" ]]; then
-              (cd "${BACKUP_DIR}" && sha256sum -c "$(basename "${latest}.sha256")") || true
+            echo "latest_mtime=$(sudo stat -c '%y' "${latest}")"
+            echo "latest_age_seconds=$(( $(date +%s) - $(sudo stat -c %Y "${latest}") ))"
+            echo "latest_size_bytes=$(sudo stat -c %s "${latest}")"
+            echo "checksum_file=$(sudo test -s "${latest}.sha256" && echo yes || echo no)"
+            if sudo test -s "${latest}.sha256"; then
+              sudo bash -c "cd '${BACKUP_DIR}' && sha256sum -c '$(basename "${latest}.sha256")'" || true
             fi
             pg_restore_bin="$(command -v pg_restore || true)"
             if [[ -n "${pg_restore_bin}" ]]; then
               echo "pg_restore=$(${pg_restore_bin} --version)"
-              "${pg_restore_bin}" --list "${latest}" >/dev/null && echo 'pg_restore_list=ok' || echo 'pg_restore_list=failed'
+              sudo "${pg_restore_bin}" --list "${latest}" >/dev/null && echo 'pg_restore_list=ok' || echo 'pg_restore_list=failed'
             fi
           fi
           echo '--- recent backup log ---'
