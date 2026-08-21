@@ -1,0 +1,91 @@
+name: Access Control Production Diagnostic
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose-production-access-control:
+    if: github.event.pull_request.head.ref == 'diag/access-control-production-findings'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    env:
+      VM_USER: ${{ secrets.ORACLE_VM_USER }}
+      VM_HOST: ${{ secrets.ORACLE_VM_HOST }}
+      VM_APP_DIR: ${{ secrets.ORACLE_VM_APP_DIR }}
+      VM_KNOWN_HOSTS: ${{ secrets.ORACLE_VM_KNOWN_HOSTS }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate production diagnostic configuration
+        shell: bash
+        env:
+          ORACLE_VM_SSH_KEY: ${{ secrets.ORACLE_VM_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          for variable in VM_USER VM_HOST VM_APP_DIR VM_KNOWN_HOSTS ORACLE_VM_SSH_KEY; do
+            if [[ -z "${!variable:-}" ]]; then
+              echo "::error::Missing required production diagnostic secret/configuration: ${variable}"
+              exit 1
+            fi
+          done
+
+      - name: Configure pinned SSH access
+        shell: bash
+        env:
+          ORACLE_VM_SSH_KEY: ${{ secrets.ORACLE_VM_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p "${HOME}/.ssh"
+          chmod 700 "${HOME}/.ssh"
+          printf '%s\n' "${ORACLE_VM_SSH_KEY}" | tr -d '\r' > "${HOME}/.ssh/id_ed25519"
+          chmod 600 "${HOME}/.ssh/id_ed25519"
+          ssh-keygen -y -f "${HOME}/.ssh/id_ed25519" >/dev/null
+          printf '%s\n' "${VM_KNOWN_HOSTS}" | tr -d '\r' > "${HOME}/.ssh/known_hosts"
+          chmod 644 "${HOME}/.ssh/known_hosts"
+          ssh-keygen -F "${VM_HOST}" -f "${HOME}/.ssh/known_hosts" >/dev/null
+
+      - name: Collect read-only Access Control report from production
+        shell: bash
+        run: |
+          set -euo pipefail
+          local_report="${GITHUB_WORKSPACE}/access-control-readiness.json"
+          remote_report="/tmp/clubos-access-control-diagnostic-${GITHUB_SHA}.json"
+
+          ssh \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="${HOME}/.ssh/known_hosts" \
+            "${VM_USER}@${VM_HOST}" \
+            "cd '${VM_APP_DIR}' && php artisan access:audit-readiness --report-path='${remote_report}' >/dev/null && cat '${remote_report}' && rm -f '${remote_report}'" \
+            > "${local_report}"
+
+          jq -e '.read_only == true and .contract == "access-control-readiness-v1"' "${local_report}" >/dev/null
+
+          {
+            echo '## Access Control production diagnostic'
+            echo ''
+            echo "- Critical findings: \`$(jq -r '.summary.critical_count' "${local_report}")\`"
+            echo "- Warnings: \`$(jq -r '.summary.warning_count' "${local_report}")\`"
+            echo "- Platform access users: \`$(jq -r '.summary.platform_access_user_count' "${local_report}")\`"
+            echo "- Unresolved UserTypes: \`$(jq -r '.summary.unresolved_user_type_count' "${local_report}")\`"
+            echo "- Mutating routes without module guard: \`$(jq -r '.summary.mutating_routes_without_module_guard_count' "${local_report}")\`"
+            echo ''
+            echo '### Critical findings by code'
+            jq -r '[.findings[] | select(.severity == "critical") | .code] | group_by(.) | map({code: .[0], count: length}) | sort_by(-.count)[] | "- \(.code): \(.count)"' "${local_report}"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload Access Control diagnostic artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: access-control-production-diagnostic-${{ github.sha }}
+          path: access-control-readiness.json
+          if-no-files-found: error
+          retention-days: 7
