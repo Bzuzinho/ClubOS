@@ -1,0 +1,29 @@
+name: Source Export Diagnostic
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  export-source:
+    if: github.event.pull_request.head.ref == 'diag/access-control-production-findings'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Upload route sources
+        uses: actions/upload-artifact@v4
+        with:
+          name: access-control-route-sources-${{ github.sha }}
+          path: |
+            routes/web.php
+            routes/desportivo_member_contract.php
+            routes/member_documents.php
+            tests/Feature/AccessControl/AccessControlReadinessAuditCommandTest.php
+            docs/ESTADO_VIVO_DESENVOLVIMENTO.md
+          if-no-files-found: error
+          retention-days: 1
