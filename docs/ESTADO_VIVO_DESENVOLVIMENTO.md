@@ -41,7 +41,7 @@ Stack produtiva: Laravel 11, PHP 8.3, React 19 + TypeScript, Inertia, Vite, Post
 
 | Módulo / Área | Estado estimado | Estado atual / pendências principais |
 |---|---:|---|
-| Base técnica / arquitetura | 86% | H0.1a/H0.1b concluídas. H0.2 está integrado e foi validado E2E na Oracle VM com remote efémero; falta ativar R2 real e validar o primeiro ciclo remoto no provider. |
+| Base técnica / arquitetura | 86% | H0.1a/H0.1b concluídas. H0.2 está integrado, validado E2E na Oracle VM e tem ativação R2 automatizada preparada; falta criar/configurar o backend R2 real e validar o primeiro ciclo remoto no provider. |
 | Website público / construtor | 86% | Renderer, snapshots, publicação e dados dinâmicos avançados. Faltam header/footer globais, notícias completas e validação runtime multi-viewport. |
 | Autenticação / Access Control | 78% | Auditoria e gates produtivos ativos. Validação real pós-cutover confirmou zero findings críticos, zero rotas mutáveis sem `module.access`, schema pronto e zero utilizadores com acesso sem `UserType` resolvido. Permanecem 83 warnings de capability granular. |
 | Dashboard / entrada por perfil | 70% | Funcional, com leituras canónicas financeiras. Falta QA final por perfil e viewport. |
@@ -203,6 +203,8 @@ Validação E2E do pipeline DR na Oracle VM, já com o hotfix H0.2.3 ativo:
 
 A primeira execução E2E revelou um problema real de permissões: o dump temporário era `postgres:postgres 0600`, mas o diretório `mktemp` pai era `0700 root`, impedindo o `pg_restore` executado como `postgres` de o atravessar. A PR #196/H0.2.3 corrigiu o workspace para `root:postgres 0710`, mantendo o dump `0600` e sem permissões globais abertas; o E2E completo passou depois do hotfix estar ativo em produção.
 
+A ativação final do R2 fica automatizada por `.github/workflows/dr-r2-activate.yml` e documentada em `docs/DR_R2_ACTIVATION.md`. O workflow não corre em PRs nem em pushes normais para `main`; é acionado por `workflow_dispatch` ou por push controlado para `ops/h0-2-r2-activate`. Valida todos os secrets, usa SSH pinned, configura o R2, instala os crons, executa o primeiro backup real, faz restore test a partir do objeto remoto e exige health estrito antes de terminar verde.
+
 Esta validação prova o pipeline de software ponta a ponta, mas **não substitui a validação num provider off-site real**. A configuração produtiva continua com `dr_enabled=no` até ser criado e ativado o backend remoto.
 
 Falta para fechar H0.2:
@@ -211,7 +213,7 @@ Falta para fechar H0.2:
 - configurar Bucket Lock por prefixo;
 - criar token S3 limitado ao bucket;
 - configurar os 5 secrets `CLUBOS_DR_*` no GitHub;
-- executar bootstrap na VM;
+- disparar o workflow de ativação R2;
 - validar primeiro backup off-site cifrado no R2;
 - validar primeiro restore test **a partir do objeto R2**;
 - confirmar `DR Health Monitor` verde com off-site real ativado.
@@ -256,6 +258,7 @@ Próximo passo: concluir H0.2 ativando o backend off-site real e validando backu
 
 | Data | Módulo | Desenvolvimento / análise | Evidência | Estado / pendências |
 |---|---|---|---|---|
+| 2026-08-22 | Infraestrutura / DR | Preparada ativação R2 automatizada e controlada: valida secrets, SSH pinned, bootstrap root-private, valida bucket, instala cron, executa primeiro backup, restore remoto e health estrito. | `.github/workflows/dr-r2-activate.yml`, `docs/DR_R2_ACTIVATION.md`, `tests/Unit/Operations/DisasterRecoveryActivationWorkflowContractTest.php` | Não altera o estado de conclusão: H0.2 continua pendente do bucket/token/locks/secrets e da primeira execução real no R2. |
 | 2026-08-21 | Infraestrutura / DR | H0.2 E2E fechado ao nível do software: arquivo → cifragem AES-256 → upload → verificação → download → decifragem → restore PG17 temporário → health estrito. A primeira execução detetou `Permission denied` no dump temporário; H0.2.3 corrigiu a travessia do workspace sem abrir permissões globais. | PR #196; diagnóstico temporário #192; produção `325b97c4e69b4c6432f26d373e807cd2d32be9c9`; E2E: 208 tabelas, 214 migrations, 14 s, `local_offsite_e2e=ok` | Implementação e E2E validados na Oracle VM. R2 real continua desativado; falta bucket/token/locks/secrets/bootstrap + primeiro backup/restore remoto real + monitor verde. |
 | 2026-08-21 | Financeiro / Legacy cleanup | Aposentados os CRUDs legacy de transações e categorias financeiras com `410 Gone` e redirecionamento semântico para o Financeiro canónico; removido o último placeholder ativo de `Financeiro/Edit`, que passa a convergir para a tab canónica de Faturas. | PRs #179/#180; CI #678/#680; commits `6ea4c80bc0c8ef716f8c6ba6746c1aeb950dcb58` e `a45da50dd9ab6bd7afe2ece6deea04d4a36be7df` | Integrado em `main` e incluído na cadeia de releases produtivas atualmente em `325b97c4e69b4c6432f26d373e807cd2d32be9c9`; sem migrations nem alteração de dados. |
 | 2026-08-21 | Infraestrutura / DR | H0.2: diagnóstico produtivo confirmou 7 dumps locais; corrigida a diferença PG17 dump vs `pg_restore` 14; restore real PG17 provado em BD temporária (8s, 208 tabelas, 214 migrations). Implementado pipeline off-site cifrado, retenção 7/4/12, restore test remoto, health monitor e RPO/RTO. | `scripts/ops/database/backup-local-postgres.sh`, `scripts/ops/database/restore-local-postgres.sh`, `scripts/ops/dr/*`, `.github/workflows/dr-health-monitor.yml`, `tests/Unit/Operations/DisasterRecoveryContractTest.php`, `docs/DR_RUNBOOK.md`, diagnóstico PR #190 | Implementação integrada e posteriormente validada E2E; ativação do provider off-site real continua pendente. |
