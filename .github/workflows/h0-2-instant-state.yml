@@ -1,0 +1,53 @@
+name: H0.2 Instant Production State
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    if: github.head_ref == 'diag/h0-2-postmerge-local'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      VM_USER: ${{ secrets.ORACLE_VM_USER }}
+      VM_HOST: ${{ secrets.ORACLE_VM_HOST }}
+      VM_APP_DIR: ${{ secrets.ORACLE_VM_APP_DIR }}
+      VM_KNOWN_HOSTS: ${{ secrets.ORACLE_VM_KNOWN_HOSTS }}
+    steps:
+      - name: Configure SSH
+        shell: bash
+        env:
+          ORACLE_VM_SSH_KEY: ${{ secrets.ORACLE_VM_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p "${HOME}/.ssh"
+          chmod 700 "${HOME}/.ssh"
+          printf '%s\n' "${ORACLE_VM_SSH_KEY}" | tr -d '\r' > "${HOME}/.ssh/id_ed25519"
+          chmod 600 "${HOME}/.ssh/id_ed25519"
+          printf '%s\n' "${VM_KNOWN_HOSTS}" | tr -d '\r' > "${HOME}/.ssh/known_hosts"
+          chmod 644 "${HOME}/.ssh/known_hosts"
+      - name: Snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh \
+            -o BatchMode=yes \
+            -o ConnectTimeout=15 \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="${HOME}/.ssh/known_hosts" \
+            "${VM_USER}@${VM_HOST}" \
+            "APP_DIR='${VM_APP_DIR}' bash -s" <<'REMOTE'
+          set -u
+          echo "timestamp=$(date -Is)"
+          echo "active_sha=$(sed -n 's/^commit_sha=//p' "${APP_DIR}/.clubos-release" 2>/dev/null || true)"
+          echo "app_real=$(readlink -f "${APP_DIR}" 2>/dev/null || true)"
+          echo "current_real=$(readlink -f "${APP_DIR}.deploy/current" 2>/dev/null || true)"
+          echo "previous_real=$(readlink -f "${APP_DIR}.deploy/previous" 2>/dev/null || true)"
+          echo "backup_script_sha=$(sha256sum "${APP_DIR}/scripts/ops/database/backup-local-postgres.sh" 2>/dev/null | awk '{print $1}' || true)"
+          echo "health=$(curl -ksS -o /dev/null -w '%{http_code}' https://127.0.0.1/up -H 'Host: bscn.pt' 2>/dev/null || true)"
+          REMOTE
