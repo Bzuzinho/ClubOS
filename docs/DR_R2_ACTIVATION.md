@@ -59,17 +59,20 @@ O workflow executa, por esta ordem:
 
 1. valida presença de todos os secrets e configuração de produção;
 2. configura SSH com host key pinned;
-3. transfere um ficheiro transitório root-private com as credenciais de bootstrap;
+3. transfere um ficheiro transitório privado com as credenciais de bootstrap;
 4. executa `configure-r2.sh`;
 5. remove o ficheiro transitório;
-6. executa `install-dr-cron.sh`, que valida acesso ao bucket antes de marcar DR como ativo;
+6. garante que `rclone` existe na VM;
 7. executa o primeiro `backup-offsite.sh`;
 8. relê/verifica o objeto remoto por SHA256;
 9. executa `restore-test-offsite.sh` numa BD PostgreSQL 17 temporária;
-10. executa `check-dr-health.sh` em modo estrito;
-11. confirma os markers `enabled`, `last-offsite-success` e `last-restore-test-success`;
-12. confirma os três blocos de cron DR;
-13. só termina verde depois de `dr_r2_activation=ok`.
+10. só depois da prova backup+restore instala os crons e o marker de ativação através de `install-dr-cron.sh`;
+11. executa `check-dr-health.sh` em modo estrito;
+12. confirma os markers `enabled`, `last-offsite-success` e `last-restore-test-success`;
+13. confirma os três blocos de cron DR;
+14. só termina verde depois de `dr_r2_activation=ok`.
+
+Esta ordem é intencional: uma configuração R2 inválida não deve marcar o DR como ativo nem instalar o agendamento permanente antes de um backup e restore reais terem passado.
 
 A aplicação e o deploy normal são independentes deste workflow. Uma falha de ativação R2 não altera a release da aplicação nem faz rollback de código.
 
