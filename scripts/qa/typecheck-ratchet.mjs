@@ -26,11 +26,16 @@ const output = `${result.stdout ?? ''}${result.stderr ?? ''}`;
 const lines = output.split(/\r?\n/).filter(Boolean);
 const errorLines = lines.filter((line) => /error TS\d+:/.test(line));
 const affectedFiles = new Set();
+const errorCountsByFile = new Map();
+const errorCountsByCode = new Map();
 
 for (const line of errorLines) {
-  const match = line.match(/^(.+?)\(\d+,\d+\):\s+error TS\d+:/);
+  const match = line.match(/^(.+?)\(\d+,\d+\):\s+error (TS\d+):/);
   if (match) {
-    affectedFiles.add(match[1]);
+    const [, file, code] = match;
+    affectedFiles.add(file);
+    errorCountsByFile.set(file, (errorCountsByFile.get(file) ?? 0) + 1);
+    errorCountsByCode.set(code, (errorCountsByCode.get(code) ?? 0) + 1);
   }
 }
 
@@ -39,6 +44,14 @@ const affectedFileCount = affectedFiles.size;
 
 console.log(`TypeScript ratchet: ${errorCount} error(s) across ${affectedFileCount} file(s).`);
 console.log(`Baseline ceiling: ${baseline.max_errors} error(s) across ${baseline.max_affected_files} file(s).`);
+console.log('TypeScript diagnostics by file:');
+for (const [file, count] of [...errorCountsByFile.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))) {
+  console.log(`${count}\t${file}`);
+}
+console.log('TypeScript diagnostics by code:');
+for (const [code, count] of [...errorCountsByCode.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))) {
+  console.log(`${count}\t${code}`);
+}
 
 if (result.status === 0) {
   if (errorCount !== 0) {
