@@ -36,9 +36,12 @@ for (const line of errorLines) {
 
 const errorCount = errorLines.length;
 const affectedFileCount = affectedFiles.size;
+const comunicacaoErrors = errorLines.filter((line) => line.startsWith('resources/js/Pages/Comunicacao/Index.tsx('));
 
 console.log(`TypeScript ratchet: ${errorCount} error(s) across ${affectedFileCount} file(s).`);
 console.log(`Baseline ceiling: ${baseline.max_errors} error(s) across ${baseline.max_affected_files} file(s).`);
+console.log('TypeScript diagnostics for resources/js/Pages/Comunicacao/Index.tsx:');
+console.log(comunicacaoErrors.length > 0 ? comunicacaoErrors.join('\n') : '(none)');
 
 if (result.status === 0) {
   if (errorCount !== 0) {
