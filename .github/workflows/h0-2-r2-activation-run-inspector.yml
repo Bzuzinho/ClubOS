@@ -1,0 +1,52 @@
+name: H0.2 R2 Activation Run Inspector
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  inspect-activation-run:
+    if: github.head_ref == 'diag/h0-2-r2-real-validation'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Locate and wait for activation run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          run_id=''
+          for _ in $(seq 1 60); do
+            run_id="$(gh api \
+              -H 'Accept: application/vnd.github+json' \
+              "repos/${GH_REPO}/actions/workflows/dr-r2-activate.yml/runs?branch=ops%2Fh0-2-r2-activate&event=push&per_page=1" \
+              --jq '.workflow_runs[0].id // empty')"
+            [[ -n "${run_id}" ]] && break
+            sleep 5
+          done
+          [[ -n "${run_id}" ]] || { echo 'activation_run_id=missing'; exit 1; }
+          echo "activation_run_id=${run_id}"
+
+          for _ in $(seq 1 120); do
+            status="$(gh api "repos/${GH_REPO}/actions/runs/${run_id}" --jq '.status')"
+            conclusion="$(gh api "repos/${GH_REPO}/actions/runs/${run_id}" --jq '.conclusion // ""')"
+            echo "activation_status=${status} conclusion=${conclusion}"
+            [[ "${status}" == 'completed' ]] && break
+            sleep 10
+          done
+
+          gh api "repos/${GH_REPO}/actions/runs/${run_id}" \
+            --jq '"activation_final_status=\(.status)\nactivation_conclusion=\(.conclusion)\nactivation_url=\(.html_url)"'
+          echo '--- jobs ---'
+          gh api "repos/${GH_REPO}/actions/runs/${run_id}/jobs?per_page=100" \
+            --jq '.jobs[] | "job_id=\(.id) job=\(.name) status=\(.status) conclusion=\(.conclusion)"'
+
+          final_status="$(gh api "repos/${GH_REPO}/actions/runs/${run_id}" --jq '.status')"
+          [[ "${final_status}" == 'completed' ]] || exit 1
