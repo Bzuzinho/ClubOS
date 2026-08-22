@@ -1,0 +1,3 @@
+ClubOS H0.2 production R2 activation trigger
+Requested: 2026-08-22
+Purpose: trigger the dedicated DR R2 activation workflow after repository secrets were configured.
