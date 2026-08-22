@@ -5,6 +5,7 @@
     "dev": "vite",
     "serv": "vite",
     "build": "vite build",
+    "typecheck:ratchet": "node scripts/qa/typecheck-ratchet.mjs",
     "deploy:vm": "node bin/deploy-vm.mjs"
   },
   "devDependencies": {
