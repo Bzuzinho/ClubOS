@@ -1,0 +1,71 @@
+name: H1 Apply Compatible Dependency Updates
+
+on:
+  push:
+    branches:
+      - hardening/h1-1-dependency-ratchets
+
+permissions:
+  contents: write
+
+jobs:
+  apply-compatible-updates:
+    if: github.event.head_commit.message != 'chore(deps): apply compatible security updates'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: hardening/h1-1-dependency-ratchets
+          fetch-depth: 0
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, xml, curl, zip, intl, bcmath, pdo, pdo_pgsql, sqlite3, pdo_sqlite
+          coverage: none
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Apply Composer updates
+        run: |
+          composer update \
+            guzzlehttp/guzzle \
+            guzzlehttp/psr7 \
+            league/commonmark \
+            psy/psysh \
+            symfony/http-foundation \
+            symfony/http-kernel \
+            symfony/mailer \
+            symfony/mime \
+            symfony/polyfill-intl-idn \
+            symfony/process \
+            symfony/routing \
+            --with-all-dependencies \
+            --no-interaction \
+            --prefer-dist
+
+      - name: Apply npm updates
+        run: |
+          npm install --package-lock-only --ignore-scripts \
+            axios@^1.19.0 \
+            postcss@^8.5.26 \
+            vite@^6.4.3
+          npm audit fix --package-lock-only --ignore-scripts || true
+
+      - name: Commit lockfiles
+        run: |
+          set -euo pipefail
+          git config user.name 'Bzuzinho'
+          git config user.email 'ricardo.jgvf@gmail.com'
+          git add composer.lock package.json package-lock.json
+          git diff --cached --quiet && { echo 'No dependency changes to commit'; exit 0; }
+          git commit -m 'chore(deps): apply compatible security updates'
+          git push origin HEAD:hardening/h1-1-dependency-ratchets
