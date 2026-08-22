@@ -1,0 +1,148 @@
+name: H1 Safe Dependency Update Simulation
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  simulate-safe-updates:
+    if: github.head_ref == 'diag/h1-safe-dependency-update'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, xml, curl, zip, intl, bcmath, pdo, pdo_pgsql, sqlite3, pdo_sqlite
+          coverage: none
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install baseline dependencies
+        run: |
+          composer install --no-interaction --prefer-dist
+          npm ci
+
+      - name: Simulate compatible Composer remediation
+        run: |
+          composer update \
+            guzzlehttp/guzzle \
+            guzzlehttp/psr7 \
+            league/commonmark \
+            psy/psysh \
+            symfony/http-foundation \
+            symfony/http-kernel \
+            symfony/mailer \
+            symfony/mime \
+            symfony/polyfill-intl-idn \
+            symfony/process \
+            symfony/routing \
+            --with-all-dependencies \
+            --no-interaction \
+            --prefer-dist
+
+      - name: Simulate compatible npm remediation
+        run: |
+          npm install --package-lock-only --ignore-scripts \
+            axios@^1.19.0 \
+            postcss@^8.5.26 \
+            vite@^6.4.3
+          npm audit fix --package-lock-only --ignore-scripts || true
+          npm ci
+
+      - name: Prepare test environment
+        run: |
+          cp .env.example .env
+          php artisan key:generate --force
+
+      - name: Validate updated dependency set
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p h1-safe-update
+
+          composer_status=0
+          composer audit --locked --no-interaction --format=json > h1-safe-update/composer-audit.json || composer_status=$?
+
+          npm_status=0
+          npm audit --json > h1-safe-update/npm-audit.json || npm_status=$?
+
+          tsc_status=0
+          npx tsc --noEmit --pretty false > h1-safe-update/tsc.txt 2>&1 || tsc_status=$?
+
+          npm run build
+          php artisan test
+
+          composer_advisories="$(jq '[.advisories[]?[]?] | length' h1-safe-update/composer-audit.json)"
+          composer_critical="$(jq '[.advisories[]?[]? | select(((.severity // "") | ascii_downcase) == "critical")] | length' h1-safe-update/composer-audit.json)"
+          composer_high="$(jq '[.advisories[]?[]? | select(((.severity // "") | ascii_downcase) == "high")] | length' h1-safe-update/composer-audit.json)"
+          composer_medium="$(jq '[.advisories[]?[]? | select(((.severity // "") | ascii_downcase) == "medium")] | length' h1-safe-update/composer-audit.json)"
+          composer_low="$(jq '[.advisories[]?[]? | select(((.severity // "") | ascii_downcase) == "low")] | length' h1-safe-update/composer-audit.json)"
+
+          npm_total="$(jq -r '.metadata.vulnerabilities.total // 0' h1-safe-update/npm-audit.json)"
+          npm_critical="$(jq -r '.metadata.vulnerabilities.critical // 0' h1-safe-update/npm-audit.json)"
+          npm_high="$(jq -r '.metadata.vulnerabilities.high // 0' h1-safe-update/npm-audit.json)"
+          npm_moderate="$(jq -r '.metadata.vulnerabilities.moderate // 0' h1-safe-update/npm-audit.json)"
+          npm_low="$(jq -r '.metadata.vulnerabilities.low // 0' h1-safe-update/npm-audit.json)"
+
+          tsc_errors="$(grep -Ec 'error TS[0-9]+:' h1-safe-update/tsc.txt || true)"
+          tsc_files="$(grep -E 'error TS[0-9]+:' h1-safe-update/tsc.txt | sed -E 's/^([^(:]+).*/\1/' | sort -u | wc -l | tr -d ' ')"
+
+          cp composer.lock h1-safe-update/composer.lock
+          cp package.json h1-safe-update/package.json
+          cp package-lock.json h1-safe-update/package-lock.json
+
+          jq -n \
+            --argjson composer_status "${composer_status}" \
+            --argjson composer_advisories "${composer_advisories}" \
+            --argjson composer_critical "${composer_critical}" \
+            --argjson composer_high "${composer_high}" \
+            --argjson composer_medium "${composer_medium}" \
+            --argjson composer_low "${composer_low}" \
+            --argjson npm_status "${npm_status}" \
+            --argjson npm_total "${npm_total}" \
+            --argjson npm_critical "${npm_critical}" \
+            --argjson npm_high "${npm_high}" \
+            --argjson npm_moderate "${npm_moderate}" \
+            --argjson npm_low "${npm_low}" \
+            --argjson tsc_status "${tsc_status}" \
+            --argjson tsc_errors "${tsc_errors}" \
+            --argjson tsc_files "${tsc_files}" \
+            '{
+              contract: "clubos-h1-safe-update-v1",
+              composer: {exit_status:$composer_status, advisories:$composer_advisories, critical:$composer_critical, high:$composer_high, medium:$composer_medium, low:$composer_low},
+              npm: {exit_status:$npm_status, total:$npm_total, critical:$npm_critical, high:$npm_high, moderate:$npm_moderate, low:$npm_low},
+              typescript: {exit_status:$tsc_status, errors:$tsc_errors, affected_files:$tsc_files}
+            }' > h1-safe-update/summary.json
+
+          {
+            echo '## H1 compatible dependency remediation simulation'
+            echo ''
+            echo "- Composer advisories: ${composer_advisories} (critical ${composer_critical}, high ${composer_high}, medium ${composer_medium}, low ${composer_low})"
+            echo "- npm vulnerabilities: ${npm_total} (critical ${npm_critical}, high ${npm_high}, moderate ${npm_moderate}, low ${npm_low})"
+            echo "- TypeScript errors: ${tsc_errors} across ${tsc_files} files"
+            echo '- Frontend build: passed'
+            echo '- PHPUnit: passed'
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload simulation result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: h1-safe-update-${{ github.sha }}
+          path: h1-safe-update
+          if-no-files-found: warn
+          retention-days: 14
