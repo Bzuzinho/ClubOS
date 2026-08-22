@@ -1,0 +1,125 @@
+name: H1 Living Doc Patcher
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  patch-living-doc:
+    if: github.head_ref == 'hardening/h1-1-dependency-ratchets' && github.actor == github.repository_owner
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: hardening/h1-1-dependency-ratchets
+          fetch-depth: 0
+
+      - name: Patch H1 state
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path('docs/ESTADO_VIVO_DESENVOLVIMENTO.md')
+          text = path.read_text()
+
+          text = text.replace(
+              '| Base técnica / arquitetura | 89% | H0.1a/H0.1b/H0.2 concluídos em produção. CI/CD endurecido, deploy atómico e DR R2 real validados. Ficam dependency remediation, QA transversal e hardenings residuais. |',
+              '| Base técnica / arquitetura | 89% | H0.1a/H0.1b/H0.2 concluídos em produção. H1.1 iniciou dependency remediation compatível e QA ratchets; permanecem Laravel major, migração de `xlsx`, paydown TypeScript e hardenings residuais. |',
+          )
+
+          text = text.replace(
+              '| PWA / Mobile | 55% | Falta matriz QA sistemática Android/iOS/tablet/desktop, com atenção a scroll, overflow, fixed e `100vh`. |',
+              '| PWA / Mobile | 55% | H1 mediu 132 erros TypeScript em 55 ficheiros e introduz ratchet anti-regressão. Continuam em falta lint, unit/component tests, E2E, acessibilidade e matriz Android/iOS/tablet/desktop. |',
+          )
+
+          old = 'Baseline Composer registado durante H0.1: 34 advisories em 12 packages, sem `critical` no baseline. A remediação de high/medium passa para H1 com análise de compatibilidade.'
+          new = 'Baseline Composer registado durante H0.1: 34 advisories em 12 packages, sem `critical`. H1.1 demonstrou uma remediação compatível para 3 advisories residuais, todos em `laravel/framework` 11; o residual requer upgrade major planeado para eliminação total.'
+          if old in text:
+              text = text.replace(old, new, 1)
+
+          marker = '\n---\n\n## 5. Dívida estrutural prioritária\n'
+          if '## 5. H1 — QA transversal e dependency remediation' not in text:
+              section = '''
+---
+
+## 5. H1 — QA transversal e dependency remediation
+
+### H1.1 — Remediação compatível + ratchets — em validação na PR #205
+
+Baseline medido read-only na PR de diagnóstico #203:
+
+- Composer: 34 advisories — 0 critical, 8 high, 24 medium, 1 low e 1 sem severity normalizada;
+- npm: 12 vulnerabilidades — 0 critical, 9 high, 2 moderate e 1 low;
+- TypeScript: 132 erros em 55 ficheiros com `tsc --noEmit`.
+
+A simulação #204 executou updates patch/minor compatíveis, build e suite PHPUnit completa antes de alterar os lockfiles do projeto:
+
+- Composer: 34 → 3 advisories, todos em `laravel/framework` 11;
+- npm: 12 → 1 vulnerabilidade, apenas `xlsx` high e `fixAvailable=false`;
+- TypeScript: manteve 132 erros / 55 ficheiros, sem regressão;
+- Vite build: verde;
+- PHPUnit: verde.
+
+H1.1 aplica esse conjunto e introduz ratchets permanentes:
+
+- Composer falha se surgir qualquer advisory fora do residual Laravel 11, qualquer critical, mais de 3 advisories totais ou mais de 1 high;
+- npm falha se surgir qualquer pacote vulnerável fora de `xlsx`, se o total ultrapassar 1, se aparecer critical/moderate/low ou se passar a existir `fixAvailable` para a exceção;
+- TypeScript falha se ultrapassar 132 erros ou 55 ficheiros afetados; quando a dívida baixar, o baseline deve baixar no mesmo PR;
+- contratos e detalhes ficam documentados em `docs/qa/H1_BASELINE.md`.
+
+Pendências H1 separadas para não misturar risco de major upgrades com patches compatíveis:
+
+1. **Laravel 12+** — upgrade major planeado para remover os 3 advisories residuais de `laravel/framework` 11;
+2. **`xlsx`** — substituir/migrar a biblioteca preservando o importador de membros `.xlsx/.xls/.csv`;
+3. **TypeScript** — reduzir progressivamente os 132 erros por domínio funcional, sempre baixando o ratchet;
+4. **R2 least privilege** — trocar `Admin Read & Write / All buckets` por `Object Read & Write` apenas no bucket e repetir probe `list/write/delete`;
+5. **Bucket Lock** — confirmar/documentar locks `daily`, `weekly`, `monthly`;
+6. **QA frontend** — lint, component/unit tests, E2E, accessibility e matriz multi-viewport/mobile.
+
+---
+
+## 6. Dívida estrutural prioritária
+'''
+              if marker not in text:
+                  raise SystemExit('living-doc structural marker missing')
+              text = text.replace(marker, '\n' + section, 1)
+              text = text.replace('## 6. Prioridades recomendadas', '## 7. Prioridades recomendadas', 1)
+              text = text.replace('## 7. Histórico vivo recente', '## 8. Histórico vivo recente', 1)
+
+          text = text.replace(
+              '| 1 | H1 | QA transversal + dependency remediation + hardening residual R2 de menor privilégio/Bucket Lock. |',
+              '| 1 | H1 | Fechar H1.1 ratchets/remediação compatível; depois Laravel major, `xlsx`, TypeScript paydown e hardening residual R2. |',
+              1,
+          )
+
+          text = text.replace(
+              'Próximo passo: iniciar H1 — QA transversal, dependency remediation e hardening residual de menor privilégio do R2 — antes de regressar a grandes frentes funcionais.',
+              'Próximo passo: concluir H1.1 e reduzir as exceções explicitamente controladas sem reabrir H0; depois avançar por lotes para Laravel, `xlsx`, TypeScript e QA frontend.',
+              1,
+          )
+
+          history = '## 8. Histórico vivo recente'
+          if history in text and '| 2026-08-22 | QA / Dependências | H1.1' not in text:
+              table_marker = '|---|---|---|---|---|\n'
+              start = text.index(history)
+              pos = text.index(table_marker, start) + len(table_marker)
+              row = '| 2026-08-22 | QA / Dependências | H1.1 mediu baseline Composer/npm/TypeScript, provou remediação compatível e introduziu ratchets anti-regressão. | PRs diagnóstico #203/#204; PR #205; `docs/qa/H1_BASELINE.md`; `scripts/qa/*`; `qa/baselines/typescript.json` | Em validação final. Residual controlado: 3 advisories Laravel 11, 1 high `xlsx`, 132 erros TS/55 ficheiros; próximos lotes separados. |\n'
+              text = text[:pos] + row + text[pos:]
+
+          path.write_text(text)
+
+      - name: Commit living doc
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'Bzuzinho'
+          git config user.email 'ricardo.jgvf@gmail.com'
+          git add docs/ESTADO_VIVO_DESENVOLVIMENTO.md
+          git diff --cached --quiet && { echo 'Living doc already patched'; exit 0; }
+          git commit -m 'docs(h1): registar baseline e ratchets H1.1'
+          git push origin HEAD:hardening/h1-1-dependency-ratchets
