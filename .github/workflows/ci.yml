@@ -30,58 +30,28 @@ jobs:
           node-version: '20'
           cache: npm
 
-      - name: Validate deployment scripts
+      - name: Validate deployment and QA scripts
         run: |
           node --check bin/deploy-vm.mjs
+          node --check scripts/qa/typecheck-ratchet.mjs
+          node --check scripts/qa/npm-audit-ratchet.mjs
           bash -n bin/remote-deploy-backend.sh
+          bash -n scripts/qa/composer-audit-ratchet.sh
 
       - name: Install Composer dependencies
         run: composer install --no-interaction --prefer-dist
 
       - name: Audit Composer dependencies
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          report="${RUNNER_TEMP}/composer-audit.json"
-          audit_status=0
-          composer audit --locked --no-interaction --format=json > "${report}" || audit_status=$?
-
-          jq -e '.advisories | type == "object"' "${report}" >/dev/null
-
-          advisory_count="$(jq '[.advisories[]?[]?] | length' "${report}")"
-          critical_count="$(jq '[.advisories[]?[]? | select(((.severity // "") | ascii_downcase) == "critical")] | length' "${report}")"
-          high_count="$(jq '[.advisories[]?[]? | select(((.severity // "") | ascii_downcase) == "high")] | length' "${report}")"
-
-          {
-            echo '## Composer dependency security audit'
-            echo ''
-            echo "- Advisories: \`${advisory_count}\`"
-            echo "- Critical: \`${critical_count}\`"
-            echo "- High: \`${high_count}\`"
-            echo "- Composer audit exit code: \`${audit_status}\`"
-          } >> "${GITHUB_STEP_SUMMARY}"
-
-          if (( audit_status > 3 )); then
-            echo "::error::composer audit failed unexpectedly with exit code ${audit_status}"
-            exit "${audit_status}"
-          fi
-
-          if (( critical_count > 0 )); then
-            echo "::error::Composer audit reported ${critical_count} critical vulnerability advisory/advisories"
-            jq -r '.advisories[]?[]? | select(((.severity // "") | ascii_downcase) == "critical") | "\(.packageName // .package // "unknown"): \(.cve // .advisoryId // "advisory") — \(.title // "security advisory")"' "${report}"
-            exit 1
-          fi
-
-          if (( advisory_count > 0 )); then
-            echo "::warning::Composer audit reported ${advisory_count} non-critical advisory/advisories; recorded for dependency remediation"
-          fi
+        run: bash scripts/qa/composer-audit-ratchet.sh
 
       - name: Install Node dependencies
         run: npm ci
 
       - name: Audit Node dependencies
-        run: npm audit --audit-level=critical
+        run: node scripts/qa/npm-audit-ratchet.mjs
+
+      - name: TypeScript debt ratchet
+        run: npm run typecheck:ratchet
 
       - name: Prepare environment
         run: |
@@ -356,7 +326,7 @@ jobs:
             echo ''
             echo "- Commit: \`${GITHUB_SHA}\`"
             echo "- Target: \`${VM_USER}@${VM_HOST}:${VM_APP_DIR}\`"
-            echo '- Validation: CI, dependency security audits and PostgreSQL concurrency passed'
+            echo '- Validation: CI, dependency security ratchets, TypeScript debt ratchet and PostgreSQL concurrency passed'
             echo '- SSH host identity: pinned known_hosts entry enforced'
             echo '- Desportivo legacy readiness audit: collected read-only from production'
             echo '- Access Control readiness audit: collected, artifact preserved and critical findings gated separately'
