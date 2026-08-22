@@ -1,16 +1,16 @@
 name: H1 Apply Compatible Dependency Updates
 
 on:
-  push:
+  pull_request:
     branches:
-      - hardening/h1-1-dependency-ratchets
+      - main
 
 permissions:
   contents: write
 
 jobs:
   apply-compatible-updates:
-    if: github.event.head_commit.message != 'chore(deps): apply compatible security updates'
+    if: github.head_ref == 'hardening/h1-1-dependency-ratchets' && github.actor == github.repository_owner
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
