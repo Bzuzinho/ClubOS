@@ -1,0 +1,159 @@
+name: H0.2 Docs Close Patcher
+
+on:
+  push:
+    branches:
+      - docs/h0-2-r2-real-complete
+
+permissions:
+  contents: write
+
+jobs:
+  patch-docs:
+    if: github.event.head_commit.message != 'docs: fechar H0.2 após validação R2 real'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: docs/h0-2-r2-real-complete
+          fetch-depth: 0
+
+      - name: Patch living state and R2 activation evidence
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path('docs/ESTADO_VIVO_DESENVOLVIMENTO.md')
+          text = path.read_text()
+
+          replacements = {
+              '> Estado consolidado em 2026-08-21.': '> Estado consolidado em 2026-08-22.',
+              '| Prontidão operacional | ~74% |': '| Prontidão operacional | ~79% |',
+              '| Infraestrutura / Disaster Recovery | Implementação e E2E validados; off-site real ainda por ativar |': '| Infraestrutura / Disaster Recovery | Concluído operacionalmente: R2 real ativo, backup remoto e restore remoto validados |',
+              '| Base técnica / arquitetura | 86% | H0.1a/H0.1b concluídas. H0.2 está integrado, validado E2E na Oracle VM e tem ativação R2 automatizada preparada; falta criar/configurar o backend R2 real e validar o primeiro ciclo remoto no provider. |': '| Base técnica / arquitetura | 89% | H0.1a/H0.1b/H0.2 concluídas em produção. R2 real ativo com backup cifrado, restore remoto e health estrito validados; ficam apenas hardenings residuais de menor privilégio e Bucket Lock. |',
+              '### H0.2 — Disaster Recovery — implementação e E2E validados; ativação off-site real pendente': '### H0.2 — Disaster Recovery — concluída e validada em produção',
+              'A ativação final do R2 fica automatizada por `.github/workflows/dr-r2-activate.yml` e documentada em `docs/DR_R2_ACTIVATION.md`. O workflow não corre em PRs nem em pushes normais para `main`; é acionado por `workflow_dispatch` ou por push controlado para `ops/h0-2-r2-activate`. Valida todos os secrets, usa SSH pinned, configura o R2, instala os crons, executa o primeiro backup real, faz restore test a partir do objeto remoto e exige health estrito antes de terminar verde.': 'A ativação final do R2 é automatizada por `.github/workflows/dr-r2-activate.yml` e documentada em `docs/DR_R2_ACTIVATION.md`. O workflow não corre em PRs nem em pushes normais para `main`; é acionado por `workflow_dispatch` ou por push controlado para `ops/h0-2-r2-activate`. Valida todos os secrets, usa SSH pinned, configura o R2, prova backup + restore reais antes de instalar os crons/marker e exige health estrito antes de terminar verde.',
+          }
+          for old, new in replacements.items():
+              if old not in text:
+                  raise SystemExit(f'missing expected living-doc fragment: {old[:80]}')
+              text = text.replace(old, new, 1)
+
+          old_block = '''Esta validação prova o pipeline de software ponta a ponta, mas **não substitui a validação num provider off-site real**. A configuração produtiva continua com `dr_enabled=no` até ser criado e ativado o backend remoto.
+
+Falta para fechar H0.2:
+
+- criar/confirmar bucket R2 privado;
+- configurar Bucket Lock por prefixo;
+- criar token S3 limitado ao bucket;
+- configurar os 5 secrets `CLUBOS_DR_*` no GitHub;
+- disparar o workflow de ativação R2;
+- validar primeiro backup off-site cifrado no R2;
+- validar primeiro restore test **a partir do objeto R2**;
+- confirmar `DR Health Monitor` verde com off-site real ativado.
+
+Até essa ativação, os backups locais continuam saudáveis e o pipeline DR está provado E2E, mas produção e os backups persistentes ainda permanecem no mesmo domínio de falha físico.'''
+
+          new_block = '''Validação R2 real concluída em 2026-08-22:
+
+- release ativa exercitada: `547dd6aaacfa69d188258200c8811974d06bdf6e`;
+- token/endpoint/bucket validados por probe S3 com `list_access=ok`, `write_access=ok` e `delete_access=ok`;
+- primeiro arquivo real cifrado: `clubos-prod-20260822T001929Z.tar.gz.gpg`;
+- tamanho cifrado: 2.011.560 bytes;
+- objeto diário real criado no R2 em `daily/2026/08/22/`;
+- restore test executado **a partir do objeto R2 real** numa BD PostgreSQL 17 temporária;
+- restore real R2: 208 tabelas públicas, 214 migrations, 5 ficheiros persistentes e 5 segundos;
+- `dr_enabled=yes`;
+- health estrito: `local_integrity=ok`, `offsite_status=ok`, `restore_test_status=ok`;
+- validação final: `r2_real_validation=ok`;
+- aplicação permaneceu saudável com `/up=200`.
+
+H0.2 fica assim **concluída operacionalmente em produção**. O objetivo de retirar os backups do mesmo domínio de falha físico da VM foi cumprido e existe prova de restauro real a partir do provider externo.
+
+Hardening residual, sem bloquear a conclusão do DR:
+
+- substituir o token atual `Admin Read & Write / All buckets` por `Object Read & Write` limitado exclusivamente ao bucket de backup, mantendo a mesma prova `list/write/delete`;
+- confirmar documentalmente as regras de Bucket Lock por prefixo (`daily`, `weekly`, `monthly`).'''
+          if old_block not in text:
+              raise SystemExit('missing expected H0.2 pending block')
+          text = text.replace(old_block, new_block, 1)
+
+          old_priorities = '''|---:|---|---|
+| 1 | H0.2 | Ativar R2, primeiro backup cifrado remoto, restore test remoto e monitor verde; depois fechar DR. |
+| 2 | H1 | QA transversal + dependency remediation. |
+| 3 | H2 | Família/EE, stock variantes, legacy e rotas modulares. |
+| 4 | H3 | Fecho Desportivo ponta a ponta. |
+| 5 | H4 | Decisão e fecho Fiscal. |
+| 6 | H5 | Loja + Logística lifecycle completo. |
+| 7 | H6 | Comunicação assíncrona e futura integração Redes. |
+| 8 | H7 | Portal/PWA/mobile. |
+| 9 | H8 | Reporting consolidado. |
+| 10 | H9 | Website: header/footer, notícias e polish final. |
+
+Próximo passo: concluir H0.2 ativando o backend off-site real e validando backup + restore a partir do provider. Não iniciar uma feature funcional grande antes desta validação.'''
+          new_priorities = '''|---:|---|---|
+| 1 | H1 | QA transversal + dependency remediation + hardening residual R2 de menor privilégio/Bucket Lock. |
+| 2 | H2 | Família/EE, stock variantes, legacy e rotas modulares. |
+| 3 | H3 | Fecho Desportivo ponta a ponta. |
+| 4 | H4 | Decisão e fecho Fiscal. |
+| 5 | H5 | Loja + Logística lifecycle completo. |
+| 6 | H6 | Comunicação assíncrona e futura integração Redes. |
+| 7 | H7 | Portal/PWA/mobile. |
+| 8 | H8 | Reporting consolidado. |
+| 9 | H9 | Website: header/footer, notícias e polish final. |
+
+Próximo passo: iniciar H1 — QA transversal, dependency remediation e hardening residual de menor privilégio do R2 — antes de regressar a grandes frentes funcionais.'''
+          if old_priorities not in text:
+              raise SystemExit('missing expected priorities block')
+          text = text.replace(old_priorities, new_priorities, 1)
+
+          history_marker = '|---|---|---|---|---|\n'
+          history_row = '| 2026-08-22 | Infraestrutura / DR | H0.2 fechada em produção com Cloudflare R2 real: escrita/leitura/eliminação S3 validadas, primeiro backup cifrado remoto criado, restore PG17 a partir do objeto remoto e health estrito verdes. | PR #200; diagnóstico #201; release `547dd6aaacfa69d188258200c8811974d06bdf6e`; arquivo `clubos-prod-20260822T001929Z.tar.gz.gpg`; restore: 208 tabelas, 214 migrations, 5 s; `r2_real_validation=ok` | H0.2 concluída operacionalmente. Residual: reduzir token a Object Read & Write no bucket e confirmar Bucket Lock. |\n'
+          idx = text.find(history_marker, text.find('## 7. Histórico vivo recente'))
+          if idx == -1:
+              raise SystemExit('history table marker missing')
+          insert_at = idx + len(history_marker)
+          text = text[:insert_at] + history_row + text[insert_at:]
+          path.write_text(text)
+
+          activation = Path('docs/DR_R2_ACTIVATION.md')
+          atext = activation.read_text()
+          evidence = '''
+
+## Evidência de ativação real — 2026-08-22
+
+A primeira ativação com o token inicial chegou ao R2 mas falhou no upload com `403 AccessDenied`. O probe isolou a causa: `list_access=ok`, `write_access=failed`. Depois de corrigida a permissão do token, a prova passou com:
+
+```text
+list_access=ok
+write_access=ok
+delete_access=ok
+dr_enabled=yes
+local_integrity=ok
+offsite_status=ok
+restore_test_status=ok
+r2_real_validation=ok
+```
+
+Primeiro objeto real validado:
+
+```text
+clubos-prod-20260822T001929Z.tar.gz.gpg
+```
+
+O restore foi executado a partir desse objeto real numa BD PostgreSQL 17 temporária e confirmou 208 tabelas públicas, 214 migrations, 5 ficheiros persistentes e 5 segundos de restore. A aplicação manteve `/up=200`.
+
+H0.2 fica concluída operacionalmente. Recomenda-se como hardening adicional reduzir o token R2 a `Object Read & Write` limitado ao bucket de backup e manter/confirmar Bucket Lock por prefixo.
+'''
+          if '## Evidência de ativação real — 2026-08-22' not in atext:
+              activation.write_text(atext.rstrip() + evidence)
+
+      - name: Commit documentation
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'Bzuzinho'
+          git config user.email 'ricardo.jgvf@gmail.com'
+          git add docs/ESTADO_VIVO_DESENVOLVIMENTO.md docs/DR_R2_ACTIVATION.md
+          git commit -m 'docs: fechar H0.2 após validação R2 real'
+          git push origin HEAD:docs/h0-2-r2-real-complete
