@@ -1,0 +1,84 @@
+name: H0.2 R2 Permission Probe
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  probe-r2:
+    if: github.head_ref == 'diag/h0-2-r2-real-validation'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      VM_USER: ${{ secrets.ORACLE_VM_USER }}
+      VM_HOST: ${{ secrets.ORACLE_VM_HOST }}
+      VM_KNOWN_HOSTS: ${{ secrets.ORACLE_VM_KNOWN_HOSTS }}
+    steps:
+      - name: Configure pinned SSH
+        shell: bash
+        env:
+          ORACLE_VM_SSH_KEY: ${{ secrets.ORACLE_VM_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p "${HOME}/.ssh"
+          chmod 700 "${HOME}/.ssh"
+          printf '%s\n' "${ORACLE_VM_SSH_KEY}" | tr -d '\r' > "${HOME}/.ssh/id_ed25519"
+          chmod 600 "${HOME}/.ssh/id_ed25519"
+          printf '%s\n' "${VM_KNOWN_HOSTS}" | tr -d '\r' > "${HOME}/.ssh/known_hosts"
+          chmod 644 "${HOME}/.ssh/known_hosts"
+
+      - name: Probe R2 read write delete permissions
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh \
+            -o BatchMode=yes \
+            -o ConnectTimeout=15 \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="${HOME}/.ssh/known_hosts" \
+            "${VM_USER}@${VM_HOST}" \
+            "sudo bash -s" <<'REMOTE'
+          set -Eeuo pipefail
+          config='/etc/clubos-dr/dr.env'
+          [[ -s "${config}" ]] || { echo 'dr_config=missing'; exit 1; }
+          set -a
+          source "${config}"
+          set +a
+          command -v rclone >/dev/null 2>&1 || { echo 'rclone=missing'; exit 1; }
+
+          echo 'dr_config=present'
+          echo 'probe=list'
+          if rclone lsf "${DR_REMOTE_BASE}" --max-depth 1 >/tmp/clubos-r2-probe-list.out 2>/tmp/clubos-r2-probe-list.err; then
+            echo 'list_access=ok'
+          else
+            echo 'list_access=failed'
+            sed -E 's#r2:[^ ]+#r2:[MASKED]#g' /tmp/clubos-r2-probe-list.err | tail -n 5
+          fi
+          rm -f /tmp/clubos-r2-probe-list.out /tmp/clubos-r2-probe-list.err
+
+          probe="${DR_REMOTE_BASE}/.clubos-probe/probe-$(date +%s)-$$.txt"
+          probe_file="$(mktemp /tmp/clubos-r2-probe.XXXXXX)"
+          printf 'clubos-r2-permission-probe\n' > "${probe_file}"
+          chmod 600 "${probe_file}"
+          trap 'rm -f "${probe_file}"' EXIT
+
+          echo 'probe=write'
+          if rclone copyto "${probe_file}" "${probe}" --no-traverse --retries 1 --low-level-retries 1 >/tmp/clubos-r2-probe-write.out 2>/tmp/clubos-r2-probe-write.err; then
+            echo 'write_access=ok'
+            echo 'probe=delete'
+            if rclone deletefile "${probe}" >/tmp/clubos-r2-probe-delete.out 2>/tmp/clubos-r2-probe-delete.err; then
+              echo 'delete_access=ok'
+            else
+              echo 'delete_access=failed'
+              sed -E 's#r2:[^ ]+#r2:[MASKED]#g' /tmp/clubos-r2-probe-delete.err | tail -n 5
+            fi
+          else
+            echo 'write_access=failed'
+            sed -E 's#r2:[^ ]+#r2:[MASKED]#g' /tmp/clubos-r2-probe-write.err | tail -n 5
+          fi
+          rm -f /tmp/clubos-r2-probe-write.out /tmp/clubos-r2-probe-write.err /tmp/clubos-r2-probe-delete.out /tmp/clubos-r2-probe-delete.err
+          REMOTE
