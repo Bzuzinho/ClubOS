@@ -1,0 +1,85 @@
+name: H0.2 R2 Real Production Validation
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  validate-real-r2:
+    if: github.head_ref == 'diag/h0-2-r2-real-validation'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      VM_USER: ${{ secrets.ORACLE_VM_USER }}
+      VM_HOST: ${{ secrets.ORACLE_VM_HOST }}
+      VM_APP_DIR: ${{ secrets.ORACLE_VM_APP_DIR }}
+      VM_KNOWN_HOSTS: ${{ secrets.ORACLE_VM_KNOWN_HOSTS }}
+    steps:
+      - name: Configure pinned SSH
+        shell: bash
+        env:
+          ORACLE_VM_SSH_KEY: ${{ secrets.ORACLE_VM_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p "${HOME}/.ssh"
+          chmod 700 "${HOME}/.ssh"
+          printf '%s\n' "${ORACLE_VM_SSH_KEY}" | tr -d '\r' > "${HOME}/.ssh/id_ed25519"
+          chmod 600 "${HOME}/.ssh/id_ed25519"
+          printf '%s\n' "${VM_KNOWN_HOSTS}" | tr -d '\r' > "${HOME}/.ssh/known_hosts"
+          chmod 644 "${HOME}/.ssh/known_hosts"
+          ssh-keygen -F "${VM_HOST}" -f "${HOME}/.ssh/known_hosts" >/dev/null
+
+      - name: Wait for real R2 activation and validate DR
+        shell: bash
+        run: |
+          set -euo pipefail
+          report="${GITHUB_WORKSPACE}/h0-2-r2-real-validation.txt"
+          ssh \
+            -o BatchMode=yes \
+            -o ConnectTimeout=15 \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=6 \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="${HOME}/.ssh/known_hosts" \
+            "${VM_USER}@${VM_HOST}" \
+            "APP_DIR='${VM_APP_DIR}' bash -s" <<'REMOTE' | tee "${report}"
+          set -Eeuo pipefail
+          echo "timestamp=$(date -Is)"
+          echo "release_sha=$(sed -n 's/^commit_sha=//p' "${APP_DIR}/.clubos-release" 2>/dev/null || true)"
+          echo "health=$(curl -ksS -o /dev/null -w '%{http_code}' https://127.0.0.1/up -H 'Host: bscn.pt')"
+
+          for _ in $(seq 1 120); do
+            if sudo test -s /var/lib/clubos-dr/enabled \
+              && sudo test -s /var/lib/clubos-dr/last-offsite-success \
+              && sudo test -s /var/lib/clubos-dr/last-restore-test-success; then
+              break
+            fi
+            sleep 10
+          done
+
+          sudo test -s /var/lib/clubos-dr/enabled || { echo 'dr_enabled=no'; exit 1; }
+          sudo test -s /var/lib/clubos-dr/last-offsite-success || { echo 'last_offsite_success=missing'; exit 1; }
+          sudo test -s /var/lib/clubos-dr/last-restore-test-success || { echo 'last_restore_test_success=missing'; exit 1; }
+
+          echo 'dr_enabled=yes'
+          echo '--- last offsite success ---'
+          sudo cat /var/lib/clubos-dr/last-offsite-success
+          echo '--- last restore test success ---'
+          sudo cat /var/lib/clubos-dr/last-restore-test-success
+          echo '--- strict DR health ---'
+          sudo bash "${APP_DIR}/scripts/ops/dr/check-dr-health.sh"
+          echo 'r2_real_validation=ok'
+          REMOTE
+
+      - name: Upload validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: h0-2-r2-real-validation-${{ github.sha }}
+          path: h0-2-r2-real-validation.txt
+          if-no-files-found: warn
+          retention-days: 30
