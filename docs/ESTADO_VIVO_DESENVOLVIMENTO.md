@@ -247,7 +247,7 @@ Hardening residual, a tratar em H1 sem reabrir H0.2:
 
 ## 5. H1 — QA transversal e dependency remediation
 
-### H1.1 — Remediação compatível + ratchets — em validação na PR #205
+### H1.1 — Remediação compatível + ratchets — validada na CI #720 / PR #205
 
 Baseline medido na PR de diagnóstico #203:
 
@@ -314,7 +314,7 @@ Próximo passo: concluir H1.1 e reduzir as exceções explicitamente controladas
 
 | Data | Módulo | Desenvolvimento / análise | Evidência | Estado / pendências |
 |---|---|---|---|---|
-| 2026-08-22 | QA / Dependências | H1.1 mediu baseline Composer/npm/TypeScript, provou remediação compatível e introduziu ratchets anti-regressão. | PRs diagnóstico #203/#204; PR #205; `docs/qa/H1_BASELINE.md`; `scripts/qa/*`; `qa/baselines/typescript.json` | Em validação final. Residual controlado: 3 advisories Laravel 11, 1 high `xlsx`, 132 erros TS/55 ficheiros. |
+| 2026-08-22 | QA / Dependências | H1.1 mediu baseline Composer/npm/TypeScript, provou remediação compatível e introduziu ratchets anti-regressão. | PRs diagnóstico #203/#204; PR #205; `docs/qa/H1_BASELINE.md`; `scripts/qa/*`; `qa/baselines/typescript.json` | CI #720 totalmente verde. Residual controlado: 3 advisories Laravel 11, 1 high `xlsx`, 132 erros TS/55 ficheiros. |
 | 2026-08-22 | Infraestrutura / DR | H0.2 fechada em produção com Cloudflare R2 real: escrita/leitura/eliminação S3 validadas, primeiro backup cifrado remoto criado, restore PG17 a partir do objeto remoto e health estrito verdes. | PR #200; diagnóstico #201; release `547dd6aaacfa69d188258200c8811974d06bdf6e`; arquivo `clubos-prod-20260822T001929Z.tar.gz.gpg`; restore 208 tabelas/214 migrations/5 s; `r2_real_validation=ok` | H0.2 concluída operacionalmente. Residual H1: token de menor privilégio e confirmação Bucket Lock. |
 | 2026-08-22 | Infraestrutura / DR | Automatizado o bootstrap produtivo R2 com secrets, SSH pinned, prova backup+restore antes de ativar cron/marker e health estrito. | PR #200; `.github/workflows/dr-r2-activate.yml`; `docs/DR_R2_ACTIVATION.md` | Integrado em `main` e usado com sucesso na ativação real. |
 | 2026-08-21 | Infraestrutura / DR | E2E de software fechado com remote efémero; regressões Bash e permissões de restore corrigidas antes do provider real. | PRs #191/#193/#194/#196; E2E 208 tabelas, 214 migrations, 14 s | Validado e posteriormente confirmado contra R2 real. |
