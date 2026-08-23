@@ -169,7 +169,7 @@ export default function CommunicationsTab({
     ownerLabel,
     context = 'member',
 }: Props) {
-    const { auth } = usePage<PageProps>().props;
+    const { auth } = usePage<PageProps & Record<string, unknown>>().props;
     const currentUserId = auth.user ? String(auth.user.id) : null;
     const [folder, setFolder] = useState<MailboxFolder>(initialFolder);
     const [viewedItem, setViewedItem] = useState<CommunicationItem | null>(null);

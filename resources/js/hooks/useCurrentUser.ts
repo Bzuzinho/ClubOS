@@ -24,7 +24,7 @@ interface PageProps {
  * }
  */
 export function useCurrentUser(): AuthUser | null {
-  const { auth } = usePage<PageProps>().props;
+  const { auth } = usePage<PageProps & Record<string, unknown>>().props;
   return auth?.user || null;
 }
 

@@ -64,7 +64,7 @@ interface PageProps {
 }
 
 export default function Dashboard({ stats, recentEvents = [], recentActivity = [], minorsWithoutGuardian }: Props) {
-    const { communicationAlerts } = usePage<PageProps>().props;
+    const { communicationAlerts } = usePage<PageProps & Record<string, unknown>>().props;
     // Validação de dados
     const toNumber = (value: unknown, fallback = 0) => {
         if (typeof value === 'number' && !Number.isNaN(value)) return value;
