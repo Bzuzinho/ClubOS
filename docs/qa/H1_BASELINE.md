@@ -78,18 +78,21 @@ O baseline inicial foi versionado em `qa/baselines/typescript.json` com 132 erro
 Evolução validada:
 
 - H1.4: 132 erros / 55 ficheiros → 123 erros / 51 ficheiros;
-- H1.5: 123 erros / 51 ficheiros → 101 erros / 51 ficheiros, ao declarar explicitamente o contrato global `Channel` usado pelo módulo Comunicação.
+- H1.5: 123 erros / 51 ficheiros → 101 erros / 51 ficheiros, ao declarar explicitamente o contrato global `Channel` usado pelo módulo Comunicação;
+- H1.6: 101 erros / 51 ficheiros → 88 erros / 44 ficheiros, removendo um barrel desportivo obsoleto que exportava sete tabs já eliminadas e seis componentes UI órfãos sem consumidores runtime (`carousel`, `drawer`, `form`, `resizable`, `sonner` e `sidebar`).
+
+O ratchet passa também a imprimir no CI os ficheiros e códigos de erro com maior concentração, para orientar os próximos lotes sem alterar a regra de bloqueio.
 
 Teto atual versionado:
 
-- máximo 101 erros;
-- máximo 51 ficheiros afetados.
+- máximo 88 erros;
+- máximo 44 ficheiros afetados.
 
 O CI falha se qualquer destes limites aumentar. Uma redução futura tem obrigatoriamente de baixar novamente o baseline no mesmo PR para impedir regressão.
 
 ## Pendências H1
 
-1. Reduzir progressivamente os 101 erros TypeScript restantes por domínio funcional.
+1. Reduzir progressivamente os 88 erros TypeScript restantes por domínio funcional; o maior ficheiro isolado continua a ser `Financeiro/BancoTab.tsx`, mas alterações nesse fluxo devem ser tratadas em lote próprio por ser financeiramente crítico.
 2. Planear Laravel 12+ para remover os 3 advisories residuais do framework.
 3. Substituir/migrar `xlsx` preservando o importador de membros.
 4. Reduzir o token R2 para `Object Read & Write` limitado ao bucket de backup e confirmar Bucket Lock.

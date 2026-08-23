@@ -26,19 +26,44 @@ const output = `${result.stdout ?? ''}${result.stderr ?? ''}`;
 const lines = output.split(/\r?\n/).filter(Boolean);
 const errorLines = lines.filter((line) => /error TS\d+:/.test(line));
 const affectedFiles = new Set();
+const errorsByFile = new Map();
+const errorsByCode = new Map();
+
+const increment = (map, key) => {
+  map.set(key, (map.get(key) ?? 0) + 1);
+};
 
 for (const line of errorLines) {
-  const match = line.match(/^(.+?)\(\d+,\d+\):\s+error TS\d+:/);
+  const match = line.match(/^(.+?)\(\d+,\d+\):\s+error TS(\d+):/);
   if (match) {
-    affectedFiles.add(match[1]);
+    const [, file, code] = match;
+    affectedFiles.add(file);
+    increment(errorsByFile, file);
+    increment(errorsByCode, `TS${code}`);
   }
 }
 
 const errorCount = errorLines.length;
 const affectedFileCount = affectedFiles.size;
+const rankedFiles = [...errorsByFile.entries()]
+  .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]));
+const rankedCodes = [...errorsByCode.entries()]
+  .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]));
 
 console.log(`TypeScript ratchet: ${errorCount} error(s) across ${affectedFileCount} file(s).`);
 console.log(`Baseline ceiling: ${baseline.max_errors} error(s) across ${baseline.max_affected_files} file(s).`);
+
+if (errorCount > 0) {
+  console.log('Top TypeScript error files:');
+  for (const [file, count] of rankedFiles.slice(0, 15)) {
+    console.log(`  ${count}\t${file}`);
+  }
+
+  console.log('Top TypeScript error codes:');
+  for (const [code, count] of rankedCodes.slice(0, 10)) {
+    console.log(`  ${count}\t${code}`);
+  }
+}
 
 if (result.status === 0) {
   if (errorCount !== 0) {
