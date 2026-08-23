@@ -59,7 +59,7 @@ export interface CommunicationMemberOption {
 }
 
 export type PageProps<
-    T extends Record<string, unknown> = Record<string, unknown>,
+    T extends object = Record<string, unknown>,
 > = T & {
     [key: string]: unknown;
     auth: {
