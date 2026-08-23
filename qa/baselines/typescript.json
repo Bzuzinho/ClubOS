@@ -1,5 +1,5 @@
 {
   "contract": "clubos-typescript-baseline-v1",
-  "max_errors": 123,
+  "max_errors": 101,
   "max_affected_files": 51
 }

@@ -73,16 +73,23 @@ Se surgir uma correção npm para `xlsx`, o ratchet falha para forçar a remoç�
 
 ### TypeScript
 
-O baseline inicial é versionado em `qa/baselines/typescript.json`:
+O baseline inicial foi versionado em `qa/baselines/typescript.json` com 132 erros / 55 ficheiros. O ratchet é descendente: sempre que uma alteração reduz a dívida, o teto tem de ser apertado no mesmo PR.
 
-- máximo 132 erros;
-- máximo 55 ficheiros afetados.
+Evolução validada:
 
-O CI falha se qualquer destes limites aumentar. Quando uma sprint reduzir a dívida, o baseline deve ser reduzido no mesmo PR para impedir regressão futura.
+- H1.4: 132 erros / 55 ficheiros → 123 erros / 51 ficheiros;
+- H1.5: 123 erros / 51 ficheiros → 101 erros / 51 ficheiros, ao declarar explicitamente o contrato global `Channel` usado pelo módulo Comunicação.
+
+Teto atual versionado:
+
+- máximo 101 erros;
+- máximo 51 ficheiros afetados.
+
+O CI falha se qualquer destes limites aumentar. Uma redução futura tem obrigatoriamente de baixar novamente o baseline no mesmo PR para impedir regressão.
 
 ## Pendências H1
 
-1. Reduzir progressivamente os 132 erros TypeScript por domínio funcional.
+1. Reduzir progressivamente os 101 erros TypeScript restantes por domínio funcional.
 2. Planear Laravel 12+ para remover os 3 advisories residuais do framework.
 3. Substituir/migrar `xlsx` preservando o importador de membros.
 4. Reduzir o token R2 para `Object Read & Write` limitado ao bucket de backup e confirmar Bucket Lock.
