@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 
 const baselinePath = new URL('../../qa/baselines/typescript.json', import.meta.url);
@@ -45,27 +45,39 @@ for (const line of errorLines) {
 
 const errorCount = errorLines.length;
 const affectedFileCount = affectedFiles.size;
+const rankedFiles = [...errorsByFile.entries()]
+  .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]));
+const rankedCodes = [...errorsByCode.entries()]
+  .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]));
 
 console.log(`TypeScript ratchet: ${errorCount} error(s) across ${affectedFileCount} file(s).`);
 console.log(`Baseline ceiling: ${baseline.max_errors} error(s) across ${baseline.max_affected_files} file(s).`);
 
 if (errorCount > 0) {
-  const rankedFiles = [...errorsByFile.entries()]
-    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
-    .slice(0, 15);
-  const rankedCodes = [...errorsByCode.entries()]
-    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
-    .slice(0, 10);
-
   console.log('Top TypeScript error files:');
-  for (const [file, count] of rankedFiles) {
+  for (const [file, count] of rankedFiles.slice(0, 15)) {
     console.log(`  ${count}\t${file}`);
   }
 
   console.log('Top TypeScript error codes:');
-  for (const [code, count] of rankedCodes) {
+  for (const [code, count] of rankedCodes.slice(0, 10)) {
     console.log(`  ${count}\t${code}`);
   }
+}
+
+if (process.env.TYPECHECK_REPORT_PATH) {
+  writeFileSync(
+    process.env.TYPECHECK_REPORT_PATH,
+    `${JSON.stringify({
+      contract: 'clubos-typescript-diagnostics-v1',
+      error_count: errorCount,
+      affected_file_count: affectedFileCount,
+      errors_by_file: rankedFiles.map(([file, count]) => ({ file, count })),
+      errors_by_code: rankedCodes.map(([code, count]) => ({ code, count })),
+      diagnostics: errorLines,
+    }, null, 2)}\n`,
+    'utf8',
+  );
 }
 
 if (result.status === 0) {
