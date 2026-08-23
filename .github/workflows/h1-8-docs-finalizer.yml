@@ -1,0 +1,104 @@
+name: H1.8 Docs Finalizer
+
+on:
+  pull_request:
+
+permissions:
+  contents: write
+
+jobs:
+  finalize-docs:
+    if: github.head_ref == 'cleanup/h1-8-typescript-low-risk'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.head_ref }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Finalize living development state
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('docs/ESTADO_VIVO_DESENVOLVIMENTO.md')
+          text = path.read_text()
+
+          def one(before: str, after: str) -> None:
+              global text
+              count = text.count(before)
+              if count != 1:
+                  raise SystemExit(f'Expected exactly one occurrence, got {count}: {before[:120]!r}')
+              text = text.replace(before, after, 1)
+
+          one(
+              'H1.1/H1.2/H1.3/H1.4/H1.5/H1.6/H1.7 concluídas; baseline TypeScript apertado de 132 erros / 55 ficheiros para 66 erros / 27 ficheiros',
+              'H1.1/H1.2/H1.3/H1.4/H1.5/H1.6/H1.7/H1.8 concluídas; baseline TypeScript apertado de 132 erros / 55 ficheiros para 53 erros / 21 ficheiros',
+          )
+          one(
+              'TypeScript residual em ratchet descendente (66 erros / 27 ficheiros após H1.7)',
+              'TypeScript residual em ratchet descendente (53 erros / 21 ficheiros após H1.8)',
+          )
+          one(
+              'A H1.4 iniciou o paydown TypeScript e reduziu a dívida para 123 erros / 51 ficheiros; a H1.5 normalizou o contrato global `Channel` e reduziu-a para 101/51; a H1.6 removeu superfícies frontend órfãs e reduziu-a para 88/44; a H1.7 consolidou o contrato `PageProps` do Inertia e reduziu-a para 66/27.',
+              'A H1.4 iniciou o paydown TypeScript e reduziu a dívida para 123 erros / 51 ficheiros; a H1.5 normalizou o contrato global `Channel` e reduziu-a para 101/51; a H1.6 removeu superfícies frontend órfãs e reduziu-a para 88/44; a H1.7 consolidou o contrato `PageProps` do Inertia e reduziu-a para 66/27; a H1.8 normalizou `router.reload()` e compatibilidade ES2020, reduzindo-a para 53/21.',
+          )
+
+          marker = '### Pendências H1\n'
+          if text.count(marker) != 1:
+              raise SystemExit(f'Expected one Pendências H1 marker, got {text.count(marker)}')
+          section = '''### H1.8 — Normalização de reload Inertia e compatibilidade ES2020 — validada na CI #769 / PR #215
+
+- remoção de opções redundantes `preserveState` / `preserveScroll` dos `router.reload()`, já implícitas pelo Inertia, sem alteração de comportamento;
+- substituição de duas utilizações de `replaceAll('_', ' ')` por `split('_').join(' ')`, compatível com o target TypeScript atual e semanticamente equivalente;
+- correção estritamente de tipagem na inferência `badgeVariant` de Comunicação e no estado `MemberTab`;
+- `Financeiro/BancoTab.tsx` ficou explicitamente fora deste lote e mantém os mesmos 16 diagnósticos;
+- `tsc --noEmit`: `66 erros / 27 ficheiros` → `53 erros / 21 ficheiros`;
+- `qa/baselines/typescript.json` apertado para `53 / 21`;
+- CI #769 integral verde: ratchet TypeScript, build Vite, PHPUnit, legacy-read guard e PostgreSQL concurrency.
+
+'''
+          text = text.replace(marker, section + marker, 1)
+
+          one(
+              '1. Continuar paydown TypeScript a partir de 66 erros / 27 ficheiros, agora com o contrato Inertia normalizado; o maior ficheiro isolado é `resources/js/Pages/Financeiro/BancoTab.tsx` com 16 erros e deve ser tratado como lote separado por ser fluxo financeiro crítico.',
+              '1. Continuar paydown TypeScript a partir de 53 erros / 21 ficheiros; o maior ficheiro isolado é `resources/js/Pages/Financeiro/BancoTab.tsx` com 16 erros e deve ser tratado como lote separado por ser fluxo financeiro crítico.',
+          )
+          one(
+              '| H1 — Dependências / TypeScript / QA | ✅ H1.1–H1.7 concluídas | advisories reduzidos e protegidos por ratchet; TypeScript 132/55 → 123/51 → 101/51 → 88/44 → 66/27; CI principal e Postgres dedicada verdes |',
+              '| H1 — Dependências / TypeScript / QA | ✅ H1.1–H1.8 concluídas | advisories reduzidos e protegidos por ratchet; TypeScript 132/55 → 123/51 → 101/51 → 88/44 → 66/27 → 53/21; CI principal e Postgres dedicada verdes |',
+          )
+          one(
+              '1. **Paydown TypeScript** — continuar a partir do baseline `66 erros / 27 ficheiros`, agora sem a dívida transversal do `PageProps`; atacar os maiores clusters restantes por domínio e manter o baseline descendente.',
+              '1. **Paydown TypeScript** — continuar a partir do baseline `53 erros / 21 ficheiros`, após normalização de `PageProps`, `router.reload()` e compatibilidade ES2020; atacar os maiores clusters restantes por domínio e manter o baseline descendente.',
+          )
+          one(
+              'TypeScript inicial: **132 erros / 55 ficheiros** → H1.4 **123/51** → H1.5 **101/51** → H1.6 **88/44** → H1.7 **66/27**.',
+              'TypeScript inicial: **132 erros / 55 ficheiros** → H1.4 **123/51** → H1.5 **101/51** → H1.6 **88/44** → H1.7 **66/27** → H1.8 **53/21**.',
+          )
+
+          log_marker = '| 2026-08-24 | H1.7 TypeScript contracts'
+          if text.count(log_marker) != 1:
+              raise SystemExit(f'Expected one H1.7 log marker, got {text.count(log_marker)}')
+          log_row = '| 2026-08-24 | H1.8 TypeScript low-risk — PR #215 normalizou `router.reload()`, compatibilidade ES2020 e inferências locais sem alterar runtime; `BancoTab.tsx` ficou fora do lote | CI #769 integral verde; TypeScript `66/27 → 53/21`; build Vite, PHPUnit, legacy-read guard e PostgreSQL concurrency verdes |\n'
+          text = text.replace(log_marker, log_row + log_marker, 1)
+
+          path.write_text(text)
+          PY
+
+          git diff --check
+
+      - name: Remove temporary finalizer
+        run: git rm -f .github/workflows/h1-8-docs-finalizer.yml
+
+      - name: Commit living-state update
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add docs/ESTADO_VIVO_DESENVOLVIMENTO.md .github/workflows
+          git diff --cached --check
+          git commit -m 'docs: consolidar H1.8 no estado vivo'
+          git push origin HEAD:${{ github.head_ref }}
