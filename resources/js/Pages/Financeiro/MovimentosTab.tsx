@@ -80,7 +80,6 @@ export function MovimentosTab({
   const refreshMovimentos = () => {
     router.reload({
       only: ['movimentos', 'movimentosFinanceiros', 'movimentoItens', 'lancamentos', 'extratos', 'fiscalRequests'],
-      preserveScroll: true,
     });
   };
   const scrollableSelectContentClassName = 'max-h-72 overflow-y-auto';

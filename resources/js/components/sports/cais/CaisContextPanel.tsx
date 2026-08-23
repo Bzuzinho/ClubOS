@@ -33,7 +33,7 @@ export function CaisContextPanel({ session }: { session: SelectedSession }) {
           </TabsContent>
           <TabsContent value="ocorrencias" className="mt-2 space-y-2">
             {session.occurrences.length === 0 ? <p className="py-6 text-center text-xs text-muted-foreground">Sem ocorrências registadas.</p> : session.occurrences.map((item) => (
-              <div key={item.id} className="rounded-md border p-2 text-xs"><b>{item.type.replaceAll('_', ' ')}</b><p className="mt-1 text-[11px] text-muted-foreground">{item.reason}</p></div>
+              <div key={item.id} className="rounded-md border p-2 text-xs"><b>{item.type.split('_').join(' ')}</b><p className="mt-1 text-[11px] text-muted-foreground">{item.reason}</p></div>
             ))}
           </TabsContent>
           <TabsContent value="notas" className="mt-2"><p className="text-xs text-muted-foreground">Notas individuais são registadas no atleta através de + Registo.</p></TabsContent>

@@ -217,7 +217,7 @@ const BASE_CHANNEL_CONFIG = SEGMENT_CHANNEL_CONFIG.map((item) => ({
 
 const channelLabel = (channel: Channel) => CHANNELS.find((item) => item.value === channel)?.label || channel;
 const alertCategoryLabel = (categories: Array<{ value: string; label: string }>, code?: string | null) => categories.find((item) => item.value === code)?.label || code || '-';
-const userTypeLabel = (value: string) => value.replaceAll('_', ' ');
+const userTypeLabel = (value: string) => value.split('_').join(' ');
 const deliveryStatusTone = (
   campaignStatus: CampaignStatus,
   delivery?: { status: DeliveryRow['status']; failed_count: number; success_count: number } | null,
@@ -1167,7 +1167,14 @@ export default function ComunicacaoIndex({
       return [];
     }
 
-    const sections = [
+    const sections: Array<{
+      key: string;
+      title: string;
+      description: string;
+      statuses: CampaignStatus[];
+      badgeVariant: 'outline' | 'secondary' | 'default' | 'destructive';
+      items: typeof campaignsData;
+    }> = [
       {
         key: 'agendados',
         title: 'Envios agendados',
@@ -1229,8 +1236,6 @@ export default function ComunicacaoIndex({
     setLoadingTab(activeTab);
     router.reload({
       only: pending.props,
-      preserveState: true,
-      preserveScroll: true,
       onFinish: () => setLoadingTab((current) => (current === activeTab ? null : current)),
     });
   }, [activeTab, hasCampaigns, hasDeliveries, hasFilterOptions, hasSegments, hasTemplates]);
@@ -1244,8 +1249,6 @@ export default function ComunicacaoIndex({
 
     router.reload({
       only: ['filterOptions'],
-      preserveState: true,
-      preserveScroll: true,
     });
   }, [hasFilterOptions, showCampaignModal, showDirectModal, showSegmentModal, showTemplateModal]);
 
@@ -1257,8 +1260,6 @@ export default function ComunicacaoIndex({
     setLoadingRecipients(true);
     router.reload({
       only: ['recipientOptions'],
-      preserveState: true,
-      preserveScroll: true,
       onFinish: () => setLoadingRecipients(false),
     });
   }, [hasFilterOptions, hasRecipientOptions, loadingRecipients, showDirectModal]);
