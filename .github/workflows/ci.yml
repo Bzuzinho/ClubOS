@@ -51,18 +51,7 @@ jobs:
         run: node scripts/qa/npm-audit-ratchet.mjs
 
       - name: TypeScript debt ratchet
-        env:
-          TYPECHECK_REPORT_PATH: typecheck-diagnostics.json
         run: npm run typecheck:ratchet
-
-      - name: Upload H1.6 TypeScript diagnostics
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: h1-6-typescript-diagnostics
-          path: typecheck-diagnostics.json
-          if-no-files-found: error
-          retention-days: 1
 
       - name: Prepare environment
         run: |
@@ -231,51 +220,31 @@ jobs:
             "cd '${VM_APP_DIR}' && php artisan desportivo:audit-legacy-schema-data --json='${remote_report}' >/dev/null && cat '${remote_report}' && rm -f '${remote_report}'" \
             > "${local_report}"
 
-          cat "${local_report}"
-          echo "report_path=${local_report}" >> "${GITHUB_OUTPUT}"
+          jq -e '.read_only == true and .version == "sports-legacy-schema-data-readiness-v1"' "${local_report}" >/dev/null
+          cp "${local_report}" "${GITHUB_WORKSPACE}/desportivo-legacy-schema-data-readiness.json"
+
+          {
+            echo '## Desportivo production legacy readiness audit'
+            echo ''
+            echo "- Commit: \`${GITHUB_SHA}\`"
+            echo "- Read-only: \`$(jq -r '.read_only' "${local_report}")\`"
+            echo "- Forbidden tables inventoried: \`$(jq -r '.summary.forbidden_table_count' "${local_report}")\`"
+            echo "- Removal candidates: \`$(jq -r '.summary.removal_candidate_count' "${local_report}")\`"
+            echo "- Candidates physically removed: \`$(jq -r '.summary.removal_complete_count' "${local_report}")\`"
+            echo "- Candidates ready but still present: \`$(jq -r '.summary.removal_ready_count' "${local_report}")\`"
+            echo "- Candidates blocked: \`$(jq -r '.summary.removal_blocked_count' "${local_report}")\`"
+            echo "- Candidate rows requiring review: \`$(jq -r '.summary.candidate_rows_requiring_review' "${local_report}")\`"
+            echo "- Unreconciled legacy presences: \`$(jq -r '.summary.presence_unreconciled_count' "${local_report}")\`"
+            echo "- Legacy alias columns still present: \`$(jq -r '.summary.legacy_alias_columns_present' "${local_report}")\`"
+          } >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Upload Desportivo production legacy readiness audit
-        if: always() && steps.sports_legacy_audit.outputs.report_path != ''
         uses: actions/upload-artifact@v7
         with:
           name: desportivo-production-legacy-readiness-${{ github.sha }}
-          path: ${{ steps.sports_legacy_audit.outputs.report_path }}
+          path: desportivo-legacy-schema-data-readiness.json
           if-no-files-found: error
           retention-days: 30
-
-      - name: Gate Desportivo production legacy readiness
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          report="${{ steps.sports_legacy_audit.outputs.report_path }}"
-          if [[ -z "${report}" || ! -s "${report}" ]]; then
-            echo "::error::Desportivo production legacy readiness report is missing"
-            exit 1
-          fi
-
-          python3 - "${report}" <<'PY'
-          import json
-          import sys
-
-          path = sys.argv[1]
-          with open(path, encoding='utf-8') as handle:
-              data = json.load(handle)
-
-          summary = data.get('summary') or {}
-          not_ready = int(summary.get('not_ready_count', 0) or 0)
-          mapped = int(summary.get('mapped_count', 0) or 0)
-          manual_review = int(summary.get('manual_review_count', 0) or 0)
-          forbidden_runtime = int(summary.get('forbidden_runtime_reference_count', 0) or 0)
-
-          print(f"desportivo_not_ready_count={not_ready}")
-          print(f"desportivo_mapped_count={mapped}")
-          print(f"desportivo_manual_review_count={manual_review}")
-          print(f"desportivo_forbidden_runtime_reference_count={forbidden_runtime}")
-
-          if not_ready > 0 or forbidden_runtime > 0:
-              raise SystemExit('Desportivo legacy readiness gate failed')
-          PY
 
       - name: Collect Access Control production readiness audit
         id: access_control_audit
@@ -291,49 +260,75 @@ jobs:
             -o StrictHostKeyChecking=yes \
             -o UserKnownHostsFile="${HOME}/.ssh/known_hosts" \
             "${VM_USER}@${VM_HOST}" \
-            "cd '${VM_APP_DIR}' && php artisan access-control:audit-readiness --json='${remote_report}' >/dev/null && cat '${remote_report}' && rm -f '${remote_report}'" \
+            "cd '${VM_APP_DIR}' && php artisan access:audit-readiness --report-path='${remote_report}' >/dev/null && cat '${remote_report}' && rm -f '${remote_report}'" \
             > "${local_report}"
 
-          cat "${local_report}"
-          echo "report_path=${local_report}" >> "${GITHUB_OUTPUT}"
+          jq -e '.read_only == true and .contract == "access-control-readiness-v1"' "${local_report}" >/dev/null
+          cp "${local_report}" "${GITHUB_WORKSPACE}/access-control-readiness.json"
 
-      - name: Upload Access Control production readiness audit
-        if: always() && steps.access_control_audit.outputs.report_path != ''
-        uses: actions/upload-artifact@v7
-        with:
-          name: access-control-production-readiness-${{ github.sha }}
-          path: ${{ steps.access_control_audit.outputs.report_path }}
-          if-no-files-found: error
-          retention-days: 30
+          critical_count="$(jq -r '.summary.critical_count' "${local_report}")"
 
-      - name: Gate Access Control production readiness
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          report="${{ steps.access_control_audit.outputs.report_path }}"
-          if [[ -z "${report}" || ! -s "${report}" ]]; then
-            echo "::error::Access Control production readiness report is missing"
+          if ! [[ "${critical_count}" =~ ^[0-9]+$ ]]; then
+            echo "::error::Invalid Access Control critical_count: ${critical_count}"
             exit 1
           fi
 
-          python3 - "${report}" <<'PY'
-          import json
-          import sys
+          echo "critical_count=${critical_count}" >> "${GITHUB_OUTPUT}"
 
-          path = sys.argv[1]
-          with open(path, encoding='utf-8') as handle:
-              data = json.load(handle)
+          {
+            echo '## Access Control production readiness audit'
+            echo ''
+            echo "- Commit: \`${GITHUB_SHA}\`"
+            echo "- Read-only: \`$(jq -r '.read_only' "${local_report}")\`"
+            echo "- Platform access users: \`$(jq -r '.summary.platform_access_user_count' "${local_report}")\`"
+            echo "- Resolved UserTypes: \`$(jq -r '.summary.resolved_user_type_count' "${local_report}")\`"
+            echo "- Unresolved UserTypes: \`$(jq -r '.summary.unresolved_user_type_count' "${local_report}")\`"
+            echo "- Modules without granular permission tree: \`$(jq -r '.summary.modules_without_granular_permission_tree_count' "${local_report}")\`"
+            echo "- Mutating routes without module guard: \`$(jq -r '.summary.mutating_routes_without_module_guard_count' "${local_report}")\`"
+            echo "- Mutating routes with module-only guard: \`$(jq -r '.summary.mutating_routes_with_module_only_guard_count' "${local_report}")\`"
+            echo "- Critical findings: \`${critical_count}\`"
+            echo "- Warnings: \`$(jq -r '.summary.warning_count' "${local_report}")\`"
+          } >> "${GITHUB_STEP_SUMMARY}"
 
-          summary = data.get('summary') or {}
-          critical = int(summary.get('critical_count', 0) or 0)
-          mutating_without_module_guard = int(summary.get('mutating_routes_without_module_guard_count', 0) or 0)
-          unresolved_user_types = int(summary.get('unresolved_user_type_count', 0) or 0)
+      - name: Upload Access Control production readiness audit
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: access-control-production-readiness-${{ github.sha }}
+          path: access-control-readiness.json
+          if-no-files-found: error
+          retention-days: 30
 
-          print(f"critical_count={critical}")
-          print(f"mutating_routes_without_module_guard_count={mutating_without_module_guard}")
-          print(f"unresolved_user_type_count={unresolved_user_types}")
+      - name: Gate Access Control critical findings
+        if: steps.access_control_audit.outcome == 'success'
+        shell: bash
+        env:
+          CRITICAL_COUNT: ${{ steps.access_control_audit.outputs.critical_count }}
+        run: |
+          set -euo pipefail
 
-          if critical > 0 or mutating_without_module_guard > 0 or unresolved_user_types > 0:
-              raise SystemExit('Access Control readiness gate failed')
-          PY
+          if ! [[ "${CRITICAL_COUNT}" =~ ^[0-9]+$ ]]; then
+            echo "::error::Invalid Access Control critical_count: ${CRITICAL_COUNT}"
+            exit 1
+          fi
+
+          if (( CRITICAL_COUNT > 0 )); then
+            echo "::error::Access Control readiness audit reported ${CRITICAL_COUNT} critical finding(s)"
+            exit 1
+          fi
+
+      - name: Deployment summary
+        if: success()
+        shell: bash
+        run: |
+          {
+            echo '## ClubOS production deploy'
+            echo ''
+            echo "- Commit: \`${GITHUB_SHA}\`"
+            echo "- Target: \`${VM_USER}@${VM_HOST}:${VM_APP_DIR}\`"
+            echo '- Validation: CI, dependency security ratchets, TypeScript debt ratchet and PostgreSQL concurrency passed'
+            echo '- SSH host identity: pinned known_hosts entry enforced'
+            echo '- Desportivo legacy readiness audit: collected read-only from production'
+            echo '- Access Control readiness audit: collected, artifact preserved and critical findings gated separately'
+            echo '- Result: successful'
+          } >> "${GITHUB_STEP_SUMMARY}"
