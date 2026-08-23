@@ -879,8 +879,6 @@ export default function SettingsIndex({
         setLoadingRootTab(currentTab);
         router.reload({
             only: pending.props,
-            preserveState: true,
-            preserveScroll: true,
             onFinish: () => setLoadingRootTab((current) => (current === currentTab ? null : current)),
         });
     }, [

@@ -377,7 +377,7 @@ export default function Show({ member, family_context, permissions, allUsers, in
     };
 
     const handleTabChange = (value: string) => {
-        setActiveTab(value);
+        setActiveTab(value as MemberTab);
 
         if (value !== 'communications' || communicationsLoadedRef.current) {
             return;
@@ -386,8 +386,6 @@ export default function Show({ member, family_context, permissions, allUsers, in
         communicationsLoadedRef.current = true;
         router.reload({
             only: ['internalCommunications', 'flash'],
-            preserveScroll: true,
-            preserveState: true,
         });
     };
 

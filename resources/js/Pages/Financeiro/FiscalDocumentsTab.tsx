@@ -332,8 +332,6 @@ export function FiscalDocumentsTab({ fiscalRequests }: FiscalDocumentsTabProps) 
     setLoading(true);
     router.reload({
       only: ['fiscalRequests', 'faturas', 'mensalidadesFaturas', 'movimentosFinanceiros', 'dashboardData'],
-      preserveScroll: true,
-      preserveState: true,
       onFinish: () => setLoading(false),
     });
   };

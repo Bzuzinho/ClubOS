@@ -266,7 +266,6 @@ export function FaturasTab({
   const reloadFinanceiroData = () => {
     router.reload({
       only: ['dashboardData', 'faturas', 'mensalidadesFaturas', 'faturaItens', 'movimentosFinanceiros', 'extratos', 'lancamentos', 'fiscalRequests', 'conciliacoes', 'products'],
-      preserveScroll: true,
     });
   };
 

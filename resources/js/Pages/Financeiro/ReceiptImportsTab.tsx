@@ -313,7 +313,6 @@ export function ReceiptImportsTab({ users, invoices, canEdit }: ReceiptImportsTa
       setSelectedIds([]);
       router.reload({
         only: ['faturas', 'mensalidadesFaturas', 'extratos', 'conciliacoes', 'lancamentos', 'dashboardData'],
-        preserveScroll: true,
       });
       toast.success('Importacao confirmada.');
     } catch (error) {
