@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 
 const baselinePath = new URL('../../qa/baselines/typescript.json', import.meta.url);
@@ -63,21 +63,6 @@ if (errorCount > 0) {
   for (const [code, count] of rankedCodes.slice(0, 10)) {
     console.log(`  ${count}\t${code}`);
   }
-}
-
-if (process.env.TYPECHECK_REPORT_PATH) {
-  writeFileSync(
-    process.env.TYPECHECK_REPORT_PATH,
-    `${JSON.stringify({
-      contract: 'clubos-typescript-diagnostics-v1',
-      error_count: errorCount,
-      affected_file_count: affectedFileCount,
-      errors_by_file: rankedFiles.map(([file, count]) => ({ file, count })),
-      errors_by_code: rankedCodes.map(([code, count]) => ({ code, count })),
-      diagnostics: errorLines,
-    }, null, 2)}\n`,
-    'utf8',
-  );
 }
 
 if (result.status === 0) {
