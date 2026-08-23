@@ -1,0 +1,87 @@
+name: H1.7 PageProps Patcher
+
+on:
+  pull_request:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.head_ref == 'cleanup/h1-7-inertia-pageprops-contract'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.head_ref }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Apply PageProps type-only patch
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import json
+
+          replacements = {
+              'resources/js/Layouts/AuthenticatedLayout.tsx': [
+                  ('const page = usePage<PageProps>();', 'const page = usePage<PageProps & Record<string, unknown>>();'),
+              ],
+              'resources/js/Pages/Dashboard.tsx': [
+                  ('usePage<PageProps>().props', 'usePage<PageProps & Record<string, unknown>>().props'),
+              ],
+              'resources/js/Pages/Membros/CommunicationsTab.tsx': [
+                  ('usePage<PageProps>().props', 'usePage<PageProps & Record<string, unknown>>().props'),
+              ],
+              'resources/js/Pages/Membros/Show.tsx': [
+                  ('const page = usePage<PageProps>();', 'const page = usePage<PageProps & Record<string, unknown>>();'),
+              ],
+              'resources/js/hooks/useCurrentUser.ts': [
+                  ('usePage<PageProps>().props', 'usePage<PageProps & Record<string, unknown>>().props'),
+              ],
+              'resources/js/Pages/Configuracoes/Index.tsx': [
+                  ('usePage<Props & SharedPageProps>();', 'usePage<Props & SharedPageProps & Record<string, unknown>>();'),
+              ],
+          }
+
+          for filename, pairs in replacements.items():
+              path = Path(filename)
+              text = path.read_text()
+              original = text
+              for before, after in pairs:
+                  count = text.count(before)
+                  if count != 1:
+                      raise SystemExit(f'{filename}: expected exactly one occurrence of {before!r}, found {count}')
+                  text = text.replace(before, after)
+              path.write_text(text)
+              if text == original:
+                  raise SystemExit(f'{filename}: no change applied')
+
+          baseline_path = Path('qa/baselines/typescript.json')
+          baseline = json.loads(baseline_path.read_text())
+          if baseline.get('contract') != 'clubos-typescript-baseline-v1':
+              raise SystemExit('unexpected TypeScript baseline contract')
+          baseline['max_errors'] = 66
+          baseline['max_affected_files'] = 27
+          baseline_path.write_text(json.dumps(baseline, indent=2) + '\n')
+          PY
+
+      - name: Commit patch
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add resources/js/Layouts/AuthenticatedLayout.tsx \
+                  resources/js/Pages/Dashboard.tsx \
+                  resources/js/Pages/Membros/CommunicationsTab.tsx \
+                  resources/js/Pages/Membros/Show.tsx \
+                  resources/js/hooks/useCurrentUser.ts \
+                  resources/js/Pages/Configuracoes/Index.tsx \
+                  qa/baselines/typescript.json
+          if git diff --cached --quiet; then
+            echo 'No changes to commit.'
+            exit 0
+          fi
+          git commit -m 'fix(types): normalizar contrato Inertia PageProps'
+          git push origin HEAD:${{ github.head_ref }}
