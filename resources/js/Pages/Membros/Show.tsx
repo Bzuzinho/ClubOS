@@ -276,7 +276,7 @@ const buildMemberUpdatePayload = (user: User) => ({
 });
 
 export default function Show({ member, family_context, permissions, allUsers, internalCommunications, userTypes, ageGroups, faturas, movimentos, monthlyFees, costCenters }: Props) {
-    const page = usePage<PageProps>();
+    const page = usePage<PageProps & Record<string, unknown>>();
     const [user, setUser] = useState<User>(() => normalizeMember(member));
     const [hasChanges, setHasChanges] = useState(false);
     const query = page.props.ziggy?.query;

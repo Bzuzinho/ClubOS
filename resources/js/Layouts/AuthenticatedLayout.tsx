@@ -117,7 +117,7 @@ export default function AuthenticatedLayout({
     showSidebarPopupButton?: boolean;
     hideMobileHeader?: boolean;
 }>) {
-    const page = usePage<PageProps>();
+    const page = usePage<PageProps & Record<string, unknown>>();
     const { auth, accessControl, communicationAlerts } = page.props;
     const { clubDisplayName, clubLogoUrl, clubName, clubShortName } = useClubSettings();
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);

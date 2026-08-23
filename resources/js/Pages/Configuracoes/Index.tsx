@@ -636,7 +636,7 @@ export default function SettingsIndex({
     clubSettings,
     accessControlBootstrap,
 }: Props) {
-    const page = usePage<Props & SharedPageProps>();
+    const page = usePage<Props & SharedPageProps & Record<string, unknown>>();
     const [currentTab, setCurrentTab] = useState(() => {
         if (typeof window !== 'undefined') {
             return new URLSearchParams(window.location.search).get('tab') || 'geral';
