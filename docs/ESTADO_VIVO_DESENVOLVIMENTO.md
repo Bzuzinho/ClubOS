@@ -118,6 +118,7 @@ Layout produtivo:
   current -> releases/<release-ativa>/
   previous -> releases/<release-anterior>/ ou legacy/<rollback-target>/
   legacy/
+  legacy-persistence/
 ```
 
 Garantias validadas:
