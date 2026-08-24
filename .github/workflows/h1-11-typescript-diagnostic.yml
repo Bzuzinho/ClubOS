@@ -1,0 +1,19 @@
+name: H1.11 TypeScript diagnostic
+
+on:
+  push:
+    branches:
+      - cleanup/h1-11-typescript-portal-request
+
+jobs:
+  diagnostics:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: TypeScript diagnostics
+        run: npx tsc --noEmit --pretty false
