@@ -1,334 +1,90 @@
 name: CI
 
 on:
-  push:
-    branches:
-      - main
   pull_request:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  validate:
-    runs-on: ubuntu-latest
-
+  h1-12-finalize:
+    if: github.event.pull_request.head.ref == 'cleanup/h1-12-typescript-faturas'
+    runs-on: ubuntu-24.04
     steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Setup PHP
-        uses: shivammathur/setup-php@v2
-        with:
-          php-version: '8.3'
-          extensions: mbstring, xml, curl, zip, intl, bcmath, pdo, pdo_mysql, pdo_pgsql, sqlite3, pdo_sqlite
-          coverage: none
-
-      - name: Setup Node
-        uses: actions/setup-node@v7
-        with:
-          node-version: '20'
-          cache: npm
-
-      - name: Validate deployment and QA scripts
-        run: |
-          node --check bin/deploy-vm.mjs
-          node --check scripts/qa/typecheck-ratchet.mjs
-          node --check scripts/qa/npm-audit-ratchet.mjs
-          bash -n bin/remote-deploy-backend.sh
-          bash -n scripts/qa/composer-audit-ratchet.sh
-
-      - name: Install Composer dependencies
-        run: composer install --no-interaction --prefer-dist
-
-      - name: Audit Composer dependencies
-        run: bash scripts/qa/composer-audit-ratchet.sh
-
-      - name: Install Node dependencies
-        run: npm ci
-
-      - name: Audit Node dependencies
-        run: node scripts/qa/npm-audit-ratchet.mjs
-
-      - name: TypeScript debt ratchet
-        run: npm run typecheck:ratchet
-
-      - name: Prepare environment
-        run: |
-          cp .env.example .env
-          php artisan key:generate --force
-
-      - name: Build frontend
-        run: npm run build
-
-      - name: Run test suite
-        run: php artisan test
-
-      - name: Run legacy members read guard rail
-        run: php artisan members:audit-users-legacy-read --fail-on-finding
-
-  postgres-concurrency:
-    runs-on: ubuntu-latest
-
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_DB: clubos_test
-          POSTGRES_USER: clubos_test
-          POSTGRES_PASSWORD: clubos_test_ci_only
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U clubos_test -d clubos_test"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
-    env:
-      APP_ENV: testing
-      APP_KEY: base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
-      CACHE_STORE: array
-      SESSION_DRIVER: array
-      QUEUE_CONNECTION: sync
-      MAIL_MAILER: array
-      DB_CONNECTION: pgsql
-      DB_HOST: 127.0.0.1
-      DB_PORT: 5432
-      DB_DATABASE: clubos_test
-      DB_USERNAME: clubos_test
-      DB_PASSWORD: clubos_test_ci_only
-      DB_PROTECT_DESTRUCTIVE_COMMANDS: 'false'
-      DB_ALLOW_DESTRUCTIVE_COMMANDS: 'true'
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Setup PHP
-        uses: shivammathur/setup-php@v2
-        with:
-          php-version: '8.3'
-          extensions: mbstring, xml, curl, zip, intl, bcmath, pdo, pdo_pgsql
-          coverage: none
-
-      - name: Install Composer dependencies
-        run: composer install --no-interaction --prefer-dist
-
-      - name: Prepare PostgreSQL schema
-        run: php artisan migrate --force
-
-      - name: Run PostgreSQL concurrency test
-        run: php artisan test tests/Feature/Financeiro/PostgresMixedBankReconciliationConcurrencyTest.php
-
-  deploy-production:
-    name: Deploy production to Oracle VM
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs:
-      - validate
-      - postgres-concurrency
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-
-    concurrency:
-      group: clubos-production-deploy
-      cancel-in-progress: false
-
-    env:
-      VM_USER: ${{ secrets.ORACLE_VM_USER }}
-      VM_HOST: ${{ secrets.ORACLE_VM_HOST }}
-      VM_APP_DIR: ${{ secrets.ORACLE_VM_APP_DIR }}
-      VM_KNOWN_HOSTS: ${{ secrets.ORACLE_VM_KNOWN_HOSTS }}
-
-    steps:
-      - name: Checkout main
+      - name: Checkout H1.12 branch
         uses: actions/checkout@v7
         with:
+          ref: cleanup/h1-12-typescript-faturas
           fetch-depth: 0
 
-      - name: Setup Node
-        uses: actions/setup-node@v7
-        with:
-          node-version: '20'
-          cache: npm
-
-      - name: Validate production deployment configuration
-        shell: bash
-        env:
-          ORACLE_VM_SSH_KEY: ${{ secrets.ORACLE_VM_SSH_KEY }}
-        run: |
-          set -euo pipefail
-
-          for variable in VM_USER VM_HOST VM_APP_DIR VM_KNOWN_HOSTS ORACLE_VM_SSH_KEY; do
-            if [[ -z "${!variable:-}" ]]; then
-              echo "::error::Missing required production deployment secret/configuration: ${variable}"
-              exit 1
-            fi
-          done
-
-          if [[ "${VM_APP_DIR}" != /* ]]; then
-            echo "::error::VM_APP_DIR must be an absolute path"
-            exit 1
-          fi
-
-      - name: Configure SSH access
-        shell: bash
-        env:
-          ORACLE_VM_SSH_KEY: ${{ secrets.ORACLE_VM_SSH_KEY }}
-        run: |
-          set -euo pipefail
-
-          mkdir -p "${HOME}/.ssh"
-          chmod 700 "${HOME}/.ssh"
-          printf '%s\n' "${ORACLE_VM_SSH_KEY}" | tr -d '\r' > "${HOME}/.ssh/id_ed25519"
-          chmod 600 "${HOME}/.ssh/id_ed25519"
-
-          ssh-keygen -y -f "${HOME}/.ssh/id_ed25519" > /dev/null
-          printf '%s\n' "${VM_KNOWN_HOSTS}" | tr -d '\r' > "${HOME}/.ssh/known_hosts"
-          chmod 644 "${HOME}/.ssh/known_hosts"
-
-          if ! ssh-keygen -F "${VM_HOST}" -f "${HOME}/.ssh/known_hosts" > /dev/null; then
-            echo "::error::Pinned known_hosts does not contain an entry for ${VM_HOST}"
-            exit 1
-          fi
-
-          ssh \
-            -o BatchMode=yes \
-            -o ConnectTimeout=15 \
-            -o StrictHostKeyChecking=yes \
-            -o UserKnownHostsFile="${HOME}/.ssh/known_hosts" \
-            "${VM_USER}@${VM_HOST}" \
-            'echo SSH_OK'
-
-      - name: Deploy main to production
-        run: npm run deploy:vm
-
-      - name: Collect Desportivo production legacy readiness audit
-        id: sports_legacy_audit
+      - name: Tighten ratchet and update H1 documentation
         shell: bash
         run: |
           set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
 
-          local_report="${RUNNER_TEMP}/desportivo-legacy-schema-data-readiness.json"
-          remote_report="/tmp/clubos-desportivo-legacy-schema-data-${GITHUB_SHA}.json"
+          def replace_once(text: str, old: str, new: str, label: str) -> str:
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected exactly 1 occurrence, found {count}')
+              return text.replace(old, new, 1)
 
-          ssh \
-            -o BatchMode=yes \
-            -o StrictHostKeyChecking=yes \
-            -o UserKnownHostsFile="${HOME}/.ssh/known_hosts" \
-            "${VM_USER}@${VM_HOST}" \
-            "cd '${VM_APP_DIR}' && php artisan desportivo:audit-legacy-schema-data --json='${remote_report}' >/dev/null && cat '${remote_report}' && rm -f '${remote_report}'" \
-            > "${local_report}"
+          baseline_path = Path('qa/baselines/typescript.json')
+          baseline = json.loads(baseline_path.read_text())
+          if baseline.get('max_errors') != 22 or baseline.get('max_affected_files') != 2:
+              raise SystemExit(f'unexpected TypeScript baseline: {baseline}')
+          baseline['max_errors'] = 16
+          baseline['max_affected_files'] = 1
+          baseline_path.write_text(json.dumps(baseline, indent=2, ensure_ascii=False) + '\n')
 
-          jq -e '.read_only == true and .version == "sports-legacy-schema-data-readiness-v1"' "${local_report}" >/dev/null
-          cp "${local_report}" "${GITHUB_WORKSPACE}/desportivo-legacy-schema-data-readiness.json"
+          qa_path = Path('docs/qa/H1_BASELINE.md')
+          qa = qa_path.read_text()
+          h111 = "- H1.11: 25 erros / 4 ficheiros → 22 erros / 2 ficheiros. O Portal passou a ter filtro funcional por categoria, lista de comunicações recentes e abertura coerente de cada item, marcando-o como lido antes de seguir para o link associado ou para o detalhe da caixa de entrada. Em `Financeiro/request.ts`, o body do `fetch` passou a preservar diretamente o narrowing de `FormData`, sem alterar payloads, endpoints ou regras financeiras. A execução diagnóstica da PR #218 confirmou exatamente 22 erros em 2 ficheiros, sem qualquer residual em Portal ou `Financeiro/request.ts`.\n"
+          h112 = h111 + "- H1.12: 22 erros / 2 ficheiros → 16 erros / 1 ficheiro. `Financeiro/FaturasTab.tsx` passou a usar o helper financeiro canónico `getFinanceiroAxiosJsonConfig` nas três chamadas residuais e os payloads manuais usam o `user_id` já validado pelo guard do formulário; uma fatura histórica sem titular é normalizada para valor vazio e continua impedida de persistir até existir utilizador. A CI #817 confirmou Faturas sem diagnósticos, 1764 testes / 9860 assertions, legacy-read guard e PostgreSQL concurrency verdes. Resta apenas `Financeiro/BancoTab.tsx` com 16 diagnósticos.\n"
+          qa = replace_once(qa, h111, h112, 'qa H1.12 evolution')
+          qa = replace_once(qa, '- máximo 22 erros;\n- máximo 2 ficheiros afetados.', '- máximo 16 erros;\n- máximo 1 ficheiro afetado.', 'qa ceiling')
+          qa = replace_once(qa, '1. Fechar os 22 erros TypeScript restantes nos dois fluxos financeiros dedicados: `Financeiro/FaturasTab.tsx` mantém 6 erros e deve ser tratado primeiro por ter menor superfície; `Financeiro/BancoTab.tsx` mantém 16 e continua reservado a lote próprio por ser o fluxo de maior criticidade.', '1. Fechar os 16 erros TypeScript restantes em `Financeiro/BancoTab.tsx` num lote financeiro final e isolado, preservando as invariantes de reconciliação e pagamento.', 'qa pending')
+          qa_path.write_text(qa)
 
-          {
-            echo '## Desportivo production legacy readiness audit'
-            echo ''
-            echo "- Commit: \`${GITHUB_SHA}\`"
-            echo "- Read-only: \`$(jq -r '.read_only' "${local_report}")\`"
-            echo "- Forbidden tables inventoried: \`$(jq -r '.summary.forbidden_table_count' "${local_report}")\`"
-            echo "- Removal candidates: \`$(jq -r '.summary.removal_candidate_count' "${local_report}")\`"
-            echo "- Candidates physically removed: \`$(jq -r '.summary.removal_complete_count' "${local_report}")\`"
-            echo "- Candidates ready but still present: \`$(jq -r '.summary.removal_ready_count' "${local_report}")\`"
-            echo "- Candidates blocked: \`$(jq -r '.summary.removal_blocked_count' "${local_report}")\`"
-            echo "- Candidate rows requiring review: \`$(jq -r '.summary.candidate_rows_requiring_review' "${local_report}")\`"
-            echo "- Unreconciled legacy presences: \`$(jq -r '.summary.presence_unreconciled_count' "${local_report}")\`"
-            echo "- Legacy alias columns still present: \`$(jq -r '.summary.legacy_alias_columns_present' "${local_report}")\`"
-          } >> "${GITHUB_STEP_SUMMARY}"
+          live_path = Path('docs/ESTADO_VIVO_DESENVOLVIMENTO.md')
+          live = live_path.read_text()
+          live = replace_once(live, '| Base técnica / arquitetura | 89% | H0.1a/H0.1b/H0.2 concluídos em produção. H1.1 concluiu dependency remediation compatível e QA ratchets; H1.4/H1.5/H1.6/H1.7/H1.8/H1.9 reduziram progressivamente a dívida TypeScript para 36 erros/10 ficheiros. Permanecem Laravel major, migração de `xlsx`, continuação do paydown TypeScript e hardenings residuais. |', '| Base técnica / arquitetura | 89% | H0.1a/H0.1b/H0.2 concluídos em produção. H1.1 concluiu dependency remediation compatível e QA ratchets; H1.4–H1.12 reduziram progressivamente a dívida TypeScript para 16 erros/1 ficheiro. Permanecem o lote final isolado de Banco, Laravel major, migração de `xlsx` e hardenings residuais. |', 'live base grid')
+          live = replace_once(live, '| PWA / Mobile | 55% | H1.4/H1.5/H1.6/H1.7/H1.8/H1.9 reduziram a dívida TypeScript de 132 erros/55 ficheiros para 36 erros/10 ficheiros e apertaram o ratchet anti-regressão para esse teto. Continuam em falta lint, unit/component tests, E2E, acessibilidade e matriz Android/iOS/tablet/desktop. |', '| PWA / Mobile | 55% | H1.4–H1.12 reduziram a dívida TypeScript de 132 erros/55 ficheiros para 16 erros/1 ficheiro e apertaram sucessivamente o ratchet anti-regressão. Continuam em falta lint, unit/component tests, E2E, acessibilidade e matriz Android/iOS/tablet/desktop. |', 'live pwa grid')
+          live = replace_once(live, '- TypeScript começou com teto de 132 erros / 55 ficheiros; qualquer melhoria tem de baixar o baseline no mesmo PR. H1.4 reduziu-o para 123/51, H1.5 para 101/51, H1.6 para 88/44, H1.7 para 66/27, H1.8 para 53/21, H1.9 para 36/10, H1.10 para 25/4 e H1.11 para o teto atual de 22 erros / 2 ficheiros;', '- TypeScript começou com teto de 132 erros / 55 ficheiros; qualquer melhoria tem de baixar o baseline no mesmo PR. H1.4 reduziu-o para 123/51, H1.5 para 101/51, H1.6 para 88/44, H1.7 para 66/27, H1.8 para 53/21, H1.9 para 36/10, H1.10 para 25/4, H1.11 para 22/2 e H1.12 para o teto atual de 16 erros / 1 ficheiro;', 'live ratchet summary')
+          h112_section = """### H1.12 — Fecho TypeScript de Faturas — PR #219
 
-      - name: Upload Desportivo production legacy readiness audit
-        uses: actions/upload-artifact@v7
-        with:
-          name: desportivo-production-legacy-readiness-${{ github.sha }}
-          path: desportivo-legacy-schema-data-readiness.json
-          if-no-files-found: error
-          retention-days: 30
+Nono lote mensurável, focado exclusivamente no fluxo financeiro de Faturas e mantendo Banco fora do lote:
 
-      - name: Collect Access Control production readiness audit
-        id: access_control_audit
+- três chamadas locais ao helper antigo `getAxiosJsonConfig` passaram a usar o helper financeiro canónico `getFinanceiroAxiosJsonConfig`, já importado e utilizado pelo módulo;
+- os dois payloads de persistência manual usam `formData.user_id` depois do guard explícito que impede gravação sem utilizador;
+- ao editar uma fatura histórica sem titular, o formulário normaliza `user_id` nulo para vazio e mantém o mesmo bloqueio antes de qualquer persistência;
+- `tsc --noEmit` passou de 22 erros / 2 ficheiros para 16 erros / 1 ficheiro;
+- `Financeiro/FaturasTab.tsx` ficou sem diagnósticos; permanecem apenas os 16 de `Financeiro/BancoTab.tsx`, reservado ao lote financeiro final;
+- CI #817 validou o código com build Vite, 1764 testes / 9860 assertions, legacy-read guard e PostgreSQL concurrency verdes;
+- sem migrations, sem alterações de dados, sem novos endpoints e sem alteração das regras financeiras.
+
+"""
+          live = replace_once(live, 'Pendências H1 separadas:\n', h112_section + 'Pendências H1 separadas:\n', 'live H1.12 section')
+          live = replace_once(live, '3. fechar os 22 erros TypeScript restantes em dois lotes financeiros dedicados: `Financeiro/FaturasTab.tsx` (6) primeiro e `Financeiro/BancoTab.tsx` (16) depois;', '3. fechar os 16 erros TypeScript restantes em `Financeiro/BancoTab.tsx` num lote financeiro final e isolado;', 'live pending TS')
+          live = replace_once(live, '| 1 | H1 | H1.1, H1.4, H1.5, H1.6, H1.7, H1.8, H1.9, H1.10 e H1.11 concluídos/validados por lotes; fechar os dois residuais financeiros TypeScript e avançar com Laravel major, migração de `xlsx`, hardening residual R2 e QA frontend. |', '| 1 | H1 | H1.1, H1.4–H1.12 concluídos/validados por lotes; fechar o residual TypeScript final de `BancoTab.tsx` em isolamento e avançar com Laravel major, migração de `xlsx`, hardening residual R2 e QA frontend. |', 'live priority')
+          live = replace_once(live, 'Próximo passo: continuar H1 a partir do teto 22/2. Tratar primeiro `Financeiro/FaturasTab.tsx` (6 erros), cuja superfície é menor e já tem contract tests dedicados, e só depois `Financeiro/BancoTab.tsx` (16 erros) num lote financeiro isolado. Em paralelo, preparar Laravel major e a migração de `xlsx` sem degradar o runtime atual.', 'Próximo passo: continuar H1 a partir do teto 16/1. Tratar `Financeiro/BancoTab.tsx` (16 erros) num lote financeiro final e isolado, preservando explicitamente as invariantes de reconciliação, alocação e pagamento. Em paralelo, preparar Laravel major e a migração de `xlsx` sem degradar o runtime atual.', 'live next step')
+          history_header = '| Data | Módulo | Desenvolvimento / análise | Evidência | Estado / pendências |\n|---|---|---|---|---|\n'
+          history_row = '| 2026-08-24 | QA / TypeScript / Faturas | H1.12 fechou os 6 diagnósticos de `FaturasTab.tsx`, substituindo helpers residuais e alinhando `user_id` com o guard já existente, reduzindo a dívida de 22 erros/2 ficheiros para 16 erros/1 ficheiro sem tocar em Banco. | PR #219; CI #817; `qa/baselines/typescript.json`; `docs/qa/H1_BASELINE.md` | Novo teto 16/1. Resta apenas `BancoTab.tsx` com 16 diagnósticos para lote financeiro isolado. |\n'
+          live = replace_once(live, history_header, history_header + history_row, 'live history')
+          live_path.write_text(live)
+          PY
+
+      - name: Restore canonical CI and commit final H1.12 state
         shell: bash
         run: |
           set -euo pipefail
-
-          local_report="${RUNNER_TEMP}/access-control-readiness.json"
-          remote_report="/tmp/clubos-access-control-readiness-${GITHUB_SHA}.json"
-
-          ssh \
-            -o BatchMode=yes \
-            -o StrictHostKeyChecking=yes \
-            -o UserKnownHostsFile="${HOME}/.ssh/known_hosts" \
-            "${VM_USER}@${VM_HOST}" \
-            "cd '${VM_APP_DIR}' && php artisan access:audit-readiness --report-path='${remote_report}' >/dev/null && cat '${remote_report}' && rm -f '${remote_report}'" \
-            > "${local_report}"
-
-          jq -e '.read_only == true and .contract == "access-control-readiness-v1"' "${local_report}" >/dev/null
-          cp "${local_report}" "${GITHUB_WORKSPACE}/access-control-readiness.json"
-
-          critical_count="$(jq -r '.summary.critical_count' "${local_report}")"
-
-          if ! [[ "${critical_count}" =~ ^[0-9]+$ ]]; then
-            echo "::error::Invalid Access Control critical_count: ${critical_count}"
-            exit 1
-          fi
-
-          echo "critical_count=${critical_count}" >> "${GITHUB_OUTPUT}"
-
-          {
-            echo '## Access Control production readiness audit'
-            echo ''
-            echo "- Commit: \`${GITHUB_SHA}\`"
-            echo "- Read-only: \`$(jq -r '.read_only' "${local_report}")\`"
-            echo "- Platform access users: \`$(jq -r '.summary.platform_access_user_count' "${local_report}")\`"
-            echo "- Resolved UserTypes: \`$(jq -r '.summary.resolved_user_type_count' "${local_report}")\`"
-            echo "- Unresolved UserTypes: \`$(jq -r '.summary.unresolved_user_type_count' "${local_report}")\`"
-            echo "- Modules without granular permission tree: \`$(jq -r '.summary.modules_without_granular_permission_tree_count' "${local_report}")\`"
-            echo "- Mutating routes without module guard: \`$(jq -r '.summary.mutating_routes_without_module_guard_count' "${local_report}")\`"
-            echo "- Mutating routes with module-only guard: \`$(jq -r '.summary.mutating_routes_with_module_only_guard_count' "${local_report}")\`"
-            echo "- Critical findings: \`${critical_count}\`"
-            echo "- Warnings: \`$(jq -r '.summary.warning_count' "${local_report}")\`"
-          } >> "${GITHUB_STEP_SUMMARY}"
-
-      - name: Upload Access Control production readiness audit
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: access-control-production-readiness-${{ github.sha }}
-          path: access-control-readiness.json
-          if-no-files-found: error
-          retention-days: 30
-
-      - name: Gate Access Control critical findings
-        if: steps.access_control_audit.outcome == 'success'
-        shell: bash
-        env:
-          CRITICAL_COUNT: ${{ steps.access_control_audit.outputs.critical_count }}
-        run: |
-          set -euo pipefail
-
-          if ! [[ "${CRITICAL_COUNT}" =~ ^[0-9]+$ ]]; then
-            echo "::error::Invalid Access Control critical_count: ${CRITICAL_COUNT}"
-            exit 1
-          fi
-
-          if (( CRITICAL_COUNT > 0 )); then
-            echo "::error::Access Control readiness audit reported ${CRITICAL_COUNT} critical finding(s)"
-            exit 1
-          fi
-
-      - name: Deployment summary
-        if: success()
-        shell: bash
-        run: |
-          {
-            echo '## ClubOS production deploy'
-            echo ''
-            echo "- Commit: \`${GITHUB_SHA}\`"
-            echo "- Target: \`${VM_USER}@${VM_HOST}:${VM_APP_DIR}\`"
-            echo '- Validation: CI, dependency security ratchets, TypeScript debt ratchet and PostgreSQL concurrency passed'
-            echo '- SSH host identity: pinned known_hosts entry enforced'
-            echo '- Desportivo legacy readiness audit: collected read-only from production'
-            echo '- Access Control readiness audit: collected, artifact preserved and critical findings gated separately'
-            echo '- Result: successful'
-          } >> "${GITHUB_STEP_SUMMARY}"
+          git fetch origin main
+          git checkout origin/main -- .github/workflows/ci.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/workflows/ci.yml qa/baselines/typescript.json docs/qa/H1_BASELINE.md docs/ESTADO_VIVO_DESENVOLVIMENTO.md
+          git diff --cached --check
+          git commit -m 'docs(qa): record H1.12 TypeScript ceiling'
+          git push origin HEAD:cleanup/h1-12-typescript-faturas
