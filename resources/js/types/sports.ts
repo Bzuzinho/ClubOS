@@ -4,6 +4,7 @@ export interface Stats {
   trainings30Days: number;
   km7Days: number;
   km30Days: number;
+  attendanceRate?: number | null;
 }
 
 export interface BasicItem {
@@ -89,6 +90,7 @@ export interface Macro extends BasicItem {
   tipo: string;
   data_inicio: string;
   data_fim: string;
+  epoca_id?: string | null;
   objetivo_principal?: string | null;
   objetivo_secundario?: string | null;
   escalao?: string | null;

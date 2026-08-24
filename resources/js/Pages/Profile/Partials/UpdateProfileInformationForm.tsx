@@ -7,6 +7,11 @@ import { Link, useForm, usePage } from '@inertiajs/react';
 import { FormEventHandler } from 'react';
 import { PageProps } from '@/types';
 
+interface ProfileFormData {
+    name: string;
+    email: string;
+}
+
 export default function UpdateProfileInformationForm({
     mustVerifyEmail,
     status,
@@ -19,9 +24,9 @@ export default function UpdateProfileInformationForm({
     const user = usePage<PageProps>().props.auth.user;
 
     const { data, setData, patch, errors, processing, recentlySuccessful } =
-        useForm({
-            name: user.name,
-            email: user.email,
+        useForm<ProfileFormData>({
+            name: user.name ?? '',
+            email: user.email ?? '',
         });
 
     const submit: FormEventHandler = (e) => {

@@ -25,7 +25,7 @@ function normalizeCompetitionResult(row: BackendCompetitionResult): CompetitionR
   return {
     id: row.id,
     prova: row.prova ?? '',
-    tempo: row.tempo_oficial ?? row.tempo ?? null,
+    tempo: row.tempo_oficial != null ? String(row.tempo_oficial) : row.tempo ?? null,
     classificacao: row.posicao ?? row.classificacao ?? row.colocacao ?? null,
     event: row.competition_id
       ? { id: row.competition_id, titulo: row.competition_nome ?? '' }

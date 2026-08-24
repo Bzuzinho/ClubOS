@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 
 interface PortalSectionProps {
+    id?: string;
     title: string;
     description: string;
     actionLabel?: string;
@@ -8,9 +9,9 @@ interface PortalSectionProps {
     children: ReactNode;
 }
 
-export default function PortalSection({ title, description, actionLabel, onAction, children }: PortalSectionProps) {
+export default function PortalSection({ id, title, description, actionLabel, onAction, children }: PortalSectionProps) {
     return (
-        <section className="rounded-[28px] border border-slate-200 bg-white p-4 shadow-[0_10px_24px_rgba(15,23,42,0.05)]">
+        <section id={id} className="rounded-[28px] border border-slate-200 bg-white p-4 shadow-[0_10px_24px_rgba(15,23,42,0.05)]">
             <div className="flex items-center justify-between gap-3">
                 <div>
                     <h2 className="text-base font-semibold text-slate-900">{title}</h2>
