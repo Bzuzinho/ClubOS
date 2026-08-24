@@ -1,0 +1,93 @@
+name: H1.10 patcher
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/h1-10-patcher.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'cleanup/h1-10-typescript-low-risk'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: cleanup/h1-10-typescript-low-risk
+          fetch-depth: 0
+      - name: Apply exact low-risk TypeScript fixes
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace(path, old, new, expected=1):
+              p = Path(path)
+              text = p.read_text()
+              count = text.count(old)
+              if count != expected:
+                  raise SystemExit(f'{path}: expected {expected} occurrence(s), found {count}')
+              p.write_text(text.replace(old, new))
+
+          replace(
+              'resources/js/Pages/Configuracoes/Index.tsx',
+              "interface BaseDesportivoConfig {\n    id: string;\n    codigo: string;\n    nome: string;\n    ativo: boolean;\n    ordem: number;\n}",
+              "interface BaseDesportivoConfig {\n    id: string;\n    codigo: string;\n    nome: string;\n    ativo: boolean;\n    ordem: number;\n    cor?: string | null;\n}",
+          )
+          replace(
+              'resources/js/Pages/Configuracoes/Index.tsx',
+              "                notificationPrefsForm.defaults(notificationPrefsForm.data);\n",
+              "",
+          )
+          replace(
+              'resources/js/Pages/Configuracoes/Index.tsx',
+              "                        <ConfiguracoesDesportivoIndex\n                            athleteStatuses={athleteStatuses}\n                            trainingTypes={trainingTypes}\n                            trainingZones={trainingZones}\n                            absenceReasons={absenceReasons}\n                            injuryReasons={injuryReasons}\n                            poolTypes={poolTypes}\n                            ageGroups={ageGroups}\n                            provaTipos={provaTipos}\n                            embedded\n                            showSummary={false}\n                        />",
+              "                        <ConfiguracoesDesportivoIndex embedded />",
+          )
+
+          replace(
+              'resources/js/Components/Desportivo/components/TrainingsOverlayCalendar.tsx',
+              "import type { Macrocycle, MesocyclePlan, Training } from '@/Components/Desportivo/types';",
+              "import type { Macrocycle, MesocyclePlan } from '@/Components/Desportivo/types';",
+          )
+          replace(
+              'resources/js/Components/Desportivo/components/TrainingsOverlayCalendar.tsx',
+              "interface Props {\n  macrocycles: Macrocycle[];\n  mesocycles?: MesocyclePlan[];\n  microcycles?: Array<{ id: string; mesociclo_id?: string | null; macrocycle_id?: string | null }>;\n  trainings?: Training[];\n}",
+              "interface CalendarTraining {\n  id: string;\n  numero_treino?: string | null;\n  data: string;\n  macrocycle_id?: string | null;\n  mesociclo_id?: string | null;\n  microciclo_id?: string | null;\n}\n\ninterface Props {\n  macrocycles: Macrocycle[];\n  mesocycles?: MesocyclePlan[];\n  microcycles?: Array<{ id: string; mesociclo_id?: string | null; macrocycle_id?: string | null }>;\n  trainings?: CalendarTraining[];\n}",
+          )
+
+          replace(
+              'resources/js/Components/Members/Tabs/DashboardTab.tsx',
+              "import { User, EventoPresenca, Event, ResultadoProva } from '@/lib/types';",
+              "import type { User, EventoPresenca, Event, ResultadoProva } from '@/types';",
+          )
+          replace(
+              'resources/js/Pages/Membros/Create.tsx',
+              "import type { User as AppUser } from '@/lib/types';",
+              "import type { User as AppUser } from '@/types';",
+          )
+          replace(
+              'resources/js/Components/Members/Tabs/Sports/MedicalInfoTab.tsx',
+              "      observacoesLegadas: rawValue,",
+              "      observacoesLegadas: typeof rawValue === 'string' ? rawValue : '',",
+          )
+          replace(
+              'resources/js/Pages/Financeiro/DashboardTab.tsx',
+              "    const timeoutId = window.setTimeout(callback, 120);\n\n    return () => window.clearTimeout(timeoutId);",
+              "    const timeoutId = globalThis.setTimeout(callback, 120);\n\n    return () => globalThis.clearTimeout(timeoutId);",
+          )
+          PY
+          rm -f .github/workflows/h1-10-ts-diagnostic.yml .github/workflows/h1-10-patcher.yml
+          git diff --check
+          git status --short
+      - name: Commit and push
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add resources/js .github/workflows
+          git commit -m 'chore: reduce H1.10 low-risk TypeScript debt'
+          git push origin HEAD:cleanup/h1-10-typescript-low-risk
