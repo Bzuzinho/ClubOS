@@ -1,0 +1,75 @@
+name: H1.12 apply Faturas TypeScript patch
+
+on:
+  push:
+    branches:
+      - cleanup/h1-12-typescript-faturas
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+concurrency:
+  group: h1-12-apply-faturas
+  cancel-in-progress: true
+
+jobs:
+  apply:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: cleanup/h1-12-typescript-faturas
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '20'
+          cache: npm
+      - name: Apply narrow Faturas fixes
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('resources/js/Pages/Financeiro/FaturasTab.tsx')
+          text = path.read_text()
+
+          replacements = [
+              ('getAxiosJsonConfig()', 'getFinanceiroAxiosJsonConfig()', 3),
+              ('          user_id: faturaAtualizada.user_id,\n', '          user_id: formData.user_id,\n', 1),
+              ('          user_id: novaFatura.user_id,\n', '          user_id: formData.user_id,\n', 1),
+              ('    setFormData({\n      user_id: fatura.user_id,\n', "    setFormData({\n      user_id: fatura.user_id || '',\n", 1),
+          ]
+
+          for old, new, expected in replacements:
+              actual = text.count(old)
+              if actual != expected:
+                  raise SystemExit(f'Expected {expected} occurrence(s) of {old!r}, found {actual}')
+              text = text.replace(old, new)
+
+          path.write_text(text)
+          PY
+      - run: npm ci
+      - name: Verify Faturas diagnostics are gone
+        shell: bash
+        run: |
+          set +e
+          npx tsc --noEmit --pretty false 2>&1 | tee /tmp/tsc.log
+          status=${PIPESTATUS[0]}
+          set -e
+          if grep -F 'resources/js/Pages/Financeiro/FaturasTab.tsx' /tmp/tsc.log; then
+            echo 'FaturasTab still has TypeScript diagnostics.' >&2
+            exit 1
+          fi
+          echo "Expected non-zero tsc exit while BancoTab residuals remain: $status"
+      - name: Commit patch and remove one-shot workflow
+        shell: bash
+        run: |
+          git rm .github/workflows/h1-12-apply.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add resources/js/Pages/Financeiro/FaturasTab.tsx
+          git commit -m 'fix(financeiro): close Faturas TypeScript residuals'
+          git push origin HEAD:cleanup/h1-12-typescript-faturas
