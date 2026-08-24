@@ -1,0 +1,88 @@
+name: H1.10 docs patcher
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/h1-10-docs-patcher.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'cleanup/h1-10-typescript-low-risk'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: cleanup/h1-10-typescript-low-risk
+          fetch-depth: 0
+      - name: Update H1 documentation and remove temporary workflows
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace(path, old, new, expected=1):
+              p = Path(path)
+              text = p.read_text()
+              count = text.count(old)
+              if count != expected:
+                  raise SystemExit(f'{path}: expected {expected} occurrence(s), found {count}')
+              p.write_text(text.replace(old, new))
+
+          h1 = 'docs/qa/H1_BASELINE.md'
+          replace(
+              h1,
+              "- H1.9: 53 erros / 21 ficheiros → 36 erros / 10 ficheiros. O lote alinhou contratos TypeScript de baixo risco com payloads e estados já existentes em Eventos, Desportivo, Loja, Marketing, Perfil e Portal; normalizou `tempo_oficial` para string no adapter de resultados e tornou explícitas propriedades opcionais já consumidas. Não alterou regras de negócio, migrations ou dados e manteve `Financeiro/BancoTab.tsx` totalmente fora do lote. A CI #790 validou o código antes do aperto final do ratchet, com build Vite, 1764 testes / 9860 assertions, legacy-read guard e PostgreSQL concurrency verdes.\n",
+              "- H1.9: 53 erros / 21 ficheiros → 36 erros / 10 ficheiros. O lote alinhou contratos TypeScript de baixo risco com payloads e estados já existentes em Eventos, Desportivo, Loja, Marketing, Perfil e Portal; normalizou `tempo_oficial` para string no adapter de resultados e tornou explícitas propriedades opcionais já consumidas. Não alterou regras de negócio, migrations ou dados e manteve `Financeiro/BancoTab.tsx` totalmente fora do lote. A CI #790 validou o código antes do aperto final do ratchet, com build Vite, 1764 testes / 9860 assertions, legacy-read guard e PostgreSQL concurrency verdes.\n- H1.10: 36 erros / 10 ficheiros → 25 erros / 4 ficheiros. Foram fechados contratos residuais de baixo risco em Configurações, Desportivo e Membros, removidos dois imports diretos para `@/lib/types` inexistente em favor do contrato `@/types`, normalizado o fallback de dados médicos e corrigido apenas o fallback de agendamento do dashboard financeiro. `BancoTab.tsx`, `FaturasTab.tsx`, `Financeiro/request.ts` e as duas ações incompletas de `Portal/Communications.tsx` ficaram fora do lote.\n",
+          )
+          replace(h1, "- máximo 36 erros;\n- máximo 10 ficheiros afetados.", "- máximo 25 erros;\n- máximo 4 ficheiros afetados.")
+          replace(
+              h1,
+              "1. Reduzir progressivamente os 36 erros TypeScript restantes por domínio funcional. `Financeiro/BancoTab.tsx` mantém 16 erros e continua reservado a lote próprio por ser financeiramente crítico; `Configuracoes/Index.tsx` e `Financeiro/FaturasTab.tsx` concentram 6 erros cada.",
+              "1. Reduzir progressivamente os 25 erros TypeScript restantes em quatro ficheiros. `Financeiro/BancoTab.tsx` mantém 16 erros e continua reservado a lote próprio; `Financeiro/FaturasTab.tsx` mantém 6, `Portal/Communications.tsx` 2 e `Financeiro/request.ts` 1. Os dois erros do Portal correspondem a ações realmente ausentes e exigem validação funcional, não apenas tipagem.",
+          )
+
+          estado = 'docs/ESTADO_VIVO_DESENVOLVIMENTO.md'
+          replace(
+              estado,
+              "- TypeScript começou com teto de 132 erros / 55 ficheiros; qualquer melhoria tem de baixar o baseline no mesmo PR. H1.4 reduziu-o para 123/51, H1.5 para 101/51, H1.6 para 88/44, H1.7 para 66/27, H1.8 para 53/21 e H1.9 para o teto atual de 36 erros / 10 ficheiros;",
+              "- TypeScript começou com teto de 132 erros / 55 ficheiros; qualquer melhoria tem de baixar o baseline no mesmo PR. H1.4 reduziu-o para 123/51, H1.5 para 101/51, H1.6 para 88/44, H1.7 para 66/27, H1.8 para 53/21, H1.9 para 36/10 e H1.10 para o teto atual de 25 erros / 4 ficheiros;",
+          )
+          marker = "- `qa/baselines/typescript.json` é apertado para `36 / 10` no fecho da PR para tornar a melhoria irreversível pelo ratchet.\n\nPendências H1 separadas:"
+          replacement = "- `qa/baselines/typescript.json` é apertado para `36 / 10` no fecho da PR para tornar a melhoria irreversível pelo ratchet.\n\n### H1.10 — Fecho dos residuais TypeScript de baixo risco — PR #217\n\nSétimo lote mensurável, limitado a correções de contrato/tipagem sem tocar nos fluxos financeiros críticos de Banco e Faturas:\n\n- `Configuracoes/Index.tsx` deixou de enviar props obsoletas ao workspace Desportivo já desacoplado, declarou `cor` já consumida no contrato de configuração e removeu uma chamada `defaults` não suportada pelo `InertiaFormProps` instalado;\n- o calendário de treinos passou a aceitar o contrato mínimo que realmente consome, sem exigir um `Training` completo;\n- dois imports diretos para o módulo inexistente `@/lib/types` passaram a usar o contrato partilhado `@/types`;\n- o fallback de observações médicas passou a preservar apenas strings em caso de parse inválido;\n- o fallback de carregamento dos gráficos financeiros usa `globalThis.setTimeout/clearTimeout`, evitando apenas o estreitamento incorreto de `window` para `never`;\n- `tsc --noEmit` passou de 36 erros / 10 ficheiros para 25 erros / 4 ficheiros;\n- permanecem 16 erros em `Financeiro/BancoTab.tsx`, 6 em `Financeiro/FaturasTab.tsx`, 1 em `Financeiro/request.ts` e 2 em `Portal/Communications.tsx`;\n- os dois erros do Portal são funções realmente ausentes (`setSelectedCategory` e `openItem`) e ficam para validação funcional, não para uma correção cega de tipagem;\n- sem migrations, sem alterações de dados e sem alteração intencional das regras de negócio.\n\nPendências H1 separadas:"
+          replace(estado, marker, replacement)
+          replace(
+              estado,
+              "3. continuar o paydown dos 36 erros TypeScript por domínio; `Financeiro/BancoTab.tsx` mantém 16 erros e fica reservado a lote próprio por ser fluxo financeiro crítico; `Configuracoes/Index.tsx` e `Financeiro/FaturasTab.tsx` concentram 6 erros cada;",
+              "3. continuar o paydown dos 25 erros TypeScript em quatro ficheiros: `Financeiro/BancoTab.tsx` (16) e `Financeiro/FaturasTab.tsx` (6) em lotes financeiros dedicados, `Financeiro/request.ts` (1) com validação do helper de transporte, e `Portal/Communications.tsx` (2) com validação funcional das ações em falta;",
+          )
+          replace(
+              estado,
+              "| 1 | H1 | H1.1, H1.4, H1.5, H1.6, H1.7, H1.8 e H1.9 concluídos/validados por lotes; continuar paydown TypeScript e avançar com Laravel major, migração de `xlsx`, hardening residual R2 e QA frontend. |",
+              "| 1 | H1 | H1.1, H1.4, H1.5, H1.6, H1.7, H1.8, H1.9 e H1.10 concluídos/validados por lotes; continuar paydown TypeScript e avançar com Laravel major, migração de `xlsx`, hardening residual R2 e QA frontend. |",
+          )
+          replace(
+              estado,
+              "Próximo passo: continuar H1 por lotes pequenos e mensuráveis, reduzindo a dívida TypeScript a partir do teto 36/10 e mantendo `Financeiro/BancoTab.tsx` isolado para tratamento financeiro dedicado; em paralelo, preparar as mudanças incompatíveis de Laravel e `xlsx` sem degradar o runtime atual.",
+              "Próximo passo: continuar H1 a partir do teto 25/4. Banco e Faturas devem seguir em lotes financeiros dedicados; `Financeiro/request.ts` exige validação do helper de transporte e as duas ações ausentes do Portal devem ser corrigidas com validação funcional. Em paralelo, preparar Laravel major e a migração de `xlsx` sem degradar o runtime atual.",
+          )
+          replace(
+              estado,
+              "|---|---|---|---|---|\n| 2026-08-24 | QA / TypeScript / contratos por domínio | H1.9",
+              "|---|---|---|---|---|\n| 2026-08-24 | QA / TypeScript / residuais low-risk | H1.10 fechou Configurações, contratos Desportivo/Membros e o fallback de agendamento do dashboard financeiro, reduzindo a dívida de 36 erros/10 ficheiros para 25 erros/4 ficheiros sem tocar em Banco ou Faturas. | PR #217; medição `tsc --noEmit`; `qa/baselines/typescript.json`; `docs/qa/H1_BASELINE.md` | Novo teto 25/4. Restam Banco 16, Faturas 6, Portal 2 e `Financeiro/request.ts` 1. |\n| 2026-08-24 | QA / TypeScript / contratos por domínio | H1.9",
+          )
+          PY
+          rm -f .github/workflows/h1-10-ts-diagnostic.yml .github/workflows/h1-10-docs-patcher.yml
+          git diff --check
+          git status --short
+      - name: Commit and push
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add docs .github/workflows
+          git commit -m 'docs: record H1.10 TypeScript paydown'
+          git push origin HEAD:cleanup/h1-10-typescript-low-risk
