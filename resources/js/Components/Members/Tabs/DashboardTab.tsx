@@ -1,4 +1,4 @@
-import { User, EventoPresenca, Event, ResultadoProva } from '@/lib/types';
+import type { User, EventoPresenca, Event, ResultadoProva } from '@/types';
 import { useKV } from '@/hooks/useKV';
 import { Card, CardContent, CardHeader, CardTitle } from '@/Components/ui/card';
 import { Badge } from '@/Components/ui/badge';

@@ -21,9 +21,9 @@ export function DashboardTab({ dashboardData }: DashboardTabProps) {
       return () => window.cancelIdleCallback(idleId);
     }
 
-    const timeoutId = window.setTimeout(callback, 120);
+    const timeoutId = globalThis.setTimeout(callback, 120);
 
-    return () => window.clearTimeout(timeoutId);
+    return () => globalThis.clearTimeout(timeoutId);
   }, []);
 
   const normalizedDashboard = {
