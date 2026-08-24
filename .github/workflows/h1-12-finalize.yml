@@ -1,3 +1,4 @@
+# One-shot H1.12 finalizer; self-removes after successful commit.
 name: H1.12 finalize ratchet and docs
 
 on:
@@ -54,25 +55,9 @@ jobs:
 
           live_path = Path('docs/ESTADO_VIVO_DESENVOLVIMENTO.md')
           live = live_path.read_text()
-          live = replace_once(
-              live,
-              '| Base técnica / arquitetura | 89% | H0.1a/H0.1b/H0.2 concluídos em produção. H1.1 concluiu dependency remediation compatível e QA ratchets; H1.4/H1.5/H1.6/H1.7/H1.8/H1.9 reduziram progressivamente a dívida TypeScript para 36 erros/10 ficheiros. Permanecem Laravel major, migração de `xlsx`, continuação do paydown TypeScript e hardenings residuais. |',
-              '| Base técnica / arquitetura | 89% | H0.1a/H0.1b/H0.2 concluídos em produção. H1.1 concluiu dependency remediation compatível e QA ratchets; H1.4–H1.12 reduziram progressivamente a dívida TypeScript para 16 erros/1 ficheiro. Permanecem o lote final isolado de Banco, Laravel major, migração de `xlsx` e hardenings residuais. |',
-              'live base grid'
-          )
-          live = replace_once(
-              live,
-              '| PWA / Mobile | 55% | H1.4/H1.5/H1.6/H1.7/H1.8/H1.9 reduziram a dívida TypeScript de 132 erros/55 ficheiros para 36 erros/10 ficheiros e apertaram o ratchet anti-regressão para esse teto. Continuam em falta lint, unit/component tests, E2E, acessibilidade e matriz Android/iOS/tablet/desktop. |',
-              '| PWA / Mobile | 55% | H1.4–H1.12 reduziram a dívida TypeScript de 132 erros/55 ficheiros para 16 erros/1 ficheiro e apertaram sucessivamente o ratchet anti-regressão. Continuam em falta lint, unit/component tests, E2E, acessibilidade e matriz Android/iOS/tablet/desktop. |',
-              'live pwa grid'
-          )
-          live = replace_once(
-              live,
-              '- TypeScript começou com teto de 132 erros / 55 ficheiros; qualquer melhoria tem de baixar o baseline no mesmo PR. H1.4 reduziu-o para 123/51, H1.5 para 101/51, H1.6 para 88/44, H1.7 para 66/27, H1.8 para 53/21, H1.9 para 36/10, H1.10 para 25/4 e H1.11 para o teto atual de 22 erros / 2 ficheiros;',
-              '- TypeScript começou com teto de 132 erros / 55 ficheiros; qualquer melhoria tem de baixar o baseline no mesmo PR. H1.4 reduziu-o para 123/51, H1.5 para 101/51, H1.6 para 88/44, H1.7 para 66/27, H1.8 para 53/21, H1.9 para 36/10, H1.10 para 25/4, H1.11 para 22/2 e H1.12 para o teto atual de 16 erros / 1 ficheiro;',
-              'live ratchet summary'
-          )
-
+          live = replace_once(live, '| Base técnica / arquitetura | 89% | H0.1a/H0.1b/H0.2 concluídos em produção. H1.1 concluiu dependency remediation compatível e QA ratchets; H1.4/H1.5/H1.6/H1.7/H1.8/H1.9 reduziram progressivamente a dívida TypeScript para 36 erros/10 ficheiros. Permanecem Laravel major, migração de `xlsx`, continuação do paydown TypeScript e hardenings residuais. |', '| Base técnica / arquitetura | 89% | H0.1a/H0.1b/H0.2 concluídos em produção. H1.1 concluiu dependency remediation compatível e QA ratchets; H1.4–H1.12 reduziram progressivamente a dívida TypeScript para 16 erros/1 ficheiro. Permanecem o lote final isolado de Banco, Laravel major, migração de `xlsx` e hardenings residuais. |', 'live base grid')
+          live = replace_once(live, '| PWA / Mobile | 55% | H1.4/H1.5/H1.6/H1.7/H1.8/H1.9 reduziram a dívida TypeScript de 132 erros/55 ficheiros para 36 erros/10 ficheiros e apertaram o ratchet anti-regressão para esse teto. Continuam em falta lint, unit/component tests, E2E, acessibilidade e matriz Android/iOS/tablet/desktop. |', '| PWA / Mobile | 55% | H1.4–H1.12 reduziram a dívida TypeScript de 132 erros/55 ficheiros para 16 erros/1 ficheiro e apertaram sucessivamente o ratchet anti-regressão. Continuam em falta lint, unit/component tests, E2E, acessibilidade e matriz Android/iOS/tablet/desktop. |', 'live pwa grid')
+          live = replace_once(live, '- TypeScript começou com teto de 132 erros / 55 ficheiros; qualquer melhoria tem de baixar o baseline no mesmo PR. H1.4 reduziu-o para 123/51, H1.5 para 101/51, H1.6 para 88/44, H1.7 para 66/27, H1.8 para 53/21, H1.9 para 36/10, H1.10 para 25/4 e H1.11 para o teto atual de 22 erros / 2 ficheiros;', '- TypeScript começou com teto de 132 erros / 55 ficheiros; qualquer melhoria tem de baixar o baseline no mesmo PR. H1.4 reduziu-o para 123/51, H1.5 para 101/51, H1.6 para 88/44, H1.7 para 66/27, H1.8 para 53/21, H1.9 para 36/10, H1.10 para 25/4, H1.11 para 22/2 e H1.12 para o teto atual de 16 erros / 1 ficheiro;', 'live ratchet summary')
           h112_section = """### H1.12 — Fecho TypeScript de Faturas — PR #219
 
 Nono lote mensurável, focado exclusivamente no fluxo financeiro de Faturas e mantendo Banco fora do lote:
@@ -87,24 +72,9 @@ Nono lote mensurável, focado exclusivamente no fluxo financeiro de Faturas e ma
 
 """
           live = replace_once(live, 'Pendências H1 separadas:\n', h112_section + 'Pendências H1 separadas:\n', 'live H1.12 section')
-          live = replace_once(
-              live,
-              '3. fechar os 22 erros TypeScript restantes em dois lotes financeiros dedicados: `Financeiro/FaturasTab.tsx` (6) primeiro e `Financeiro/BancoTab.tsx` (16) depois;',
-              '3. fechar os 16 erros TypeScript restantes em `Financeiro/BancoTab.tsx` num lote financeiro final e isolado;',
-              'live pending TS'
-          )
-          live = replace_once(
-              live,
-              '| 1 | H1 | H1.1, H1.4, H1.5, H1.6, H1.7, H1.8, H1.9, H1.10 e H1.11 concluídos/validados por lotes; fechar os dois residuais financeiros TypeScript e avançar com Laravel major, migração de `xlsx`, hardening residual R2 e QA frontend. |',
-              '| 1 | H1 | H1.1, H1.4–H1.12 concluídos/validados por lotes; fechar o residual TypeScript final de `BancoTab.tsx` em isolamento e avançar com Laravel major, migração de `xlsx`, hardening residual R2 e QA frontend. |',
-              'live priority'
-          )
-          live = replace_once(
-              live,
-              'Próximo passo: continuar H1 a partir do teto 22/2. Tratar primeiro `Financeiro/FaturasTab.tsx` (6 erros), cuja superfície é menor e já tem contract tests dedicados, e só depois `Financeiro/BancoTab.tsx` (16 erros) num lote financeiro isolado. Em paralelo, preparar Laravel major e a migração de `xlsx` sem degradar o runtime atual.',
-              'Próximo passo: continuar H1 a partir do teto 16/1. Tratar `Financeiro/BancoTab.tsx` (16 erros) num lote financeiro final e isolado, preservando explicitamente as invariantes de reconciliação, alocação e pagamento. Em paralelo, preparar Laravel major e a migração de `xlsx` sem degradar o runtime atual.',
-              'live next step'
-          )
+          live = replace_once(live, '3. fechar os 22 erros TypeScript restantes em dois lotes financeiros dedicados: `Financeiro/FaturasTab.tsx` (6) primeiro e `Financeiro/BancoTab.tsx` (16) depois;', '3. fechar os 16 erros TypeScript restantes em `Financeiro/BancoTab.tsx` num lote financeiro final e isolado;', 'live pending TS')
+          live = replace_once(live, '| 1 | H1 | H1.1, H1.4, H1.5, H1.6, H1.7, H1.8, H1.9, H1.10 e H1.11 concluídos/validados por lotes; fechar os dois residuais financeiros TypeScript e avançar com Laravel major, migração de `xlsx`, hardening residual R2 e QA frontend. |', '| 1 | H1 | H1.1, H1.4–H1.12 concluídos/validados por lotes; fechar o residual TypeScript final de `BancoTab.tsx` em isolamento e avançar com Laravel major, migração de `xlsx`, hardening residual R2 e QA frontend. |', 'live priority')
+          live = replace_once(live, 'Próximo passo: continuar H1 a partir do teto 22/2. Tratar primeiro `Financeiro/FaturasTab.tsx` (6 erros), cuja superfície é menor e já tem contract tests dedicados, e só depois `Financeiro/BancoTab.tsx` (16 erros) num lote financeiro isolado. Em paralelo, preparar Laravel major e a migração de `xlsx` sem degradar o runtime atual.', 'Próximo passo: continuar H1 a partir do teto 16/1. Tratar `Financeiro/BancoTab.tsx` (16 erros) num lote financeiro final e isolado, preservando explicitamente as invariantes de reconciliação, alocação e pagamento. Em paralelo, preparar Laravel major e a migração de `xlsx` sem degradar o runtime atual.', 'live next step')
           history_header = '| Data | Módulo | Desenvolvimento / análise | Evidência | Estado / pendências |\n|---|---|---|---|---|\n'
           history_row = '| 2026-08-24 | QA / TypeScript / Faturas | H1.12 fechou os 6 diagnósticos de `FaturasTab.tsx`, substituindo helpers residuais e alinhando `user_id` com o guard já existente, reduzindo a dívida de 22 erros/2 ficheiros para 16 erros/1 ficheiro sem tocar em Banco. | PR #219; CI #817; `qa/baselines/typescript.json`; `docs/qa/H1_BASELINE.md` | Novo teto 16/1. Resta apenas `BancoTab.tsx` com 16 diagnósticos para lote financeiro isolado. |\n'
           live = replace_once(live, history_header, history_header + history_row, 'live history')
