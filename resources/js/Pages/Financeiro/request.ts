@@ -73,12 +73,17 @@ export async function fetchFinanceiro<T>(
   const method = options.method || 'GET';
   const hasBody = options.body !== undefined;
   const isFormData = isFormDataPayload(options.body);
+  const requestBody = !hasBody
+    ? undefined
+    : isFormDataPayload(options.body)
+      ? options.body
+      : JSON.stringify(options.body);
 
   const response = await fetch(url, {
     method,
     headers: getFinanceiroJsonHeaders({ includeContentType: hasBody && !isFormData }),
     credentials: 'same-origin',
-    body: !hasBody ? undefined : isFormData ? options.body : JSON.stringify(options.body),
+    body: requestBody,
   });
 
   if (!response.ok) {
