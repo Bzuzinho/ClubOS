@@ -83,19 +83,20 @@ Evolução validada:
 - H1.7: 88 erros / 44 ficheiros → 66 erros / 27 ficheiros, normalizando o contrato genérico `PageProps<T>` e os seis `usePage` locais que ainda usavam interfaces sem index signature compatível com Inertia. Foram eliminados os 22 diagnósticos `TS2344` sem alteração de runtime;
 - H1.8: 66 erros / 27 ficheiros → 53 erros / 21 ficheiros. O lote removeu opções redundantes de `router.reload()` já implícitas pelo Inertia, substituiu duas utilizações de `replaceAll` por equivalentes compatíveis com o target atual e corrigiu duas inferências locais de tipo sem alterar o comportamento runtime. `Financeiro/BancoTab.tsx` não foi alterado e manteve os mesmos 16 diagnósticos. A CI #769 validou integralmente o ratchet TypeScript, build Vite, PHPUnit, legacy-read guard e PostgreSQL concurrency;
 - H1.9: 53 erros / 21 ficheiros → 36 erros / 10 ficheiros. O lote alinhou contratos TypeScript de baixo risco com payloads e estados já existentes em Eventos, Desportivo, Loja, Marketing, Perfil e Portal; normalizou `tempo_oficial` para string no adapter de resultados e tornou explícitas propriedades opcionais já consumidas. Não alterou regras de negócio, migrations ou dados e manteve `Financeiro/BancoTab.tsx` totalmente fora do lote. A CI #790 validou o código antes do aperto final do ratchet, com build Vite, 1764 testes / 9860 assertions, legacy-read guard e PostgreSQL concurrency verdes.
+- H1.10: 36 erros / 10 ficheiros → 25 erros / 4 ficheiros. Foram fechados contratos residuais de baixo risco em Configurações, Desportivo e Membros, removidos dois imports diretos para `@/lib/types` inexistente em favor do contrato `@/types`, normalizado o fallback de dados médicos e corrigido apenas o fallback de agendamento do dashboard financeiro. `BancoTab.tsx`, `FaturasTab.tsx`, `Financeiro/request.ts` e as duas ações incompletas de `Portal/Communications.tsx` ficaram fora do lote.
 
 O ratchet imprime no CI os ficheiros e códigos de erro com maior concentração, para orientar os próximos lotes sem alterar a regra de bloqueio.
 
 Teto atual versionado:
 
-- máximo 36 erros;
-- máximo 10 ficheiros afetados.
+- máximo 25 erros;
+- máximo 4 ficheiros afetados.
 
 O CI falha se qualquer destes limites aumentar. Uma redução futura tem obrigatoriamente de baixar novamente o baseline no mesmo PR para impedir regressão.
 
 ## Pendências H1
 
-1. Reduzir progressivamente os 36 erros TypeScript restantes por domínio funcional. `Financeiro/BancoTab.tsx` mantém 16 erros e continua reservado a lote próprio por ser financeiramente crítico; `Configuracoes/Index.tsx` e `Financeiro/FaturasTab.tsx` concentram 6 erros cada.
+1. Reduzir progressivamente os 25 erros TypeScript restantes em quatro ficheiros. `Financeiro/BancoTab.tsx` mantém 16 erros e continua reservado a lote próprio; `Financeiro/FaturasTab.tsx` mantém 6, `Portal/Communications.tsx` 2 e `Financeiro/request.ts` 1. Os dois erros do Portal correspondem a ações realmente ausentes e exigem validação funcional, não apenas tipagem.
 2. Planear Laravel 12+ para remover os 3 advisories residuais do framework.
 3. Substituir/migrar `xlsx` preservando o importador de membros.
 4. Reduzir o token R2 para `Object Read & Write` limitado ao bucket de backup e confirmar Bucket Lock.
