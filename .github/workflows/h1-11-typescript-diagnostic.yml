@@ -1,19 +1,95 @@
-name: H1.11 TypeScript diagnostic
+name: H1.11 finalize baseline and docs
 
 on:
   pull_request:
     branches:
       - main
 
+permissions:
+  contents: write
+
 jobs:
-  diagnostics:
+  finalize:
+    if: github.head_ref == 'cleanup/h1-11-typescript-portal-request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
         with:
-          node-version: 20
-          cache: npm
-      - run: npm ci
-      - name: TypeScript diagnostics
-        run: npx tsc --noEmit --pretty false
+          ref: cleanup/h1-11-typescript-portal-request
+          fetch-depth: 0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - name: Update H1.11 baseline and living docs
+        run: |
+          python <<'PY'
+          from pathlib import Path
+          import json
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              target = Path(path)
+              text = target.read_text(encoding='utf-8')
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{path}: expected one match, found {count}: {old[:120]!r}')
+              target.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          baseline = Path('qa/baselines/typescript.json')
+          data = json.loads(baseline.read_text(encoding='utf-8'))
+          data['max_errors'] = 22
+          data['max_affected_files'] = 2
+          baseline.write_text(json.dumps(data, indent=2, ensure_ascii=False) + '\n', encoding='utf-8')
+
+          h1 = 'docs/qa/H1_BASELINE.md'
+          replace_once(
+              h1,
+              "- H1.10: 36 erros / 10 ficheiros → 25 erros / 4 ficheiros. Foram fechados contratos residuais de baixo risco em Configurações, Desportivo e Membros, removidos dois imports diretos para `@/lib/types` inexistente em favor do contrato `@/types`, normalizado o fallback de dados médicos e corrigido apenas o fallback de agendamento do dashboard financeiro. `BancoTab.tsx`, `FaturasTab.tsx`, `Financeiro/request.ts` e as duas ações incompletas de `Portal/Communications.tsx` ficaram fora do lote.\n",
+              "- H1.10: 36 erros / 10 ficheiros → 25 erros / 4 ficheiros. Foram fechados contratos residuais de baixo risco em Configurações, Desportivo e Membros, removidos dois imports diretos para `@/lib/types` inexistente em favor do contrato `@/types`, normalizado o fallback de dados médicos e corrigido apenas o fallback de agendamento do dashboard financeiro. `BancoTab.tsx`, `FaturasTab.tsx`, `Financeiro/request.ts` e as duas ações incompletas de `Portal/Communications.tsx` ficaram fora do lote.\n- H1.11: 25 erros / 4 ficheiros → 22 erros / 2 ficheiros. O Portal passou a ter filtro funcional por categoria, lista de comunicações recentes e abertura coerente de cada item, marcando-o como lido antes de seguir para o link associado ou para o detalhe da caixa de entrada. Em `Financeiro/request.ts`, o body do `fetch` passou a preservar diretamente o narrowing de `FormData`, sem alterar payloads, endpoints ou regras financeiras. O diagnóstico completo deixou apenas `BancoTab.tsx` e `FaturasTab.tsx`.\n"
+          )
+          replace_once(h1, '- máximo 25 erros;\n- máximo 4 ficheiros afetados.', '- máximo 22 erros;\n- máximo 2 ficheiros afetados.')
+          replace_once(
+              h1,
+              "1. Reduzir progressivamente os 25 erros TypeScript restantes em quatro ficheiros. `Financeiro/BancoTab.tsx` mantém 16 erros e continua reservado a lote próprio; `Financeiro/FaturasTab.tsx` mantém 6, `Portal/Communications.tsx` 2 e `Financeiro/request.ts` 1. Os dois erros do Portal correspondem a ações realmente ausentes e exigem validação funcional, não apenas tipagem.",
+              "1. Fechar os 22 erros TypeScript restantes nos dois fluxos financeiros dedicados: `Financeiro/FaturasTab.tsx` mantém 6 erros e deve ser tratado primeiro por ter menor superfície; `Financeiro/BancoTab.tsx` mantém 16 e continua reservado a lote próprio por ser o fluxo de maior criticidade."
+          )
+
+          live = 'docs/ESTADO_VIVO_DESENVOLVIMENTO.md'
+          replace_once(
+              live,
+              "- TypeScript começou com teto de 132 erros / 55 ficheiros; qualquer melhoria tem de baixar o baseline no mesmo PR. H1.4 reduziu-o para 123/51, H1.5 para 101/51, H1.6 para 88/44, H1.7 para 66/27, H1.8 para 53/21, H1.9 para 36/10 e H1.10 para o teto atual de 25 erros / 4 ficheiros;",
+              "- TypeScript começou com teto de 132 erros / 55 ficheiros; qualquer melhoria tem de baixar o baseline no mesmo PR. H1.4 reduziu-o para 123/51, H1.5 para 101/51, H1.6 para 88/44, H1.7 para 66/27, H1.8 para 53/21, H1.9 para 36/10, H1.10 para 25/4 e H1.11 para o teto atual de 22 erros / 2 ficheiros;"
+          )
+          marker = "- sem migrations, sem alterações de dados e sem alteração intencional das regras de negócio.\n\nPendências H1 separadas:"
+          h111 = """- sem migrations, sem alterações de dados e sem alteração intencional das regras de negócio.\n\n### H1.11 — Portal communications + request transport — PR #218\n\nOitavo lote mensurável, fechando os últimos residuais fora dos dois grandes fluxos financeiros:\n\n- `Portal/Communications.tsx` ganhou estado real de categoria, lista de comunicações recentes filtrável e abertura funcional de cada item;\n- ao abrir um item não lido, o Portal usa o endpoint canónico `portal.communications.read` e só depois segue para o link associado ou para o detalhe da caixa de entrada;\n- `Financeiro/request.ts` passou a construir o `BodyInit` com o type guard de `FormData` aplicado diretamente, preservando exatamente o transporte existente;\n- diagnóstico completo `tsc --noEmit` passou de 25 erros / 4 ficheiros para 22 erros / 2 ficheiros;\n- permanecem exclusivamente 16 erros em `Financeiro/BancoTab.tsx` e 6 em `Financeiro/FaturasTab.tsx`;\n- sem migrations, sem alterações de dados e sem alteração das regras financeiras.\n\nPendências H1 separadas:"""
+          replace_once(live, marker, h111)
+          replace_once(
+              live,
+              "3. continuar o paydown dos 25 erros TypeScript em quatro ficheiros: `Financeiro/BancoTab.tsx` (16) e `Financeiro/FaturasTab.tsx` (6) em lotes financeiros dedicados, `Financeiro/request.ts` (1) com validação do helper de transporte, e `Portal/Communications.tsx` (2) com validação funcional das ações em falta;",
+              "3. fechar os 22 erros TypeScript restantes em dois lotes financeiros dedicados: `Financeiro/FaturasTab.tsx` (6) primeiro e `Financeiro/BancoTab.tsx` (16) depois;"
+          )
+          replace_once(
+              live,
+              "| 1 | H1 | H1.1, H1.4, H1.5, H1.6, H1.7, H1.8, H1.9 e H1.10 concluídos/validados por lotes; continuar paydown TypeScript e avançar com Laravel major, migração de `xlsx`, hardening residual R2 e QA frontend. |",
+              "| 1 | H1 | H1.1, H1.4, H1.5, H1.6, H1.7, H1.8, H1.9, H1.10 e H1.11 concluídos/validados por lotes; fechar os dois residuais financeiros TypeScript e avançar com Laravel major, migração de `xlsx`, hardening residual R2 e QA frontend. |"
+          )
+          replace_once(
+              live,
+              "Próximo passo: continuar H1 a partir do teto 25/4. Banco e Faturas devem seguir em lotes financeiros dedicados; `Financeiro/request.ts` exige validação do helper de transporte e as duas ações ausentes do Portal devem ser corrigidas com validação funcional. Em paralelo, preparar Laravel major e a migração de `xlsx` sem degradar o runtime atual.",
+              "Próximo passo: continuar H1 a partir do teto 22/2. Tratar primeiro `Financeiro/FaturasTab.tsx` (6 erros), cuja superfície é menor e já tem contract tests dedicados, e só depois `Financeiro/BancoTab.tsx` (16 erros) num lote financeiro isolado. Em paralelo, preparar Laravel major e a migração de `xlsx` sem degradar o runtime atual."
+          )
+          history_header = "| Data | Módulo | Desenvolvimento / análise | Evidência | Estado / pendências |\n|---|---|---|---|---|\n"
+          history_row = "| 2026-08-24 | QA / TypeScript / Portal + transporte financeiro | H1.11 completou o filtro e abertura de comunicações no Portal e corrigiu o narrowing do body em `Financeiro/request.ts`, reduzindo a dívida de 25 erros/4 ficheiros para 22 erros/2 ficheiros. | PR #218; diagnóstico completo `tsc --noEmit`; `qa/baselines/typescript.json`; `docs/qa/H1_BASELINE.md` | Novo teto 22/2. Restam apenas Banco 16 e Faturas 6. |\n"
+          replace_once(live, history_header, history_header + history_row)
+          replace_once(live, 'baseline TS inicial 132/55, já reduzido por H1.9 para 36/10.', 'baseline TS inicial 132/55, já reduzido por H1.11 para 22/2.')
+
+          Path('.github/workflows/h1-11-typescript-diagnostic.yml').unlink()
+          PY
+          git diff --check
+          git status --short
+      - name: Commit finalized H1.11
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/ESTADO_VIVO_DESENVOLVIMENTO.md docs/qa/H1_BASELINE.md qa/baselines/typescript.json .github/workflows/h1-11-typescript-diagnostic.yml
+          git commit -m "docs: lock H1.11 TypeScript baseline at 22/2"
+          git push origin HEAD:cleanup/h1-11-typescript-portal-request
