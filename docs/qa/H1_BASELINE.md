@@ -85,19 +85,20 @@ Evolução validada:
 - H1.9: 53 erros / 21 ficheiros → 36 erros / 10 ficheiros. O lote alinhou contratos TypeScript de baixo risco com payloads e estados já existentes em Eventos, Desportivo, Loja, Marketing, Perfil e Portal; normalizou `tempo_oficial` para string no adapter de resultados e tornou explícitas propriedades opcionais já consumidas. Não alterou regras de negócio, migrations ou dados e manteve `Financeiro/BancoTab.tsx` totalmente fora do lote. A CI #790 validou o código antes do aperto final do ratchet, com build Vite, 1764 testes / 9860 assertions, legacy-read guard e PostgreSQL concurrency verdes.
 - H1.10: 36 erros / 10 ficheiros → 25 erros / 4 ficheiros. Foram fechados contratos residuais de baixo risco em Configurações, Desportivo e Membros, removidos dois imports diretos para `@/lib/types` inexistente em favor do contrato `@/types`, normalizado o fallback de dados médicos e corrigido apenas o fallback de agendamento do dashboard financeiro. `BancoTab.tsx`, `FaturasTab.tsx`, `Financeiro/request.ts` e as duas ações incompletas de `Portal/Communications.tsx` ficaram fora do lote.
 - H1.11: 25 erros / 4 ficheiros → 22 erros / 2 ficheiros. O Portal passou a ter filtro funcional por categoria, lista de comunicações recentes e abertura coerente de cada item, marcando-o como lido antes de seguir para o link associado ou para o detalhe da caixa de entrada. Em `Financeiro/request.ts`, o body do `fetch` passou a preservar diretamente o narrowing de `FormData`, sem alterar payloads, endpoints ou regras financeiras. A execução diagnóstica da PR #218 confirmou exatamente 22 erros em 2 ficheiros, sem qualquer residual em Portal ou `Financeiro/request.ts`.
+- H1.12: 22 erros / 2 ficheiros → 16 erros / 1 ficheiro. `Financeiro/FaturasTab.tsx` passou a usar o helper financeiro canónico `getFinanceiroAxiosJsonConfig` nas três chamadas residuais e os payloads manuais usam o `user_id` já validado pelo guard do formulário; uma fatura histórica sem titular é normalizada para valor vazio e continua impedida de persistir até existir utilizador. A CI #817 confirmou Faturas sem diagnósticos, 1764 testes / 9860 assertions, legacy-read guard e PostgreSQL concurrency verdes. Resta apenas `Financeiro/BancoTab.tsx` com 16 diagnósticos.
 
 O ratchet imprime no CI os ficheiros e códigos de erro com maior concentração, para orientar os próximos lotes sem alterar a regra de bloqueio.
 
 Teto atual versionado:
 
-- máximo 22 erros;
-- máximo 2 ficheiros afetados.
+- máximo 16 erros;
+- máximo 1 ficheiro afetado.
 
 O CI falha se qualquer destes limites aumentar. Uma redução futura tem obrigatoriamente de baixar novamente o baseline no mesmo PR para impedir regressão.
 
 ## Pendências H1
 
-1. Fechar os 22 erros TypeScript restantes nos dois fluxos financeiros dedicados: `Financeiro/FaturasTab.tsx` mantém 6 erros e deve ser tratado primeiro por ter menor superfície; `Financeiro/BancoTab.tsx` mantém 16 e continua reservado a lote próprio por ser o fluxo de maior criticidade.
+1. Fechar os 16 erros TypeScript restantes em `Financeiro/BancoTab.tsx` num lote financeiro final e isolado, preservando as invariantes de reconciliação e pagamento.
 2. Planear Laravel 12+ para remover os 3 advisories residuais do framework.
 3. Substituir/migrar `xlsx` preservando o importador de membros.
 4. Reduzir o token R2 para `Object Read & Write` limitado ao bucket de backup e confirmar Bucket Lock.

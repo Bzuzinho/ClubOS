@@ -623,7 +623,7 @@ export function FaturasTab({
           notes: paymentNotes || undefined,
           create_credit: paymentCreateCredit,
           allocations,
-        }, getAxiosJsonConfig());
+        }, getFinanceiroAxiosJsonConfig());
 
         const updatedInvoices = Array.isArray(response.data?.invoices) ? response.data.invoices as Fatura[] : [];
         const updatedStatement = response.data?.bank_statement as ExtratoBancario | undefined;
@@ -754,7 +754,7 @@ export function FaturasTab({
     notes?: string;
   }) => {
     try {
-      const response = await axios.post(route('financeiro.mensalidades.estado', invoiceId), payload, getAxiosJsonConfig());
+      const response = await axios.post(route('financeiro.mensalidades.estado', invoiceId), payload, getFinanceiroAxiosJsonConfig());
       const data = response.data;
 
       return {
@@ -771,7 +771,7 @@ export function FaturasTab({
     notes?: string;
   }) => {
     try {
-      const response = await axios.post(route('financeiro.invoices.estado', invoiceId), payload, getAxiosJsonConfig());
+      const response = await axios.post(route('financeiro.invoices.estado', invoiceId), payload, getFinanceiroAxiosJsonConfig());
       const data = response.data;
 
       return {
@@ -1092,7 +1092,7 @@ export function FaturasTab({
           : faturaAtualizada.estado_pagamento;
 
         const updated = await persistInvoiceUpdate(editingFaturaId, {
-          user_id: faturaAtualizada.user_id,
+          user_id: formData.user_id,
           data_emissao: faturaAtualizada.data_emissao,
           data_vencimento: faturaAtualizada.data_vencimento,
           data_fatura: faturaAtualizada.data_fatura,
@@ -1199,7 +1199,7 @@ export function FaturasTab({
 
       try {
         const created = await persistInvoice({
-          user_id: novaFatura.user_id,
+          user_id: formData.user_id,
           data_emissao: novaFatura.data_emissao,
           data_vencimento: novaFatura.data_vencimento,
           data_fatura: novaFatura.data_fatura,
@@ -1274,7 +1274,7 @@ export function FaturasTab({
     };
 
     setFormData({
-      user_id: fatura.user_id,
+      user_id: fatura.user_id || '',
       tipo: fatura.tipo,
       valor_total: fatura.valor_total,
       data_emissao: toInputDate(fatura.data_emissao),
