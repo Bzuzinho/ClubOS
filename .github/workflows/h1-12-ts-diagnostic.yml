@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - cleanup/h1-12-typescript-faturas
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
 
 jobs:
