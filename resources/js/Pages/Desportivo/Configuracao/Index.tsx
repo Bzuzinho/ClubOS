@@ -53,8 +53,9 @@ function ConfigurationDialog({ catalog, row, open, onOpenChange }: { catalog: Ca
     const [data, setData] = useState<Record<string, unknown>>(initial);
     const submit = () => {
         const options = { preserveScroll: true, onSuccess: () => onOpenChange(false) };
-        if (row) { router.put(route('desportivo.configuracao.update', { catalog: catalog.key, id: row.id }), data, options); return; }
-        router.post(route('desportivo.configuracao.store', { catalog: catalog.key }), data, options);
+        const payload = data as Record<string, string | number | boolean | null>;
+        if (row) { router.put(route('desportivo.configuracao.update', { catalog: catalog.key, id: row.id }), payload, options); return; }
+        router.post(route('desportivo.configuracao.store', { catalog: catalog.key }), payload, options);
     };
     return <Dialog open={open} onOpenChange={onOpenChange}><DialogContent className="max-h-[85vh] max-w-2xl overflow-y-auto"><DialogHeader><DialogTitle>{row ? 'Editar' : 'Nova configuração'} — {catalog.label}</DialogTitle></DialogHeader><div className="grid gap-4 py-2 sm:grid-cols-2">{catalog.fields.map((field) => {
         const value=data[field.key]; const locked=field.key==='codigo'&&Boolean(row?.code_locked);
