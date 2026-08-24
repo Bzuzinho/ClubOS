@@ -1,5 +1,5 @@
 import { Head, router, usePage } from '@inertiajs/react';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import {
     BellRing,
     CalendarDays,
@@ -134,11 +134,52 @@ export default function Communications() {
         communicationState,
         communications,
     } = usePage<PageProps>().props;
+    const [selectedCategory, setSelectedCategory] = useState<CommunicationCategory['key'] | null>(null);
 
     const pendingItems = useMemo(
         () => communications.items.filter((item) => item.state.key === 'action_required'),
         [communications.items],
     );
+    const recentItems = useMemo(
+        () => communications.items
+            .filter((item) => selectedCategory === null || item.category.key === selectedCategory)
+            .slice(0, 6),
+        [communications.items, selectedCategory],
+    );
+    const selectedCategoryLabel = selectedCategory === null
+        ? null
+        : communications.categories.find((category) => category.key === selectedCategory)?.label ?? null;
+
+    const visitItemTarget = (item: CommunicationItem) => {
+        if (item.link) {
+            if (/^https?:\/\//i.test(item.link)) {
+                window.location.assign(item.link);
+                return;
+            }
+
+            router.visit(item.link);
+            return;
+        }
+
+        router.visit(route('portal.communications', {
+            folder: 'received',
+            message: item.id,
+        }));
+    };
+
+    const openItem = (item: CommunicationItem) => {
+        if (!item.can_mark_read) {
+            visitItemTarget(item);
+            return;
+        }
+
+        router.post(route('portal.communications.read'), item.mark_read_payload, {
+            preserveScroll: true,
+            preserveState: true,
+            only: ['communications', 'internalCommunications', 'communicationAlerts', 'flash'],
+            onSuccess: () => visitItemTarget(item),
+        });
+    };
 
     return (
         <>
@@ -237,20 +278,59 @@ export default function Communications() {
                             </div>
                         </PortalSection>
 
-                        <PortalSection title="Categorias" description="Treinos, eventos, financeiro, documentos e geral.">
+                        <PortalSection title="Categorias" description="Filtre a atividade recente por área.">
                             <div className="space-y-2">
+                                <button
+                                    type="button"
+                                    aria-pressed={selectedCategory === null}
+                                    onClick={() => setSelectedCategory(null)}
+                                    className={`flex w-full items-center justify-between rounded-2xl border px-4 py-3 text-left transition ${selectedCategory === null ? 'border-blue-200 bg-blue-50' : 'border-slate-200 bg-slate-50/70 hover:border-slate-300 hover:bg-white'}`}
+                                >
+                                    <span className="text-sm font-semibold text-slate-800">Todas</span>
+                                    <span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-slate-600">{communications.items.length}</span>
+                                </button>
                                 {communications.categories.map((category) => (
                                     <button
                                         key={category.key}
                                         type="button"
+                                        aria-pressed={selectedCategory === category.key}
                                         onClick={() => setSelectedCategory(category.key)}
-                                        className="flex w-full items-center justify-between rounded-2xl border border-slate-200 bg-slate-50/70 px-4 py-3 text-left transition hover:border-slate-300 hover:bg-white"
+                                        className={`flex w-full items-center justify-between rounded-2xl border px-4 py-3 text-left transition ${selectedCategory === category.key ? 'border-blue-200 bg-blue-50' : 'border-slate-200 bg-slate-50/70 hover:border-slate-300 hover:bg-white'}`}
                                     >
                                         <span className="text-sm font-semibold text-slate-800">{category.label}</span>
                                         <span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-slate-600">{category.count}</span>
                                     </button>
                                 ))}
                             </div>
+                        </PortalSection>
+
+                        <PortalSection
+                            title={selectedCategoryLabel ? `Recentes — ${selectedCategoryLabel}` : 'Recentes'}
+                            description="Abra a comunicação ou a área da aplicação associada."
+                        >
+                            {recentItems.length === 0 ? (
+                                <EmptyState message={communications.empty_states.recent} />
+                            ) : (
+                                <div className="space-y-2">
+                                    {recentItems.map((item) => (
+                                        <button
+                                            key={`recent-${item.id}`}
+                                            type="button"
+                                            onClick={() => openItem(item)}
+                                            className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-left transition hover:border-blue-200 hover:bg-blue-50/30"
+                                        >
+                                            <div className="flex items-start justify-between gap-3">
+                                                <p className="text-sm font-semibold text-slate-900">{item.title}</p>
+                                                <span className="shrink-0 text-[11px] font-semibold text-slate-500">{item.state.label}</span>
+                                            </div>
+                                            {item.description && (
+                                                <p className="mt-1 line-clamp-2 text-xs text-slate-600">{item.description}</p>
+                                            )}
+                                            <p className="mt-2 text-[11px] font-medium text-slate-500">{item.category.label} · {formatDate(item.date)}</p>
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
                         </PortalSection>
 
                         <PortalSection title="Ações pendentes" description="Itens que exigem resposta ou detalhe adicional.">
