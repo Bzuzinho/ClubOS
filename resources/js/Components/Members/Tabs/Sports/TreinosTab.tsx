@@ -51,7 +51,7 @@ export function TreinosTab({ user }: TreinosTabProps) {
 
         return {
           ...training,
-          estadoTreino: trainingDate >= today ? 'agendado' : 'concluido',
+          estadoTreino: trainingDate >= today ? ('agendado' as const) : ('concluido' as const),
         };
       })
       .sort((left, right) => {
