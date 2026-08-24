@@ -126,7 +126,7 @@ export function getEscaloesNames(escalaoIds: string[] = [], ageGroups: any[]): s
     .join(', ');
 }
 
-export function getInitials(name: string): string {
+export function getInitials(name?: string | null): string {
   if (!name) return '';
   return name
     .split(' ')
