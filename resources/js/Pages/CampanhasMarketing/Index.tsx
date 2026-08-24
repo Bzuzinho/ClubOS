@@ -54,7 +54,7 @@ interface Props {
     };
 }
 
-interface CampaignFormData {
+interface CampaignFormData extends Record<string, string> {
     name: string;
     description: string;
     type: CampaignType;
