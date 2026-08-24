@@ -41,7 +41,7 @@ Stack produtiva: Laravel 11, PHP 8.3, React 19 + TypeScript, Inertia, Vite, Post
 
 | Módulo / Área | Estado estimado | Estado atual / pendências principais |
 |---|---:|---|
-| Base técnica / arquitetura | 89% | H0.1a/H0.1b/H0.2 concluídos em produção. H1.1 concluiu dependency remediation compatível e QA ratchets; H1.4/H1.5/H1.6/H1.7/H1.8 reduziram progressivamente a dívida TypeScript para 53 erros/21 ficheiros. Permanecem Laravel major, migração de `xlsx`, continuação do paydown TypeScript e hardenings residuais. |
+| Base técnica / arquitetura | 89% | H0.1a/H0.1b/H0.2 concluídos em produção. H1.1 concluiu dependency remediation compatível e QA ratchets; H1.4/H1.5/H1.6/H1.7/H1.8/H1.9 reduziram progressivamente a dívida TypeScript para 36 erros/10 ficheiros. Permanecem Laravel major, migração de `xlsx`, continuação do paydown TypeScript e hardenings residuais. |
 | Website público / construtor | 86% | Renderer, snapshots, publicação e dados dinâmicos avançados. Faltam header/footer globais, notícias completas e validação runtime multi-viewport. |
 | Autenticação / Access Control | 78% | Auditoria e gates produtivos ativos. Zero findings críticos e zero rotas mutáveis sem `module.access`. Permanecem 83 warnings de capability granular. |
 | Dashboard / entrada por perfil | 70% | Funcional, com leituras canónicas financeiras. Falta QA final por perfil e viewport. |
@@ -59,7 +59,7 @@ Stack produtiva: Laravel 11, PHP 8.3, React 19 + TypeScript, Inertia, Vite, Post
 | Loja | 60% | Falta lifecycle completo produto → stock → encomenda → pagamento → fiscal → cancelamento/devolução/reposição. |
 | Comunicação | 60% | Falta pipeline assíncrono persistente com attempts, retry, idempotência e provider IDs. |
 | Relatórios | 40% | Área menos madura; construir apenas depois de estabilizar fontes de verdade. |
-| PWA / Mobile | 55% | H1.4/H1.5/H1.6/H1.7/H1.8 reduziram a dívida TypeScript de 132 erros/55 ficheiros para 53 erros/21 ficheiros e apertaram o ratchet anti-regressão para esse teto. Continuam em falta lint, unit/component tests, E2E, acessibilidade e matriz Android/iOS/tablet/desktop. |
+| PWA / Mobile | 55% | H1.4/H1.5/H1.6/H1.7/H1.8/H1.9 reduziram a dívida TypeScript de 132 erros/55 ficheiros para 36 erros/10 ficheiros e apertaram o ratchet anti-regressão para esse teto. Continuam em falta lint, unit/component tests, E2E, acessibilidade e matriz Android/iOS/tablet/desktop. |
 | Importação de recibos antigos | 60% | Falta corpus real representativo e regression dataset idempotente. |
 
 ---
@@ -266,7 +266,7 @@ H1.1 introduz ratchets permanentes:
 
 - Composer aceita temporariamente apenas o residual Laravel 11, limitado a 3 advisories, 0 critical e no máximo 1 high;
 - npm aceita temporariamente apenas `xlsx`, 1 high, sem moderate/low/critical e apenas enquanto `fixAvailable=false`;
-- TypeScript começou com teto de 132 erros / 55 ficheiros; qualquer melhoria tem de baixar o baseline no mesmo PR. H1.4 reduziu-o para 123/51, H1.5 para 101/51, H1.6 para 88/44, H1.7 para 66/27 e H1.8 para o teto atual de 53 erros / 21 ficheiros;
+- TypeScript começou com teto de 132 erros / 55 ficheiros; qualquer melhoria tem de baixar o baseline no mesmo PR. H1.4 reduziu-o para 123/51, H1.5 para 101/51, H1.6 para 88/44, H1.7 para 66/27, H1.8 para 53/21 e H1.9 para o teto atual de 36 erros / 10 ficheiros;
 - contrato detalhado em `docs/qa/H1_BASELINE.md`.
 
 ### H1.4 — Primeiro paydown TypeScript — validada na CI #730 / PR #208
@@ -326,11 +326,23 @@ Quinto lote mensurável, focado em padrões transversais de baixo risco e sem to
 - `qa/baselines/typescript.json` foi reduzido para `53 / 21` no mesmo lote;
 - CI #769 integral verde: Composer/npm ratchets, TypeScript 53/21, build Vite, PHPUnit, legacy members read guard e PostgreSQL concurrency.
 
+### H1.9 — Alinhamento de contratos TypeScript por domínio — validada na CI #790 / PR #216
+
+Sexto lote mensurável, focado em contratos locais e partilhados de baixo risco, sem alterar regras de negócio ou o fluxo bancário crítico:
+
+- alinhados tipos opcionais e payloads já existentes em Eventos, Desportivo, Loja, Marketing, Perfil e Portal;
+- normalizado `tempo_oficial` para string no adapter de resultados de competição, preservando o contrato consumido pelo frontend;
+- explicitadas propriedades já consumidas (`attendanceRate`, `epoca_id`, `ordem`) e estados literais sem alterar runtime;
+- `resources/js/Pages/Financeiro/BancoTab.tsx` permaneceu totalmente fora do lote e mantém 16 diagnósticos;
+- `tsc --noEmit` passou de 53 erros / 21 ficheiros para 36 erros / 10 ficheiros;
+- o código foi validado na CI #790 com build Vite, 1764 testes / 9860 assertions, legacy members read guard e PostgreSQL concurrency verdes;
+- `qa/baselines/typescript.json` é apertado para `36 / 10` no fecho da PR para tornar a melhoria irreversível pelo ratchet.
+
 Pendências H1 separadas:
 
 1. Laravel 12+ para remover os 3 advisories residuais;
 2. migração de `xlsx` preservando o importador de membros `.xlsx/.xls/.csv`;
-3. continuar o paydown dos 53 erros TypeScript por domínio; o maior ficheiro isolado é `Financeiro/BancoTab.tsx` com 16 erros, que deve ser tratado num lote próprio por ser fluxo financeiro crítico;
+3. continuar o paydown dos 36 erros TypeScript por domínio; `Financeiro/BancoTab.tsx` mantém 16 erros e fica reservado a lote próprio por ser fluxo financeiro crítico; `Configuracoes/Index.tsx` e `Financeiro/FaturasTab.tsx` concentram 6 erros cada;
 4. R2 least privilege e confirmação Bucket Lock;
 5. lint, unit/component tests, E2E, accessibility e matriz mobile/desktop.
 
@@ -353,7 +365,7 @@ Pendências H1 separadas:
 
 | Ordem | Sprint | Objetivo |
 |---:|---|---|
-| 1 | H1 | H1.1, H1.4, H1.5, H1.6, H1.7 e H1.8 concluídos/validados por lotes; continuar paydown TypeScript e avançar com Laravel major, migração de `xlsx`, hardening residual R2 e QA frontend. |
+| 1 | H1 | H1.1, H1.4, H1.5, H1.6, H1.7, H1.8 e H1.9 concluídos/validados por lotes; continuar paydown TypeScript e avançar com Laravel major, migração de `xlsx`, hardening residual R2 e QA frontend. |
 | 2 | H2 | Família/EE, stock variantes, legacy e rotas modulares. |
 | 3 | H3 | Fecho Desportivo ponta a ponta. |
 | 4 | H4 | Decisão e fecho Fiscal. |
@@ -363,7 +375,7 @@ Pendências H1 separadas:
 | 8 | H8 | Reporting consolidado. |
 | 9 | H9 | Website: header/footer, notícias e polish final. |
 
-Próximo passo: continuar H1 por lotes pequenos e mensuráveis, reduzindo a dívida TypeScript a partir do teto 53/21 e mantendo os ratchets de segurança; em paralelo, preparar as mudanças incompatíveis de Laravel e `xlsx` sem degradar o runtime atual.
+Próximo passo: continuar H1 por lotes pequenos e mensuráveis, reduzindo a dívida TypeScript a partir do teto 36/10 e mantendo `Financeiro/BancoTab.tsx` isolado para tratamento financeiro dedicado; em paralelo, preparar as mudanças incompatíveis de Laravel e `xlsx` sem degradar o runtime atual.
 
 ---
 
@@ -371,12 +383,13 @@ Próximo passo: continuar H1 por lotes pequenos e mensuráveis, reduzindo a dív
 
 | Data | Módulo | Desenvolvimento / análise | Evidência | Estado / pendências |
 |---|---|---|---|---|
+| 2026-08-24 | QA / TypeScript / contratos por domínio | H1.9 alinhou contratos TypeScript de baixo risco em Eventos, Desportivo, Loja, Marketing, Perfil e Portal, reduzindo a dívida de 53 erros/21 ficheiros para 36 erros/10 ficheiros sem tocar no fluxo bancário crítico. | PR #216; CI #790; `qa/baselines/typescript.json`; `docs/qa/H1_BASELINE.md` | Novo teto 36/10. `Financeiro/BancoTab.tsx` mantém 16 diagnósticos e continua reservado a lote próprio. |
 | 2026-08-24 | QA / TypeScript / Inertia | H1.8 normalizou `router.reload()`, compatibilidade ES2020 e inferências locais de tipo sem alteração de runtime, reduzindo a dívida TypeScript de 66 erros/27 ficheiros para 53 erros/21 ficheiros. | PR #215; CI #769; `qa/baselines/typescript.json`; `docs/qa/H1_BASELINE.md` | Novo teto 53/21. `Financeiro/BancoTab.tsx` permaneceu fora do lote e mantém 16 diagnósticos para tratamento isolado. |
 | 2026-08-24 | QA / TypeScript / Inertia | H1.7 normalizou o contrato `PageProps`/`usePage` sem alterar runtime e eliminou todos os 22 `TS2344`, reduzindo a dívida TypeScript de 88 erros/44 ficheiros para 66 erros/27 ficheiros. | PR #214; CI #760; `resources/js/types/index.d.ts`; `qa/baselines/typescript.json`; `docs/qa/H1_BASELINE.md` | Novo teto 66/27. H1.8 reduziu posteriormente para 53/21. |
 | 2026-08-23 | QA / TypeScript / Dead code | H1.6 mediu a concentração dos diagnósticos, removeu um barrel desportivo obsoleto e seis componentes UI órfãos, reduzindo a dívida TypeScript de 101 erros/51 ficheiros para 88 erros/44 ficheiros. | PR #213; `scripts/qa/typecheck-ratchet.mjs`; `qa/baselines/typescript.json`; `docs/qa/H1_BASELINE.md` | Novo teto 88/44. Nenhuma dependência morta foi reinstalada para preservar componentes sem consumidores. |
 | 2026-08-23 | QA / TypeScript / Comunicação | H1.5 declarou o contrato global de canais já usado por Comunicação e reduziu a dívida TypeScript de 123 erros/51 ficheiros para 101 erros/51 ficheiros, apertando novamente o ratchet. | PR #212; CI #738; `resources/js/types/global.d.ts`; `qa/baselines/typescript.json`; `docs/qa/H1_BASELINE.md` | Novo teto 101/51. H1.6 reduziu posteriormente para 88/44. |
 | 2026-08-22 | QA / TypeScript | H1.4 removeu quatro componentes UI órfãos e reduziu a dívida TypeScript de 132 erros/55 ficheiros para 123 erros/51 ficheiros, apertando o ratchet para o novo valor. | PR #208; CI #730; merge `6df774c4ef9cdb89f5aea0ea0e35fde50fba9ae1`; `qa/baselines/typescript.json` | Integrado em `main`. Paydown continuado em H1.5/H1.6. |
-| 2026-08-22 | QA / Dependências | H1.1 mediu baseline Composer/npm/TypeScript, provou remediação compatível e introduziu ratchets anti-regressão. | PRs diagnóstico #203/#204; PR #205; `docs/qa/H1_BASELINE.md`; `scripts/qa/*`; `qa/baselines/typescript.json` | CI #720 totalmente verde. Residual controlado: 3 advisories Laravel 11, 1 high `xlsx`; baseline TS inicial 132/55, já reduzido por H1.8 para 53/21. |
+| 2026-08-22 | QA / Dependências | H1.1 mediu baseline Composer/npm/TypeScript, provou remediação compatível e introduziu ratchets anti-regressão. | PRs diagnóstico #203/#204; PR #205; `docs/qa/H1_BASELINE.md`; `scripts/qa/*`; `qa/baselines/typescript.json` | CI #720 totalmente verde. Residual controlado: 3 advisories Laravel 11, 1 high `xlsx`; baseline TS inicial 132/55, já reduzido por H1.9 para 36/10. |
 | 2026-08-22 | Infraestrutura / DR | H0.2 fechada em produção com Cloudflare R2 real: escrita/leitura/eliminação S3 validadas, primeiro backup cifrado remoto criado, restore PG17 a partir do objeto remoto e health estrito verdes. | PR #200; diagnóstico #201; release `547dd6aaacfa69d188258200c8811974d06bdf6e`; arquivo `clubos-prod-20260822T001929Z.tar.gz.gpg`; restore 208 tabelas/214 migrations/5 s; `r2_real_validation=ok` | H0.2 concluída operacionalmente. Residual H1: token de menor privilégio e confirmação Bucket Lock. |
 | 2026-08-22 | Infraestrutura / DR | Automatizado o bootstrap produtivo R2 com secrets, SSH pinned, prova backup+restore antes de ativar cron/marker e health estrito. | PR #200; `.github/workflows/dr-r2-activate.yml`; `docs/DR_R2_ACTIVATION.md` | Integrado em `main` e usado com sucesso na ativação real. |
 | 2026-08-21 | Infraestrutura / DR | E2E de software fechado com remote efémero; regressões Bash e permissões de restore corrigidas antes do provider real. | PRs #191/#193/#194/#196; E2E 208 tabelas, 214 migrations, 14 s | Validado e posteriormente confirmado contra R2 real. |
