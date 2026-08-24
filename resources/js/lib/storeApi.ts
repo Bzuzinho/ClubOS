@@ -55,6 +55,7 @@ export interface StoreProduct {
     gere_stock: boolean;
     stock_atual: number;
     stock_minimo?: number | null;
+    ordem?: number | null;
     tem_stock_baixo?: boolean;
     categoria?: {
         id: string;
