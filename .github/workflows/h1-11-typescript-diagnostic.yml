@@ -1,9 +1,9 @@
 name: H1.11 TypeScript diagnostic
 
 on:
-  push:
+  pull_request:
     branches:
-      - cleanup/h1-11-typescript-portal-request
+      - main
 
 jobs:
   diagnostics:
