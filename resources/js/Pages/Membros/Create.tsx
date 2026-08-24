@@ -11,7 +11,7 @@ import { FinancialTab } from '@/Components/Members/Tabs/FinancialTab';
 import { SportsTab } from '@/Components/Members/Tabs/SportsTab';
 import { ConfigurationTab } from '@/Components/Members/Tabs/ConfigurationTab';
 import { createEmptyUser, generateMemberNumber } from '@/lib/user-helpers';
-import type { User as AppUser } from '@/lib/types';
+import type { User as AppUser } from '@/types';
 
 type User = AppUser & {
     [key: string]: any;

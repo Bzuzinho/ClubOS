@@ -1,13 +1,22 @@
 import { useMemo, useState } from 'react';
 import { Button } from '@/Components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/Components/ui/card';
-import type { Macrocycle, MesocyclePlan, Training } from '@/Components/Desportivo/types';
+import type { Macrocycle, MesocyclePlan } from '@/Components/Desportivo/types';
+
+interface CalendarTraining {
+  id: string;
+  numero_treino?: string | null;
+  data: string;
+  macrocycle_id?: string | null;
+  mesociclo_id?: string | null;
+  microciclo_id?: string | null;
+}
 
 interface Props {
   macrocycles: Macrocycle[];
   mesocycles?: MesocyclePlan[];
   microcycles?: Array<{ id: string; mesociclo_id?: string | null; macrocycle_id?: string | null }>;
-  trainings?: Training[];
+  trainings?: CalendarTraining[];
 }
 
 const monthLabel = new Intl.DateTimeFormat('pt-PT', { month: 'short', year: 'numeric' });

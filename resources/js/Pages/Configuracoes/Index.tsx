@@ -60,6 +60,7 @@ interface BaseDesportivoConfig {
     nome: string;
     ativo: boolean;
     ordem: number;
+    cor?: string | null;
 }
 
 interface TrainingZoneConfig extends BaseDesportivoConfig {
@@ -1267,7 +1268,6 @@ export default function SettingsIndex({
             preserveScroll: true,
             preserveState: true,
             onSuccess: () => {
-                notificationPrefsForm.defaults(notificationPrefsForm.data);
                 toast.success('Preferências de automação atualizadas');
             },
             onError: () => toast.error('Erro ao guardar preferências de automação.'),
@@ -2873,18 +2873,7 @@ export default function SettingsIndex({
                         <TabFallback />
                         ) : (
                         <Suspense fallback={<TabFallback />}>
-                        <ConfiguracoesDesportivoIndex
-                            athleteStatuses={athleteStatuses}
-                            trainingTypes={trainingTypes}
-                            trainingZones={trainingZones}
-                            absenceReasons={absenceReasons}
-                            injuryReasons={injuryReasons}
-                            poolTypes={poolTypes}
-                            ageGroups={ageGroups}
-                            provaTipos={provaTipos}
-                            embedded
-                            showSummary={false}
-                        />
+                        <ConfiguracoesDesportivoIndex embedded />
                         </Suspense>
                         )
                         ) : null}

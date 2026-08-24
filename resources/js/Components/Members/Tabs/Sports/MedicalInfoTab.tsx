@@ -117,7 +117,7 @@ function parseMedicalInfo(rawValue: unknown): MedicalInfoState {
     return {
       apto: '',
       registos: [],
-      observacoesLegadas: rawValue,
+      observacoesLegadas: typeof rawValue === 'string' ? rawValue : '',
     };
   }
 }
