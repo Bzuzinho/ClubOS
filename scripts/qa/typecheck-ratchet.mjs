@@ -63,14 +63,14 @@ if (errorCount > 0) {
   for (const [code, count] of rankedCodes.slice(0, 10)) {
     console.log(`  ${count}\t${code}`);
   }
-
-  console.log('H1.9 temporary full TypeScript diagnostics:');
-  console.log(errorLines.join('\n'));
-  console.error('H1.9 temporary diagnostic stop after full TypeScript output.');
-  process.exit(1);
 }
 
 if (result.status === 0) {
+  if (errorCount !== 0) {
+    console.error('tsc exited successfully but TypeScript errors were parsed from its output.');
+    process.exit(2);
+  }
+
   console.log('TypeScript is clean; ratchet passed.');
   process.exit(0);
 }
@@ -78,6 +78,16 @@ if (result.status === 0) {
 if (errorCount === 0) {
   console.error(output || `tsc failed with exit code ${result.status ?? 'unknown'} without parseable TypeScript diagnostics.`);
   process.exit(result.status || 2);
+}
+
+if (errorCount > baseline.max_errors || affectedFileCount > baseline.max_affected_files) {
+  console.error('TypeScript debt regressed above the accepted H1 baseline.');
+  console.error(errorLines.slice(0, 40).join('\n'));
+  process.exit(1);
+}
+
+if (errorCount < baseline.max_errors || affectedFileCount < baseline.max_affected_files) {
+  console.log('TypeScript debt improved. Lower qa/baselines/typescript.json in the same change to lock in the gain.');
 }
 
 console.log('TypeScript ratchet passed without regression.');
