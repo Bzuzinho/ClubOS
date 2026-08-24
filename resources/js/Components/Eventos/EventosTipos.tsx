@@ -37,7 +37,7 @@ interface EventType {
   icon: string;
   ativo: boolean;
   requer_convocatoria: boolean;
-  requer_transporte: boolean;
+  requer_transporte?: boolean;
 }
 
 interface EventosTiposProps {
