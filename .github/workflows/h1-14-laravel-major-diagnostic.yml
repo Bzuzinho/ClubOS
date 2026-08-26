@@ -38,6 +38,7 @@ jobs:
           npm ci
           cp .env.example .env
           php artisan key:generate --force
+          npm run build
 
       - name: Simulate Laravel 11 to 12
         id: laravel12
