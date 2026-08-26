@@ -33,7 +33,7 @@ Não está recomendada uma reescrita do ClubOS.
 | Frontend / E2E / mobile QA | Insuficientes |
 | Infraestrutura / Disaster Recovery | H0.1 e H0.2 concluídos operacionalmente em produção |
 
-Stack produtiva: Laravel 11, PHP 8.3, React 19 + TypeScript, Inertia, Vite, PostgreSQL 17 local na Oracle VM, Redis, GitHub Actions, Nginx e PHP-FPM.
+Stack produtiva: Laravel 13, PHP 8.3, React 19 + TypeScript, Inertia 2, Vite, PostgreSQL 17 local na Oracle VM, Redis, GitHub Actions, Nginx e PHP-FPM.
 
 ---
 
@@ -41,7 +41,7 @@ Stack produtiva: Laravel 11, PHP 8.3, React 19 + TypeScript, Inertia, Vite, Post
 
 | Módulo / Área | Estado estimado | Estado atual / pendências principais |
 |---|---:|---|
-| Base técnica / arquitetura | 90% | H0.1a/H0.1b/H0.2 concluídos em produção. H1.1 concluiu dependency remediation compatível e QA ratchets; H1.4–H1.13 eliminaram progressivamente a dívida TypeScript, agora em 0 erros/0 ficheiros com ratchet bloqueado em zero. Permanecem Laravel major, migração de `xlsx` e hardenings residuais. |
+| Base técnica / arquitetura | 90% | H0.1a/H0.1b/H0.2 concluídos em produção. H1.1 concluiu dependency remediation compatível e QA ratchets; H1.4–H1.13 eliminaram progressivamente a dívida TypeScript, agora em 0 erros/0 ficheiros com ratchet bloqueado em zero. H1.14 elevou o backend de Laravel 11 para Laravel 13, eliminando os 3 advisories Composer e preservando UUIDv4. Permanecem a migração de `xlsx` e hardenings residuais. |
 | Website público / construtor | 86% | Renderer, snapshots, publicação e dados dinâmicos avançados. Faltam header/footer globais, notícias completas e validação runtime multi-viewport. |
 | Autenticação / Access Control | 78% | Auditoria e gates produtivos ativos. Zero findings críticos e zero rotas mutáveis sem `module.access`. Permanecem 83 warnings de capability granular. |
 | Dashboard / entrada por perfil | 70% | Funcional, com leituras canónicas financeiras. Falta QA final por perfil e viewport. |
@@ -78,7 +78,7 @@ Implementado e validado em produção:
 - auditorias produtivas preservadas como artefactos antes dos gates;
 - findings críticos de Access Control bloqueiam o deployment.
 
-Baseline Composer registado durante H0.1: 34 advisories em 12 packages, sem `critical`. H1.1 demonstrou remediação compatível para 3 advisories residuais, todos em `laravel/framework` 11; a eliminação total requer upgrade major planeado.
+Baseline Composer registado durante H0.1: 34 advisories em 12 packages, sem `critical`. H1.1 reduziu-o para 3 advisories residuais em `laravel/framework` 11; H1.14 concluiu o upgrade para Laravel 13 e reduziu o baseline Composer para 0 advisories.
 
 ### H0.1a.2 — Access Control — concluída
 
@@ -264,7 +264,7 @@ A simulação #204 executou updates patch/minor compatíveis, build e PHPUnit an
 
 H1.1 introduz ratchets permanentes:
 
-- Composer aceita temporariamente apenas o residual Laravel 11, limitado a 3 advisories, 0 critical e no máximo 1 high;
+- Composer passou em H1.14 para baseline estrito de 0 advisories; qualquer advisory novo falha o CI;
 - npm aceita temporariamente apenas `xlsx`, 1 high, sem moderate/low/critical e apenas enquanto `fixAvailable=false`;
 - TypeScript começou com teto de 132 erros / 55 ficheiros; qualquer melhoria tem de baixar o baseline no mesmo PR. H1.4 reduziu-o para 123/51, H1.5 para 101/51, H1.6 para 88/44, H1.7 para 66/27, H1.8 para 53/21, H1.9 para 36/10, H1.10 para 25/4, H1.11 para 22/2, H1.12 para 16/1 e H1.13 para o teto final de 0 erros / 0 ficheiros;
 - contrato detalhado em `docs/qa/H1_BASELINE.md`.
@@ -396,6 +396,36 @@ Pendências H1 separadas:
 4. lint, unit/component tests, E2E, accessibility e matriz mobile/desktop.
 
 ---
+
+### H1.14 — Upgrade para Laravel 13 suportado — PR #222
+
+Objetivo: eliminar a dívida de segurança residual do Laravel 11 sem alterar contratos funcionais nem introduzir mudanças silenciosas de identificadores.
+
+Implementado:
+
+- `laravel/framework` 11 → 13, mantendo PHP 8.3;
+- `inertiajs/inertia-laravel` atualizado para a linha 2.x compatível com Laravel 13, mantendo o protocolo/client Inertia atual;
+- `laravel/sanctum`, `laravel/tinker`, `laravel/breeze`, `nunomaduro/collision` e PHPUnit atualizados para versões compatíveis;
+- os 186 modelos que usavam `HasUuids` passam a usar `HasVersion4Uuids` através de alias local, preservando explicitamente a geração UUIDv4 apesar da mudança de default do framework;
+- 12 testes legacy `@test` migrados para atributos `#[Test]` compatíveis com PHPUnit 12;
+- regression test permanente garante que novos IDs continuam UUIDv4;
+- removido o `post-update-cmd` órfão de `laravel-assets`; package discovery continua validado por `post-autoload-dump` e pela instalação limpa;
+- ratchet Composer apertado de 3 advisories residuais para 0 advisories.
+
+Matriz materializada e validada:
+
+- Laravel 13.29.0;
+- Inertia Laravel 2.0.25;
+- Sanctum 4.3.3;
+- Tinker 3.0.2;
+- Breeze 2.4.2;
+- Collision 8.9.5;
+- PHPUnit 12.5.33;
+- Composer audit: 0 advisories;
+- instalação Composer limpa, Vite build e suite Laravel executados no estado final transformado;
+- sem migrations, sem alterações de dados e sem alterações de regras de negócio.
+
+A PR #222 é o gate canónico de integração, incluindo CI transversal e PostgreSQL antes de merge/deploy.
 
 ## 6. Dívida estrutural prioritária
 
