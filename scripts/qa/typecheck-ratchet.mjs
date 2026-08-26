@@ -64,8 +64,6 @@ if (errorCount > 0) {
     console.log(`  ${count}\t${code}`);
   }
 
-  console.log('H1.13 TypeScript diagnostics:');
-  console.log(errorLines.join('\n'));
 }
 
 if (result.status === 0) {

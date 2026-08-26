@@ -24,7 +24,7 @@ interface BankStatementReconciliationDialogProps {
   centrosCusto: CentroCusto[];
   assistedContext?: BankReconciliationAssistedAllocationContext | null;
   assistedSuggestion?: Pick<BankReconciliationSuggestion, 'id'> | null;
-  buildRouteUrl: (name: string, params?: string | number | Record<string, unknown>, query?: Record<string, string>) => string;
+  buildRouteUrl: (name: string, params?: string | number, query?: Record<string, string>) => string;
   buildJsonHeaders: () => Record<string, string>;
   onCompleted: (statementId: string) => void;
   onOpenChange: (open: boolean) => void;

@@ -79,8 +79,8 @@ export function BancoTab({
     'X-Requested-With': 'XMLHttpRequest',
     'X-CSRF-TOKEN': getCsrfToken(),
   });
-  const buildRouteUrl = (name: string, params?: string | number | Record<string, unknown>, query?: Record<string, string>) => {
-    const routePath = route(name, params);
+  const buildRouteUrl = (name: string, params?: string | number, query?: Record<string, string>): string => {
+    const routePath = params === undefined ? route(name) : route(name, params);
     const baseUrl = routePath.startsWith('http')
       ? routePath
       : `${window.location.origin}${routePath.startsWith('/') ? routePath : `/${routePath}`}`;
@@ -109,7 +109,6 @@ export function BancoTab({
   const refreshFinanceiroData = () => {
     router.reload({
       only: ['extratos', 'movimentosFinanceiros', 'mensalidadesFaturas', 'faturas', 'lancamentos', 'fiscalRequests', 'dashboardData'],
-      preserveScroll: true,
     });
   };
   const getStatementStatus = (extrato: ExtratoBancario): 'unreconciled' | 'partial' | 'reconciled' => {
@@ -1453,7 +1452,7 @@ export function BancoTab({
     }
   };
 
-  function getCentroCustoName(id?: string) {
+  function getCentroCustoName(id?: string | null) {
     if (!id) return '-';
     const cc = (centrosCusto || []).find((c) => c.id === id);
     return cc ? cc.nome : '-';
