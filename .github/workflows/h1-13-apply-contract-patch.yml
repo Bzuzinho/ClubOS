@@ -1,0 +1,85 @@
+name: H1.13 apply contract patch
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: h1-13-contract-patch-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  patch:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+      - name: Apply validated TypeScript contract fixes
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{path}: expected exactly 1 match, found {count}')
+              p.write_text(text.replace(old, new, 1))
+
+          banco = 'resources/js/Pages/Financeiro/BancoTab.tsx'
+          replace_once(
+              banco,
+              "  const buildRouteUrl = (name: string, params?: string | number | Record<string, unknown>, query?: Record<string, string>) => {\n    const routePath = route(name, params);",
+              "  const buildRouteUrl = (name: string, params?: string | number, query?: Record<string, string>): string => {\n    const routePath = params === undefined ? route(name) : route(name, params);",
+          )
+          replace_once(
+              banco,
+              "      only: ['extratos', 'movimentosFinanceiros', 'mensalidadesFaturas', 'faturas', 'lancamentos', 'fiscalRequests', 'dashboardData'],\n      preserveScroll: true,",
+              "      only: ['extratos', 'movimentosFinanceiros', 'mensalidadesFaturas', 'faturas', 'lancamentos', 'fiscalRequests', 'dashboardData'],",
+          )
+          replace_once(
+              banco,
+              '  function getCentroCustoName(id?: string) {',
+              '  function getCentroCustoName(id?: string | null) {',
+          )
+
+          types = 'resources/js/Pages/Financeiro/types.ts'
+          replace_once(
+              types,
+              "  origem_tipo?: 'evento' | 'stock' | 'patrocinio' | 'manual' | null;\n  origem_id?: string | null;\n  metodo_pagamento?: string | null;",
+              "  origem_tipo?: 'evento' | 'stock' | 'patrocinio' | 'manual' | 'movement' | null;\n  origem_id?: string | null;\n  metodo_pagamento?: string | null;",
+          )
+
+          dialog = 'resources/js/Pages/Financeiro/BankStatementReconciliationDialog.tsx'
+          replace_once(
+              dialog,
+              '  buildRouteUrl: (name: string, params?: string | number | Record<string, unknown>, query?: Record<string, string>) => string;',
+              '  buildRouteUrl: (name: string, params?: string | number, query?: Record<string, string>) => string;',
+          )
+
+          ratchet = 'scripts/qa/typecheck-ratchet.mjs'
+          replace_once(
+              ratchet,
+              "\n  console.log('H1.13 TypeScript diagnostics:');\n  console.log(errorLines.join('\\n'));",
+              '',
+          )
+
+          Path('.github/workflows/h1-13-apply-contract-patch.yml').unlink()
+          PY
+      - name: Commit patch
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add resources/js/Pages/Financeiro/BancoTab.tsx resources/js/Pages/Financeiro/types.ts resources/js/Pages/Financeiro/BankStatementReconciliationDialog.tsx scripts/qa/typecheck-ratchet.mjs .github/workflows/h1-13-apply-contract-patch.yml
+          git diff --cached --check
+          git commit -m 'fix: align Banco TypeScript financial contracts'
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
