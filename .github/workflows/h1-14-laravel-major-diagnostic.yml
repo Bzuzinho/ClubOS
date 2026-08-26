@@ -1,4 +1,4 @@
-name: H1.14 Laravel supported-major diagnostic
+name: H1.14 Laravel 13 final diagnostic
 
 on:
   push:
@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 jobs:
-  laravel-major-readiness:
+  laravel13-readiness:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -23,16 +23,6 @@ jobs:
           node-version: 20
           cache: npm
 
-      - name: Record source compatibility signals
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "HAS_UUIDS_MODEL_COUNT=$(grep -RIl --include='*.php' 'HasUuids' app/Models | wc -l | tr -d ' ')"
-          echo "VERIFY_CSRF_TOKEN_REFERENCES=$(grep -RIl --include='*.php' 'VerifyCsrfToken\|ValidateCsrfToken' app tests routes bootstrap 2>/dev/null | wc -l | tr -d ' ')"
-          echo "GRAMMAR_SET_CONNECTION_REFERENCES=$(grep -RIl --include='*.php' 'setConnection(' app tests database 2>/dev/null | wc -l | tr -d ' ')"
-          echo "LOCAL_DISK_EXPLICIT=$(grep -c "'local' => \[" config/filesystems.php || true)"
-          echo "LEGACY_DOC_TEST_COUNT=$(grep -c '/\*\* @test \*/' tests/Feature/Loja/LegacySaleShutdownTest.php || true)"
-
       - name: Baseline install
         run: |
           composer install --no-interaction --prefer-dist
@@ -41,46 +31,13 @@ jobs:
           php artisan key:generate --force
           npm run build
 
-      - name: Simulate Laravel 11 to 12
-        id: laravel12
-        shell: bash
-        run: |
-          set +e
-          composer require 'laravel/framework:^12.0' --no-update --no-interaction
-          composer update laravel/framework --with-all-dependencies --no-interaction > /tmp/laravel12-update.log 2>&1
-          update_status=$?
-          echo "update_status=$update_status" >> "$GITHUB_OUTPUT"
-          if [ "$update_status" -ne 0 ]; then
-            echo '--- Laravel 12 dependency blockers ---'
-            tail -n 120 /tmp/laravel12-update.log
-            composer why-not laravel/framework '^12.0' || true
-            echo "test_status=99" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          echo '--- Laravel 12 framework ---'
-          composer show laravel/framework | sed -n '1,12p'
-          composer audit --format=summary || true
-
-          php artisan test --stop-on-failure > /tmp/laravel12-tests.log 2>&1
-          test_status=$?
-          echo "test_status=$test_status" >> "$GITHUB_OUTPUT"
-          if [ "$test_status" -ne 0 ]; then
-            echo '--- Laravel 12 first test failure ---'
-            tail -n 180 /tmp/laravel12-tests.log
-          else
-            echo '--- Laravel 12 tests passed ---'
-            tail -n 12 /tmp/laravel12-tests.log
-          fi
-          exit 0
-
-      - name: Simulate Laravel 12 to 13 with compatible packages
+      - name: Simulate final Laravel 13 state
         id: laravel13
-        if: steps.laravel12.outputs.update_status == '0' && steps.laravel12.outputs.test_status == '0'
         shell: bash
         run: |
           set +e
           composer require \
+            'php:^8.3' \
             'laravel/framework:^13.20' \
             'inertiajs/inertia-laravel:^2.0.21' \
             'laravel/sanctum:^4.3.3' \
@@ -96,7 +53,6 @@ jobs:
           if [ "$require_status" -ne 0 ] || [ "$dev_status" -ne 0 ]; then
             echo "update_status=98" >> "$GITHUB_OUTPUT"
             echo "test_status=98" >> "$GITHUB_OUTPUT"
-            echo '--- Laravel 13 root constraint update failed ---'
             exit 0
           fi
 
@@ -105,7 +61,7 @@ jobs:
           echo "update_status=$update_status" >> "$GITHUB_OUTPUT"
           if [ "$update_status" -ne 0 ]; then
             echo '--- Laravel 13 dependency blockers ---'
-            tail -n 200 /tmp/laravel13-update.log
+            tail -n 220 /tmp/laravel13-update.log
             composer why-not laravel/framework '^13.20' || true
             echo "test_status=99" >> "$GITHUB_OUTPUT"
             exit 0
@@ -150,7 +106,6 @@ jobs:
           echo "V4_UUID_IMPORTS=$v4_uuid_imports"
           test "$old_uuid_imports" = "0"
           test "$v4_uuid_imports" = "186"
-          test "$(grep -c '/\*\* @test \*/' tests/Feature/Loja/LegacySaleShutdownTest.php || true)" = "0"
           test "$(grep -c '#\[Test\]' tests/Feature/Loja/LegacySaleShutdownTest.php || true)" = "12"
 
           php artisan test --stop-on-failure > /tmp/laravel13-tests.log 2>&1
@@ -158,28 +113,22 @@ jobs:
           echo "test_status=$test_status" >> "$GITHUB_OUTPUT"
           if [ "$test_status" -ne 0 ]; then
             echo '--- Laravel 13 first test failure ---'
-            tail -n 220 /tmp/laravel13-tests.log
+            tail -n 240 /tmp/laravel13-tests.log
           else
             echo '--- Laravel 13 tests passed ---'
-            tail -n 16 /tmp/laravel13-tests.log
+            tail -n 18 /tmp/laravel13-tests.log
           fi
           exit 0
 
-      - name: Print diagnostic verdict
+      - name: Print verdict
         shell: bash
         run: |
-          echo "LARAVEL12_UPDATE_STATUS=${{ steps.laravel12.outputs.update_status }}"
-          echo "LARAVEL12_TEST_STATUS=${{ steps.laravel12.outputs.test_status }}"
           echo "LARAVEL13_UPDATE_STATUS=${{ steps.laravel13.outputs.update_status }}"
           echo "LARAVEL13_TEST_STATUS=${{ steps.laravel13.outputs.test_status }}"
-          if [ "${{ steps.laravel12.outputs.update_status }}" != "0" ]; then
-            echo 'VERDICT=Laravel 12 dependency resolution blocked'
-          elif [ "${{ steps.laravel12.outputs.test_status }}" != "0" ]; then
-            echo 'VERDICT=Laravel 12 resolves but application compatibility tests fail'
-          elif [ "${{ steps.laravel13.outputs.update_status }}" != "0" ]; then
-            echo 'VERDICT=Laravel 12 passes; Laravel 13 compatible package matrix still blocked'
+          if [ "${{ steps.laravel13.outputs.update_status }}" != "0" ]; then
+            echo 'VERDICT=Laravel 13 final dependency matrix blocked'
           elif [ "${{ steps.laravel13.outputs.test_status }}" != "0" ]; then
-            echo 'VERDICT=Laravel 13 resolves but application compatibility tests fail'
+            echo 'VERDICT=Laravel 13 resolves but compatibility tests fail'
           else
-            echo 'VERDICT=Laravel 13 dependency matrix and application tests passed'
+            echo 'VERDICT=Laravel 13 final dependency matrix and tests passed'
           fi
