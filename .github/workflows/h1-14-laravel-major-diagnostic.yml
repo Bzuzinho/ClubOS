@@ -53,7 +53,11 @@ jobs:
             'phpunit/phpunit:^12.5.23' \
             --no-update --no-interaction
 
+          # Resolve the new tree without post-update hooks. Package discovery is
+          # then exercised before application compatibility edits, matching the
+          # already-green Laravel 13 readiness run.
           composer update --with-all-dependencies --no-interaction --no-scripts
+          composer dump-autoload --optimize --no-interaction
 
           python3 - <<'PY'
           import json
@@ -88,9 +92,6 @@ jobs:
           text = text.replace('/** @test */', '#[Test]')
           test_path.write_text(text)
           PY
-
-          composer validate --no-interaction
-          composer dump-autoload --optimize --no-interaction
 
           mkdir -p tests/Feature/Compatibility
           cat > tests/Feature/Compatibility/UuidGenerationCompatibilityTest.php <<'PHP'
@@ -208,11 +209,37 @@ jobs:
           baseline.write_text(text)
           PY
 
+          composer validate --no-interaction
+
           old_uuid_imports=$(grep -RIl --include='*.php' 'use Illuminate\\Database\\Eloquent\\Concerns\\HasUuids;' app/Models | wc -l | tr -d ' ')
           v4_uuid_imports=$(grep -RIl --include='*.php' 'HasVersion4Uuids as HasUuids' app/Models | wc -l | tr -d ' ')
           test "$old_uuid_imports" = "0"
           test "$v4_uuid_imports" = "186"
           test "$(grep -c '#\[Test\]' tests/Feature/Loja/LegacySaleShutdownTest.php || true)" = "12"
+
+          # Prove that package discovery still boots after UUID compatibility edits.
+          set +e
+          php artisan package:discover --ansi -vvv > /tmp/h1-14-package-discover.log 2>&1
+          discover_status=$?
+          set -e
+          cat /tmp/h1-14-package-discover.log
+          if [ "$discover_status" -ne 0 ]; then
+            echo "PACKAGE_DISCOVER_STATUS=$discover_status"
+            test -f storage/logs/laravel.log && tail -n 160 storage/logs/laravel.log || true
+            exit "$discover_status"
+          fi
+
+          # This mirrors the production/CI install path on the fully transformed tree.
+          set +e
+          composer install --no-interaction --prefer-dist > /tmp/h1-14-final-install.log 2>&1
+          install_status=$?
+          set -e
+          cat /tmp/h1-14-final-install.log
+          if [ "$install_status" -ne 0 ]; then
+            echo "FINAL_COMPOSER_INSTALL_STATUS=$install_status"
+            test -f storage/logs/laravel.log && tail -n 160 storage/logs/laravel.log || true
+            exit "$install_status"
+          fi
 
           composer audit --locked --no-interaction --format=summary
           bash scripts/qa/composer-audit-ratchet.sh
