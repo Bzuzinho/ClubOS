@@ -12,13 +12,14 @@ use App\Models\Product;
 use App\Models\Sale;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use PHPUnit\Framework\Attributes\Test;
 use Tests\TestCase;
 
 final class LegacySaleShutdownTest extends TestCase
 {
     use RefreshDatabase;
 
-    /** @test */
+    #[Test]
     public function creating_sale_does_not_modify_stock()
     {
         $product = Product::factory()->create(['stock' => 100]);
@@ -41,7 +42,7 @@ final class LegacySaleShutdownTest extends TestCase
         $this->assertEquals($initialStock, $product->stock, 'Stock should not be modified when creating Sale');
     }
 
-    /** @test */
+    #[Test]
     public function creating_sale_does_not_create_invoice()
     {
         $product = Product::factory()->create();
@@ -61,7 +62,7 @@ final class LegacySaleShutdownTest extends TestCase
         $this->assertDatabaseCount('invoices', 0);
     }
 
-    /** @test */
+    #[Test]
     public function creating_sale_does_not_create_invoice_item()
     {
         $product = Product::factory()->create();
@@ -81,7 +82,7 @@ final class LegacySaleShutdownTest extends TestCase
         $this->assertDatabaseCount('invoice_items', 0);
     }
 
-    /** @test */
+    #[Test]
     public function creating_sale_does_not_create_financial_entry()
     {
         $product = Product::factory()->create();
@@ -101,7 +102,7 @@ final class LegacySaleShutdownTest extends TestCase
         $this->assertDatabaseCount('financial_entries', 0);
     }
 
-    /** @test */
+    #[Test]
     public function sale_relationships_remain_accessible()
     {
         $product = Product::factory()->create();
@@ -127,7 +128,7 @@ final class LegacySaleShutdownTest extends TestCase
         $this->assertEquals($seller->id, $sale->vendedor->id);
     }
 
-    /** @test */
+    #[Test]
     public function legacy_sale_audit_service_detects_parallel_records()
     {
         $fixture = $this->createLegacyParallelFixture();
@@ -146,14 +147,14 @@ final class LegacySaleShutdownTest extends TestCase
         );
     }
 
-    /** @test */
+    #[Test]
     public function audit_legacy_sales_command_returns_valid_json()
     {
         $this->artisan('finance:audit-legacy-sales', ['--json' => true])
             ->assertExitCode(0);
     }
 
-    /** @test */
+    #[Test]
     public function audit_legacy_sales_command_respects_report_path()
     {
         $reportPath = storage_path('app/test-audit-legacy-sales.json');
@@ -172,7 +173,7 @@ final class LegacySaleShutdownTest extends TestCase
         unlink($reportPath);
     }
 
-    /** @test */
+    #[Test]
     public function audit_legacy_sales_command_fail_on_parallel_finance_returns_exit_code_one_with_parallel_fixture()
     {
         $this->createLegacyParallelFixture();
@@ -182,7 +183,7 @@ final class LegacySaleShutdownTest extends TestCase
         ])->assertExitCode(1);
     }
 
-    /** @test */
+    #[Test]
     public function audit_legacy_sales_command_fail_on_parallel_finance_returns_exit_code_zero_without_parallel_fixture()
     {
         $this->artisan('finance:audit-legacy-sales', [
@@ -190,7 +191,7 @@ final class LegacySaleShutdownTest extends TestCase
         ])->assertExitCode(0);
     }
 
-    /** @test */
+    #[Test]
     public function audit_legacy_sales_command_fail_on_operational_write_returns_exit_code_one_when_paths_exist()
     {
         $this->bindScannerResult([
@@ -207,7 +208,7 @@ final class LegacySaleShutdownTest extends TestCase
         ])->assertExitCode(1);
     }
 
-    /** @test */
+    #[Test]
     public function audit_legacy_sales_command_fail_on_operational_write_returns_exit_code_zero_when_no_paths_exist()
     {
         $this->bindScannerResult([
