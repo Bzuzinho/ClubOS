@@ -82,7 +82,7 @@ jobs:
           set +e
           composer require \
             'laravel/framework:^13.20' \
-            'inertiajs/inertia-laravel:^3.3' \
+            'inertiajs/inertia-laravel:^2.0.21' \
             'laravel/sanctum:^4.3.3' \
             'laravel/tinker:^3.0.2' \
             --no-update --no-interaction
