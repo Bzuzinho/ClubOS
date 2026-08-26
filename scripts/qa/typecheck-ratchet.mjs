@@ -63,7 +63,6 @@ if (errorCount > 0) {
   for (const [code, count] of rankedCodes.slice(0, 10)) {
     console.log(`  ${count}\t${code}`);
   }
-
 }
 
 if (result.status === 0) {
