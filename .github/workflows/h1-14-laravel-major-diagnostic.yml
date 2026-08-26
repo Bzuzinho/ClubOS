@@ -1,0 +1,104 @@
+name: H1.14 Laravel supported-major diagnostic
+
+on:
+  push:
+    branches:
+      - chore/h1-14-laravel-supported-major-readiness
+
+permissions:
+  contents: read
+
+jobs:
+  laravel-major-readiness:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, xml, curl, zip, intl, bcmath, pdo, pdo_mysql, pdo_pgsql, sqlite3, pdo_sqlite
+          coverage: none
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Record source compatibility signals
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "HAS_UUIDS_MODEL_COUNT=$(grep -RIl --include='*.php' 'HasUuids' app/Models | wc -l | tr -d ' ')"
+          echo "VERIFY_CSRF_TOKEN_REFERENCES=$(grep -RIl --include='*.php' 'VerifyCsrfToken\|ValidateCsrfToken' app tests routes bootstrap 2>/dev/null | wc -l | tr -d ' ')"
+          echo "GRAMMAR_SET_CONNECTION_REFERENCES=$(grep -RIl --include='*.php' 'setConnection(' app tests database 2>/dev/null | wc -l | tr -d ' ')"
+          echo "LOCAL_DISK_EXPLICIT=$(grep -c "'local' => \[" config/filesystems.php || true)"
+
+      - name: Baseline install
+        run: |
+          composer install --no-interaction --prefer-dist
+          npm ci
+          cp .env.example .env
+          php artisan key:generate --force
+          cp composer.json /tmp/composer.11.json
+          cp composer.lock /tmp/composer.11.lock
+
+      - name: Simulate Laravel 11 to 12
+        id: laravel12
+        shell: bash
+        run: |
+          set +e
+          composer require 'laravel/framework:^12.0' --no-update --no-interaction
+          composer update laravel/framework --with-all-dependencies --no-interaction 2>&1 | tee /tmp/laravel12-update.log
+          status=${PIPESTATUS[0]}
+          echo "update_status=$status" >> "$GITHUB_OUTPUT"
+          if [ "$status" -ne 0 ]; then
+            echo '--- Laravel 12 blockers ---'
+            composer why-not laravel/framework '^12.0' || true
+            exit 0
+          fi
+          echo '--- Laravel 12 resolved versions ---'
+          composer show laravel/framework laravel/tinker nunomaduro/collision phpunit/phpunit inertiajs/inertia-laravel laravel/sanctum tightenco/ziggy 2>/dev/null || true
+          composer audit --format=summary || true
+          php artisan test
+
+      - name: Simulate Laravel 12 to 13
+        id: laravel13
+        if: steps.laravel12.outputs.update_status == '0'
+        shell: bash
+        run: |
+          set +e
+          composer require 'laravel/framework:^13.0' 'laravel/tinker:^3.0' --no-update --no-interaction
+          require_status=$?
+          composer require --dev 'phpunit/phpunit:^12.0' --no-update --no-interaction
+          dev_status=$?
+          if [ "$require_status" -ne 0 ] || [ "$dev_status" -ne 0 ]; then
+            echo "update_status=98" >> "$GITHUB_OUTPUT"
+            composer why-not laravel/framework '^13.0' || true
+            exit 0
+          fi
+          composer update --with-all-dependencies --no-interaction 2>&1 | tee /tmp/laravel13-update.log
+          status=${PIPESTATUS[0]}
+          echo "update_status=$status" >> "$GITHUB_OUTPUT"
+          if [ "$status" -ne 0 ]; then
+            echo '--- Laravel 13 blockers ---'
+            composer why-not laravel/framework '^13.0' || true
+            composer why-not laravel/tinker '^3.0' || true
+            composer why-not phpunit/phpunit '^12.0' || true
+            exit 0
+          fi
+          echo '--- Laravel 13 resolved versions ---'
+          composer show laravel/framework laravel/tinker nunomaduro/collision phpunit/phpunit inertiajs/inertia-laravel laravel/sanctum tightenco/ziggy 2>/dev/null || true
+          composer audit --format=summary || true
+          php artisan test
+
+      - name: Print diagnostic verdict
+        shell: bash
+        run: |
+          echo "LARAVEL12_UPDATE_STATUS=${{ steps.laravel12.outputs.update_status }}"
+          echo "LARAVEL13_UPDATE_STATUS=${{ steps.laravel13.outputs.update_status }}"
+          if [ "${{ steps.laravel12.outputs.update_status }}" != "0" ]; then
+            echo 'VERDICT=Laravel 12 dependency resolution blocked'
+          elif [ "${{ steps.laravel13.outputs.update_status }}" != "0" ]; then
+            echo 'VERDICT=Laravel 12 resolves/tests; Laravel 13 dependency resolution blocked'
+          else
+            echo 'VERDICT=Laravel 12 and 13 dependency resolution/tests passed'
+          fi
