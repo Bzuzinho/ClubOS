@@ -10,111 +10,26 @@ permissions:
 
 jobs:
   finalize:
-    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
         with:
           ref: fix/h1-13-financeiro-banco-typescript
           fetch-depth: 0
-      - name: Finalize H1.13 tree
+      - name: Patch H1.13 documentation
+        run: python3 scripts/h1-13-finalize.py
+      - name: Clean temporary instrumentation and push
         shell: bash
         run: |
           set -euo pipefail
-          python3 - <<'PY'
-          from pathlib import Path
-
-          def replace_once(text: str, old: str, new: str, label: str) -> str:
-              count = text.count(old)
-              if count != 1:
-                  raise SystemExit(f'{label}: expected exactly one match, got {count}')
-              return text.replace(old, new, 1)
-
-          h1_path = Path('docs/qa/H1_BASELINE.md')
-          h1 = h1_path.read_text()
-          h1 = replace_once(
-              h1,
-              "- H1.12: 22 erros / 2 ficheiros → 16 erros / 1 ficheiro. `Financeiro/FaturasTab.tsx` passou a usar o helper financeiro canónico `getFinanceiroAxiosJsonConfig` nas três chamadas residuais e os payloads manuais usam o `user_id` já validado pelo guard do formulário; uma fatura histórica sem titular é normalizada para valor vazio e continua impedida de persistir até existir utilizador. A CI #817 confirmou Faturas sem diagnósticos, 1764 testes / 9860 assertions, legacy-read guard e PostgreSQL concurrency verdes. Resta apenas `Financeiro/BancoTab.tsx` com 16 diagnósticos.\n",
-              "- H1.12: 22 erros / 2 ficheiros → 16 erros / 1 ficheiro. `Financeiro/FaturasTab.tsx` passou a usar o helper financeiro canónico `getFinanceiroAxiosJsonConfig` nas três chamadas residuais e os payloads manuais usam o `user_id` já validado pelo guard do formulário; uma fatura histórica sem titular é normalizada para valor vazio e continua impedida de persistir até existir utilizador. A CI #817 confirmou Faturas sem diagnósticos, 1764 testes / 9860 assertions, legacy-read guard e PostgreSQL concurrency verdes. Resta apenas `Financeiro/BancoTab.tsx` com 16 diagnósticos.\n- H1.13: 16 erros / 1 ficheiro → 0 erros / 0 ficheiros. O lote final de Banco estreitou o helper local de rotas ao contrato efetivamente usado, alinhou `centro_custo_id` opcional/nulo, removeu uma opção obsoleta de `router.reload` e reconheceu `movement` como origem real de lançamento financeiro. A CI #829 confirmou `tsc --noEmit` totalmente limpo, build Vite verde, 1764 testes / 9860 assertions, legacy-read guard e PostgreSQL concurrency verdes, sem alterações de endpoints, migrations, dados ou regras de reconciliação/pagamento.\n",
-              'H1 baseline evolution',
-          )
-          h1 = replace_once(
-              h1,
-              "- máximo 16 erros;\n- máximo 1 ficheiro afetado.",
-              "- máximo 0 erros;\n- máximo 0 ficheiros afetados.",
-              'H1 zero ceiling',
-          )
-          h1 = replace_once(
-              h1,
-              "1. Fechar os 16 erros TypeScript restantes em `Financeiro/BancoTab.tsx` num lote financeiro final e isolado, preservando as invariantes de reconciliação e pagamento.\n2. Planear Laravel 12+ para remover os 3 advisories residuais do framework.\n3. Substituir/migrar `xlsx` preservando o importador de membros.\n4. Reduzir o token R2 para `Object Read & Write` limitado ao bucket de backup e confirmar Bucket Lock.\n5. Evoluir QA frontend com lint, unit/component tests, E2E, acessibilidade e matriz mobile/desktop.",
-              "1. Planear Laravel 12+ para remover os 3 advisories residuais do framework.\n2. Substituir/migrar `xlsx` preservando o importador de membros.\n3. Reduzir o token R2 para `Object Read & Write` limitado ao bucket de backup e confirmar Bucket Lock.\n4. Evoluir QA frontend com lint, unit/component tests, E2E, acessibilidade e matriz mobile/desktop.",
-              'H1 pending list',
-          )
-          h1_path.write_text(h1)
-
-          state_path = Path('docs/ESTADO_VIVO_DESENVOLVIMENTO.md')
-          state = state_path.read_text()
-          state = replace_once(state, '> Estado consolidado em 2026-08-24.', '> Estado consolidado em 2026-08-26.', 'state date')
-          state = replace_once(
-              state,
-              '| Base técnica / arquitetura | 89% | H0.1a/H0.1b/H0.2 concluídos em produção. H1.1 concluiu dependency remediation compatível e QA ratchets; H1.4–H1.12 reduziram progressivamente a dívida TypeScript para 16 erros/1 ficheiro. Permanecem o lote final isolado de Banco, Laravel major, migração de `xlsx` e hardenings residuais. |',
-              '| Base técnica / arquitetura | 90% | H0.1a/H0.1b/H0.2 concluídos em produção. H1.1 concluiu dependency remediation compatível e QA ratchets; H1.4–H1.13 eliminaram progressivamente a dívida TypeScript, agora em 0 erros/0 ficheiros com ratchet bloqueado em zero. Permanecem Laravel major, migração de `xlsx` e hardenings residuais. |',
-              'base technical grid',
-          )
-          state = replace_once(
-              state,
-              '| PWA / Mobile | 55% | H1.4–H1.12 reduziram a dívida TypeScript de 132 erros/55 ficheiros para 16 erros/1 ficheiro e apertaram sucessivamente o ratchet anti-regressão. Continuam em falta lint, unit/component tests, E2E, acessibilidade e matriz Android/iOS/tablet/desktop. |',
-              '| PWA / Mobile | 57% | H1.4–H1.13 eliminaram a dívida TypeScript de 132 erros/55 ficheiros para 0 erros/0 ficheiros e fixaram o ratchet anti-regressão em zero. Continuam em falta lint, unit/component tests, E2E, acessibilidade e matriz Android/iOS/tablet/desktop. |',
-              'pwa grid',
-          )
-          state = replace_once(
-              state,
-              'H1.4 reduziu-o para 123/51, H1.5 para 101/51, H1.6 para 88/44, H1.7 para 66/27, H1.8 para 53/21, H1.9 para 36/10, H1.10 para 25/4, H1.11 para 22/2 e H1.12 para o teto atual de 16 erros / 1 ficheiro;',
-              'H1.4 reduziu-o para 123/51, H1.5 para 101/51, H1.6 para 88/44, H1.7 para 66/27, H1.8 para 53/21, H1.9 para 36/10, H1.10 para 25/4, H1.11 para 22/2, H1.12 para 16/1 e H1.13 para o teto final de 0 erros / 0 ficheiros;',
-              'H1 ratchet sequence',
-          )
-          marker = 'Pendências H1 separadas:\n'
-          insertion = """### H1.13 — Fecho TypeScript de Banco — PR #220
-
-Décimo e último lote mensurável do paydown TypeScript H1, isolado no fluxo bancário crítico:
-
-- `BancoTab.tsx` estreitou o helper local `buildRouteUrl` ao contrato realmente usado (`string | number`), evitando um tipo de parâmetros mais largo do que o Ziggy consumido neste fluxo;
-- `getCentroCustoName` passou a aceitar explicitamente `null`, alinhando o contrato com `centro_custo_id` dos payloads financeiros;
-- foi removida uma opção `preserveScroll` já não aceite pelo contrato atual de `router.reload`, sem alterar a lista de props recarregadas;
-- `LancamentoFinanceiro.origem_tipo` passou a reconhecer `movement`, valor real já tratado pelo runtime e pelos fluxos canónicos de movimentos;
-- o diálogo de reconciliação partilha o mesmo contrato estreito de `buildRouteUrl`;
-- diagnóstico dedicado confirmou `BancoTab.tsx` com 0 erros e a CI #829 confirmou globalmente `tsc --noEmit` com 0 erros / 0 ficheiros;
-- CI #829 validou build Vite, 1764 testes / 9860 assertions, legacy-read guard e PostgreSQL concurrency verdes;
-- sem migrations, sem alterações de dados, sem novos endpoints e sem alteração das invariantes de reconciliação, alocação ou pagamento.
-
-"""
-          state = replace_once(state, marker, insertion + marker, 'H1.13 insertion')
-          state = replace_once(
-              state,
-              "Pendências H1 separadas:\n\n1. Laravel 12+ para remover os 3 advisories residuais;\n2. migração de `xlsx` preservando o importador de membros `.xlsx/.xls/.csv`;\n3. fechar os 16 erros TypeScript restantes em `Financeiro/BancoTab.tsx` num lote financeiro final e isolado;\n4. R2 least privilege e confirmação Bucket Lock;\n5. lint, unit/component tests, E2E, accessibility e matriz mobile/desktop.",
-              "Pendências H1 separadas:\n\n1. Laravel 12+ para remover os 3 advisories residuais;\n2. migração de `xlsx` preservando o importador de membros `.xlsx/.xls/.csv`;\n3. R2 least privilege e confirmação Bucket Lock;\n4. lint, unit/component tests, E2E, accessibility e matriz mobile/desktop.",
-              'state pending H1',
-          )
-          state = replace_once(
-              state,
-              'Próximo passo: continuar H1 a partir do teto 16/1. Tratar `Financeiro/BancoTab.tsx` (16 erros) num lote financeiro final e isolado, preservando explicitamente as invariantes de reconciliação, alocação e pagamento. Em paralelo, preparar Laravel major e a migração de `xlsx` sem degradar o runtime atual.',
-              'Próximo passo: com o ratchet TypeScript fechado em 0/0, continuar H1 pelas pendências de segurança e QA: preparar Laravel 12+ para remover os advisories residuais, substituir `xlsx` sem degradar o importador de membros, fechar least-privilege/Bucket Lock no R2 e evoluir a matriz frontend de lint, unit/component, E2E, acessibilidade e mobile/desktop.',
-              'next step',
-          )
-          history_marker = '| 2026-08-24 | QA / TypeScript / Faturas |'
-          history_row = '| 2026-08-26 | QA / TypeScript / Banco | H1.13 fechou os 16 diagnósticos finais de `BancoTab.tsx`, alinhando contratos locais de rotas, centros de custo e origem `movement`, reduzindo a dívida TypeScript de 16 erros/1 ficheiro para 0 erros/0 ficheiros sem alterar regras financeiras. | PR #220; CI #829; `qa/baselines/typescript.json`; `docs/qa/H1_BASELINE.md` | Ratchet TypeScript fechado em 0/0; deixa de existir dívida TypeScript aceite no CI. |\n'
-          state = replace_once(state, history_marker, history_row + history_marker, 'history row')
-          state_path.write_text(state)
-          PY
-
           git fetch origin main --depth=1
           git checkout origin/main -- scripts/qa/typecheck-ratchet.mjs
           rm -f .github/workflows/h1-13-typescript-diagnostic.yml
           rm -f qa/h1-13-validation-trigger.txt
+          rm -f scripts/h1-13-finalize.py
           rm -f .github/workflows/h1-13-finalize.yml
-
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add docs/qa/H1_BASELINE.md docs/ESTADO_VIVO_DESENVOLVIMENTO.md scripts/qa/typecheck-ratchet.mjs .github/workflows/h1-13-typescript-diagnostic.yml qa/h1-13-validation-trigger.txt .github/workflows/h1-13-finalize.yml
+          git add -A
           git commit -m 'docs(h1.13): close TypeScript debt at zero'
           git push origin HEAD:fix/h1-13-financeiro-banco-typescript
