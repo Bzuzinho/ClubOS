@@ -10,11 +10,9 @@ jq -e '.advisories | type == "object"' "${report}" >/dev/null
 advisory_count="$(jq '[.advisories[]?[]?] | length' "${report}")"
 critical_count="$(jq '[.advisories[]?[]? | select(((.severity // "") | ascii_downcase) == "critical")] | length' "${report}")"
 high_count="$(jq '[.advisories[]?[]? | select(((.severity // "") | ascii_downcase) == "high")] | length' "${report}")"
-laravel_count="$(jq '[.advisories["laravel/framework"][]?] | length' "${report}")"
-unexpected_packages="$(jq -r '.advisories | keys[]? | select(. != "laravel/framework")' "${report}")"
 
-printf 'Composer security ratchet: %s advisory/advisories; critical=%s; high=%s; laravel/framework=%s.\n' \
-  "${advisory_count}" "${critical_count}" "${high_count}" "${laravel_count}"
+printf 'Composer security ratchet: %s advisory/advisories; critical=%s; high=%s.\n' \
+  "${advisory_count}" "${critical_count}" "${high_count}"
 
 if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
   {
@@ -23,7 +21,6 @@ if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
     echo "- Advisories: \`${advisory_count}\`"
     echo "- Critical: \`${critical_count}\`"
     echo "- High: \`${high_count}\`"
-    echo "- Residual Laravel 11 advisories: \`${laravel_count}\`"
     echo "- Composer audit exit code: \`${audit_status}\`"
   } >> "${GITHUB_STEP_SUMMARY}"
 fi
@@ -33,24 +30,10 @@ if (( audit_status > 3 )); then
   exit "${audit_status}"
 fi
 
-if (( critical_count > 0 )); then
-  echo "::error::Composer audit reported ${critical_count} critical advisory/advisories"
-  exit 1
-fi
-
-if [[ -n "${unexpected_packages}" ]]; then
-  echo '::error::Composer security debt regressed outside the accepted Laravel 11 residual baseline'
-  printf 'Unexpected vulnerable package(s):\n%s\n' "${unexpected_packages}"
-  exit 1
-fi
-
-if (( advisory_count > 3 || laravel_count > 3 || high_count > 1 )); then
-  echo "::error::Composer advisory baseline regressed (max total=3, Laravel=3, high=1)"
-  exit 1
-fi
-
 if (( advisory_count > 0 )); then
-  echo '::warning::Residual Laravel 11 advisories remain accepted temporarily; full removal requires the planned Laravel major upgrade.'
+  echo "::error::Composer dependency security baseline regressed: zero advisories are permitted after H1.14"
+  jq -r '.advisories | to_entries[]? | .key as $pkg | .value[]? | "- \($pkg): \(.advisoryId // .cve // .title // "advisory") [\(.severity // "unknown")]"' "${report}" || true
+  exit 1
 fi
 
-printf 'Composer security ratchet passed.\n'
+printf 'Composer security ratchet passed at zero advisories.\n'
