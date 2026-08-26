@@ -53,10 +53,18 @@ jobs:
             'phpunit/phpunit:^12.5.23' \
             --no-update --no-interaction
 
-          composer update --with-all-dependencies --no-interaction
+          composer update --with-all-dependencies --no-interaction --no-scripts
 
           python3 - <<'PY'
+          import json
           from pathlib import Path
+
+          composer_path = Path('composer.json')
+          composer = json.loads(composer_path.read_text())
+          composer['description'] = 'BSCN Club Management - Laravel 13 + Inertia React'
+          scripts = composer.get('scripts', {})
+          scripts.pop('post-update-cmd', None)
+          composer_path.write_text(json.dumps(composer, ensure_ascii=False, indent=4) + '\n')
 
           old = 'use Illuminate\\Database\\Eloquent\\Concerns\\HasUuids;'
           new = 'use Illuminate\\Database\\Eloquent\\Concerns\\HasVersion4Uuids as HasUuids;'
@@ -80,6 +88,9 @@ jobs:
           text = text.replace('/** @test */', '#[Test]')
           test_path.write_text(text)
           PY
+
+          composer validate --no-interaction
+          composer dump-autoload --optimize --no-interaction
 
           mkdir -p tests/Feature/Compatibility
           cat > tests/Feature/Compatibility/UuidGenerationCompatibilityTest.php <<'PHP'
@@ -176,7 +187,7 @@ jobs:
           marker = '\n## 6.'
           if marker not in text:
               raise SystemExit('ESTADO_VIVO: marker ## 6. not found')
-          section = '''\n### H1.14 — Upgrade para Laravel 13 suportado — PR #222\n\nObjetivo: eliminar a dívida de segurança residual do Laravel 11 sem alterar contratos funcionais nem introduzir mudanças silenciosas de identificadores.\n\nImplementado:\n\n- `laravel/framework` 11 → 13, com PHP produtivo mantido em 8.3;\n- `inertiajs/inertia-laravel` atualizado para a linha 2.x compatível com Laravel 13, mantendo o protocolo/client Inertia atual;\n- `laravel/sanctum`, `laravel/tinker`, `laravel/breeze`, `nunomaduro/collision` e PHPUnit atualizados para versões compatíveis;\n- os 186 modelos que usavam `HasUuids` passam a usar `HasVersion4Uuids` através de alias local, preservando explicitamente a geração UUIDv4 apesar da mudança de default do framework;\n- 12 testes legacy `@test` migrados para atributos `#[Test]` compatíveis com PHPUnit 12;\n- regression test permanente garante que novos IDs continuam UUIDv4;\n- ratchet Composer apertado de 3 advisories residuais para 0 advisories.\n\nEvidência de readiness antes da aplicação:\n\n- Laravel 13.29.0;\n- Inertia Laravel 2.0.25;\n- PHPUnit 12.5.33;\n- Composer audit: 0 advisories;\n- suite de compatibilidade: 1764 testes passados / 31 skipped / 9920 assertions antes do novo regression test UUIDv4;\n- sem migrations, sem alterações de dados e sem alterações de regras de negócio.\n\nO fecho da H1.14 depende da CI canónica da PR e do job PostgreSQL no estado real versionado.\n'''
+          section = '''\n### H1.14 — Upgrade para Laravel 13 suportado — PR #222\n\nObjetivo: eliminar a dívida de segurança residual do Laravel 11 sem alterar contratos funcionais nem introduzir mudanças silenciosas de identificadores.\n\nImplementado:\n\n- `laravel/framework` 11 → 13, com PHP produtivo mantido em 8.3;\n- `inertiajs/inertia-laravel` atualizado para a linha 2.x compatível com Laravel 13, mantendo o protocolo/client Inertia atual;\n- `laravel/sanctum`, `laravel/tinker`, `laravel/breeze`, `nunomaduro/collision` e PHPUnit atualizados para versões compatíveis;\n- os 186 modelos que usavam `HasUuids` passam a usar `HasVersion4Uuids` através de alias local, preservando explicitamente a geração UUIDv4 apesar da mudança de default do framework;\n- 12 testes legacy `@test` migrados para atributos `#[Test]` compatíveis com PHPUnit 12;\n- regression test permanente garante que novos IDs continuam UUIDv4;\n- o hook `post-update-cmd` de `laravel-assets` foi removido porque o ClubOS não possui atualmente resources nesse tag e Laravel 13 devolve exit code não-zero no no-op;\n- ratchet Composer apertado de 3 advisories residuais para 0 advisories.\n\nEvidência de readiness antes da aplicação:\n\n- Laravel 13.29.0;\n- Inertia Laravel 2.0.25;\n- PHPUnit 12.5.33;\n- Composer audit: 0 advisories;\n- suite de compatibilidade: 1764 testes passados / 31 skipped / 9920 assertions antes do novo regression test UUIDv4;\n- sem migrations, sem alterações de dados e sem alterações de regras de negócio.\n\nO fecho da H1.14 depende da CI canónica da PR e do job PostgreSQL no estado real versionado.\n'''
           text = text.replace(marker, section + marker, 1)
           estado.write_text(text)
 
@@ -192,7 +203,7 @@ jobs:
               '1. Planear Laravel 12+ para remover os 3 advisories residuais do framework.\n2. Substituir/migrar `xlsx` preservando o importador de membros.\n3. Reduzir o token R2 para `Object Read & Write` limitado ao bucket de backup e confirmar Bucket Lock.\n4. Evoluir QA frontend com lint, unit/component tests, E2E, acessibilidade e matriz mobile/desktop.',
               '1. Substituir/migrar `xlsx` preservando o importador de membros.\n2. Reduzir o token R2 para `Object Read & Write` limitado ao bucket de backup e confirmar Bucket Lock.\n3. Evoluir QA frontend com lint, unit/component tests, E2E, acessibilidade e matriz mobile/desktop.'
           )
-          insert = '''\n## H1.14 — Laravel supported major\n\nReadiness e aplicação do upgrade Laravel 11 → 13:\n\n- Laravel 13.29.0;\n- Inertia Laravel 2.0.25, mantendo protocolo Inertia 2;\n- Sanctum 4.3.3, Tinker 3.0.2, Breeze 2.4.2, Collision 8.9.5 e PHPUnit 12.5.33;\n- Composer: 3 advisories residuais → 0;\n- 186 modelos preservam explicitamente UUIDv4 com `HasVersion4Uuids`;\n- 12 testes legacy migrados de `@test` para `#[Test]`;\n- regression test dedicado protege a semântica UUIDv4.\n\nA simulação final em runner limpo passou 1764 testes / 9920 assertions antes da adição do regression test UUIDv4. O estado versionado é posteriormente validado pela CI canónica da PR.\n'''
+          insert = '''\n## H1.14 — Laravel supported major\n\nReadiness e aplicação do upgrade Laravel 11 → 13:\n\n- Laravel 13.29.0;\n- Inertia Laravel 2.0.25, mantendo protocolo Inertia 2;\n- Sanctum 4.3.3, Tinker 3.0.2, Breeze 2.4.2, Collision 8.9.5 e PHPUnit 12.5.33;\n- Composer: 3 advisories residuais → 0;\n- 186 modelos preservam explicitamente UUIDv4 com `HasVersion4Uuids`;\n- 12 testes legacy migrados de `@test` para `#[Test]`;\n- regression test dedicado protege a semântica UUIDv4;\n- removido o `post-update-cmd` órfão de `laravel-assets`, mantendo `post-autoload-dump` e package discovery como validação explícita.\n\nA simulação final em runner limpo passou 1764 testes / 9920 assertions antes da adição do regression test UUIDv4. O estado versionado é posteriormente validado pela CI canónica da PR.\n'''
           text = text.replace('\n## Pendências H1\n', insert + '\n## Pendências H1\n', 1)
           baseline.write_text(text)
           PY
