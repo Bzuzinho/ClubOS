@@ -1,4 +1,4 @@
-name: H1.14 apply Laravel 13 supported major
+name: H1.14 apply final Laravel 13
 
 on:
   push:
@@ -25,19 +25,16 @@ jobs:
           node-version: 20
           cache: npm
 
-      - name: Install current baseline
+      - name: Materialize and validate Laravel 13
+        shell: bash
         run: |
-          set -euo pipefail
+          set -Eeuo pipefail
+
           composer install --no-interaction --prefer-dist
           npm ci
           cp .env.example .env
           php artisan key:generate --force
           npm run build
-
-      - name: Apply Laravel 13 dependency matrix and compatibility changes
-        shell: bash
-        run: |
-          set -euo pipefail
 
           composer require \
             'php:^8.3' \
@@ -46,16 +43,12 @@ jobs:
             'laravel/sanctum:^4.3.3' \
             'laravel/tinker:^3.0.2' \
             --no-update --no-interaction
-
           composer require --dev \
             'laravel/breeze:^2.4.2' \
             'nunomaduro/collision:^8.9.5' \
             'phpunit/phpunit:^12.5.23' \
             --no-update --no-interaction
 
-          # Resolve the new tree without post-update hooks. Package discovery is
-          # then exercised before application compatibility edits, matching the
-          # already-green Laravel 13 readiness run.
           composer update --with-all-dependencies --no-interaction --no-scripts
           composer dump-autoload --optimize --no-interaction
 
@@ -66,8 +59,7 @@ jobs:
           composer_path = Path('composer.json')
           composer = json.loads(composer_path.read_text())
           composer['description'] = 'BSCN Club Management - Laravel 13 + Inertia React'
-          scripts = composer.get('scripts', {})
-          scripts.pop('post-update-cmd', None)
+          composer.get('scripts', {}).pop('post-update-cmd', None)
           composer_path.write_text(json.dumps(composer, ensure_ascii=False, indent=4) + '\n')
 
           old = 'use Illuminate\\Database\\Eloquent\\Concerns\\HasUuids;'
@@ -87,8 +79,7 @@ jobs:
           text = test_path.read_text()
           if text.count('/** @test */') != 12:
               raise SystemExit('Expected 12 legacy PHPUnit @test annotations')
-          if 'use PHPUnit\\Framework\\Attributes\\Test;' not in text:
-              text = text.replace('use Tests\\TestCase;', 'use PHPUnit\\Framework\\Attributes\\Test;\nuse Tests\\TestCase;', 1)
+          text = text.replace('use Tests\\TestCase;', 'use PHPUnit\\Framework\\Attributes\\Test;\nuse Tests\\TestCase;', 1)
           text = text.replace('/** @test */', '#[Test]')
           test_path.write_text(text)
           PY
@@ -121,138 +112,30 @@ jobs:
           }
           PHP
 
-          cat > scripts/qa/composer-audit-ratchet.sh <<'BASH'
-          #!/usr/bin/env bash
-          set -Eeuo pipefail
-
-          report="${1:-${RUNNER_TEMP:-/tmp}/clubos-composer-audit.json}"
-          audit_status=0
-          composer audit --locked --no-interaction --format=json > "${report}" || audit_status=$?
-
-          jq -e '.advisories | type == "object"' "${report}" >/dev/null
-
-          advisory_count="$(jq '[.advisories[]?[]?] | length' "${report}")"
-          critical_count="$(jq '[.advisories[]?[]? | select(((.severity // "") | ascii_downcase) == "critical")] | length' "${report}")"
-          high_count="$(jq '[.advisories[]?[]? | select(((.severity // "") | ascii_downcase) == "high")] | length' "${report}")"
-
-          printf 'Composer security ratchet: %s advisory/advisories; critical=%s; high=%s.\n' \
-            "${advisory_count}" "${critical_count}" "${high_count}"
-
-          if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
-            {
-              echo '## Composer dependency security ratchet'
-              echo ''
-              echo "- Advisories: \`${advisory_count}\`"
-              echo "- Critical: \`${critical_count}\`"
-              echo "- High: \`${high_count}\`"
-              echo "- Composer audit exit code: \`${audit_status}\`"
-            } >> "${GITHUB_STEP_SUMMARY}"
-          fi
-
-          if (( audit_status > 3 )); then
-            echo "::error::composer audit failed unexpectedly with exit code ${audit_status}"
-            exit "${audit_status}"
-          fi
-
-          if (( advisory_count > 0 )); then
-            echo "::error::Composer dependency security baseline regressed: zero advisories are permitted after H1.14"
-            jq -r '.advisories | to_entries[]? | .key as $pkg | .value[]? | "- \($pkg): \(.advisoryId // .cve // .title // "advisory") [\(.severity // "unknown")]"' "${report}" || true
-            exit 1
-          fi
-
-          printf 'Composer security ratchet passed at zero advisories.\n'
-          BASH
-          chmod +x scripts/qa/composer-audit-ratchet.sh
-
-          python3 - <<'PY'
-          from pathlib import Path
-
-          estado = Path('docs/ESTADO_VIVO_DESENVOLVIMENTO.md')
-          text = estado.read_text()
-          text = text.replace(
-              'Stack produtiva: Laravel 11, PHP 8.3, React 19 + TypeScript, Inertia, Vite, PostgreSQL 17 local na Oracle VM, Redis, GitHub Actions, Nginx e PHP-FPM.',
-              'Stack produtiva: Laravel 13, PHP 8.3, React 19 + TypeScript, Inertia 2, Vite, PostgreSQL 17 local na Oracle VM, Redis, GitHub Actions, Nginx e PHP-FPM.'
-          )
-          text = text.replace(
-              'H1.1 concluiu dependency remediation compatível e QA ratchets; H1.4–H1.13 eliminaram progressivamente a dívida TypeScript, agora em 0 erros/0 ficheiros com ratchet bloqueado em zero. Permanecem Laravel major, migração de `xlsx` e hardenings residuais.',
-              'H1.1 concluiu dependency remediation compatível e QA ratchets; H1.4–H1.13 eliminaram progressivamente a dívida TypeScript, agora em 0 erros/0 ficheiros com ratchet bloqueado em zero. H1.14 elevou o backend de Laravel 11 para Laravel 13, eliminando os 3 advisories Composer e preservando UUIDv4. Permanecem a migração de `xlsx` e hardenings residuais.'
-          )
-          text = text.replace(
-              'Baseline Composer registado durante H0.1: 34 advisories em 12 packages, sem `critical`. H1.1 demonstrou remediação compatível para 3 advisories residuais, todos em `laravel/framework` 11; a eliminação total requer upgrade major planeado.',
-              'Baseline Composer registado durante H0.1: 34 advisories em 12 packages, sem `critical`. H1.1 reduziu o baseline para 3 advisories residuais em `laravel/framework` 11; H1.14 concluiu o upgrade para Laravel 13 e reduziu o baseline Composer para 0 advisories.'
-          )
-          text = text.replace(
-              '- Composer aceita temporariamente apenas o residual Laravel 11, limitado a 3 advisories, 0 critical e no máximo 1 high;',
-              '- Composer passou em H1.14 para baseline estrito de 0 advisories; qualquer advisory novo falha o CI;'
-          )
-          marker = '\n## 6.'
-          if marker not in text:
-              raise SystemExit('ESTADO_VIVO: marker ## 6. not found')
-          section = '''\n### H1.14 — Upgrade para Laravel 13 suportado — PR #222\n\nObjetivo: eliminar a dívida de segurança residual do Laravel 11 sem alterar contratos funcionais nem introduzir mudanças silenciosas de identificadores.\n\nImplementado:\n\n- `laravel/framework` 11 → 13, com PHP produtivo mantido em 8.3;\n- `inertiajs/inertia-laravel` atualizado para a linha 2.x compatível com Laravel 13, mantendo o protocolo/client Inertia atual;\n- `laravel/sanctum`, `laravel/tinker`, `laravel/breeze`, `nunomaduro/collision` e PHPUnit atualizados para versões compatíveis;\n- os 186 modelos que usavam `HasUuids` passam a usar `HasVersion4Uuids` através de alias local, preservando explicitamente a geração UUIDv4 apesar da mudança de default do framework;\n- 12 testes legacy `@test` migrados para atributos `#[Test]` compatíveis com PHPUnit 12;\n- regression test permanente garante que novos IDs continuam UUIDv4;\n- o hook `post-update-cmd` de `laravel-assets` foi removido porque o ClubOS não possui atualmente resources nesse tag e Laravel 13 devolve exit code não-zero no no-op;\n- ratchet Composer apertado de 3 advisories residuais para 0 advisories.\n\nEvidência de readiness antes da aplicação:\n\n- Laravel 13.29.0;\n- Inertia Laravel 2.0.25;\n- PHPUnit 12.5.33;\n- Composer audit: 0 advisories;\n- suite de compatibilidade: 1764 testes passados / 31 skipped / 9920 assertions antes do novo regression test UUIDv4;\n- sem migrations, sem alterações de dados e sem alterações de regras de negócio.\n\nO fecho da H1.14 depende da CI canónica da PR e do job PostgreSQL no estado real versionado.\n'''
-          text = text.replace(marker, section + marker, 1)
-          estado.write_text(text)
-
-          baseline = Path('docs/qa/H1_BASELINE.md')
-          text = baseline.read_text()
-          text = text.replace('Data de referência: 2026-08-22.', 'Data de referência: 2026-08-26.')
-          old = '''### Composer\n\nO CI aceita temporariamente no máximo:\n\n- 3 advisories no total;\n- todos exclusivamente em `laravel/framework`;\n- 0 critical;\n- no máximo 1 high.\n\nQualquer advisory noutro pacote, novo critical ou crescimento acima deste baseline falha o CI.\n\nA eliminação integral do residual Laravel exige uma migração planeada para Laravel 12+ e não é misturada com este lote de patches/minors.\n'''
-          new = '''### Composer\n\nH1.14 concluiu a migração do framework para Laravel 13 e eliminou o residual aceite em H1.1. O CI permite agora:\n\n- 0 advisories no total;\n- 0 critical;\n- 0 high.\n\nQualquer advisory Composer novo falha o CI. Não existe exceção residual para `laravel/framework`.\n'''
-          if old not in text:
-              raise SystemExit('H1_BASELINE: Composer ratchet block not found')
-          text = text.replace(old, new, 1)
-          text = text.replace(
-              '1. Planear Laravel 12+ para remover os 3 advisories residuais do framework.\n2. Substituir/migrar `xlsx` preservando o importador de membros.\n3. Reduzir o token R2 para `Object Read & Write` limitado ao bucket de backup e confirmar Bucket Lock.\n4. Evoluir QA frontend com lint, unit/component tests, E2E, acessibilidade e matriz mobile/desktop.',
-              '1. Substituir/migrar `xlsx` preservando o importador de membros.\n2. Reduzir o token R2 para `Object Read & Write` limitado ao bucket de backup e confirmar Bucket Lock.\n3. Evoluir QA frontend com lint, unit/component tests, E2E, acessibilidade e matriz mobile/desktop.'
-          )
-          insert = '''\n## H1.14 — Laravel supported major\n\nReadiness e aplicação do upgrade Laravel 11 → 13:\n\n- Laravel 13.29.0;\n- Inertia Laravel 2.0.25, mantendo protocolo Inertia 2;\n- Sanctum 4.3.3, Tinker 3.0.2, Breeze 2.4.2, Collision 8.9.5 e PHPUnit 12.5.33;\n- Composer: 3 advisories residuais → 0;\n- 186 modelos preservam explicitamente UUIDv4 com `HasVersion4Uuids`;\n- 12 testes legacy migrados de `@test` para `#[Test]`;\n- regression test dedicado protege a semântica UUIDv4;\n- removido o `post-update-cmd` órfão de `laravel-assets`, mantendo `post-autoload-dump` e package discovery como validação explícita.\n\nA simulação final em runner limpo passou 1764 testes / 9920 assertions antes da adição do regression test UUIDv4. O estado versionado é posteriormente validado pela CI canónica da PR.\n'''
-          text = text.replace('\n## Pendências H1\n', insert + '\n## Pendências H1\n', 1)
-          baseline.write_text(text)
-          PY
-
           composer validate --no-interaction
 
-          old_uuid_imports=$(grep -RIl --include='*.php' 'use Illuminate\\Database\\Eloquent\\Concerns\\HasUuids;' app/Models | wc -l | tr -d ' ')
-          v4_uuid_imports=$(grep -RIl --include='*.php' 'HasVersion4Uuids as HasUuids' app/Models | wc -l | tr -d ' ')
+          old_uuid_imports="$( (grep -RIl --include='*.php' 'use Illuminate\\Database\\Eloquent\\Concerns\\HasUuids;' app/Models || true) | wc -l | tr -d ' ' )"
+          v4_uuid_imports="$( (grep -RIl --include='*.php' 'HasVersion4Uuids as HasUuids' app/Models || true) | wc -l | tr -d ' ' )"
           test "$old_uuid_imports" = "0"
           test "$v4_uuid_imports" = "186"
           test "$(grep -c '#\[Test\]' tests/Feature/Loja/LegacySaleShutdownTest.php || true)" = "12"
 
-          # Prove that package discovery still boots after UUID compatibility edits.
-          set +e
-          php artisan package:discover --ansi -vvv > /tmp/h1-14-package-discover.log 2>&1
-          discover_status=$?
-          set -e
-          cat /tmp/h1-14-package-discover.log
-          if [ "$discover_status" -ne 0 ]; then
-            echo "PACKAGE_DISCOVER_STATUS=$discover_status"
-            test -f storage/logs/laravel.log && tail -n 160 storage/logs/laravel.log || true
-            exit "$discover_status"
-          fi
+          php artisan package:discover --ansi
+          composer install --no-interaction --prefer-dist
 
-          # This mirrors the production/CI install path on the fully transformed tree.
-          set +e
-          composer install --no-interaction --prefer-dist > /tmp/h1-14-final-install.log 2>&1
-          install_status=$?
-          set -e
-          cat /tmp/h1-14-final-install.log
-          if [ "$install_status" -ne 0 ]; then
-            echo "FINAL_COMPOSER_INSTALL_STATUS=$install_status"
-            test -f storage/logs/laravel.log && tail -n 160 storage/logs/laravel.log || true
-            exit "$install_status"
-          fi
+          composer audit --locked --no-interaction --format=json > /tmp/h1-14-composer-audit.json
+          test "$(jq '[.advisories[]?[]?] | length' /tmp/h1-14-composer-audit.json)" = "0"
 
-          composer audit --locked --no-interaction --format=summary
-          bash scripts/qa/composer-audit-ratchet.sh
           npm run build
           php artisan test
           git diff --check
 
-      - name: Commit final H1.14 state and remove temporary workflow
+      - name: Commit validated Laravel 13 state
         shell: bash
         run: |
-          set -euo pipefail
+          set -Eeuo pipefail
           git rm .github/workflows/h1-14-laravel-major-diagnostic.yml
-          git add composer.json composer.lock app/Models tests/Feature/Loja/LegacySaleShutdownTest.php tests/Feature/Compatibility/UuidGenerationCompatibilityTest.php scripts/qa/composer-audit-ratchet.sh docs/ESTADO_VIVO_DESENVOLVIMENTO.md docs/qa/H1_BASELINE.md
+          git add composer.json composer.lock app/Models tests/Feature/Loja/LegacySaleShutdownTest.php tests/Feature/Compatibility/UuidGenerationCompatibilityTest.php
           git diff --cached --check
           git config user.name 'Bzuzinho'
           git config user.email 'ricardo.jgvf@gmail.com'
