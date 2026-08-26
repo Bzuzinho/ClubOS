@@ -38,8 +38,6 @@ jobs:
           npm ci
           cp .env.example .env
           php artisan key:generate --force
-          cp composer.json /tmp/composer.11.json
-          cp composer.lock /tmp/composer.11.lock
 
       - name: Simulate Laravel 11 to 12
         id: laravel12
@@ -47,22 +45,36 @@ jobs:
         run: |
           set +e
           composer require 'laravel/framework:^12.0' --no-update --no-interaction
-          composer update laravel/framework --with-all-dependencies --no-interaction 2>&1 | tee /tmp/laravel12-update.log
-          status=${PIPESTATUS[0]}
-          echo "update_status=$status" >> "$GITHUB_OUTPUT"
-          if [ "$status" -ne 0 ]; then
-            echo '--- Laravel 12 blockers ---'
+          composer update laravel/framework --with-all-dependencies --no-interaction > /tmp/laravel12-update.log 2>&1
+          update_status=$?
+          echo "update_status=$update_status" >> "$GITHUB_OUTPUT"
+          if [ "$update_status" -ne 0 ]; then
+            echo '--- Laravel 12 dependency blockers ---'
+            tail -n 120 /tmp/laravel12-update.log
             composer why-not laravel/framework '^12.0' || true
+            echo "test_status=99" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          echo '--- Laravel 12 resolved versions ---'
-          composer show laravel/framework laravel/tinker nunomaduro/collision phpunit/phpunit inertiajs/inertia-laravel laravel/sanctum tightenco/ziggy 2>/dev/null || true
+
+          echo '--- Laravel 12 framework ---'
+          composer show laravel/framework | sed -n '1,12p'
           composer audit --format=summary || true
-          php artisan test
+
+          php artisan test --stop-on-failure > /tmp/laravel12-tests.log 2>&1
+          test_status=$?
+          echo "test_status=$test_status" >> "$GITHUB_OUTPUT"
+          if [ "$test_status" -ne 0 ]; then
+            echo '--- Laravel 12 first test failure ---'
+            tail -n 180 /tmp/laravel12-tests.log
+          else
+            echo '--- Laravel 12 tests passed ---'
+            tail -n 12 /tmp/laravel12-tests.log
+          fi
+          exit 0
 
       - name: Simulate Laravel 12 to 13
         id: laravel13
-        if: steps.laravel12.outputs.update_status == '0'
+        if: steps.laravel12.outputs.update_status == '0' && steps.laravel12.outputs.test_status == '0'
         shell: bash
         run: |
           set +e
@@ -72,33 +84,55 @@ jobs:
           dev_status=$?
           if [ "$require_status" -ne 0 ] || [ "$dev_status" -ne 0 ]; then
             echo "update_status=98" >> "$GITHUB_OUTPUT"
+            echo "test_status=98" >> "$GITHUB_OUTPUT"
             composer why-not laravel/framework '^13.0' || true
             exit 0
           fi
-          composer update --with-all-dependencies --no-interaction 2>&1 | tee /tmp/laravel13-update.log
-          status=${PIPESTATUS[0]}
-          echo "update_status=$status" >> "$GITHUB_OUTPUT"
-          if [ "$status" -ne 0 ]; then
-            echo '--- Laravel 13 blockers ---'
+
+          composer update --with-all-dependencies --no-interaction > /tmp/laravel13-update.log 2>&1
+          update_status=$?
+          echo "update_status=$update_status" >> "$GITHUB_OUTPUT"
+          if [ "$update_status" -ne 0 ]; then
+            echo '--- Laravel 13 dependency blockers ---'
+            tail -n 160 /tmp/laravel13-update.log
             composer why-not laravel/framework '^13.0' || true
             composer why-not laravel/tinker '^3.0' || true
             composer why-not phpunit/phpunit '^12.0' || true
+            echo "test_status=99" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          echo '--- Laravel 13 resolved versions ---'
-          composer show laravel/framework laravel/tinker nunomaduro/collision phpunit/phpunit inertiajs/inertia-laravel laravel/sanctum tightenco/ziggy 2>/dev/null || true
+
+          echo '--- Laravel 13 framework ---'
+          composer show laravel/framework | sed -n '1,12p'
           composer audit --format=summary || true
-          php artisan test
+
+          php artisan test --stop-on-failure > /tmp/laravel13-tests.log 2>&1
+          test_status=$?
+          echo "test_status=$test_status" >> "$GITHUB_OUTPUT"
+          if [ "$test_status" -ne 0 ]; then
+            echo '--- Laravel 13 first test failure ---'
+            tail -n 180 /tmp/laravel13-tests.log
+          else
+            echo '--- Laravel 13 tests passed ---'
+            tail -n 12 /tmp/laravel13-tests.log
+          fi
+          exit 0
 
       - name: Print diagnostic verdict
         shell: bash
         run: |
           echo "LARAVEL12_UPDATE_STATUS=${{ steps.laravel12.outputs.update_status }}"
+          echo "LARAVEL12_TEST_STATUS=${{ steps.laravel12.outputs.test_status }}"
           echo "LARAVEL13_UPDATE_STATUS=${{ steps.laravel13.outputs.update_status }}"
+          echo "LARAVEL13_TEST_STATUS=${{ steps.laravel13.outputs.test_status }}"
           if [ "${{ steps.laravel12.outputs.update_status }}" != "0" ]; then
             echo 'VERDICT=Laravel 12 dependency resolution blocked'
+          elif [ "${{ steps.laravel12.outputs.test_status }}" != "0" ]; then
+            echo 'VERDICT=Laravel 12 resolves but application compatibility tests fail'
           elif [ "${{ steps.laravel13.outputs.update_status }}" != "0" ]; then
-            echo 'VERDICT=Laravel 12 resolves/tests; Laravel 13 dependency resolution blocked'
+            echo 'VERDICT=Laravel 12 passes; Laravel 13 dependency resolution blocked'
+          elif [ "${{ steps.laravel13.outputs.test_status }}" != "0" ]; then
+            echo 'VERDICT=Laravel 13 resolves but application compatibility tests fail'
           else
             echo 'VERDICT=Laravel 12 and 13 dependency resolution/tests passed'
           fi
