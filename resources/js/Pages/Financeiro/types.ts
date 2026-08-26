@@ -91,7 +91,7 @@ export interface LancamentoFinanceiro {
   centro_custo_id?: string | null;
   user_id?: string | null;
   fatura_id?: string | null;
-  origem_tipo?: 'evento' | 'stock' | 'patrocinio' | 'manual' | null;
+  origem_tipo?: 'evento' | 'stock' | 'patrocinio' | 'manual' | 'movement' | null;
   origem_id?: string | null;
   metodo_pagamento?: string | null;
   comprovativo?: string | null;
