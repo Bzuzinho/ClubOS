@@ -63,6 +63,9 @@ if (errorCount > 0) {
   for (const [code, count] of rankedCodes.slice(0, 10)) {
     console.log(`  ${count}\t${code}`);
   }
+
+  console.log('H1.13 TypeScript diagnostics:');
+  console.log(errorLines.join('\n'));
 }
 
 if (result.status === 0) {
