@@ -1,6 +1,6 @@
 # H1 — Baseline de QA e Dependências
 
-Data de referência: 2026-08-22.
+Data de referência: 2026-08-26.
 
 ## Baseline inicial medido
 
@@ -45,16 +45,13 @@ Resultado esperado/provado antes da aplicação:
 
 ### Composer
 
-O CI aceita temporariamente no máximo:
+H1.14 concluiu a migração do framework para Laravel 13 e eliminou o residual aceite em H1.1. O CI permite agora:
 
-- 3 advisories no total;
-- todos exclusivamente em `laravel/framework`;
+- 0 advisories no total;
 - 0 critical;
-- no máximo 1 high.
+- 0 high.
 
-Qualquer advisory noutro pacote, novo critical ou crescimento acima deste baseline falha o CI.
-
-A eliminação integral do residual Laravel exige uma migração planeada para Laravel 12+ e não é misturada com este lote de patches/minors.
+Qualquer advisory Composer novo falha o CI. Não existe exceção residual para `laravel/framework`.
 
 ### npm
 
@@ -97,9 +94,23 @@ Teto atual versionado:
 
 O CI falha se qualquer destes limites aumentar. Uma redução futura tem obrigatoriamente de baixar novamente o baseline no mesmo PR para impedir regressão.
 
+## H1.14 — Laravel supported major
+
+Upgrade materializado de Laravel 11 para Laravel 13:
+
+- Laravel 13.29.0 e PHP 8.3;
+- Inertia Laravel 2.0.25, mantendo protocolo Inertia 2;
+- Sanctum 4.3.3, Tinker 3.0.2, Breeze 2.4.2, Collision 8.9.5 e PHPUnit 12.5.33;
+- Composer: 3 advisories residuais → 0;
+- 186 modelos preservam explicitamente UUIDv4 com `HasVersion4Uuids`;
+- 12 testes legacy migrados de `@test` para `#[Test]`;
+- regression test dedicado protege a semântica UUIDv4;
+- `post-update-cmd` órfão de `laravel-assets` removido; instalação limpa e package discovery continuam gates obrigatórios.
+
+Qualquer regressão futura de advisories Composer falha o CI.
+
 ## Pendências H1
 
-1. Planear Laravel 12+ para remover os 3 advisories residuais do framework.
-2. Substituir/migrar `xlsx` preservando o importador de membros.
-3. Reduzir o token R2 para `Object Read & Write` limitado ao bucket de backup e confirmar Bucket Lock.
-4. Evoluir QA frontend com lint, unit/component tests, E2E, acessibilidade e matriz mobile/desktop.
+1. Substituir/migrar `xlsx` preservando o importador de membros.
+2. Reduzir o token R2 para `Object Read & Write` limitado ao bucket de backup e confirmar Bucket Lock.
+3. Evoluir QA frontend com lint, unit/component tests, E2E, acessibilidade e matriz mobile/desktop.
