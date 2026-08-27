@@ -2,7 +2,7 @@
 
 > Fonte de verdade funcional e técnica do projeto ClubOS.
 >
-> Estado consolidado em 2026-08-26.
+> Estado consolidado em 2026-08-27.
 >
 > O histórico detalhado anterior à consolidação está preservado em `docs/history/ESTADO_VIVO_DESENVOLVIMENTO_ATE_2026-08-20.md`.
 
@@ -41,7 +41,7 @@ Stack produtiva: Laravel 13, PHP 8.3, React 19 + TypeScript, Inertia 2, Vite, Po
 
 | Módulo / Área | Estado estimado | Estado atual / pendências principais |
 |---|---:|---|
-| Base técnica / arquitetura | 90% | H0.1a/H0.1b/H0.2 concluídos em produção. H1.1 concluiu dependency remediation compatível e QA ratchets; H1.4–H1.13 eliminaram progressivamente a dívida TypeScript, agora em 0 erros/0 ficheiros com ratchet bloqueado em zero. H1.14 elevou o backend de Laravel 11 para Laravel 13, eliminando os 3 advisories Composer e preservando UUIDv4. Permanecem a migração de `xlsx` e hardenings residuais. |
+| Base técnica / arquitetura | 92% | H0.1a/H0.1b/H0.2 concluídos em produção. H1.1 concluiu dependency remediation compatível e QA ratchets; H1.4–H1.13 eliminaram a dívida TypeScript para 0/0; H1.14 elevou o backend para Laravel 13 e fechou Composer em 0 advisories; H1.15 eliminou a última vulnerabilidade npm com SheetJS 0.20.3 vendorizado e ratchet npm em zero. Permanecem hardening R2 e expansão da QA frontend. |
 | Website público / construtor | 86% | Renderer, snapshots, publicação e dados dinâmicos avançados. Faltam header/footer globais, notícias completas e validação runtime multi-viewport. |
 | Autenticação / Access Control | 78% | Auditoria e gates produtivos ativos. Zero findings críticos e zero rotas mutáveis sem `module.access`. Permanecem 83 warnings de capability granular. |
 | Dashboard / entrada por perfil | 70% | Funcional, com leituras canónicas financeiras. Falta QA final por perfil e viewport. |
@@ -265,7 +265,7 @@ A simulação #204 executou updates patch/minor compatíveis, build e PHPUnit an
 H1.1 introduz ratchets permanentes:
 
 - Composer passou em H1.14 para baseline estrito de 0 advisories; qualquer advisory novo falha o CI;
-- npm aceita temporariamente apenas `xlsx`, 1 high, sem moderate/low/critical e apenas enquanto `fixAvailable=false`;
+- npm passou em H1.15 para baseline estrito de 0 vulnerabilidades; qualquer finding novo falha o CI;
 - TypeScript começou com teto de 132 erros / 55 ficheiros; qualquer melhoria tem de baixar o baseline no mesmo PR. H1.4 reduziu-o para 123/51, H1.5 para 101/51, H1.6 para 88/44, H1.7 para 66/27, H1.8 para 53/21, H1.9 para 36/10, H1.10 para 25/4, H1.11 para 22/2, H1.12 para 16/1 e H1.13 para o teto final de 0 erros / 0 ficheiros;
 - contrato detalhado em `docs/qa/H1_BASELINE.md`.
 
@@ -390,10 +390,8 @@ Décimo e último lote mensurável do paydown TypeScript H1, isolado no fluxo ba
 
 Pendências H1 separadas:
 
-1. Laravel 12+ para remover os 3 advisories residuais;
-2. migração de `xlsx` preservando o importador de membros `.xlsx/.xls/.csv`;
-3. R2 least privilege e confirmação Bucket Lock;
-4. lint, unit/component tests, E2E, accessibility e matriz mobile/desktop.
+1. R2 least privilege e confirmação Bucket Lock;
+2. lint, unit/component tests, E2E, accessibility e matriz mobile/desktop.
 
 ---
 
@@ -427,6 +425,22 @@ Matriz materializada e validada:
 
 A PR #222 é o gate canónico de integração, incluindo CI transversal e PostgreSQL antes de merge/deploy.
 
+### H1.15 — Fecho npm `xlsx` security debt — PR #223
+
+Objetivo: remover a última vulnerabilidade npm residual sem degradar os importadores de folhas de cálculo de Membros e Financeiro.
+
+Implementado:
+
+- `xlsx` 0.18.5 do npm registry substituído pela release oficial SheetJS CE 0.20.3 vendorizada em `vendor/xlsx-0.20.3.tgz`;
+- `package.json` referencia o artefacto local por `file:`, pelo que `npm ci` e o deploy deixam de depender do CDN;
+- SHA-256 versionado: `8dc73fc3b00203e72d176e85b50938627c7b086e607c682e8d3c22c02bb99fe8`;
+- contrato permanente valida os entrypoints `xlsx` e `xlsx/xlsx.mjs`, checksum e versão runtime;
+- round-trips validados para XLSX, XLS, ODS e CSV e leitura HTML preservada para extratos bancários;
+- npm audit passou de 1 high residual para 0 vulnerabilidades e o ratchet foi apertado para zero, sem exceções por package;
+- TypeScript mantém 0/0 e o build Vite continua verde.
+
+Sem migrations, sem alterações de dados e sem alteração das regras de importação, reconciliação ou negócio.
+
 ## 6. Dívida estrutural prioritária
 
 - Família/EE: convergir `user_guardian`, `familias/familia_user`, `user_relationships` e compatibilidades para uma fonte canónica.
@@ -444,7 +458,7 @@ A PR #222 é o gate canónico de integração, incluindo CI transversal e Postgr
 
 | Ordem | Sprint | Objetivo |
 |---:|---|---|
-| 1 | H1 | H1.1 e H1.4–H1.13 concluídos/validados por lotes, com TypeScript fechado em 0/0; continuar com Laravel major, migração de `xlsx`, hardening residual R2 e QA frontend. |
+| 1 | H1 | H1.1 e H1.4–H1.15 concluíram os ratchets de dependências e TypeScript: Composer 0, npm 0, TypeScript 0/0; continuar com hardening residual R2 e QA frontend. |
 | 2 | H2 | Família/EE, stock variantes, legacy e rotas modulares. |
 | 3 | H3 | Fecho Desportivo ponta a ponta. |
 | 4 | H4 | Decisão e fecho Fiscal. |
@@ -454,7 +468,7 @@ A PR #222 é o gate canónico de integração, incluindo CI transversal e Postgr
 | 8 | H8 | Reporting consolidado. |
 | 9 | H9 | Website: header/footer, notícias e polish final. |
 
-Próximo passo: com o ratchet TypeScript fechado em 0/0, continuar H1 pelas pendências de segurança e QA: preparar Laravel 12+ para remover os advisories residuais, substituir `xlsx` sem degradar o importador de membros, fechar least-privilege/Bucket Lock no R2 e evoluir a matriz frontend de lint, unit/component, E2E, acessibilidade e mobile/desktop.
+Próximo passo: fechar o hardening residual R2 com credencial `Object Read & Write` limitada ao bucket de backup e confirmação de Bucket Lock; depois evoluir a matriz frontend de lint, unit/component, E2E, acessibilidade e mobile/desktop.
 
 ---
 
@@ -462,6 +476,8 @@ Próximo passo: com o ratchet TypeScript fechado em 0/0, continuar H1 pelas pend
 
 | Data | Módulo | Desenvolvimento / análise | Evidência | Estado / pendências |
 |---|---|---|---|---|
+| 2026-08-27 | QA / Dependências npm | H1.15 substituiu `xlsx` 0.18.5 pela release oficial SheetJS CE 0.20.3 vendorizada, preservando XLSX/XLS/ODS/CSV/HTML e eliminando a última vulnerabilidade npm residual. | PR #223; `vendor/xlsx-0.20.3.tgz`; `scripts/qa/xlsx-import-contract.mjs`; `scripts/qa/npm-audit-ratchet.mjs` | npm audit e ratchet fechados em 0 vulnerabilidades; resta R2 hardening e QA frontend em H1. |
+| 2026-08-26 | QA / Framework / Composer | H1.14 elevou Laravel 11 para Laravel 13.29.0, preservou UUIDv4 nos modelos e eliminou os 3 advisories Composer residuais. | PR #222; CI #852/#853; merge `99ba31100620754167053e4251ee0f97da282dc6` | Integrado e deployado na Oracle VM; Composer ratchet fechado em 0 advisories. |
 | 2026-08-26 | QA / TypeScript / Banco | H1.13 fechou os 16 diagnósticos finais de `BancoTab.tsx`, alinhando contratos locais de rotas, centros de custo e origem `movement`, reduzindo a dívida TypeScript de 16 erros/1 ficheiro para 0 erros/0 ficheiros sem alterar regras financeiras. | PR #220; CI #829/#833; `qa/baselines/typescript.json`; `docs/qa/H1_BASELINE.md` | Ratchet TypeScript fechado em 0/0; deixa de existir dívida TypeScript aceite no CI. |
 | 2026-08-24 | QA / TypeScript / Faturas | H1.12 fechou os 6 diagnósticos de `FaturasTab.tsx`, substituindo helpers residuais e alinhando `user_id` com o guard já existente, reduzindo a dívida de 22 erros/2 ficheiros para 16 erros/1 ficheiro sem tocar em Banco. | PR #219; CI #817; `qa/baselines/typescript.json`; `docs/qa/H1_BASELINE.md` | Novo teto 16/1. Resta apenas `BancoTab.tsx` com 16 diagnósticos para lote financeiro isolado. |
 | 2026-08-24 | QA / TypeScript / Portal + transporte financeiro | H1.11 completou o filtro e abertura de comunicações no Portal e corrigiu o narrowing do body em `Financeiro/request.ts`, reduzindo a dívida de 25 erros/4 ficheiros para 22 erros/2 ficheiros. | PR #218; diagnóstico completo `tsc --noEmit`; `qa/baselines/typescript.json`; `docs/qa/H1_BASELINE.md` | Novo teto 22/2. Restam apenas Banco 16 e Faturas 6. |

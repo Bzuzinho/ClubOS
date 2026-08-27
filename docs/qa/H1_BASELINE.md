@@ -1,6 +1,6 @@
 # H1 — Baseline de QA e Dependências
 
-Data de referência: 2026-08-26.
+Data de referência: 2026-08-27.
 
 ## Baseline inicial medido
 
@@ -23,7 +23,7 @@ Atualizações Composer compatíveis:
 - `league/commonmark` → 2.10.0;
 - `psy/psysh` → 0.12.24;
 - componentes Symfony vulneráveis → série 7.4 corrigida;
-- `laravel/framework` mantém-se em Laravel 11 nesta sprint.
+- `laravel/framework` manteve-se em Laravel 11 nessa primeira sprint e foi elevado a Laravel 13 em H1.14.
 
 Atualizações npm compatíveis:
 
@@ -31,11 +31,11 @@ Atualizações npm compatíveis:
 - `postcss` → ^8.5.26;
 - `vite` → ^6.4.3;
 - `npm audit fix` sem `--force` apenas sobre o lockfile;
-- `xlsx` mantém-se temporariamente em ^0.18.5.
+- `xlsx` permaneceu temporariamente em ^0.18.5 até H1.15.
 
 A simulação concluiu com build e PHPUnit verdes e sem aumentar a dívida TypeScript.
 
-Resultado esperado/provado antes da aplicação:
+Resultado provado após H1.1:
 
 - Composer: 34 → 3 advisories, todos em `laravel/framework` 11;
 - npm: 12 → 1 vulnerabilidade, apenas `xlsx` high sem `fixAvailable`;
@@ -55,18 +55,27 @@ Qualquer advisory Composer novo falha o CI. Não existe exceção residual para 
 
 ### npm
 
-O CI aceita temporariamente apenas:
+H1.15 eliminou a última exceção residual. O CI permite agora:
 
-- `xlsx` como único pacote vulnerável;
-- 1 vulnerabilidade total;
+- 0 vulnerabilidades no total;
 - 0 critical;
-- no máximo 1 high;
-- 0 moderate e 0 low;
-- `fixAvailable=false`.
+- 0 high;
+- 0 moderate;
+- 0 low;
+- 0 info;
+- nenhum pacote vulnerável.
 
-Se surgir uma correção npm para `xlsx`, o ratchet falha para forçar a remoção da exceção. Se surgir qualquer outro pacote vulnerável, o CI também falha.
+Qualquer vulnerabilidade npm nova falha o CI. A exceção histórica de `xlsx` foi removida por completo.
 
-`xlsx` é atualmente usado pelo importador de membros para leitura de `.xlsx`, `.xls` e `.csv`; a sua substituição será tratada como migração funcional separada para preservar o fluxo de importação.
+O `xlsx` 0.18.5 do npm registry foi substituído pela release oficial SheetJS CE 0.20.3, vendorizada em `vendor/xlsx-0.20.3.tgz` e referenciada por `file:` no `package.json`. O SHA-256 versionado é `8dc73fc3b00203e72d176e85b50938627c7b086e607c682e8d3c22c02bb99fe8`.
+
+Um contrato permanente de CI valida:
+
+- checksum do artefacto vendorizado;
+- versão runtime 0.20.3;
+- os dois entrypoints usados pelo ClubOS: `xlsx` e `xlsx/xlsx.mjs`;
+- round-trip de XLSX, XLS, ODS e CSV;
+- leitura de tabela HTML usada por alguns extratos bancários.
 
 ### TypeScript
 
@@ -85,14 +94,14 @@ Evolução validada:
 - H1.12: 22 erros / 2 ficheiros → 16 erros / 1 ficheiro. `Financeiro/FaturasTab.tsx` passou a usar o helper financeiro canónico `getFinanceiroAxiosJsonConfig` nas três chamadas residuais e os payloads manuais usam o `user_id` já validado pelo guard do formulário; uma fatura histórica sem titular é normalizada para valor vazio e continua impedida de persistir até existir utilizador. A CI #817 confirmou Faturas sem diagnósticos, 1764 testes / 9860 assertions, legacy-read guard e PostgreSQL concurrency verdes. Resta apenas `Financeiro/BancoTab.tsx` com 16 diagnósticos.
 - H1.13: 16 erros / 1 ficheiro → 0 erros / 0 ficheiros. O lote final de Banco estreitou o helper local de rotas ao contrato efetivamente usado, alinhou `centro_custo_id` opcional/nulo, removeu uma opção obsoleta de `router.reload` e reconheceu `movement` como origem real de lançamento financeiro. A CI #829 confirmou `tsc --noEmit` totalmente limpo, build Vite verde, 1764 testes / 9860 assertions, legacy-read guard e PostgreSQL concurrency verdes, sem alterações de endpoints, migrations, dados ou regras de reconciliação/pagamento.
 
-O ratchet imprime no CI os ficheiros e códigos de erro com maior concentração, para orientar os próximos lotes sem alterar a regra de bloqueio.
+O ratchet imprime no CI os ficheiros e códigos de erro com maior concentração, para orientar eventuais regressões sem alterar a regra de bloqueio.
 
 Teto atual versionado:
 
 - máximo 0 erros;
 - máximo 0 ficheiros afetados.
 
-O CI falha se qualquer destes limites aumentar. Uma redução futura tem obrigatoriamente de baixar novamente o baseline no mesmo PR para impedir regressão.
+O CI falha se qualquer destes limites aumentar.
 
 ## H1.14 — Laravel supported major
 
@@ -109,8 +118,20 @@ Upgrade materializado de Laravel 11 para Laravel 13:
 
 Qualquer regressão futura de advisories Composer falha o CI.
 
+## H1.15 — Fecho npm `xlsx` security debt
+
+A última vulnerabilidade npm residual foi removida sem trocar a API de parsing usada pela aplicação:
+
+- `xlsx` npm 0.18.5 → SheetJS CE 0.20.3 oficial vendorizado;
+- npm audit: 1 high → 0 vulnerabilidades;
+- `package.json` usa `file:vendor/xlsx-0.20.3.tgz`;
+- tarball e checksum ficam dentro do repositório, removendo dependência do CDN durante `npm ci` e deploy;
+- importador de membros mantém XLSX/XLS/CSV;
+- importador de extratos bancários mantém XLSX/XLS/ODS/CSV e a compatibilidade com tabelas HTML;
+- TypeScript mantém teto 0/0 e o build Vite foi validado com a nova versão;
+- o npm ratchet deixou de possuir qualquer exceção por package.
+
 ## Pendências H1
 
-1. Substituir/migrar `xlsx` preservando o importador de membros.
-2. Reduzir o token R2 para `Object Read & Write` limitado ao bucket de backup e confirmar Bucket Lock.
-3. Evoluir QA frontend com lint, unit/component tests, E2E, acessibilidade e matriz mobile/desktop.
+1. Reduzir o token R2 para `Object Read & Write` limitado ao bucket de backup e confirmar Bucket Lock.
+2. Evoluir QA frontend com lint, unit/component tests, E2E, acessibilidade e matriz mobile/desktop.

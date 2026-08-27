@@ -19,16 +19,15 @@ try {
 const vulnerabilities = report.vulnerabilities ?? {};
 const metadata = report.metadata?.vulnerabilities ?? {};
 const names = Object.keys(vulnerabilities);
-const unexpected = names.filter((name) => name !== 'xlsx');
 const total = Number(metadata.total ?? names.length ?? 0);
 const critical = Number(metadata.critical ?? 0);
 const high = Number(metadata.high ?? 0);
 const moderate = Number(metadata.moderate ?? 0);
 const low = Number(metadata.low ?? 0);
-const xlsx = vulnerabilities.xlsx;
+const info = Number(metadata.info ?? 0);
 
 console.log(
-  `npm security ratchet: total=${total}; critical=${critical}; high=${high}; moderate=${moderate}; low=${low}; packages=${names.join(', ') || 'none'}.`,
+  `npm security ratchet: total=${total}; critical=${critical}; high=${high}; moderate=${moderate}; low=${low}; info=${info}; packages=${names.join(', ') || 'none'}.`,
 );
 
 if (process.env.GITHUB_STEP_SUMMARY) {
@@ -42,39 +41,21 @@ if (process.env.GITHUB_STEP_SUMMARY) {
       `- High: \`${high}\``,
       `- Moderate: \`${moderate}\``,
       `- Low: \`${low}\``,
-      `- Residual xlsx advisory present: \`${Boolean(xlsx)}\``,
+      `- Info: \`${info}\``,
+      `- Vulnerable packages: \`${names.join(', ') || 'none'}\``,
       '',
     ].join('\n'),
   );
 }
 
-if (critical > 0) {
-  console.error(`npm audit reported ${critical} critical vulnerability/vulnerabilities.`);
+if (total !== 0 || critical !== 0 || high !== 0 || moderate !== 0 || low !== 0 || info !== 0 || names.length !== 0) {
+  console.error('npm dependency security baseline regressed: zero vulnerabilities are permitted after H1.15.');
   process.exit(1);
 }
 
-if (unexpected.length > 0) {
-  console.error(`npm security debt regressed outside the accepted xlsx exception: ${unexpected.join(', ')}`);
-  process.exit(1);
-}
-
-if (total > 1 || high > 1 || moderate > 0 || low > 0) {
-  console.error('npm vulnerability baseline regressed (max total=1, high=1, moderate=0, low=0).');
-  process.exit(1);
-}
-
-if (xlsx && xlsx.fixAvailable !== false) {
-  console.error('The residual xlsx advisory now has a fix available; remove the exception instead of preserving the baseline.');
-  process.exit(1);
-}
-
-if (xlsx) {
-  console.warn('Residual xlsx high-severity advisory remains accepted temporarily because npm reports fixAvailable=false; migration is tracked in H1.');
-}
-
-if (![0, 1].includes(result.status ?? 2)) {
-  console.error(`npm audit failed unexpectedly with exit code ${result.status ?? 'unknown'}.`);
+if ((result.status ?? 2) !== 0) {
+  console.error(`npm audit failed unexpectedly with exit code ${result.status ?? 'unknown'} despite a zero-vulnerability report.`);
   process.exit(result.status || 2);
 }
 
-console.log('npm security ratchet passed.');
+console.log('npm security ratchet passed at zero vulnerabilities.');
