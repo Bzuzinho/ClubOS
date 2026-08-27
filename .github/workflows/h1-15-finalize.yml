@@ -1,0 +1,34 @@
+name: H1.15 Finalizer
+
+on:
+  push:
+    branches:
+      - fix/h1-15-xlsx-security-zero
+    paths:
+      - .github/workflows/h1-15-finalize.yml
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: fix/h1-15-xlsx-security-zero
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Apply final state
+        run: node scripts/qa/h1-15-finalize-state.mjs
+      - name: Commit and remove temporary finalizer
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/workflows/ci.yml docs/ESTADO_VIVO_DESENVOLVIMENTO.md
+          git commit -m 'chore(h1.15): wire zero npm and spreadsheet gates'
+          git rm .github/workflows/h1-15-finalize.yml scripts/qa/h1-15-finalize-state.mjs
+          git commit -m 'chore(h1.15): remove temporary finalizer'
+          git push origin HEAD:fix/h1-15-xlsx-security-zero
