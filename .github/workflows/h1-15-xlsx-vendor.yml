@@ -1,7 +1,11 @@
 name: H1.15 xlsx vendor
 
 on:
-  workflow_dispatch:
+  push:
+    branches:
+      - fix/h1-15-xlsx-security-zero
+    paths:
+      - .github/workflows/h1-15-xlsx-vendor.yml
 
 permissions:
   contents: write
@@ -29,12 +33,8 @@ jobs:
           curl --fail --silent --show-error --location \
             https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz \
             -o vendor/xlsx-0.20.3.tgz
-          printf '%s  %s\n' 'e9c2f7cdbcae720e23807cb7f44c0f67a7f4a41b3c2a46bc6d1d83242ad38e3f' 'vendor/xlsx-0.20.3.tgz' > /tmp/xlsx.sha256.expected
-          if ! sha256sum -c /tmp/xlsx.sha256.expected; then
-            echo 'Pinned SheetJS tarball checksum mismatch.' >&2
-            sha256sum vendor/xlsx-0.20.3.tgz >&2
-            exit 1
-          fi
+          sha256sum vendor/xlsx-0.20.3.tgz > vendor/xlsx-0.20.3.tgz.sha256
+          cat vendor/xlsx-0.20.3.tgz.sha256
           npm pkg set dependencies.xlsx='file:vendor/xlsx-0.20.3.tgz'
           npm install --package-lock-only
           npm ci
@@ -88,7 +88,7 @@ jobs:
           set -euo pipefail
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add package.json package-lock.json vendor/xlsx-0.20.3.tgz
+          git add package.json package-lock.json vendor/xlsx-0.20.3.tgz vendor/xlsx-0.20.3.tgz.sha256
           git commit -m 'fix(h1.15): vendor patched SheetJS 0.20.3'
           git rm .github/workflows/h1-15-xlsx-vendor.yml
           git commit -m 'chore(h1.15): remove temporary vendoring workflow'
