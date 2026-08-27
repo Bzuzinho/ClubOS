@@ -1,0 +1,95 @@
+name: H1.15 xlsx vendor
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  vendor-and-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/h1-15-xlsx-security-zero
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Vendor patched SheetJS and update lockfile
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p vendor
+          curl --fail --silent --show-error --location \
+            https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz \
+            -o vendor/xlsx-0.20.3.tgz
+          printf '%s  %s\n' 'e9c2f7cdbcae720e23807cb7f44c0f67a7f4a41b3c2a46bc6d1d83242ad38e3f' 'vendor/xlsx-0.20.3.tgz' > /tmp/xlsx.sha256.expected
+          if ! sha256sum -c /tmp/xlsx.sha256.expected; then
+            echo 'Pinned SheetJS tarball checksum mismatch.' >&2
+            sha256sum vendor/xlsx-0.20.3.tgz >&2
+            exit 1
+          fi
+          npm pkg set dependencies.xlsx='file:vendor/xlsx-0.20.3.tgz'
+          npm install --package-lock-only
+          npm ci
+
+      - name: Verify patched xlsx version and formats
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import * as XLSX from 'xlsx';
+          if (XLSX.version !== '0.20.3') {
+            throw new Error(`Expected SheetJS 0.20.3, got ${XLSX.version}`);
+          }
+          const workbook = XLSX.utils.book_new();
+          const sheet = XLSX.utils.aoa_to_sheet([
+            ['Data', 'Descricao', 'Valor'],
+            ['2026-08-27', 'Quota', '12,50'],
+          ]);
+          XLSX.utils.book_append_sheet(workbook, sheet, 'Dados');
+          for (const bookType of ['xlsx', 'xls', 'ods', 'csv']) {
+            const output = XLSX.write(workbook, { type: 'array', bookType });
+            const parsed = XLSX.read(output, { type: 'array' });
+            const rows = XLSX.utils.sheet_to_json(parsed.Sheets[parsed.SheetNames[0]], { header: 1, raw: false, defval: null });
+            if (!Array.isArray(rows) || rows.length < 2 || String(rows[0][0]) !== 'Data') {
+              throw new Error(`Round-trip failed for ${bookType}`);
+            }
+          }
+          console.log('SheetJS 0.20.3 format round-trips passed: xlsx/xls/ods/csv');
+          NODE
+
+      - name: Security, TypeScript and build gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm audit --json > /tmp/npm-audit.json || true
+          node - <<'NODE'
+          const report = require('/tmp/npm-audit.json');
+          const meta = report.metadata?.vulnerabilities || {};
+          if (Number(meta.total || 0) !== 0) {
+            console.error(JSON.stringify(report.vulnerabilities || {}, null, 2));
+            process.exit(1);
+          }
+          console.log('npm audit: 0 vulnerabilities');
+          NODE
+          npm run typecheck:ratchet
+          npm run build
+
+      - name: Commit vendored dependency
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add package.json package-lock.json vendor/xlsx-0.20.3.tgz
+          git commit -m 'fix(h1.15): vendor patched SheetJS 0.20.3'
+          git rm .github/workflows/h1-15-xlsx-vendor.yml
+          git commit -m 'chore(h1.15): remove temporary vendoring workflow'
+          git push origin HEAD:fix/h1-15-xlsx-security-zero
