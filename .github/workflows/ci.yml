@@ -35,6 +35,7 @@ jobs:
           node --check bin/deploy-vm.mjs
           node --check scripts/qa/typecheck-ratchet.mjs
           node --check scripts/qa/npm-audit-ratchet.mjs
+          node --check scripts/qa/xlsx-import-contract.mjs
           bash -n bin/remote-deploy-backend.sh
           bash -n scripts/qa/composer-audit-ratchet.sh
 
@@ -49,6 +50,9 @@ jobs:
 
       - name: Audit Node dependencies
         run: node scripts/qa/npm-audit-ratchet.mjs
+
+      - name: Verify spreadsheet import contract
+        run: node scripts/qa/xlsx-import-contract.mjs
 
       - name: TypeScript debt ratchet
         run: npm run typecheck:ratchet
