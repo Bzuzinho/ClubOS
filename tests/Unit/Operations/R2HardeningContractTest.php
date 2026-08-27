@@ -41,6 +41,27 @@ final class R2HardeningContractTest extends TestCase
         self::assertStringContainsString('trap cleanup EXIT', $script);
     }
 
+    public function test_bucket_lock_verifier_is_read_only_and_enforces_the_three_production_prefixes(): void
+    {
+        $relativePath = 'scripts/ops/dr/check-r2-bucket-lock.sh';
+        $path = $this->root.'/'.$relativePath;
+        $script = $this->read($relativePath);
+
+        $output = [];
+        $exitCode = 0;
+        exec('bash -n '.escapeshellarg($path).' 2>&1', $output, $exitCode);
+
+        self::assertSame(0, $exitCode, implode("\n", $output));
+        self::assertStringContainsString('/r2/buckets/${CF_R2_BUCKET}/lock', $script);
+        self::assertStringNotContainsString('--request PUT', $script);
+        self::assertStringNotContainsString('-X PUT', $script);
+        self::assertStringContainsString("'daily': 604800", $script);
+        self::assertStringContainsString("'weekly': 2419200", $script);
+        self::assertStringContainsString("'monthly': 31968000", $script);
+        self::assertStringContainsString("condition.get('type') != 'Age'", $script);
+        self::assertStringContainsString("print('r2_bucket_lock=ok')", $script);
+    }
+
     public function test_activation_gates_backup_on_the_r2_data_plane_probe(): void
     {
         $workflow = $this->read('.github/workflows/dr-r2-activate.yml');
