@@ -1,0 +1,132 @@
+name: H1.15 finalize
+
+on:
+  push:
+    branches:
+      - fix/h1-15-xlsx-security-zero
+    paths:
+      - .github/workflows/h1-15-finalize.yml
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: fix/h1-15-xlsx-security-zero
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Patch canonical CI and living state
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          from pathlib import Path
+
+          def replace_once(text, old, new, label):
+              if old not in text:
+                  raise SystemExit(f'missing expected contract: {label}')
+              return text.replace(old, new, 1)
+
+          ci_path = Path('.github/workflows/ci.yml')
+          ci = ci_path.read_text()
+          ci = replace_once(
+              ci,
+              '          node --check scripts/qa/npm-audit-ratchet.mjs\n',
+              '          node --check scripts/qa/npm-audit-ratchet.mjs\n          node --check scripts/qa/xlsx-import-contract.mjs\n',
+              'CI node check',
+          )
+          ci = replace_once(
+              ci,
+              '      - name: Audit Node dependencies\n        run: node scripts/qa/npm-audit-ratchet.mjs\n\n      - name: TypeScript debt ratchet\n',
+              '      - name: Audit Node dependencies\n        run: node scripts/qa/npm-audit-ratchet.mjs\n\n      - name: Verify spreadsheet import contract\n        run: node scripts/qa/xlsx-import-contract.mjs\n\n      - name: TypeScript debt ratchet\n',
+              'CI xlsx contract step',
+          )
+          ci_path.write_text(ci)
+
+          state_path = Path('docs/ESTADO_VIVO_DESENVOLVIMENTO.md')
+          state = state_path.read_text()
+          state = replace_once(state, '> Estado consolidado em 2026-08-26.', '> Estado consolidado em 2026-08-27.', 'living date')
+          state = replace_once(
+              state,
+              '| Base técnica / arquitetura | 90% | H0.1a/H0.1b/H0.2 concluídos em produção. H1.1 concluiu dependency remediation compatível e QA ratchets; H1.4–H1.13 eliminaram progressivamente a dívida TypeScript, agora em 0 erros/0 ficheiros com ratchet bloqueado em zero. H1.14 elevou o backend de Laravel 11 para Laravel 13, eliminando os 3 advisories Composer e preservando UUIDv4. Permanecem a migração de `xlsx` e hardenings residuais. |',
+              '| Base técnica / arquitetura | 92% | H0.1a/H0.1b/H0.2 concluídos em produção. H1.1 concluiu dependency remediation compatível e QA ratchets; H1.4–H1.13 eliminaram a dívida TypeScript para 0/0; H1.14 elevou o backend para Laravel 13 e fechou Composer em 0 advisories; H1.15 eliminou a última vulnerabilidade npm com SheetJS 0.20.3 vendorizado e ratchet npm em zero. Permanecem hardening R2 e expansão da QA frontend. |',
+              'base technical status',
+          )
+          state = replace_once(
+              state,
+              '- npm aceita temporariamente apenas `xlsx`, 1 high, sem moderate/low/critical e apenas enquanto `fixAvailable=false`;',
+              '- npm passou em H1.15 para baseline estrito de 0 vulnerabilidades; qualquer finding novo falha o CI;',
+              'H1 npm ratchet summary',
+          )
+          state = replace_once(
+              state,
+              'Pendências H1 separadas:\n\n1. Laravel 12+ para remover os 3 advisories residuais;\n2. migração de `xlsx` preservando o importador de membros `.xlsx/.xls/.csv`;\n3. R2 least privilege e confirmação Bucket Lock;\n4. lint, unit/component tests, E2E, accessibility e matriz mobile/desktop.',
+              'Pendências H1 separadas:\n\n1. R2 least privilege e confirmação Bucket Lock;\n2. lint, unit/component tests, E2E, accessibility e matriz mobile/desktop.',
+              'H1 pending list',
+          )
+          h115 = '''### H1.15 — Fecho npm `xlsx` security debt — PR #223
+
+Objetivo: remover a última vulnerabilidade npm residual sem degradar os importadores de folhas de cálculo de Membros e Financeiro.
+
+Implementado:
+
+- `xlsx` 0.18.5 do npm registry substituído pela release oficial SheetJS CE 0.20.3 vendorizada em `vendor/xlsx-0.20.3.tgz`;
+- `package.json` referencia o artefacto local por `file:`, pelo que `npm ci` e o deploy deixam de depender do CDN;
+- SHA-256 versionado: `8dc73fc3b00203e72d176e85b50938627c7b086e607c682e8d3c22c02bb99fe8`;
+- contrato permanente valida os entrypoints `xlsx` e `xlsx/xlsx.mjs`, checksum e versão runtime;
+- round-trips validados para XLSX, XLS, ODS e CSV e leitura HTML preservada para extratos bancários;
+- npm audit passou de 1 high residual para 0 vulnerabilidades e o ratchet foi apertado para zero, sem exceções por package;
+- TypeScript mantém 0/0 e o build Vite continua verde.
+
+Sem migrations, sem alterações de dados e sem alteração das regras de importação, reconciliação ou negócio.
+
+'''
+          state = replace_once(
+              state,
+              'A PR #222 é o gate canónico de integração, incluindo CI transversal e PostgreSQL antes de merge/deploy.\n\n## 6. Dívida estrutural prioritária',
+              'A PR #222 é o gate canónico de integração, incluindo CI transversal e PostgreSQL antes de merge/deploy.\n\n' + h115 + '## 6. Dívida estrutural prioritária',
+              'H1.15 section insertion',
+          )
+          state = replace_once(
+              state,
+              '| 1 | H1 | H1.1 e H1.4–H1.13 concluídos/validados por lotes, com TypeScript fechado em 0/0; continuar com Laravel major, migração de `xlsx`, hardening residual R2 e QA frontend. |',
+              '| 1 | H1 | H1.1 e H1.4–H1.15 concluíram os ratchets de dependências e TypeScript: Composer 0, npm 0, TypeScript 0/0; continuar com hardening residual R2 e QA frontend. |',
+              'H1 priority row',
+          )
+          state = replace_once(
+              state,
+              'Próximo passo: com o ratchet TypeScript fechado em 0/0, continuar H1 pelas pendências de segurança e QA: preparar Laravel 12+ para remover os advisories residuais, substituir `xlsx` sem degradar o importador de membros, fechar least-privilege/Bucket Lock no R2 e evoluir a matriz frontend de lint, unit/component, E2E, acessibilidade e mobile/desktop.',
+              'Próximo passo: fechar o hardening residual R2 com credencial `Object Read & Write` limitada ao bucket de backup e confirmação de Bucket Lock; depois evoluir a matriz frontend de lint, unit/component, E2E, acessibilidade e mobile/desktop.',
+              'next step',
+          )
+          history_header = '| Data | Módulo | Desenvolvimento / análise | Evidência | Estado / pendências |\n|---|---|---|---|---|\n'
+          history_rows = '''| 2026-08-27 | QA / Dependências npm | H1.15 substituiu `xlsx` 0.18.5 pela release oficial SheetJS CE 0.20.3 vendorizada, preservando XLSX/XLS/ODS/CSV/HTML e eliminando a última vulnerabilidade npm residual. | PR #223; `vendor/xlsx-0.20.3.tgz`; `scripts/qa/xlsx-import-contract.mjs`; `scripts/qa/npm-audit-ratchet.mjs` | npm audit e ratchet fechados em 0 vulnerabilidades; resta R2 hardening e QA frontend em H1. |\n| 2026-08-26 | QA / Framework / Composer | H1.14 elevou Laravel 11 para Laravel 13.29.0, preservou UUIDv4 nos modelos e eliminou os 3 advisories Composer residuais. | PR #222; CI #852/#853; merge `99ba31100620754167053e4251ee0f97da282dc6` | Integrado e deployado na Oracle VM; Composer ratchet fechado em 0 advisories. |\n'''
+          state = replace_once(state, history_header, history_header + history_rows, 'history rows')
+          state_path.write_text(state)
+          PY
+
+      - name: Validate patched contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check scripts/qa/npm-audit-ratchet.mjs
+          node --check scripts/qa/xlsx-import-contract.mjs
+          grep -q 'Verify spreadsheet import contract' .github/workflows/ci.yml
+          grep -q 'H1.15 — Fecho npm `xlsx` security debt — PR #223' docs/ESTADO_VIVO_DESENVOLVIMENTO.md
+
+      - name: Commit finalization and self-delete
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/workflows/ci.yml docs/ESTADO_VIVO_DESENVOLVIMENTO.md
+          git commit -m 'chore(h1.15): wire zero npm and spreadsheet gates'
+          git rm .github/workflows/h1-15-finalize.yml
+          git commit -m 'chore(h1.15): remove temporary finalization workflow'
+          git push origin HEAD:fix/h1-15-xlsx-security-zero
