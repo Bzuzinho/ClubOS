@@ -150,6 +150,9 @@ jobs:
           fi
           command -v rclone >/dev/null 2>&1
 
+          echo 'phase=data-plane-access-probe'
+          sudo bash "${APP_DIR}/scripts/ops/dr/probe-r2-access.sh"
+
           echo 'phase=first-offsite-backup'
           sudo bash "${APP_DIR}/scripts/ops/dr/backup-offsite.sh"
 
@@ -189,7 +192,7 @@ jobs:
             echo '## Activation result'
             echo ''
             if [[ "${{ steps.activate.outcome }}" == 'success' ]]; then
-              echo 'R2 bootstrap, first encrypted backup, remote restore test and strict DR health completed successfully.'
+              echo 'R2 data-plane probe, encrypted backup, remote restore test and strict DR health completed successfully.'
             else
               echo 'R2 activation did not complete. Production application deployment is independent from this workflow; inspect the failed phase before retrying.'
             fi

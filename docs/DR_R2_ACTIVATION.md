@@ -1,6 +1,6 @@
 # Ativação produtiva R2 — ClubOS
 
-Este documento cobre a ativação final do backend off-site real da H0.2. O contrato completo de Disaster Recovery está em `docs/DR_RUNBOOK.md`.
+Este documento cobre a ativação final do backend off-site real da H0.2. O contrato completo de Disaster Recovery está em `docs/DR_RUNBOOK.md` e o hardening H1 de least privilege/Bucket Lock está em `docs/DR_R2_HARDENING.md`.
 
 ## Estado atual
 
@@ -27,9 +27,9 @@ O backend usa Cloudflare R2 com um bucket privado dedicado e acesso S3-compatibl
 
 Recomendações de retenção/lock:
 
-- `clubos-prod/daily/` — pelo menos 7 dias;
-- `clubos-prod/weekly/` — pelo menos 28 dias;
-- `clubos-prod/monthly/` — pelo menos 370 dias.
+- `clubos-prod/daily/` — pelo menos 7 dias / 604800 segundos;
+- `clubos-prod/weekly/` — pelo menos 28 dias / 2419200 segundos;
+- `clubos-prod/monthly/` — pelo menos 370 dias / 31968000 segundos.
 
 Os repository secrets usados pelo workflow são:
 
@@ -64,7 +64,7 @@ Pode ser acionado por:
 
 Não corre em PRs nem em pushes normais para `main`.
 
-Sequência:
+Sequência atual:
 
 1. valida todos os secrets e configuração de produção;
 2. configura SSH com host key pinned;
@@ -72,15 +72,16 @@ Sequência:
 4. executa `configure-r2.sh`;
 5. remove o bootstrap transitório;
 6. garante `rclone` na VM;
-7. executa o primeiro `backup-offsite.sh`;
-8. relê/verifica o objeto remoto por SHA256;
-9. executa `restore-test-offsite.sh` numa BD PostgreSQL 17 temporária;
-10. só depois de backup+restore passarem instala os crons e o marker através de `install-dr-cron.sh`;
-11. executa `check-dr-health.sh` em modo estrito;
-12. confirma markers e cron DR;
-13. só termina verde depois de `dr_r2_activation=ok`.
+7. executa `probe-r2-access.sh` e exige `list/write/read/delete/delete_verification` verdes;
+8. executa `backup-offsite.sh`;
+9. relê/verifica o objeto remoto por SHA256;
+10. executa `restore-test-offsite.sh` numa BD PostgreSQL 17 temporária;
+11. só depois de probe+backup+restore passarem instala os crons e o marker através de `install-dr-cron.sh`;
+12. executa `check-dr-health.sh` em modo estrito;
+13. confirma markers e cron DR;
+14. só termina verde depois de `dr_r2_activation=ok`.
 
-Esta ordem impede que uma configuração R2 inválida marque o DR como ativo antes de existir prova real de backup e restore.
+Esta ordem impede que uma configuração R2 inválida marque o DR como ativo antes de existir prova real de acesso, backup e restore.
 
 ## Evidência real de 2026-08-22
 
@@ -135,8 +136,17 @@ r2_real_validation=ok
 
 H0.2 está concluída operacionalmente em produção.
 
-## Hardening residual
+## Hardening residual H1
 
-O token usado na validação final está atualmente com `Admin Read & Write` aplicado a todos os buckets. Funciona, mas é mais amplo do que o necessário.
+O token usado na validação final de H0.2 continua documentado como `Admin Read & Write / All buckets`. Funciona, mas é mais amplo do que o necessário.
 
-Em H1 deve ser substituído por um token `Object Read & Write` limitado exclusivamente ao bucket de backup e o probe `list/write/delete` deve ser repetido. Deve também ser confirmada documentalmente a configuração de Bucket Lock por prefixo.
+A preparação H1 introduz um probe permanente e um runbook específico em `docs/DR_R2_HARDENING.md`. O fecho operacional exige ainda, na conta Cloudflare:
+
+1. criar uma credencial `Object Read & Write` limitada exclusivamente ao bucket de backup;
+2. atualizar os repository secrets e repetir o workflow de ativação;
+3. obter `list_access=ok`, `write_access=ok`, `read_access=ok`, `delete_access=ok` e `delete_verification=ok` com a nova credencial;
+4. repetir backup real + restore PostgreSQL 17 + health estrito;
+5. revogar o token antigo `Admin Read & Write / All buckets`;
+6. configurar e confirmar Bucket Lock nos prefixos completos `clubos-prod/daily/`, `clubos-prod/weekly/` e `clubos-prod/monthly/`.
+
+Até essa evidência externa existir, H1 R2 permanece pendente e não deve ser marcada concluída apenas por o código de preparação estar integrado.
