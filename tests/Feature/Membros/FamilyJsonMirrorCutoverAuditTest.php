@@ -9,7 +9,6 @@ use App\Services\Family\FamilyJsonMirrorAuditor;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Str;
 use Tests\TestCase;
 
 final class FamilyJsonMirrorCutoverAuditTest extends TestCase
@@ -91,7 +90,6 @@ final class FamilyJsonMirrorCutoverAuditTest extends TestCase
     private function insertGuardianPair(User $member, User $guardian): void
     {
         DB::table('user_guardian')->insert([
-            'id' => (string) Str::uuid(),
             'user_id' => $member->id,
             'guardian_id' => $guardian->id,
             'created_at' => now(),
