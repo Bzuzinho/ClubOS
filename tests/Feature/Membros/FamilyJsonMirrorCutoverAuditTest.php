@@ -9,6 +9,7 @@ use App\Services\Family\FamilyJsonMirrorAuditor;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Tests\TestCase;
 
 final class FamilyJsonMirrorCutoverAuditTest extends TestCase
@@ -64,20 +65,12 @@ final class FamilyJsonMirrorCutoverAuditTest extends TestCase
         $this->assertFalse((bool) ($payload['summary']['ready_for_physical_cleanup'] ?? true));
     }
 
-    public function test_mass_assignment_cannot_reactivate_family_json_mirrors(): void
+    public function test_family_json_mirrors_are_not_mass_assignable(): void
     {
-        $member = User::factory()->create();
-        $guardian = User::factory()->create();
+        $fillable = (new User())->getFillable();
 
-        $member->fill([
-            'encarregado_educacao' => [$guardian->id],
-            'educandos' => [$guardian->id],
-        ])->save();
-
-        $member->refresh();
-
-        $this->assertSame([], $member->encarregado_educacao ?? []);
-        $this->assertSame([], $member->educandos ?? []);
+        $this->assertNotContains('encarregado_educacao', $fillable);
+        $this->assertNotContains('educandos', $fillable);
     }
 
     private function setMirror(User $user, string $field, array $ids): void
@@ -90,6 +83,7 @@ final class FamilyJsonMirrorCutoverAuditTest extends TestCase
     private function insertGuardianPair(User $member, User $guardian): void
     {
         DB::table('user_guardian')->insert([
+            'id' => (string) Str::uuid(),
             'user_id' => $member->id,
             'guardian_id' => $guardian->id,
             'created_at' => now(),
