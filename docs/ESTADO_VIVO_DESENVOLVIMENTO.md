@@ -30,7 +30,7 @@ Não está recomendada uma reescrita do ClubOS.
 | Prontidão operacional | ~79% |
 | Arquitetura backend | Boa |
 | Testes backend | Fortes |
-| Frontend / E2E / mobile QA | Baseline automático ativo; cobertura funcional a expandir |
+| Frontend / E2E / mobile QA | Baseline automático autenticado ativo; cobertura profunda por fluxo a expandir |
 | Infraestrutura / Disaster Recovery | H0.1 e H0.2 concluídos operacionalmente em produção |
 
 Stack produtiva: Laravel 13, PHP 8.3, React 19 + TypeScript, Inertia 2, Vite, PostgreSQL 17 local na Oracle VM, Redis, GitHub Actions, Nginx e PHP-FPM.
@@ -41,25 +41,25 @@ Stack produtiva: Laravel 13, PHP 8.3, React 19 + TypeScript, Inertia 2, Vite, Po
 
 | Módulo / Área | Estado estimado | Estado atual / pendências principais |
 |---|---:|---|
-| Base técnica / arquitetura | 94% | H0.1a/H0.1b/H0.2 concluídos em produção. H1.1 e H1.4–H1.15 fecharam Composer/npm/TypeScript em zero; H1.16 colocou em produção os guard rails de least privilege/verification do R2; H1.17 tornou lint, unit/component, multi-browser/mobile E2E e acessibilidade gates canónicos de CI. Resta apenas a ação operacional externa de rotação/locks R2 e expansão progressiva da cobertura por fluxo. |
+| Base técnica / arquitetura | 94% | H0.1a/H0.1b/H0.2 concluídos em produção. H1.1 e H1.4–H1.15 fecharam Composer/npm/TypeScript em zero; H1.16 colocou em produção os guard rails de least privilege/verification do R2; H1.17 tornou lint, unit/component, multi-browser/mobile E2E e acessibilidade gates canónicos de CI; H1.18 acrescentou autenticação real e navegação core nos cinco perfis Playwright. Resta a ação operacional externa de rotação/locks R2 e expansão progressiva da cobertura profunda por fluxo. |
 | Website público / construtor | 86% | Renderer, snapshots, publicação e dados dinâmicos avançados. Faltam header/footer globais, notícias completas e validação runtime multi-viewport. |
-| Autenticação / Access Control | 78% | Auditoria e gates produtivos ativos. Zero findings críticos e zero rotas mutáveis sem `module.access`. Permanecem 83 warnings de capability granular. |
-| Dashboard / entrada por perfil | 70% | Funcional, com leituras canónicas financeiras. Falta QA final por perfil e viewport. |
+| Autenticação / Access Control | 78% | Auditoria e gates produtivos ativos. Zero findings críticos e zero rotas mutáveis sem `module.access`. H1.18 cobre rota protegida, intended redirect, login válido/inválido, logout e recuperação de password em Chromium/Firefox/WebKit desktop e Pixel/iPhone. Permanecem 83 warnings de capability granular e falta matriz por perfis não-admin. |
+| Dashboard / entrada por perfil | 70% | Funcional, com leituras canónicas financeiras. H1.18 valida Dashboard autenticado admin, overflow e WCAG A/AA; falta QA final por restantes perfis e operações específicas. |
 | Portal atleta / família | 63% | Estrutura funcional. Falta fecho mobile/PWA, UX e validação sistemática. |
 | Membros / Pessoas | 85% | Normalização avançada. Família/EE ainda mantém múltiplas representações históricas a consolidar. |
 | Família / EE / educandos | 70% | Gestão funcional existe; falta fonte relacional única e cutover progressivo do legacy. |
-| Desportivo global | 70% | Análise transversal read-only consolidada sobre Treino/Cais/Live/Avaliações/Resultados, com proveniência, splits e export; Performance legacy está a ser retirado do runtime na branch ativa. Principal frente por fechar: fluxo ponta a ponta, Portal, reporting consolidado e legacy cleanup. |
+| Desportivo global | 70% | Análise transversal read-only consolidada sobre Treino/Cais/Live/Avaliações/Resultados, com proveniência, splits e export CSV; endpoints legacy Performance já retirados do routing runtime na PR #227. Principal frente por fechar: fluxo ponta a ponta, Portal, reporting consolidado e legacy cleanup. |
 | Planeamento desportivo | 65% | Base sólida; falta fechar UX, integrações e reporting. |
 | Treinos / presenças / Cais | 70% | Núcleo funcional forte; falta consolidar fluxo ponta a ponta e QA operacional. |
 | Competições / resultados | 63% | Estrutura funcional; falta integração final, reporting e remoção legacy. |
-| Eventos | 75% | Lifecycle, recorrência, convocatórias e integrações corrigidos. Falta remover estruturas antigas e criar contract tests Eventos ↔ Desportivo. |
-| Financeiro geral | 89% | Maduro; CRUDs legacy de transações/categorias aposentados e antigo `Financeiro/Edit` converge para o fluxo canónico. Prioridade: preservar invariantes e evitar novas fontes de verdade. |
+| Eventos | 75% | Lifecycle, recorrência, convocatórias e integrações corrigidos. H1.18 garante entrada pelo menu em desktop/mobile; falta remover estruturas antigas, criar contract tests Eventos ↔ Desportivo e E2E das operações críticas. |
+| Financeiro geral | 89% | Maduro; CRUDs legacy de transações/categorias aposentados e antigo `Financeiro/Edit` converge para o fluxo canónico. H1.18 garante entrada pelo menu em desktop/mobile; prioridade: preservar invariantes, evitar novas fontes de verdade e acrescentar E2E financeiro crítico. |
 | Fiscal | 65% | Workflow manual/controlado existe; falta decidir provider real ou formalizar definitivamente o modelo manual produtivo. |
 | Inventário / Logística | 70% | `stock_movements` é ledger canónico; `product_variants.stock` continua por consolidar. |
 | Loja | 60% | Falta lifecycle completo produto → stock → encomenda → pagamento → fiscal → cancelamento/devolução/reposição. |
 | Comunicação | 60% | Falta pipeline assíncrono persistente com attempts, retry, idempotência e provider IDs. |
 | Relatórios | 40% | Área menos madura; construir apenas depois de estabilizar fontes de verdade. |
-| PWA / Mobile | 60% | TypeScript permanece 0/0. H1.17 introduziu Playwright bloqueante em Chromium/Firefox/WebKit e perfis Pixel 7/iPhone 14, com controlo de overflow e axe WCAG A/AA no baseline inicial. Falta ampliar a cobertura aos fluxos autenticados, menus/workspaces, tablet e operações críticas por módulo. |
+| PWA / Mobile | 62% | TypeScript permanece 0/0. H1.17 introduziu Playwright bloqueante em Chromium/Firefox/WebKit e perfis Pixel 7/iPhone 14; H1.18 acrescentou sessão autenticada, menu, navegação para Membros/Desportivo/Eventos/Financeiro/Configurações, overflow e axe no Dashboard. Falta ampliar a cobertura a workspaces/tabs, tablet, Portal e operações críticas por módulo. |
 | Importação de recibos antigos | 60% | Falta corpus real representativo e regression dataset idempotente. |
 
 ---
@@ -391,7 +391,7 @@ Décimo e último lote mensurável do paydown TypeScript H1, isolado no fluxo ba
 Pendências H1 separadas:
 
 1. R2 operacional externo: criar/rotacionar para `Object Read & Write` limitado ao bucket de backup, ativar/verificar Bucket Lock, repetir probe + backup + restore e revogar a credencial Admin antiga;
-2. a matriz frontend base está fechada em H1.17; a cobertura deve agora crescer dentro dos workstreams funcionais, sem enfraquecer os gates.
+2. a matriz frontend base e autenticada está fechada em H1.17/H1.18; a cobertura deve agora crescer dentro dos workstreams funcionais, incluindo perfis não-admin, Portal, workspaces/tabs, tablet e operações críticas.
 
 ---
 
@@ -470,6 +470,20 @@ Baseline transversal implementado como gate real de CI:
 
 Sem migrations, sem alterações de dados e sem alteração intencional da UI. O baseline fecha a lacuna estrutural de tooling; a cobertura funcional deve crescer por risco dentro de Dashboard, Portal, Membros, Financeiro, Desportivo, Eventos e Website.
 
+### H1.18 — QA autenticada e navegação base — integrada via PR #228
+
+Expansão do mesmo gate Playwright, sem pipeline paralelo:
+
+- seeder E2E determinístico e protegido por `APP_ENV=testing`, com cinco utilizadores administrativos isolados, um por projeto Playwright;
+- rota protegida, intended redirect, login válido, credenciais inválidas, logout e recuperação de password exercitados em sessão Laravel real;
+- Dashboard autenticado validado para overflow horizontal e axe WCAG A/AA;
+- menu autenticado exercitado para Membros, Desportivo, Eventos, Financeiro e Configurações em Chromium/Firefox/WebKit desktop e Pixel 7/iPhone 14;
+- contraste do token primário/sidebar corrigido para `#0066CC` sem silenciar a regra axe;
+- CI #900 validou a sincronização com a PR #227 e CI #901 repetiu todos os gates na PR não-draft de integração;
+- PR #228 merged em `34ad7cb1b59c79b946584aa6fd58c908b8fd4154`.
+
+A H1.18 fecha a lacuna de autenticação e navegação core no baseline transversal. Não equivale a QA completa dos módulos: ficam para os workstreams funcionais os perfis não-admin, Portal, workspaces/tabs, tablet e operações críticas.
+
 ## 6. Dívida estrutural prioritária
 
 - Família/EE: convergir `user_guardian`, `familias/familia_user`, `user_relationships` e compatibilidades para uma fonte canónica.
@@ -478,7 +492,7 @@ Sem migrations, sem alterações de dados e sem alteração intencional da UI. O
 - Eventos: remover estruturas de compatibilidade sem consumo e criar contract tests com Desportivo.
 - Rotas: modularizar `routes/web.php` sem alterar URLs.
 - Fiscal: implementar provider real ou formalizar definitivamente o workflow manual como modelo produtivo.
-- Frontend QA: baseline automático H1.17 ativo; expandir cobertura autenticada e fluxos críticos por módulo, incluindo scroll/navegação mobile e acessibilidade de componentes complexos.
+- Frontend QA: baseline automático H1.17/H1.18 ativo com autenticação e navegação core; expandir workspaces, operações críticas, perfis não-admin, tablet e Portal sem enfraquecer os gates.
 - Access Control: resolver os 83 warnings de capability granular sem reabrir bypasses de módulo.
 
 ---
@@ -487,7 +501,7 @@ Sem migrations, sem alterações de dados e sem alteração intencional da UI. O
 
 | Ordem | Sprint | Objetivo |
 |---:|---|---|
-| 1 | H1 | Código/CI transversal fechado até H1.17: Composer 0, npm 0, TypeScript 0/0 e matriz frontend automática ativa. Fica apenas a ação operacional externa R2; a cobertura QA passa a crescer dentro das sprints funcionais. |
+| 1 | H1 | Código/CI transversal fechado até H1.18: Composer 0, npm 0, TypeScript 0/0 e matriz frontend automática autenticada ativa. Fica apenas a ação operacional externa R2; a cobertura QA profunda passa a crescer dentro das sprints funcionais. |
 | 2 | H2 | Família/EE, stock variantes, legacy e rotas modulares. |
 | 3 | H3 | Fecho Desportivo ponta a ponta. |
 | 4 | H4 | Decisão e fecho Fiscal. |
@@ -497,7 +511,7 @@ Sem migrations, sem alterações de dados e sem alteração intencional da UI. O
 | 8 | H8 | Reporting consolidado. |
 | 9 | H9 | Website: header/footer, notícias e polish final. |
 
-Próximo passo ativo: iniciar H2 pela consolidação Família/EE e respetivas fontes relacionais, mantendo a ação operacional Cloudflare R2 como pendência externa separada. A matriz H1.17 deve ser expandida em cada workstream funcional.
+Próximo passo ativo: iniciar H2 pela consolidação Família/EE e respetivas fontes relacionais, mantendo a ação operacional Cloudflare R2 como pendência externa separada. A matriz H1.17/H1.18 deve ser expandida dentro de cada workstream funcional.
 
 ---
 
@@ -505,7 +519,8 @@ Próximo passo ativo: iniciar H2 pela consolidação Família/EE e respetivas fo
 
 | Data | Módulo | Desenvolvimento / análise | Evidência | Estado / pendências |
 |---|---|---|---|---|
-| 2026-08-28 | Desportivo / Análise | Hardening da workspace transversal: métricas Cais + Live com proveniência separada, agregação de grupos em batch, splits competitivos expansíveis, export CSV e retirada dos endpoints legacy Performance do routing ativo. | branch `feat/desportivo-analise-functional-workspace`; `SportsAnalysisWorkspaceService`; `SportsAnalysisWorkspaceFunctionalTest`; `docs/modules/desportivo_analysis_workspace.md` | Sem migrations; implementação na branch e ainda a aguardar PR/CI antes de integração. |
+| 2026-08-28 | QA / Frontend autenticado | H1.18 acrescentou fixtures determinísticas, autenticação/sessão real, recuperação de password, WCAG/overflow no Dashboard e navegação core para Membros, Desportivo, Eventos, Financeiro e Configurações nos cinco perfis Playwright. | PR #228; CI #900/#901; merge `34ad7cb1b59c79b946584aa6fd58c908b8fd4154`; `tests/e2e/authenticated-access.spec.ts`; `docs/qa/FRONTEND_QA_MATRIX.md` | Integrado em `main`; falta cobertura profunda por perfil, workspace, tablet e operações críticas dentro dos workstreams funcionais. |
+| 2026-08-28 | Desportivo / Análise | Hardening da workspace transversal: métricas Cais + Live com proveniência separada, agregação de grupos em batch, splits competitivos expansíveis, export CSV e retirada dos endpoints legacy Performance do routing ativo. | PR #227; CI #898; merge `5932732b8777e0055e0e15c101b5eae7bcbb8adb`; `SportsAnalysisWorkspaceService`; `SportsAnalysisWorkspaceFunctionalTest`; `docs/modules/desportivo_analysis_workspace.md` | Integrado em `main`, sem migrations; Análise permanece read-only e o cleanup físico do legacy residual fica para workstream controlado. |
 | 2026-08-28 | QA / Frontend | H1.17 criou o baseline automático de lint, unit/component, multi-browser/mobile E2E e acessibilidade, tornando o browser QA dependência do deploy. | PR #225; CI técnica #875; `docs/qa/FRONTEND_QA_MATRIX.md`; `playwright.config.ts`; `vitest.config.ts`; `eslint.config.js` | Tooling transversal fechado; cobertura deve crescer por fluxo/módulo sem enfraquecer os gates. |
 | 2026-08-28 | Infraestrutura / DR | H1.16 colocou em produção probes least-privilege e verificação read-only de Bucket Lock, separando data plane S3 de control plane Cloudflare. | PR #224; CI #870; merge `55989937458271b0348c5cd7818c6c83acb171f1`; `scripts/ops/dr/probe-r2-access.sh` | Código/deploy concluído; rotação real e Bucket Locks na conta Cloudflare permanecem pendência operacional externa. |
 | 2026-08-27 | QA / Dependências npm | H1.15 substituiu `xlsx` 0.18.5 pela release oficial SheetJS CE 0.20.3 vendorizada, preservando XLSX/XLS/ODS/CSV/HTML e eliminando a última vulnerabilidade npm residual. | PR #223; `vendor/xlsx-0.20.3.tgz`; `scripts/qa/xlsx-import-contract.mjs`; `scripts/qa/npm-audit-ratchet.mjs` | npm audit e ratchet fechados em 0 vulnerabilidades; resta R2 hardening e QA frontend em H1. |
