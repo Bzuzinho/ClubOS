@@ -86,7 +86,7 @@ jobs:
       APP_ENV: testing
       APP_URL: http://127.0.0.1:8000
       CACHE_STORE: array
-      SESSION_DRIVER: file
+      SESSION_DRIVER: array
       QUEUE_CONNECTION: sync
       MAIL_MAILER: array
       DB_CONNECTION: sqlite
@@ -258,105 +258,155 @@ jobs:
 
           mkdir -p "${HOME}/.ssh"
           chmod 700 "${HOME}/.ssh"
-          printf '%s\n' "${VM_KNOWN_HOSTS}" > "${HOME}/.ssh/known_hosts"
-          chmod 600 "${HOME}/.ssh/known_hosts"
-          printf '%s\n' "${ORACLE_VM_SSH_KEY}" > "${HOME}/.ssh/id_ed25519"
+          printf '%s\n' "${ORACLE_VM_SSH_KEY}" | tr -d '\r' > "${HOME}/.ssh/id_ed25519"
           chmod 600 "${HOME}/.ssh/id_ed25519"
 
+          ssh-keygen -y -f "${HOME}/.ssh/id_ed25519" > /dev/null
+          printf '%s\n' "${VM_KNOWN_HOSTS}" | tr -d '\r' > "${HOME}/.ssh/known_hosts"
+          chmod 644 "${HOME}/.ssh/known_hosts"
+
+          if ! ssh-keygen -F "${VM_HOST}" -f "${HOME}/.ssh/known_hosts" > /dev/null; then
+            echo "::error::Pinned known_hosts does not contain an entry for ${VM_HOST}"
+            exit 1
+          fi
+
+          ssh \
+            -o BatchMode=yes \
+            -o ConnectTimeout=15 \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="${HOME}/.ssh/known_hosts" \
+            "${VM_USER}@${VM_HOST}" \
+            'echo SSH_OK'
+
       - name: Deploy main to production
-        env:
-          DEPLOY_SHA: ${{ github.sha }}
-        run: node bin/deploy-vm.mjs
+        run: npm run deploy:vm
 
       - name: Collect Desportivo production legacy readiness audit
-        if: always()
+        id: sports_legacy_audit
+        shell: bash
         run: |
           set -euo pipefail
-          mkdir -p artifacts
+
+          local_report="${RUNNER_TEMP}/desportivo-legacy-schema-data-readiness.json"
+          remote_report="/tmp/clubos-desportivo-legacy-schema-data-${GITHUB_SHA}.json"
+
           ssh \
             -o BatchMode=yes \
             -o StrictHostKeyChecking=yes \
-            -i "${HOME}/.ssh/id_ed25519" \
+            -o UserKnownHostsFile="${HOME}/.ssh/known_hosts" \
             "${VM_USER}@${VM_HOST}" \
-            "cd '${VM_APP_DIR}' && php artisan desportivo:audit-legacy-readiness --json" \
-            > artifacts/desportivo-legacy-readiness.json
+            "cd '${VM_APP_DIR}' && php artisan desportivo:audit-legacy-schema-data --json='${remote_report}' >/dev/null && cat '${remote_report}' && rm -f '${remote_report}'" \
+            > "${local_report}"
+
+          jq -e '.read_only == true and .version == "sports-legacy-schema-data-readiness-v1"' "${local_report}" >/dev/null
+          cp "${local_report}" "${GITHUB_WORKSPACE}/desportivo-legacy-schema-data-readiness.json"
+
+          {
+            echo '## Desportivo production legacy readiness audit'
+            echo ''
+            echo "- Commit: \`${GITHUB_SHA}\`"
+            echo "- Read-only: \`$(jq -r '.read_only' "${local_report}")\`"
+            echo "- Forbidden tables inventoried: \`$(jq -r '.summary.forbidden_table_count' "${local_report}")\`"
+            echo "- Removal candidates: \`$(jq -r '.summary.removal_candidate_count' "${local_report}")\`"
+            echo "- Candidates physically removed: \`$(jq -r '.summary.removal_complete_count' "${local_report}")\`"
+            echo "- Candidates ready but still present: \`$(jq -r '.summary.removal_ready_count' "${local_report}")\`"
+            echo "- Candidates blocked: \`$(jq -r '.summary.removal_blocked_count' "${local_report}")\`"
+            echo "- Candidate rows requiring review: \`$(jq -r '.summary.candidate_rows_requiring_review' "${local_report}")\`"
+            echo "- Unreconciled legacy presences: \`$(jq -r '.summary.presence_unreconciled_count' "${local_report}")\`"
+            echo "- Legacy alias columns still present: \`$(jq -r '.summary.legacy_alias_columns_present' "${local_report}")\`"
+          } >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Upload Desportivo production legacy readiness audit
-        if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: desportivo-legacy-readiness-${{ github.sha }}
-          path: artifacts/desportivo-legacy-readiness.json
-          if-no-files-found: warn
+          name: desportivo-production-legacy-readiness-${{ github.sha }}
+          path: desportivo-legacy-schema-data-readiness.json
+          if-no-files-found: error
           retention-days: 30
 
       - name: Collect Access Control production readiness audit
-        if: always()
+        id: access_control_audit
+        shell: bash
         run: |
           set -euo pipefail
-          mkdir -p artifacts
+
+          local_report="${RUNNER_TEMP}/access-control-readiness.json"
+          remote_report="/tmp/clubos-access-control-readiness-${GITHUB_SHA}.json"
+
           ssh \
             -o BatchMode=yes \
             -o StrictHostKeyChecking=yes \
-            -i "${HOME}/.ssh/id_ed25519" \
+            -o UserKnownHostsFile="${HOME}/.ssh/known_hosts" \
             "${VM_USER}@${VM_HOST}" \
-            "cd '${VM_APP_DIR}' && php artisan access-control:audit-readiness --json" \
-            > artifacts/access-control-readiness.json
+            "cd '${VM_APP_DIR}' && php artisan access:audit-readiness --report-path='${remote_report}' >/dev/null && cat '${remote_report}' && rm -f '${remote_report}'" \
+            > "${local_report}"
+
+          jq -e '.read_only == true and .contract == "access-control-readiness-v1"' "${local_report}" >/dev/null
+          cp "${local_report}" "${GITHUB_WORKSPACE}/access-control-readiness.json"
+
+          critical_count="$(jq -r '.summary.critical_count' "${local_report}")"
+
+          if ! [[ "${critical_count}" =~ ^[0-9]+$ ]]; then
+            echo "::error::Invalid Access Control critical_count: ${critical_count}"
+            exit 1
+          fi
+
+          echo "critical_count=${critical_count}" >> "${GITHUB_OUTPUT}"
+
+          {
+            echo '## Access Control production readiness audit'
+            echo ''
+            echo "- Commit: \`${GITHUB_SHA}\`"
+            echo "- Read-only: \`$(jq -r '.read_only' "${local_report}")\`"
+            echo "- Platform access users: \`$(jq -r '.summary.platform_access_user_count' "${local_report}")\`"
+            echo "- Resolved UserTypes: \`$(jq -r '.summary.resolved_user_type_count' "${local_report}")\`"
+            echo "- Unresolved UserTypes: \`$(jq -r '.summary.unresolved_user_type_count' "${local_report}")\`"
+            echo "- Modules without granular permission tree: \`$(jq -r '.summary.modules_without_granular_permission_tree_count' "${local_report}")\`"
+            echo "- Mutating routes without module guard: \`$(jq -r '.summary.mutating_routes_without_module_guard_count' "${local_report}")\`"
+            echo "- Mutating routes with module-only guard: \`$(jq -r '.summary.mutating_routes_with_module_only_guard_count' "${local_report}")\`"
+            echo "- Critical findings: \`${critical_count}\`"
+            echo "- Warnings: \`$(jq -r '.summary.warning_count' "${local_report}")\`"
+          } >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Upload Access Control production readiness audit
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: access-control-readiness-${{ github.sha }}
-          path: artifacts/access-control-readiness.json
-          if-no-files-found: warn
+          name: access-control-production-readiness-${{ github.sha }}
+          path: access-control-readiness.json
+          if-no-files-found: error
           retention-days: 30
 
       - name: Gate Access Control critical findings
+        if: steps.access_control_audit.outcome == 'success'
+        shell: bash
+        env:
+          CRITICAL_COUNT: ${{ steps.access_control_audit.outputs.critical_count }}
         run: |
           set -euo pipefail
-          php -r '
-            $file = "artifacts/access-control-readiness.json";
-            if (! is_file($file)) {
-                fwrite(STDERR, "Missing Access Control readiness artifact.\n");
-                exit(1);
-            }
-            $payload = json_decode((string) file_get_contents($file), true, 512, JSON_THROW_ON_ERROR);
-            $critical = (int) ($payload["critical_count"] ?? 0);
-            if ($critical > 0) {
-                fwrite(STDERR, "Access Control readiness gate failed: {$critical} critical findings.\n");
-                exit(1);
-            }
-            echo "Access Control readiness gate passed: 0 critical findings.\n";
-          '
+
+          if ! [[ "${CRITICAL_COUNT}" =~ ^[0-9]+$ ]]; then
+            echo "::error::Invalid Access Control critical_count: ${CRITICAL_COUNT}"
+            exit 1
+          fi
+
+          if (( CRITICAL_COUNT > 0 )); then
+            echo "::error::Access Control readiness audit reported ${CRITICAL_COUNT} critical finding(s)"
+            exit 1
+          fi
 
       - name: Deployment summary
+        if: success()
+        shell: bash
         run: |
-          set -euo pipefail
-          php -r '
-            $readJson = static function (string $path): array {
-                if (! is_file($path)) {
-                    return [];
-                }
-                $decoded = json_decode((string) file_get_contents($path), true);
-                return is_array($decoded) ? $decoded : [];
-            };
-
-            $sports = $readJson("artifacts/desportivo-legacy-readiness.json");
-            $access = $readJson("artifacts/access-control-readiness.json");
-
-            $sportsCritical = (int) ($sports["critical_count"] ?? 0);
-            $sportsWarnings = (int) ($sports["warning_count"] ?? 0);
-            $accessCritical = (int) ($access["critical_count"] ?? 0);
-            $accessWarnings = (int) ($access["warning_count"] ?? 0);
-
-            $lines = [
-                "## Production deployment",
-                "",
-                "- SHA: `" . getenv("GITHUB_SHA") . "`",
-                "- Desportivo legacy readiness: {$sportsCritical} critical / {$sportsWarnings} warning",
-                "- Access Control readiness: {$accessCritical} critical / {$accessWarnings} warning",
-            ];
-
-            file_put_contents((string) getenv("GITHUB_STEP_SUMMARY"), implode(PHP_EOL, $lines) . PHP_EOL, FILE_APPEND);
-          '
+          {
+            echo '## ClubOS production deploy'
+            echo ''
+            echo "- Commit: \`${GITHUB_SHA}\`"
+            echo "- Target: \`${VM_USER}@${VM_HOST}:${VM_APP_DIR}\`"
+            echo '- Validation: CI, dependency security ratchets, TypeScript, lint, unit/component, multi-browser/mobile/accessibility E2E and PostgreSQL concurrency passed'
+            echo '- SSH host identity: pinned known_hosts entry enforced'
+            echo '- Desportivo legacy readiness audit: collected read-only from production'
+            echo '- Access Control readiness audit: collected, artifact preserved and critical findings gated separately'
+            echo '- Result: successful'
+          } >> "${GITHUB_STEP_SUMMARY}"
