@@ -1,15 +1,15 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
 
 /**
  * Generic API hook to replace Spark's useKV
- * 
+ *
  * @example
  * const { data: users = [], isLoading } = useApi('users');
  */
 export function useApi<T>(endpoint: string, queryKey?: string[]) {
     const key = queryKey || [endpoint];
-    
+
     return useQuery<T>({
         queryKey: key,
         queryFn: async () => {
@@ -21,7 +21,7 @@ export function useApi<T>(endpoint: string, queryKey?: string[]) {
 
 /**
  * API mutation hook for POST/PUT/DELETE operations
- * 
+ *
  * @example
  * const createUser = useApiMutation('users', 'POST');
  * createUser.mutate({ name: 'John' });
@@ -29,7 +29,7 @@ export function useApi<T>(endpoint: string, queryKey?: string[]) {
 export function useApiMutation<TData = any, TVariables = any>(
     endpoint: string,
     method: 'POST' | 'PUT' | 'PATCH' | 'DELETE' = 'POST',
-    invalidateKeys?: string[]
+    invalidateKeys?: string[],
 ) {
     const queryClient = useQueryClient();
 
@@ -43,9 +43,8 @@ export function useApiMutation<TData = any, TVariables = any>(
             return response.data;
         },
         onSuccess: () => {
-            // Invalidate queries to refetch
             if (invalidateKeys) {
-                invalidateKeys.forEach(key => {
+                invalidateKeys.forEach((key) => {
                     queryClient.invalidateQueries({ queryKey: [key] });
                 });
             }
@@ -54,19 +53,17 @@ export function useApiMutation<TData = any, TVariables = any>(
 }
 
 /**
- * Hook for specific resource operations
- * 
- * @example
- * const users = useResource('users');
- * users.list() // GET /api/users
- * users.create({ name: 'John' }) // POST /api/users
+ * Hook for specific resource operations.
+ *
+ * The returned list/get callbacks are custom hooks internally, so consumers
+ * must invoke them following the normal Rules of Hooks.
  */
 export function useResource<T = any>(resource: string) {
     const queryClient = useQueryClient();
 
-    const list = () => useApi<T[]>(resource);
+    const useList = () => useApi<T[]>(resource);
 
-    const get = (id: number | string) => 
+    const useGet = (id: number | string) =>
         useQuery<T>({
             queryKey: [resource, id],
             queryFn: async () => {
@@ -104,7 +101,7 @@ export function useResource<T = any>(resource: string) {
         },
     });
 
-    return { list, get, create, update, remove };
+    return { list: useList, get: useGet, create, update, remove };
 }
 
 // Specific hooks for common resources

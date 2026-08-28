@@ -1,6 +1,6 @@
 # H1 — Baseline de QA e Dependências
 
-Data de referência: 2026-08-27.
+Data de referência: 2026-08-28.
 
 ## Baseline inicial medido
 
@@ -131,7 +131,32 @@ A última vulnerabilidade npm residual foi removida sem trocar a API de parsing 
 - TypeScript mantém teto 0/0 e o build Vite foi validado com a nova versão;
 - o npm ratchet deixou de possuir qualquer exceção por package.
 
+## H1.16 — R2 least privilege / Bucket Lock readiness
+
+PR #224 integrou e deployou os guard rails necessários para fechar o residual R2 de forma verificável:
+
+- probe S3 `list/write/read/delete/delete-verification` com objeto efémero;
+- bloqueio do fluxo DR se a credencial não cumprir o contrato;
+- verificador Cloudflare Bucket Lock read-only separado das credenciais do backup;
+- prefixos produtivos e retenções explícitos.
+
+A execução real na conta Cloudflare permanece uma ação operacional externa pendente.
+
+## H1.17 — Frontend QA matrix
+
+Baseline obrigatório:
+
+- TypeScript: 0 erros / 0 ficheiros;
+- ESLint: `no-debugger`, `no-unreachable` e `react-hooks/rules-of-hooks` bloqueantes;
+- Vitest + Testing Library: component/unit tests em jsdom;
+- Playwright: Chromium, Firefox e WebKit desktop; Pixel 7/Chromium; iPhone 14/WebKit;
+- axe-core: WCAG A/AA, findings `serious`/`critical` bloqueantes no baseline `/login`;
+- responsive contract: ausência de overflow horizontal em toda a matriz inicial;
+- `frontend-browser-qa` é dependência obrigatória do deploy produtivo.
+
+A CI técnica #875 ficou verde com os novos gates, mantendo Composer/npm em zero e TypeScript 0/0.
+
 ## Pendências H1
 
-1. Reduzir o token R2 para `Object Read & Write` limitado ao bucket de backup e confirmar Bucket Lock.
-2. Evoluir QA frontend com lint, unit/component tests, E2E, acessibilidade e matriz mobile/desktop.
+1. Executar na conta Cloudflare a rotação real para `Object Read & Write` limitado ao bucket, configurar/verificar Bucket Lock, repetir probe + backup + restore e revogar a credencial Admin antiga.
+2. A infraestrutura QA frontend está criada; a cobertura funcional deve ser ampliada incrementalmente dentro de cada sprint/módulo.

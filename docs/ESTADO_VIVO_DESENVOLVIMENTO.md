@@ -2,7 +2,7 @@
 
 > Fonte de verdade funcional e técnica do projeto ClubOS.
 >
-> Estado consolidado em 2026-08-27.
+> Estado consolidado em 2026-08-28.
 >
 > O histórico detalhado anterior à consolidação está preservado em `docs/history/ESTADO_VIVO_DESENVOLVIMENTO_ATE_2026-08-20.md`.
 
@@ -30,7 +30,7 @@ Não está recomendada uma reescrita do ClubOS.
 | Prontidão operacional | ~79% |
 | Arquitetura backend | Boa |
 | Testes backend | Fortes |
-| Frontend / E2E / mobile QA | Insuficientes |
+| Frontend / E2E / mobile QA | Baseline automático ativo; cobertura funcional a expandir |
 | Infraestrutura / Disaster Recovery | H0.1 e H0.2 concluídos operacionalmente em produção |
 
 Stack produtiva: Laravel 13, PHP 8.3, React 19 + TypeScript, Inertia 2, Vite, PostgreSQL 17 local na Oracle VM, Redis, GitHub Actions, Nginx e PHP-FPM.
@@ -41,7 +41,7 @@ Stack produtiva: Laravel 13, PHP 8.3, React 19 + TypeScript, Inertia 2, Vite, Po
 
 | Módulo / Área | Estado estimado | Estado atual / pendências principais |
 |---|---:|---|
-| Base técnica / arquitetura | 92% | H0.1a/H0.1b/H0.2 concluídos em produção. H1.1 concluiu dependency remediation compatível e QA ratchets; H1.4–H1.13 eliminaram a dívida TypeScript para 0/0; H1.14 elevou o backend para Laravel 13 e fechou Composer em 0 advisories; H1.15 eliminou a última vulnerabilidade npm com SheetJS 0.20.3 vendorizado e ratchet npm em zero. Permanecem hardening R2 e expansão da QA frontend. |
+| Base técnica / arquitetura | 94% | H0.1a/H0.1b/H0.2 concluídos em produção. H1.1 e H1.4–H1.15 fecharam Composer/npm/TypeScript em zero; H1.16 colocou em produção os guard rails de least privilege/verification do R2; H1.17 tornou lint, unit/component, multi-browser/mobile E2E e acessibilidade gates canónicos de CI. Resta apenas a ação operacional externa de rotação/locks R2 e expansão progressiva da cobertura por fluxo. |
 | Website público / construtor | 86% | Renderer, snapshots, publicação e dados dinâmicos avançados. Faltam header/footer globais, notícias completas e validação runtime multi-viewport. |
 | Autenticação / Access Control | 78% | Auditoria e gates produtivos ativos. Zero findings críticos e zero rotas mutáveis sem `module.access`. Permanecem 83 warnings de capability granular. |
 | Dashboard / entrada por perfil | 70% | Funcional, com leituras canónicas financeiras. Falta QA final por perfil e viewport. |
@@ -59,7 +59,7 @@ Stack produtiva: Laravel 13, PHP 8.3, React 19 + TypeScript, Inertia 2, Vite, Po
 | Loja | 60% | Falta lifecycle completo produto → stock → encomenda → pagamento → fiscal → cancelamento/devolução/reposição. |
 | Comunicação | 60% | Falta pipeline assíncrono persistente com attempts, retry, idempotência e provider IDs. |
 | Relatórios | 40% | Área menos madura; construir apenas depois de estabilizar fontes de verdade. |
-| PWA / Mobile | 57% | H1.4–H1.13 eliminaram a dívida TypeScript de 132 erros/55 ficheiros para 0 erros/0 ficheiros e fixaram o ratchet anti-regressão em zero. Continuam em falta lint, unit/component tests, E2E, acessibilidade e matriz Android/iOS/tablet/desktop. |
+| PWA / Mobile | 60% | TypeScript permanece 0/0. H1.17 introduziu Playwright bloqueante em Chromium/Firefox/WebKit e perfis Pixel 7/iPhone 14, com controlo de overflow e axe WCAG A/AA no baseline inicial. Falta ampliar a cobertura aos fluxos autenticados, menus/workspaces, tablet e operações críticas por módulo. |
 | Importação de recibos antigos | 60% | Falta corpus real representativo e regression dataset idempotente. |
 
 ---
@@ -390,8 +390,8 @@ Décimo e último lote mensurável do paydown TypeScript H1, isolado no fluxo ba
 
 Pendências H1 separadas:
 
-1. R2 least privilege e confirmação Bucket Lock;
-2. lint, unit/component tests, E2E, accessibility e matriz mobile/desktop.
+1. R2 operacional externo: criar/rotacionar para `Object Read & Write` limitado ao bucket de backup, ativar/verificar Bucket Lock, repetir probe + backup + restore e revogar a credencial Admin antiga;
+2. a matriz frontend base está fechada em H1.17; a cobertura deve agora crescer dentro dos workstreams funcionais, sem enfraquecer os gates.
 
 ---
 
@@ -441,6 +441,35 @@ Implementado:
 
 Sem migrations, sem alterações de dados e sem alteração das regras de importação, reconciliação ou negócio.
 
+### H1.16 — R2 least-privilege hardening — PR #224
+
+Preparação técnica integrada e deployada na Oracle VM:
+
+- `scripts/ops/dr/probe-r2-access.sh` prova `list/write/read/delete` com objeto efémero e confirma a eliminação final;
+- o workflow de ativação DR bloqueia backup/restore se o probe da credencial falhar;
+- `scripts/ops/dr/check-r2-bucket-lock.sh` verifica o control plane Cloudflare em modo read-only, separado das credenciais S3 do data plane;
+- os prefixos reais ficam explícitos: `clubos-prod/daily/`, `clubos-prod/weekly/` e `clubos-prod/monthly/`;
+- a configuração documentada exige credencial `Object Read & Write` limitada ao bucket de backup e locks compatíveis com as retenções 7d/28d/370d;
+- PR #224 merged em `55989937458271b0348c5cd7818c6c83acb171f1`; CI #870 verde com deploy e audits produtivos.
+
+A parte de código está concluída. Continua pendente, fora do repositório, executar a rotação real na conta Cloudflare, configurar/verificar os Bucket Locks, repetir probe + backup + restore e revogar a credencial Admin antiga.
+
+### H1.17 — Frontend QA matrix — PR #225
+
+Baseline transversal implementado como gate real de CI:
+
+- ESLint sobre `resources/js` com `no-debugger`, `no-unreachable` e `react-hooks/rules-of-hooks` bloqueantes;
+- Vitest + jsdom + Testing Library + user-event + jest-dom para unit/component tests;
+- baseline inicial cobre `InputError` e `Checkbox` por comportamento/interação, sem snapshots;
+- Playwright executa Chromium, Firefox e WebKit em desktop, mais Pixel 7/Chromium e iPhone 14/WebKit;
+- axe-core bloqueia findings `serious`/`critical` WCAG A/AA no `/login`;
+- contrato E2E também impede overflow horizontal no login em toda a matriz;
+- `frontend-browser-qa` é job separado e o deploy produtivo passa a depender de `validate`, browser QA e PostgreSQL concurrency;
+- a introdução do lint encontrou e corrigiu um contrato real de Rules of Hooks em `useResource`, sem consumidores ativos nem alteração de endpoints/dados;
+- CI técnica #875 validou Composer 0, npm 0, SheetJS contract, TypeScript 0/0, lint, Vitest, build, suite Laravel, legacy guard, browser QA e PostgreSQL concurrency.
+
+Sem migrations, sem alterações de dados e sem alteração intencional da UI. O baseline fecha a lacuna estrutural de tooling; a cobertura funcional deve crescer por risco dentro de Dashboard, Portal, Membros, Financeiro, Desportivo, Eventos e Website.
+
 ## 6. Dívida estrutural prioritária
 
 - Família/EE: convergir `user_guardian`, `familias/familia_user`, `user_relationships` e compatibilidades para uma fonte canónica.
@@ -449,7 +478,7 @@ Sem migrations, sem alterações de dados e sem alteração das regras de import
 - Eventos: remover estruturas de compatibilidade sem consumo e criar contract tests com Desportivo.
 - Rotas: modularizar `routes/web.php` sem alterar URLs.
 - Fiscal: implementar provider real ou formalizar definitivamente o workflow manual como modelo produtivo.
-- Frontend QA: typecheck, lint, unit tests, E2E, accessibility e matriz mobile/desktop.
+- Frontend QA: baseline automático H1.17 ativo; expandir cobertura autenticada e fluxos críticos por módulo, incluindo scroll/navegação mobile e acessibilidade de componentes complexos.
 - Access Control: resolver os 83 warnings de capability granular sem reabrir bypasses de módulo.
 
 ---
@@ -458,7 +487,7 @@ Sem migrations, sem alterações de dados e sem alteração das regras de import
 
 | Ordem | Sprint | Objetivo |
 |---:|---|---|
-| 1 | H1 | H1.1 e H1.4–H1.15 concluíram os ratchets de dependências e TypeScript: Composer 0, npm 0, TypeScript 0/0; continuar com hardening residual R2 e QA frontend. |
+| 1 | H1 | Código/CI transversal fechado até H1.17: Composer 0, npm 0, TypeScript 0/0 e matriz frontend automática ativa. Fica apenas a ação operacional externa R2; a cobertura QA passa a crescer dentro das sprints funcionais. |
 | 2 | H2 | Família/EE, stock variantes, legacy e rotas modulares. |
 | 3 | H3 | Fecho Desportivo ponta a ponta. |
 | 4 | H4 | Decisão e fecho Fiscal. |
@@ -468,7 +497,7 @@ Sem migrations, sem alterações de dados e sem alteração das regras de import
 | 8 | H8 | Reporting consolidado. |
 | 9 | H9 | Website: header/footer, notícias e polish final. |
 
-Próximo passo: fechar o hardening residual R2 com credencial `Object Read & Write` limitada ao bucket de backup e confirmação de Bucket Lock; depois evoluir a matriz frontend de lint, unit/component, E2E, acessibilidade e mobile/desktop.
+Próximo passo ativo: iniciar H2 pela consolidação Família/EE e respetivas fontes relacionais, mantendo a ação operacional Cloudflare R2 como pendência externa separada. A matriz H1.17 deve ser expandida em cada workstream funcional.
 
 ---
 
@@ -476,6 +505,8 @@ Próximo passo: fechar o hardening residual R2 com credencial `Object Read & Wri
 
 | Data | Módulo | Desenvolvimento / análise | Evidência | Estado / pendências |
 |---|---|---|---|---|
+| 2026-08-28 | QA / Frontend | H1.17 criou o baseline automático de lint, unit/component, multi-browser/mobile E2E e acessibilidade, tornando o browser QA dependência do deploy. | PR #225; CI técnica #875; `docs/qa/FRONTEND_QA_MATRIX.md`; `playwright.config.ts`; `vitest.config.ts`; `eslint.config.js` | Tooling transversal fechado; cobertura deve crescer por fluxo/módulo sem enfraquecer os gates. |
+| 2026-08-28 | Infraestrutura / DR | H1.16 colocou em produção probes least-privilege e verificação read-only de Bucket Lock, separando data plane S3 de control plane Cloudflare. | PR #224; CI #870; merge `55989937458271b0348c5cd7818c6c83acb171f1`; `scripts/ops/dr/probe-r2-access.sh` | Código/deploy concluído; rotação real e Bucket Locks na conta Cloudflare permanecem pendência operacional externa. |
 | 2026-08-27 | QA / Dependências npm | H1.15 substituiu `xlsx` 0.18.5 pela release oficial SheetJS CE 0.20.3 vendorizada, preservando XLSX/XLS/ODS/CSV/HTML e eliminando a última vulnerabilidade npm residual. | PR #223; `vendor/xlsx-0.20.3.tgz`; `scripts/qa/xlsx-import-contract.mjs`; `scripts/qa/npm-audit-ratchet.mjs` | npm audit e ratchet fechados em 0 vulnerabilidades; resta R2 hardening e QA frontend em H1. |
 | 2026-08-26 | QA / Framework / Composer | H1.14 elevou Laravel 11 para Laravel 13.29.0, preservou UUIDv4 nos modelos e eliminou os 3 advisories Composer residuais. | PR #222; CI #852/#853; merge `99ba31100620754167053e4251ee0f97da282dc6` | Integrado e deployado na Oracle VM; Composer ratchet fechado em 0 advisories. |
 | 2026-08-26 | QA / TypeScript / Banco | H1.13 fechou os 16 diagnósticos finais de `BancoTab.tsx`, alinhando contratos locais de rotas, centros de custo e origem `movement`, reduzindo a dívida TypeScript de 16 erros/1 ficheiro para 0 erros/0 ficheiros sem alterar regras financeiras. | PR #220; CI #829/#833; `qa/baselines/typescript.json`; `docs/qa/H1_BASELINE.md` | Ratchet TypeScript fechado em 0/0; deixa de existir dívida TypeScript aceite no CI. |
