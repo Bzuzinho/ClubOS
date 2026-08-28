@@ -16,15 +16,28 @@ final class FamilyJsonMirrorCutoverAuditTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_runtime_source_has_no_direct_json_mirror_usage(): void
+    public function test_runtime_source_audit_identifies_real_remaining_legacy_consumers_without_semantic_false_positives(): void
     {
         $audit = app(FamilyJsonMirrorAuditor::class)->audit();
+        $findings = collect($audit['source']['findings'] ?? []);
+        $files = $findings->pluck('file')->unique()->values()->all();
 
-        $this->assertSame(
-            [],
-            $audit['source']['findings'] ?? null,
-            json_encode($audit['source']['findings'] ?? [], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE),
+        $this->assertNotEmpty(
+            $findings,
+            'H2.3a must keep physical cleanup blocked while known runtime legacy consumers still exist.',
         );
+        $this->assertContains('app/Http/Controllers/MembrosController.php', $files);
+        $this->assertContains('resources/js/Pages/Membros/Show.tsx', $files);
+
+        // Domain vocabulary and canonical DTO/summary keys must not be mistaken
+        // for direct reads of the retired users JSON columns.
+        $this->assertNotContains('app/Http/Controllers/FamilyPortalController.php', $files);
+        $this->assertNotContains('app/Services/Family/FamilyService.php', $files);
+        $this->assertNotContains('app/Services/Family/FamilyLegacyRelationshipAuditor.php', $files);
+        $this->assertNotContains('app/Services/AccessControl/ResolveCurrentUserType.php', $files);
+        $this->assertNotContains('app/Services/Members/MemberImportService.php', $files);
+        $this->assertNotContains('resources/js/Pages/Dashboard/Atleta.tsx', $files);
+        $this->assertFalse((bool) ($audit['summary']['ready_for_physical_cleanup'] ?? true));
     }
 
     public function test_json_mirror_pair_is_covered_when_user_guardian_exists(): void
