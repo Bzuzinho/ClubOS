@@ -26,17 +26,8 @@ jobs:
       - name: Install Composer dependencies
         run: composer install --no-interaction --prefer-dist
 
-      - name: Source scan contract
-        run: php artisan test tests/Feature/Membros/FamilyJsonMirrorCutoverAuditTest.php --filter=test_runtime_source_has_no_direct_json_mirror_usage
-
-      - name: Canonical coverage contract
-        run: php artisan test tests/Feature/Membros/FamilyJsonMirrorCutoverAuditTest.php --filter=test_json_mirror_pair_is_covered_when_user_guardian_exists
-
-      - name: Cleanup gate contract
-        run: php artisan test tests/Feature/Membros/FamilyJsonMirrorCutoverAuditTest.php --filter=test_uncovered_json_pair_blocks_cleanup_gate
-
-      - name: Fillable boundary contract
-        run: php artisan test tests/Feature/Membros/FamilyJsonMirrorCutoverAuditTest.php --filter=test_family_json_mirrors_are_not_mass_assignable
+      - name: JSON mirror audit contracts
+        run: php artisan test tests/Feature/Membros/FamilyJsonMirrorCutoverAuditTest.php
 
       - name: Canonical write regression file
         run: php artisan test tests/Feature/Membros/FamilyRelationshipServiceCanonicalWriteTest.php
