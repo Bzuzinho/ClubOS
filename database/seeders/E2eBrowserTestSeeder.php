@@ -33,29 +33,30 @@ final class E2eBrowserTestSeeder extends Seeder
 
         foreach (self::PROJECTS as $project) {
             $email = self::emailForProject($project);
+            $attributes = [
+                'name' => sprintf('Browser QA %s', $project),
+                'nome_completo' => sprintf('Browser QA %s', $project),
+                'email' => $email,
+                'email_verified_at' => now(),
+                'password' => Hash::make(self::PASSWORD),
+                'perfil' => 'admin',
+                'tipo_membro' => ['Admin'],
+                'estado' => 'ativo',
+                'data_nascimento' => '1990-01-01',
+                'menor' => false,
+                'afiliacao' => false,
+                'declaracao_de_transporte' => false,
+                'ativo_desportivo' => false,
+                'rgpd' => true,
+                'consentimento' => true,
+            ];
+
             $user = User::query()->where('email', $email)->first();
 
             if (! $user instanceof User) {
-                $user = User::factory()->admin()->create([
-                    'name' => sprintf('Browser QA %s', $project),
-                    'nome_completo' => sprintf('Browser QA %s', $project),
-                    'email' => $email,
-                    'email_verified_at' => now(),
-                    'password' => Hash::make(self::PASSWORD),
-                    'perfil' => 'admin',
-                    'tipo_membro' => ['Admin'],
-                    'estado' => 'ativo',
-                    'menor' => false,
-                ]);
+                $user = User::factory()->admin()->create($attributes);
             } else {
-                $user->forceFill([
-                    'email_verified_at' => now(),
-                    'password' => Hash::make(self::PASSWORD),
-                    'perfil' => 'admin',
-                    'tipo_membro' => ['Admin'],
-                    'estado' => 'ativo',
-                    'menor' => false,
-                ])->save();
+                $user->forceFill($attributes)->save();
             }
 
             $platformAccessService->grantPlatformAccess(
