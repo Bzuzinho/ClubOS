@@ -363,6 +363,7 @@ export default function AuthenticatedLayout({
                             <Button
                                 variant="ghost"
                                 size="icon"
+                                aria-label="Fechar menu lateral"
                                 className={cn(!collapseSidebarDesktop && "lg:hidden")}
                                 onClick={() => setMobileMenuOpen(false)}
                             >
@@ -472,6 +473,7 @@ export default function AuthenticatedLayout({
                     type="button"
                     variant="outline"
                     size="icon"
+                    aria-label="Abrir menu lateral"
                     className="fixed top-3 left-3 z-30 hidden lg:inline-flex"
                     onClick={() => setMobileMenuOpen(true)}
                 >
@@ -488,6 +490,7 @@ export default function AuthenticatedLayout({
                             <Button
                                 variant="ghost"
                                 size="icon"
+                                aria-label="Abrir menu lateral"
                                 onClick={() => setMobileMenuOpen(true)}
                             >
                                 <List />
@@ -509,7 +512,7 @@ export default function AuthenticatedLayout({
                                 {auth.user && (
                                     <DropdownMenu>
                                         <DropdownMenuTrigger asChild>
-                                            <Button variant="outline" size="icon" className="relative h-8 w-8">
+                                            <Button variant="outline" size="icon" className="relative h-8 w-8" aria-label="Notificações">
                                                 <Bell size={16} />
                                                 {(communicationAlerts?.unreadCount ?? 0) > 0 && (
                                                     <span className="absolute -right-1 -top-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-red-600 px-1 text-[10px] text-white">
