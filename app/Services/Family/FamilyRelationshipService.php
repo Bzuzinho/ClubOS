@@ -41,8 +41,6 @@ class FamilyRelationshipService
                 ]);
             }
 
-            $this->syncCompatibilityRelationIds($lockedMember, $lockedGuardian, true);
-
             $family = $this->uniqueActualFamilyForMember($lockedMember);
             if ($family !== null) {
                 $this->syncGuardianIntoExistingFamily($family, $lockedMember, $lockedGuardian);
@@ -60,8 +58,6 @@ class FamilyRelationshipService
                 ->where('user_id', $lockedMember->id)
                 ->where('guardian_id', $lockedGuardian->id)
                 ->delete();
-
-            $this->syncCompatibilityRelationIds($lockedMember, $lockedGuardian, false);
 
             $family = $this->uniqueActualFamilyForMember($lockedMember);
             if ($family !== null) {
@@ -290,27 +286,6 @@ class FamilyRelationshipService
         }
     }
 
-    private function syncCompatibilityRelationIds(User $member, User $guardian, bool $associate): void
-    {
-        $guardianIds = $this->relationIds($member, 'encarregado_educacao');
-        $dependentIds = $this->relationIds($guardian, 'educandos');
-
-        if ($associate) {
-            $guardianIds->push((string) $guardian->id);
-            $dependentIds->push((string) $member->id);
-        } else {
-            $guardianIds = $guardianIds->reject(
-                fn (string $id): bool => $id === (string) $guardian->id,
-            );
-            $dependentIds = $dependentIds->reject(
-                fn (string $id): bool => $id === (string) $member->id,
-            );
-        }
-
-        $this->persistRelationIds($member, 'encarregado_educacao', $guardianIds->all());
-        $this->persistRelationIds($guardian, 'educandos', $dependentIds->all());
-    }
-
     private function replaceFamilyResponsible(Familia $family, User $responsible): void
     {
         if ($family->responsavel_user_id && (string) $family->responsavel_user_id !== (string) $responsible->id) {
@@ -359,29 +334,5 @@ class FamilyRelationshipService
             'pode_ver_comunicacoes' => true,
             'updated_at' => now(),
         ];
-    }
-
-    private function relationIds(User $user, string $attribute): \Illuminate\Support\Collection
-    {
-        return collect(is_array($user->getAttribute($attribute)) ? $user->getAttribute($attribute) : [])
-            ->map(fn ($id) => (string) $id)
-            ->filter()
-            ->unique()
-            ->values();
-    }
-
-    /**
-     * @param array<int, string> $ids
-     */
-    private function persistRelationIds(User $user, string $attribute, array $ids): void
-    {
-        $user->forceFill([
-            $attribute => collect($ids)
-                ->map(fn ($id) => (string) $id)
-                ->filter()
-                ->unique()
-                ->values()
-                ->all(),
-        ])->save();
     }
 }
