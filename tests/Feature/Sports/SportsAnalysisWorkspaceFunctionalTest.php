@@ -223,11 +223,16 @@ final class SportsAnalysisWorkspaceFunctionalTest extends TestCase
         ]);
 
         $payload = app(SportsAnalysisWorkspaceService::class)->workspace();
+        $routeUris = collect(Route::getRoutes())
+            ->map(fn ($route) => $route->uri())
+            ->all();
 
         $this->assertSame([(string) $local->id], collect($payload['athletes'])->pluck('id')->all());
         $this->assertTrue($payload['principles']['read_only']);
         $this->assertFalse($payload['principles']['legacy_performance_kv_active']);
         $this->assertContains('cais_metrics', collect($payload['indicators'])->pluck('code')->all());
         $this->assertTrue(Route::has('desportivo.analise.athlete.export'));
+        $this->assertNotContains('api/desportivo/performance', $routeUris);
+        $this->assertNotContains('api/desportivo/performance-metrics', $routeUris);
     }
 }
