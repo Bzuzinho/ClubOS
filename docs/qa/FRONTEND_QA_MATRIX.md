@@ -29,11 +29,12 @@ Escopo: `resources/js/**/*.{ts,tsx}`.
 Regras iniciais de alto sinal:
 
 - `no-debugger`;
-- `no-duplicate-imports`;
 - `no-unreachable`;
 - `react-hooks/rules-of-hooks`.
 
 O lint não substitui o TypeScript. Regras adicionais devem ser introduzidas de forma mensurável, sem criar exceções silenciosas para dívida nova.
+
+`no-duplicate-imports` foi medido na introdução do baseline mas não é gate inicial: os duplicados encontrados são dívida de higiene, enquanto Rules of Hooks, código inalcançável e `debugger` são tratados como risco comportamental. A expansão futura pode apertar esta regra depois da limpeza dedicada.
 
 ### Unit/component
 
