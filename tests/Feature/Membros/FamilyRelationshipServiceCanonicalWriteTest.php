@@ -16,10 +16,10 @@ class FamilyRelationshipServiceCanonicalWriteTest extends TestCase
     public function test_guardian_link_without_existing_family_does_not_invent_family_aggregate(): void
     {
         $member = User::factory()->create([
-            'encarregado_educacao' => [],
+            'encarregado_educacao' => ['legacy-member-marker'],
         ]);
         $guardian = User::factory()->create([
-            'educandos' => [],
+            'educandos' => ['legacy-guardian-marker'],
         ]);
 
         $this->service()->associateGuardian($member, $guardian);
@@ -28,8 +28,8 @@ class FamilyRelationshipServiceCanonicalWriteTest extends TestCase
             'user_id' => $member->id,
             'guardian_id' => $guardian->id,
         ]);
-        $this->assertContains($guardian->id, $member->refresh()->encarregado_educacao);
-        $this->assertContains($member->id, $guardian->refresh()->educandos);
+        $this->assertSame(['legacy-member-marker'], $member->refresh()->encarregado_educacao);
+        $this->assertSame(['legacy-guardian-marker'], $guardian->refresh()->educandos);
         $this->assertDatabaseCount('familias', 0);
         $this->assertDatabaseCount('familia_user', 0);
     }
@@ -61,15 +61,17 @@ class FamilyRelationshipServiceCanonicalWriteTest extends TestCase
             'user_id' => $member->id,
             'guardian_id' => $guardian->id,
         ]);
+        $this->assertSame([], $member->refresh()->encarregado_educacao);
+        $this->assertSame([], $guardian->refresh()->educandos);
     }
 
     public function test_removing_guardianship_preserves_family_membership_but_removes_guardian_role(): void
     {
         $member = User::factory()->create([
-            'encarregado_educacao' => [],
+            'encarregado_educacao' => ['legacy-member-marker'],
         ]);
         $guardian = User::factory()->create([
-            'educandos' => [],
+            'educandos' => ['legacy-guardian-marker'],
         ]);
         $family = $this->createFamilyWithMember($member, 'familiar');
 
@@ -80,8 +82,8 @@ class FamilyRelationshipServiceCanonicalWriteTest extends TestCase
             'user_id' => $member->id,
             'guardian_id' => $guardian->id,
         ]);
-        $this->assertNotContains($guardian->id, $member->refresh()->encarregado_educacao);
-        $this->assertNotContains($member->id, $guardian->refresh()->educandos);
+        $this->assertSame(['legacy-member-marker'], $member->refresh()->encarregado_educacao);
+        $this->assertSame(['legacy-guardian-marker'], $guardian->refresh()->educandos);
         $this->assertDatabaseHas('familia_user', [
             'familia_id' => $family->id,
             'user_id' => $guardian->id,
@@ -114,6 +116,8 @@ class FamilyRelationshipServiceCanonicalWriteTest extends TestCase
             'familia_id' => $secondFamily->id,
             'user_id' => $guardian->id,
         ]);
+        $this->assertSame([], $member->refresh()->encarregado_educacao);
+        $this->assertSame([], $guardian->refresh()->educandos);
     }
 
     private function service(): FamilyRelationshipService
