@@ -22,7 +22,6 @@ use App\Http\Controllers\Api\CompetitionController;
 use App\Http\Controllers\Api\CompetitionResultController;
 use App\Http\Controllers\Api\CompetitionRegistrationController;
 use App\Http\Controllers\Api\TeamResultController;
-use App\Http\Controllers\Api\PerformanceController;
 use App\Http\Controllers\Api\UserTypeAccessControlController;
 use App\Http\Controllers\AdminLojaController;
 use App\Http\Controllers\AdminLojaEncomendaController;
@@ -115,12 +114,6 @@ Route::middleware(['auth'])->group(function () {
     Route::prefix('desportivo')
         ->middleware('module.access:desportivo')
         ->group(function () {
-            // Performance (legacy + current endpoint compatibility)
-            Route::get('performance', [PerformanceController::class, 'index'])
-                ->middleware('permission.access:desportivo.dashboard,view');
-            Route::get('performance-metrics', [PerformanceController::class, 'index'])
-                ->middleware('permission.access:desportivo.dashboard,view');
-
             // Athletes
             Route::apiResource('athletes', AthleteController::class, ['only' => ['index', 'show']])
                 ->middlewareFor(['index', 'show'], 'permission.access:desportivo.dashboard,view');
