@@ -36,6 +36,7 @@ jobs:
           node --check scripts/qa/typecheck-ratchet.mjs
           node --check scripts/qa/npm-audit-ratchet.mjs
           node --check scripts/qa/xlsx-import-contract.mjs
+          node --check eslint.config.js
           bash -n bin/remote-deploy-backend.sh
           bash -n scripts/qa/composer-audit-ratchet.sh
 
@@ -57,6 +58,12 @@ jobs:
       - name: TypeScript debt ratchet
         run: npm run typecheck:ratchet
 
+      - name: Run frontend lint
+        run: npm run lint
+
+      - name: Run frontend unit/component tests
+        run: npm run test:unit
+
       - name: Prepare environment
         run: |
           cp .env.example .env
@@ -70,6 +77,72 @@ jobs:
 
       - name: Run legacy members read guard rail
         run: php artisan members:audit-users-legacy-read --fail-on-finding
+
+  frontend-browser-qa:
+    name: Frontend browser QA
+    runs-on: ubuntu-latest
+
+    env:
+      APP_ENV: testing
+      APP_URL: http://127.0.0.1:8000
+      CACHE_STORE: array
+      SESSION_DRIVER: array
+      QUEUE_CONNECTION: sync
+      MAIL_MAILER: array
+      DB_CONNECTION: sqlite
+      DB_DATABASE: database/database.sqlite
+      DB_PROTECT_DESTRUCTIVE_COMMANDS: 'false'
+      DB_ALLOW_DESTRUCTIVE_COMMANDS: 'true'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, xml, curl, zip, intl, bcmath, sqlite3, pdo_sqlite
+          coverage: none
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install Composer dependencies
+        run: composer install --no-interaction --prefer-dist
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Prepare browser-test environment
+        run: |
+          cp .env.example .env
+          touch database/database.sqlite
+          php artisan key:generate --force
+          php artisan migrate --force
+
+      - name: Build frontend for browser tests
+        run: npm run build
+
+      - name: Install Playwright browsers
+        run: npm run test:e2e:install
+
+      - name: Run multi-browser, mobile and accessibility E2E
+        run: npm run test:e2e
+
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report-${{ github.sha }}
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: ignore
+          retention-days: 14
 
   postgres-concurrency:
     runs-on: ubuntu-latest
@@ -130,6 +203,7 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs:
       - validate
+      - frontend-browser-qa
       - postgres-concurrency
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -330,7 +404,7 @@ jobs:
             echo ''
             echo "- Commit: \`${GITHUB_SHA}\`"
             echo "- Target: \`${VM_USER}@${VM_HOST}:${VM_APP_DIR}\`"
-            echo '- Validation: CI, dependency security ratchets, TypeScript debt ratchet and PostgreSQL concurrency passed'
+            echo '- Validation: CI, dependency security ratchets, TypeScript, lint, unit/component, multi-browser/mobile/accessibility E2E and PostgreSQL concurrency passed'
             echo '- SSH host identity: pinned known_hosts entry enforced'
             echo '- Desportivo legacy readiness audit: collected read-only from production'
             echo '- Access Control readiness audit: collected, artifact preserved and critical findings gated separately'
