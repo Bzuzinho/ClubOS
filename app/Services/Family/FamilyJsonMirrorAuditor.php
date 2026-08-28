@@ -40,7 +40,7 @@ final class FamilyJsonMirrorAuditor
         $data = $this->auditDataCoverage();
 
         return [
-            'version' => 'H2.3',
+            'version' => 'H2.3a',
             'summary' => [
                 'source_findings_count' => count($source['findings']),
                 'declared_json_links_count' => $data['declared_json_links_count'],
@@ -344,6 +344,10 @@ final class FamilyJsonMirrorAuditor
     }
 
     /**
+     * Scan only access forms that can address an Eloquent/database attribute.
+     * Request/DTO keys and domain labels intentionally are not findings: the
+     * same Portuguese words remain valid API vocabulary after the columns die.
+     *
      * @return array<string, string>
      */
     private function phpPatterns(string $field): array
@@ -354,21 +358,28 @@ final class FamilyJsonMirrorAuditor
             'direct_property' => '/->[ ]*'.$quoted.'\b(?!\s*\()/',
             'get_attribute' => '/->getAttribute\s*\(\s*[\'\"]'.$quoted.'[\'\"]\s*\)/',
             'set_attribute' => '/->setAttribute\s*\(\s*[\'\"]'.$quoted.'[\'\"]\s*,/',
-            'array_access' => '/\[\s*[\'\"]'.$quoted.'[\'\"]\s*\]/',
-            'payload_key' => '/[\'\"]'.$quoted.'[\'\"]\s*=>/',
+            'query_value' => '/->value\s*\(\s*[\'\"]'.$quoted.'[\'\"]\s*\)/',
         ];
     }
 
     /**
+     * Frontend `educandos` is also the canonical relation payload name, so a
+     * lexical match cannot distinguish it from the retired JSON column. The
+     * unambiguous legacy guardian field remains scanned on member payloads.
+     *
      * @return array<string, string>
      */
     private function frontendPatterns(string $field): array
     {
+        if ($field === 'educandos') {
+            return [];
+        }
+
         $quoted = preg_quote($field, '/');
 
         return [
-            'property_access' => '/(?:\.|\?\.)'.$quoted.'\b/',
-            'array_access' => '/\[\s*[\'\"]'.$quoted.'[\'\"]\s*\]/',
+            'member_property_access' => '/(?:\bmember|\(\s*member\s+as\s+any\s*\))\s*(?:\.|\?\.)'.$quoted.'\b/',
+            'member_array_access' => '/\bmember\s*\[\s*[\'\"]'.$quoted.'[\'\"]\s*\]/',
         ];
     }
 
