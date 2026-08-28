@@ -1,0 +1,42 @@
+name: H2 Family JSON Diagnostic
+
+on:
+  push:
+    branches:
+      - h2/family-json-mirror-cutover
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  h2-json-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, xml, curl, zip, intl, bcmath, sqlite3, pdo_sqlite
+          coverage: none
+
+      - name: Install Composer dependencies
+        run: composer install --no-interaction --prefer-dist
+
+      - name: Source scan contract
+        run: php artisan test tests/Feature/Membros/FamilyJsonMirrorCutoverAuditTest.php --filter=test_runtime_source_has_no_direct_json_mirror_usage
+
+      - name: Canonical coverage contract
+        run: php artisan test tests/Feature/Membros/FamilyJsonMirrorCutoverAuditTest.php --filter=test_json_mirror_pair_is_covered_when_user_guardian_exists
+
+      - name: Cleanup gate contract
+        run: php artisan test tests/Feature/Membros/FamilyJsonMirrorCutoverAuditTest.php --filter=test_uncovered_json_pair_blocks_cleanup_gate
+
+      - name: Fillable boundary contract
+        run: php artisan test tests/Feature/Membros/FamilyJsonMirrorCutoverAuditTest.php --filter=test_family_json_mirrors_are_not_mass_assignable
+
+      - name: Canonical write regression file
+        run: php artisan test tests/Feature/Membros/FamilyRelationshipServiceCanonicalWriteTest.php
