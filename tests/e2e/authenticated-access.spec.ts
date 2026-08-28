@@ -98,7 +98,9 @@ test.describe('authenticated access', () => {
             await login(page, testInfo);
             await openSidebarIfNeeded(page, testInfo);
 
-            const navigationButton = page.getByRole('button', { name: navigation.label, exact: true });
+            const navigationButton = page
+                .getByRole('navigation')
+                .getByRole('button', { name: navigation.label, exact: true });
             await expect(navigationButton).toBeVisible();
             await navigationButton.click();
 
