@@ -1,5 +1,11 @@
 import { defineConfig, devices } from '@playwright/test';
 
+const webServerEnv = Object.fromEntries(
+    Object.entries(process.env).filter(
+        (entry): entry is [string, string] => typeof entry[1] === 'string',
+    ),
+);
+
 export default defineConfig({
     testDir: './tests/e2e',
     fullyParallel: true,
@@ -16,6 +22,10 @@ export default defineConfig({
     },
     webServer: {
         command: 'php artisan serve --host=127.0.0.1 --port=8000',
+        env: {
+            ...webServerEnv,
+            SESSION_DRIVER: 'file',
+        },
         url: 'http://127.0.0.1:8000/up',
         reuseExistingServer: !process.env.CI,
         timeout: 120_000,

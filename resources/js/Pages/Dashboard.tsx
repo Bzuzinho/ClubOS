@@ -271,7 +271,7 @@ export default function Dashboard({ stats, recentEvents = [], recentActivity = [
                                                     {formattedDate}
                                                 </p>
                                             </div>
-                                            <span className={`font-semibold text-xs whitespace-nowrap flex-shrink-0 ${entry.tipo === 'receita' ? 'text-green-600' : 'text-red-600'}`}>
+                                            <span className={`font-semibold text-xs whitespace-nowrap flex-shrink-0 ${entry.tipo === 'receita' ? 'text-green-700' : 'text-red-700'}`}>
                                                 {entry.tipo === 'receita' ? '+' : '-'}€{valor.toFixed(2)}
                                             </span>
                                         </div>

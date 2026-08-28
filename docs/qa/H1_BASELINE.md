@@ -156,7 +156,21 @@ Baseline obrigatório:
 
 A CI técnica #875 ficou verde com os novos gates, mantendo Composer/npm em zero e TypeScript 0/0.
 
+## H1.18 — QA autenticada e navegação base
+
+A matriz H1.17 foi expandida sem criar um segundo pipeline:
+
+- fixture administrativa determinística e restrita a `APP_ENV=testing`, com um utilizador isolado por projeto Playwright;
+- autenticação real: rota protegida, intended redirect, login válido, rejeição de credenciais inválidas e logout com invalidação da sessão;
+- recuperação de password exercitada no browser;
+- Dashboard autenticado coberto por overflow horizontal e axe WCAG A/AA, mantendo findings `serious`/`critical` bloqueantes;
+- navegação pelo menu para Membros, Desportivo, Eventos, Financeiro e Configurações nos cinco perfis desktop/mobile;
+- cada destino tem de resolver a rota esperada, renderizar o conteúdo principal, não devolver `Server Error` e não introduzir overflow horizontal;
+- a fixture fixa data de nascimento e flags relevantes, eliminando dados E2E aleatórios que podiam contaminar alertas do Dashboard.
+
+O primeiro run autenticado encontrou uma falha real de contraste no azul `#007BFF` com texto branco. O token global primário/sidebar foi ajustado para `#0066CC`, em vez de silenciar o axe, e a CI #891 confirmou a correção. A CI #894 validou o head funcional final `f083fe74258eec42e443e81fac1169e69269fe9c` com backend, TypeScript 0/0, lint, unit/component tests, build, PostgreSQL concurrency e toda a matriz Playwright autenticada verdes.
+
 ## Pendências H1
 
 1. Executar na conta Cloudflare a rotação real para `Object Read & Write` limitado ao bucket, configurar/verificar Bucket Lock, repetir probe + backup + restore e revogar a credencial Admin antiga.
-2. A infraestrutura QA frontend está criada; a cobertura funcional deve ser ampliada incrementalmente dentro de cada sprint/módulo.
+2. Expandir progressivamente a cobertura frontend para perfis não-admin, Portal atleta/família, workspaces/tabs, tablet e operações críticas de Membros, Financeiro, Desportivo, Eventos e Website.

@@ -8,7 +8,7 @@
     "lint": "eslint resources/js --max-warnings 0",
     "test:unit": "vitest run",
     "test:unit:watch": "vitest",
-    "test:e2e": "playwright test",
+    "test:e2e": "php artisan db:seed --class=E2eBrowserTestSeeder --force && playwright test",
     "test:e2e:install": "playwright install --with-deps chromium firefox webkit",
     "qa:frontend": "npm run lint && npm run test:unit",
     "typecheck:ratchet": "node scripts/qa/typecheck-ratchet.mjs",
