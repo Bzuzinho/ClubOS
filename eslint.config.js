@@ -12,6 +12,9 @@ export default [
     },
     {
         files: ['resources/js/**/*.{ts,tsx}'],
+        linterOptions: {
+            reportUnusedDisableDirectives: false,
+        },
         languageOptions: {
             parser: tseslint.parser,
             parserOptions: {
@@ -27,7 +30,6 @@ export default [
         },
         rules: {
             'no-debugger': 'error',
-            'no-duplicate-imports': 'error',
             'no-unreachable': 'error',
             'react-hooks/rules-of-hooks': 'error',
         },
