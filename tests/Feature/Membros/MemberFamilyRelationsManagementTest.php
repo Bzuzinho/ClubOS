@@ -14,14 +14,11 @@ class MemberFamilyRelationsManagementTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_admin_flow_adds_and_removes_guardian_with_reciprocal_legacy_state(): void
+    public function test_admin_flow_adds_and_removes_guardian_through_canonical_link(): void
     {
-        $member = User::factory()->athlete()->create([
-            'encarregado_educacao' => [],
-        ]);
+        $member = User::factory()->athlete()->create();
         $guardian = User::factory()->create([
             'tipo_membro' => ['encarregado_educacao'],
-            'educandos' => [],
         ]);
 
         $response = $this->actingAs($member)
@@ -37,8 +34,6 @@ class MemberFamilyRelationsManagementTest extends TestCase
             'user_id' => $member->id,
             'guardian_id' => $guardian->id,
         ]);
-        $this->assertContains($guardian->id, $member->refresh()->encarregado_educacao);
-        $this->assertContains($member->id, $guardian->refresh()->educandos);
 
         $deleteResponse = $this->from(route('membros.show', $member))
             ->delete(route('membros.familia.encarregados.destroy', [$member, $guardian]));
@@ -49,20 +44,16 @@ class MemberFamilyRelationsManagementTest extends TestCase
             'user_id' => $member->id,
             'guardian_id' => $guardian->id,
         ]);
-        $this->assertNotContains($guardian->id, $member->refresh()->encarregado_educacao);
-        $this->assertNotContains($member->id, $guardian->refresh()->educandos);
     }
 
     public function test_admin_flow_creates_family_from_existing_relations_and_manages_members(): void
     {
         $member = User::factory()->athlete()->create([
             'nome_completo' => 'Atleta Família',
-            'encarregado_educacao' => [],
         ]);
         $guardian = User::factory()->create([
             'nome_completo' => 'Responsável Família',
             'tipo_membro' => ['encarregado_educacao'],
-            'educandos' => [],
         ]);
         $relative = User::factory()->create([
             'nome_completo' => 'Familiar Adicionado',
