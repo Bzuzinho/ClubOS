@@ -3,8 +3,19 @@ import { expect, Page, test, TestInfo } from '@playwright/test';
 
 const PASSWORD = 'ClubOS-E2E-2026!';
 
+const CORE_NAVIGATION = [
+    { label: 'Membros', path: '/membros' },
+    { label: 'Desportivo', path: '/desportivo' },
+    { label: 'Eventos', path: '/eventos' },
+    { label: 'Financeiro', path: '/financeiro' },
+    { label: 'Configurações', path: '/configuracoes' },
+] as const;
+
 const emailForProject = (testInfo: TestInfo): string =>
     `e2e.${testInfo.project.name}@clubos.test`;
+
+const pathPattern = (path: string): RegExp =>
+    new RegExp(`${path.replaceAll('/', '\\/')}$`);
 
 const login = async (page: Page, testInfo: TestInfo, intendedPath = '/dashboard') => {
     await page.goto(intendedPath);
@@ -14,7 +25,17 @@ const login = async (page: Page, testInfo: TestInfo, intendedPath = '/dashboard'
     await page.getByLabel('Palavra-passe').fill(PASSWORD);
     await page.getByRole('button', { name: 'Entrar' }).click();
 
-    await expect(page).toHaveURL(new RegExp(`${intendedPath.replace('/', '\\/')}$`));
+    await expect(page).toHaveURL(pathPattern(intendedPath));
+};
+
+const openSidebarIfNeeded = async (page: Page, testInfo: TestInfo) => {
+    if (!testInfo.project.name.includes('mobile')) {
+        return;
+    }
+
+    const openButton = page.getByRole('button', { name: 'Abrir menu lateral' });
+    await expect(openButton).toBeVisible();
+    await openButton.click();
 };
 
 const expectNoHorizontalOverflow = async (page: Page) => {
@@ -48,10 +69,7 @@ test.describe('authenticated access', () => {
 
     test('logs out through the authenticated navigation and protects the session afterwards', async ({ page }, testInfo) => {
         await login(page, testInfo);
-
-        if (testInfo.project.name.includes('mobile')) {
-            await page.locator('header').first().getByRole('button').first().click();
-        }
+        await openSidebarIfNeeded(page, testInfo);
 
         const logoutButton = page.getByRole('button', { name: 'Sair' });
         await expect(logoutButton).toBeVisible();
@@ -74,6 +92,22 @@ test.describe('authenticated access', () => {
         await expect(page.getByText('We have emailed your password reset link.', { exact: true })).toBeVisible();
         await expectNoHorizontalOverflow(page);
     });
+
+    for (const navigation of CORE_NAVIGATION) {
+        test(`navigates to ${navigation.label} from the authenticated menu`, async ({ page }, testInfo) => {
+            await login(page, testInfo);
+            await openSidebarIfNeeded(page, testInfo);
+
+            const navigationButton = page.getByRole('button', { name: navigation.label, exact: true });
+            await expect(navigationButton).toBeVisible();
+            await navigationButton.click();
+
+            await expect(page).toHaveURL(pathPattern(navigation.path));
+            await expect(page.locator('main')).toBeVisible();
+            await expect(page.locator('body')).not.toContainText('Server Error');
+            await expectNoHorizontalOverflow(page);
+        });
+    }
 
     test('has no serious or critical WCAG A/AA violations on the authenticated dashboard', async ({ page }, testInfo) => {
         await login(page, testInfo);
