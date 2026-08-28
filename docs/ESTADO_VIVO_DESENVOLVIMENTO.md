@@ -48,7 +48,7 @@ Stack produtiva: Laravel 13, PHP 8.3, React 19 + TypeScript, Inertia 2, Vite, Po
 | Portal atleta / família | 63% | Estrutura funcional. Falta fecho mobile/PWA, UX e validação sistemática. |
 | Membros / Pessoas | 85% | Normalização avançada. Família/EE ainda mantém múltiplas representações históricas a consolidar. |
 | Família / EE / educandos | 70% | Gestão funcional existe; falta fonte relacional única e cutover progressivo do legacy. |
-| Desportivo global | 70% | Principal frente funcional por fechar: Planeamento → Treino → Cais → Live → Presenças → Competições → Resultados → Portal → reporting → legacy cleanup. |
+| Desportivo global | 70% | Análise transversal read-only consolidada sobre Treino/Cais/Live/Avaliações/Resultados, com proveniência, splits e export; Performance legacy está a ser retirado do runtime na branch ativa. Principal frente por fechar: fluxo ponta a ponta, Portal, reporting consolidado e legacy cleanup. |
 | Planeamento desportivo | 65% | Base sólida; falta fechar UX, integrações e reporting. |
 | Treinos / presenças / Cais | 70% | Núcleo funcional forte; falta consolidar fluxo ponta a ponta e QA operacional. |
 | Competições / resultados | 63% | Estrutura funcional; falta integração final, reporting e remoção legacy. |
@@ -505,6 +505,7 @@ Próximo passo ativo: iniciar H2 pela consolidação Família/EE e respetivas fo
 
 | Data | Módulo | Desenvolvimento / análise | Evidência | Estado / pendências |
 |---|---|---|---|---|
+| 2026-08-28 | Desportivo / Análise | Hardening da workspace transversal: métricas Cais + Live com proveniência separada, agregação de grupos em batch, splits competitivos expansíveis, export CSV e retirada dos endpoints legacy Performance do routing ativo. | branch `feat/desportivo-analise-functional-workspace`; `SportsAnalysisWorkspaceService`; `SportsAnalysisWorkspaceFunctionalTest`; `docs/modules/desportivo_analysis_workspace.md` | Sem migrations; implementação na branch e ainda a aguardar PR/CI antes de integração. |
 | 2026-08-28 | QA / Frontend | H1.17 criou o baseline automático de lint, unit/component, multi-browser/mobile E2E e acessibilidade, tornando o browser QA dependência do deploy. | PR #225; CI técnica #875; `docs/qa/FRONTEND_QA_MATRIX.md`; `playwright.config.ts`; `vitest.config.ts`; `eslint.config.js` | Tooling transversal fechado; cobertura deve crescer por fluxo/módulo sem enfraquecer os gates. |
 | 2026-08-28 | Infraestrutura / DR | H1.16 colocou em produção probes least-privilege e verificação read-only de Bucket Lock, separando data plane S3 de control plane Cloudflare. | PR #224; CI #870; merge `55989937458271b0348c5cd7818c6c83acb171f1`; `scripts/ops/dr/probe-r2-access.sh` | Código/deploy concluído; rotação real e Bucket Locks na conta Cloudflare permanecem pendência operacional externa. |
 | 2026-08-27 | QA / Dependências npm | H1.15 substituiu `xlsx` 0.18.5 pela release oficial SheetJS CE 0.20.3 vendorizada, preservando XLSX/XLS/ODS/CSV/HTML e eliminando a última vulnerabilidade npm residual. | PR #223; `vendor/xlsx-0.20.3.tgz`; `scripts/qa/xlsx-import-contract.mjs`; `scripts/qa/npm-audit-ratchet.mjs` | npm audit e ratchet fechados em 0 vulnerabilidades; resta R2 hardening e QA frontend em H1. |
