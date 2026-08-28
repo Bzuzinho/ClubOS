@@ -1,0 +1,52 @@
+name: H1.17 bootstrap frontend QA dependencies
+
+on:
+  push:
+    branches:
+      - chore/h1-17-frontend-qa-matrix
+
+permissions:
+  contents: write
+
+jobs:
+  bootstrap:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Materialize frontend QA toolchain
+        run: |
+          npm install --save-dev \
+            eslint \
+            typescript-eslint \
+            eslint-plugin-react-hooks \
+            vitest \
+            jsdom \
+            @testing-library/react \
+            @testing-library/jest-dom \
+            @testing-library/user-event \
+            @playwright/test \
+            @axe-core/playwright
+
+      - name: Commit lockfile and resolved dependency ranges
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json package-lock.json
+
+          if git diff --cached --quiet; then
+            echo "No dependency changes to commit."
+            exit 0
+          fi
+
+          git commit -m "H1.17 materialize frontend QA dependencies"
+          git push origin HEAD:chore/h1-17-frontend-qa-matrix
