@@ -6,6 +6,7 @@ use App\Models\Familia;
 use App\Models\User;
 use App\Services\Family\FamilyRelationshipService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Tests\TestCase;
 
@@ -15,12 +16,10 @@ class FamilyRelationshipServiceCanonicalWriteTest extends TestCase
 
     public function test_guardian_link_without_existing_family_does_not_invent_family_aggregate(): void
     {
-        $member = User::factory()->create([
-            'encarregado_educacao' => ['legacy-member-marker'],
-        ]);
-        $guardian = User::factory()->create([
-            'educandos' => ['legacy-guardian-marker'],
-        ]);
+        $member = User::factory()->create();
+        $guardian = User::factory()->create();
+        $this->setLegacyMirror($member, 'encarregado_educacao', ['legacy-member-marker']);
+        $this->setLegacyMirror($guardian, 'educandos', ['legacy-guardian-marker']);
 
         $this->service()->associateGuardian($member, $guardian);
 
@@ -36,12 +35,8 @@ class FamilyRelationshipServiceCanonicalWriteTest extends TestCase
 
     public function test_guardian_link_is_projected_into_single_unambiguous_existing_family(): void
     {
-        $member = User::factory()->create([
-            'encarregado_educacao' => [],
-        ]);
-        $guardian = User::factory()->create([
-            'educandos' => [],
-        ]);
+        $member = User::factory()->create();
+        $guardian = User::factory()->create();
         $family = $this->createFamilyWithMember($member, 'familiar');
 
         $this->service()->associateGuardian($member, $guardian);
@@ -61,18 +56,16 @@ class FamilyRelationshipServiceCanonicalWriteTest extends TestCase
             'user_id' => $member->id,
             'guardian_id' => $guardian->id,
         ]);
-        $this->assertSame([], $member->refresh()->encarregado_educacao);
-        $this->assertSame([], $guardian->refresh()->educandos);
+        $this->assertSame([], $member->refresh()->encarregado_educacao ?? []);
+        $this->assertSame([], $guardian->refresh()->educandos ?? []);
     }
 
-    public function test_removing_guardianship_preserves_family_membership_but_removes_guardian_role(): void
+    public function test_removing_guardianship_preserves_family_membership_but_does_not_mutate_legacy_mirrors(): void
     {
-        $member = User::factory()->create([
-            'encarregado_educacao' => ['legacy-member-marker'],
-        ]);
-        $guardian = User::factory()->create([
-            'educandos' => ['legacy-guardian-marker'],
-        ]);
+        $member = User::factory()->create();
+        $guardian = User::factory()->create();
+        $this->setLegacyMirror($member, 'encarregado_educacao', ['legacy-member-marker']);
+        $this->setLegacyMirror($guardian, 'educandos', ['legacy-guardian-marker']);
         $family = $this->createFamilyWithMember($member, 'familiar');
 
         $this->service()->associateGuardian($member, $guardian);
@@ -93,12 +86,8 @@ class FamilyRelationshipServiceCanonicalWriteTest extends TestCase
 
     public function test_guardian_link_does_not_guess_between_multiple_existing_families(): void
     {
-        $member = User::factory()->create([
-            'encarregado_educacao' => [],
-        ]);
-        $guardian = User::factory()->create([
-            'educandos' => [],
-        ]);
+        $member = User::factory()->create();
+        $guardian = User::factory()->create();
         $firstFamily = $this->createFamilyWithMember($member, 'familiar', 'Família A');
         $secondFamily = $this->createFamilyWithMember($member, 'familiar', 'Família B');
 
@@ -116,13 +105,20 @@ class FamilyRelationshipServiceCanonicalWriteTest extends TestCase
             'familia_id' => $secondFamily->id,
             'user_id' => $guardian->id,
         ]);
-        $this->assertSame([], $member->refresh()->encarregado_educacao);
-        $this->assertSame([], $guardian->refresh()->educandos);
+        $this->assertSame([], $member->refresh()->encarregado_educacao ?? []);
+        $this->assertSame([], $guardian->refresh()->educandos ?? []);
     }
 
     private function service(): FamilyRelationshipService
     {
         return app(FamilyRelationshipService::class);
+    }
+
+    private function setLegacyMirror(User $user, string $field, array $ids): void
+    {
+        DB::table('users')->where('id', $user->id)->update([
+            $field => json_encode($ids, JSON_THROW_ON_ERROR),
+        ]);
     }
 
     private function createFamilyWithMember(
