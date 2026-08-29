@@ -25,7 +25,7 @@ const mainMenuItems = [
   { id: 'inventory', label: 'Loja', icon: ShoppingCart, href: '/loja' },
   { id: 'sponsors', label: 'Patrocínios', icon: Handshake, href: '/patrocinios' },
   { id: 'communication', label: 'Comunicação', icon: Envelope, href: '/comunicacao' },
-  { id: 'marketing', label: 'Marketing', icon: MegaphoneSimple, href: '/marketing' },
+  { id: 'marketing', label: 'Marketing', icon: MegaphoneSimple, href: '/campanhas-marketing' },
 ];
 
 export default function AppLayout({ children }: PropsWithChildren) {
@@ -99,11 +99,11 @@ export default function AppLayout({ children }: PropsWithChildren) {
                         
                         {/* Settings */}
                         <Link
-                            href="/settings"
+                            href="/configuracoes"
                             className={`
                                 flex items-center gap-3 px-4 py-3 mb-1 rounded-lg
                                 transition-colors duration-200
-                                ${url === '/settings'
+                                ${url === '/configuracoes'
                                     ? 'bg-yellow-400 text-gray-900 font-medium shadow-sm' 
                                     : 'text-gray-700 hover:bg-gray-200'
                                 }
