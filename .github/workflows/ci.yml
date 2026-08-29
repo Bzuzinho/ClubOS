@@ -69,6 +69,40 @@ jobs:
           cp .env.example .env
           php artisan key:generate --force
 
+      - name: Verify web route topology contract
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          report="${GITHUB_WORKSPACE}/web-route-topology.json"
+          php artisan routes:audit-web-topology \
+            --json \
+            --report-path="${report}" \
+            --fail-on-contract-drift \
+            >/dev/null
+
+          jq -e '
+            .version == "web-route-topology-v1"
+            and .read_only == true
+            and .summary.web_route_count > 0
+            and .summary.named_route_lookup_count > 0
+            and .summary.contract_matches_baseline == true
+            and .summary.fallback_route_count == 1
+            and .contract.fallback_name == "public.custom-page"
+            and .summary.loaded_modular_route_file_count == .summary.modular_route_file_count
+            and .contract.hash == .contract.baseline_hash
+            and .interpretation.no_routes_changed == true
+          ' "${report}" >/dev/null
+
+      - name: Upload web route topology audit
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: web-route-topology-${{ github.sha }}
+          path: web-route-topology.json
+          if-no-files-found: error
+          retention-days: 30
+
       - name: Build frontend
         run: npm run build
 

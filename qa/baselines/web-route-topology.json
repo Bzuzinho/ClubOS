@@ -1,0 +1,8 @@
+{
+    "version": "web-route-topology-v1",
+    "contract_hash": "8bbfac80f53e31147b1b0cc4715540b67370b08011e4a45a91eba704db787c5b",
+    "route_count": 517,
+    "named_route_count": 491,
+    "fallback_name": "public.custom-page",
+    "fallback_registered_last": false
+}

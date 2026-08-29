@@ -55,7 +55,7 @@ Stack produtiva: Laravel 13, PHP 8.3, React 19 + TypeScript, Inertia 2, Vite, Po
 | Eventos | 75% | Lifecycle, recorrência, convocatórias e integrações corrigidos. H1.18 garante entrada pelo menu em desktop/mobile; falta remover estruturas antigas, criar contract tests Eventos ↔ Desportivo e E2E das operações críticas. |
 | Financeiro geral | 89% | Maduro; CRUDs legacy de transações/categorias aposentados e antigo `Financeiro/Edit` converge para o fluxo canónico. H1.18 garante entrada pelo menu em desktop/mobile; prioridade: preservar invariantes, evitar novas fontes de verdade e acrescentar E2E financeiro crítico. |
 | Fiscal | 65% | Workflow manual/controlado existe; falta decidir provider real ou formalizar definitivamente o modelo manual produtivo. |
-| Inventário / Logística | 70% | `stock_movements` é ledger canónico; `product_variants.stock` continua por consolidar. |
+| Inventário / Logística | 70% | `stock_movements` é o ledger canónico e H2.4b integrou o stock de variantes com atualização atómica produto+variante. Falta fechar o lifecycle transversal de Logística e ampliar QA operacional. |
 | Loja | 60% | Falta lifecycle completo produto → stock → encomenda → pagamento → fiscal → cancelamento/devolução/reposição. |
 | Comunicação | 60% | Falta pipeline assíncrono persistente com attempts, retry, idempotência e provider IDs. |
 | Relatórios | 40% | Área menos madura; construir apenas depois de estabilizar fontes de verdade. |
@@ -631,6 +631,21 @@ PR #241 merged em `f8ce467a51c6d605fc3fb62f0fc64585614e1106`; CI #944 totalmente
 - `ready_for_design=true`, com auditoria read-only e sem backfill.
 
 A frente estrutural de stock por variante fica encerrada. Novas mutações de `product_variants.stock` ou `stock_reservado` devem passar pelo `StockLedgerService` e preservar, na mesma transação, os snapshots do produto e da variante.
+
+### H2.5a — Contract topológico das rotas web — em curso
+
+Antes de extrair novas áreas de `routes/web.php`, o contract H2.5a:
+
+- inventaria a assinatura runtime das rotas web, incluindo método, URI, domínio, nome, action, middleware, constraints, ordem e fallback;
+- fixa essa assinatura num hash versionado e bloqueia drift não revisto na CI;
+- mede duplicados por método+URI e nomes repetidos sem os corrigir silenciosamente nesta fase;
+- inventaria os 18 ficheiros modulares existentes e as três superfícies atuais de registo (`routes/web.php`, `AppServiceProvider` e `bootstrap/app.php`);
+- identifica redirects de compatibilidade e consumidores ainda ativos no backend/frontend antes de qualquer aposentação;
+- arquiva o relatório completo como artifact da CI, sem alterar URLs, nomes, middleware, ordem ou comportamento.
+
+O baseline estático atual tem `752` linhas, `325` declarações diretas e `51` imports de controllers em `routes/web.php`, além de `23` redirects. A captura runtime fixa `517` rotas web, `491` nomes efetivos e o hash `8bbfac80f53e31147b1b0cc4715540b67370b08011e4a45a91eba704db787c5b`. O fallback público `public.custom-page` é único e ocupa a posição `507`; dez rotas registadas por providers surgem depois dele, pelo que o contract preserva a ordem real e não assume que o fallback é fisicamente o último.
+
+A auditoria não encontrou colisões método+URI no router efetivo, mas sinalizou três candidatos literais no source para classificação antes da extração. Entre eles, as duas declarações `GET /loja` mostram que `store.front.index` é sobrescrito por `loja.index` no lookup nominal; não existe autorização para apagar ou recriar esse alias silenciosamente. Permanecem também três consumidores frontend de redirects legacy (`/marketing` e `/settings`) em `resources/js/Layouts/Spark/AppLayout.tsx`, que devem migrar para os destinos canónicos antes de qualquer aposentação.
 
 ---
 
