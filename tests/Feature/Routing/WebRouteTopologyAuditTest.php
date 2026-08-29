@@ -21,8 +21,8 @@ final class WebRouteTopologyAuditTest extends TestCase
         $this->assertFalse($report['summary']['fallback_registered_last']);
         $this->assertSame('public.custom-page', $report['contract']['fallback_name']);
         $this->assertMatchesRegularExpression('/^[a-f0-9]{64}$/', $report['contract']['hash']);
-        $this->assertSame(21, $report['summary']['modular_route_file_count']);
-        $this->assertSame(21, $report['summary']['loaded_modular_route_file_count']);
+        $this->assertSame(22, $report['summary']['modular_route_file_count']);
+        $this->assertSame(22, $report['summary']['loaded_modular_route_file_count']);
         $this->assertSame(23, $report['summary']['legacy_redirect_count']);
         $this->assertSame(1, $report['summary']['source_literal_duplicate_candidate_count']);
         $this->assertSame(1, $report['summary']['source_literal_duplicate_reviewed_count']);
@@ -65,6 +65,30 @@ final class WebRouteTopologyAuditTest extends TestCase
         $this->assertStringContainsString("->name('configuracoes');", $settingsRoutes);
         $this->assertStringContainsString("->name('configuracoes.clube.update');", $settingsRoutes);
         $this->assertStringContainsString("->name('configuracoes.desportivo.index');", $settingsRoutes);
+    }
+
+    public function test_administrative_website_routes_are_loaded_from_the_dedicated_module(): void
+    {
+        $report = app(RouteTopologyAuditService::class)->report();
+        $routeFiles = collect($report['modularization']['route_files'])->keyBy('path');
+        $webRoutes = File::get(base_path('routes/web.php'));
+        $websiteRoutes = File::get(base_path('routes/web_website.php'));
+
+        $this->assertTrue($routeFiles['routes/web_website.php']['loaded']);
+        $this->assertSame(17, $routeFiles['routes/web_website.php']['route_call_count']);
+        $this->assertStringContainsString("require __DIR__.'/web_website.php';", $webRoutes);
+        $this->assertStringNotContainsString('WebsiteController::class', $webRoutes);
+        $this->assertStringNotContainsString('WebsitePageController::class', $webRoutes);
+        $this->assertStringNotContainsString('WebsiteMediaController::class', $webRoutes);
+        $this->assertStringContainsString('PublicSiteController::class', $webRoutes);
+        $this->assertStringContainsString('PublicFormSubmissionController::class', $webRoutes);
+        $this->assertStringNotContainsString('PublicSiteController::class', $websiteRoutes);
+        $this->assertStringNotContainsString('PublicFormSubmissionController::class', $websiteRoutes);
+        $this->assertStringContainsString("Route::prefix('website')", $websiteRoutes);
+        $this->assertStringContainsString("->middleware('module.access:website')", $websiteRoutes);
+        $this->assertStringContainsString("->name('website.index');", $websiteRoutes);
+        $this->assertStringContainsString("->name('website.pages.update');", $websiteRoutes);
+        $this->assertStringContainsString("->name('website.legacy-redirect');", $websiteRoutes);
     }
 
     public function test_compatibility_redirects_are_modular_and_have_no_first_party_consumers(): void
