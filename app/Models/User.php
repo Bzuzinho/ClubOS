@@ -40,8 +40,6 @@ class User extends Authenticatable
         'escalao',
         'ativo_desportivo',
         'foto_perfil',
-        'encarregado_educacao',
-        'educandos',
         'numero_pmb',
         'data_inscricao',
         'inscricao',

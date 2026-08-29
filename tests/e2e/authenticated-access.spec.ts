@@ -114,6 +114,10 @@ test.describe('authenticated access', () => {
     test('has no serious or critical WCAG A/AA violations on the authenticated dashboard', async ({ page }, testInfo) => {
         await login(page, testInfo);
 
+        // Inertia/NProgress is transient navigation chrome. Wait until it is removed
+        // so axe audits the stable dashboard rather than an in-flight transition.
+        await expect(page.locator('#nprogress')).toHaveCount(0);
+
         const results = await new AxeBuilder({ page })
             .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
             .analyze();

@@ -44,6 +44,15 @@ class UserLegacyMassAssignmentGuardTest extends TestCase
         $this->assertFalse($user->isFillable('data_validade_cc'));
     }
 
+    public function test_user_model_does_not_allow_mass_assignment_for_family_json_mirrors(): void
+    {
+        $user = new User();
+
+        foreach (['encarregado_educacao', 'educandos'] as $field) {
+            $this->assertFalse($user->isFillable($field), sprintf('Expected family JSON mirror [%s] to be guarded in User::$fillable.', $field));
+        }
+    }
+
     public function test_user_model_still_allows_operational_auth_fields(): void
     {
         $user = new User();
@@ -65,8 +74,6 @@ class UserLegacyMassAssignmentGuardTest extends TestCase
             'data_inscricao',
             'tipo_membro',
             'menor',
-            'encarregado_educacao',
-            'educandos',
             'foto_perfil',
         ] as $field) {
             $this->assertTrue($user->isFillable($field), sprintf('Expected [%s] to remain fillable.', $field));
