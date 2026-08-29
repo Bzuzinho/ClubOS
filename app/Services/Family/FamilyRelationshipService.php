@@ -73,6 +73,107 @@ class FamilyRelationshipService
         });
     }
 
+    /**
+     * Replace the complete guardian set for one dependent using only the
+     * canonical user_guardian boundary. Legacy JSON mirrors are not read or
+     * written here.
+     *
+     * @param array<int, mixed> $guardianIds
+     */
+    public function replaceGuardiansForMember(User $member, array $guardianIds): void
+    {
+        $targetIds = $this->normalizeUserIds($guardianIds);
+        $memberId = (string) $member->getKey();
+
+        if (in_array($memberId, $targetIds, true)) {
+            throw ValidationException::withMessages([
+                'encarregado_educacao' => 'Um membro não pode ser encarregado de educação de si próprio.',
+            ]);
+        }
+
+        $currentIds = DB::table('user_guardian')
+            ->where('user_id', $memberId)
+            ->pluck('guardian_id')
+            ->map(static fn ($id): string => (string) $id)
+            ->all();
+
+        $removedIds = array_values(array_diff($currentIds, $targetIds));
+        $addedIds = array_values(array_diff($targetIds, $currentIds));
+
+        $users = User::query()
+            ->whereIn('id', array_values(array_unique(array_merge($removedIds, $addedIds))))
+            ->get()
+            ->keyBy(fn (User $user): string => (string) $user->getKey());
+
+        foreach ($removedIds as $guardianId) {
+            $guardian = $users->get($guardianId);
+            if ($guardian instanceof User) {
+                $this->removeGuardian($member, $guardian);
+            }
+        }
+
+        foreach ($addedIds as $guardianId) {
+            $guardian = $users->get($guardianId);
+            if (! $guardian instanceof User) {
+                throw ValidationException::withMessages([
+                    'encarregado_educacao' => 'Foi indicado um encarregado de educação inexistente.',
+                ]);
+            }
+
+            $this->associateGuardian($member, $guardian);
+        }
+    }
+
+    /**
+     * Replace the complete dependent set for one guardian through the same
+     * canonical user_guardian boundary.
+     *
+     * @param array<int, mixed> $dependentIds
+     */
+    public function replaceDependentsForGuardian(User $guardian, array $dependentIds): void
+    {
+        $targetIds = $this->normalizeUserIds($dependentIds);
+        $guardianId = (string) $guardian->getKey();
+
+        if (in_array($guardianId, $targetIds, true)) {
+            throw ValidationException::withMessages([
+                'educandos' => 'Um membro não pode ser educando de si próprio.',
+            ]);
+        }
+
+        $currentIds = DB::table('user_guardian')
+            ->where('guardian_id', $guardianId)
+            ->pluck('user_id')
+            ->map(static fn ($id): string => (string) $id)
+            ->all();
+
+        $removedIds = array_values(array_diff($currentIds, $targetIds));
+        $addedIds = array_values(array_diff($targetIds, $currentIds));
+
+        $users = User::query()
+            ->whereIn('id', array_values(array_unique(array_merge($removedIds, $addedIds))))
+            ->get()
+            ->keyBy(fn (User $user): string => (string) $user->getKey());
+
+        foreach ($removedIds as $dependentId) {
+            $dependent = $users->get($dependentId);
+            if ($dependent instanceof User) {
+                $this->removeGuardian($dependent, $guardian);
+            }
+        }
+
+        foreach ($addedIds as $dependentId) {
+            $dependent = $users->get($dependentId);
+            if (! $dependent instanceof User) {
+                throw ValidationException::withMessages([
+                    'educandos' => 'Foi indicado um educando inexistente.',
+                ]);
+            }
+
+            $this->associateGuardian($dependent, $guardian);
+        }
+    }
+
     public function addFamilyMember(
         User $member,
         User $relatedMember,
@@ -334,5 +435,19 @@ class FamilyRelationshipService
             'pode_ver_comunicacoes' => true,
             'updated_at' => now(),
         ];
+    }
+
+    /**
+     * @param array<int, mixed> $ids
+     * @return list<string>
+     */
+    private function normalizeUserIds(array $ids): array
+    {
+        return collect($ids)
+            ->map(static fn ($id): string => trim((string) $id))
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
     }
 }
