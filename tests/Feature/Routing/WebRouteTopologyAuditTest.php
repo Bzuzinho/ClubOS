@@ -24,13 +24,17 @@ final class WebRouteTopologyAuditTest extends TestCase
         $this->assertSame(18, $report['summary']['modular_route_file_count']);
         $this->assertSame(18, $report['summary']['loaded_modular_route_file_count']);
         $this->assertSame(23, $report['summary']['legacy_redirect_count']);
-        $this->assertArrayHasKey('store.front.index', $report['contract']['named_routes']);
+        $this->assertArrayNotHasKey('store.front.index', $report['contract']['named_routes']);
         $this->assertArrayHasKey('loja.index', $report['contract']['named_routes']);
-        $this->assertSame('loja', $report['contract']['named_routes']['store.front.index']['uri']);
         $this->assertSame('loja', $report['contract']['named_routes']['loja.index']['uri']);
-        $this->assertTrue(collect($report['duplicates']['source_literal_candidates'])->contains(
+        $lojaCandidate = collect($report['duplicates']['source_literal_candidates'])->first(
             fn (array $candidate): bool => $candidate['method'] === 'GET' && $candidate['uri'] === '/loja',
-        ));
+        );
+        $this->assertNotNull($lojaCandidate);
+        $this->assertSame(
+            ['store.front.index', 'loja.index'],
+            collect($lojaCandidate['occurrences'])->pluck('name')->all(),
+        );
         $this->assertTrue(collect($report['duplicates']['source_literal_candidates'])->contains(
             fn (array $candidate): bool => $candidate['method'] === 'PUT' && $candidate['uri'] === '/configuracoes/clube',
         ));

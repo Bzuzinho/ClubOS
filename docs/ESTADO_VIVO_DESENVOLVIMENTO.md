@@ -643,7 +643,9 @@ Antes de extrair novas áreas de `routes/web.php`, o contract H2.5a:
 - identifica redirects de compatibilidade e consumidores ainda ativos no backend/frontend antes de qualquer aposentação;
 - arquiva o relatório completo como artifact da CI, sem alterar URLs, nomes, middleware, ordem ou comportamento.
 
-O baseline estático atual tem `752` linhas, `325` declarações diretas e `51` imports de controllers em `routes/web.php`, além de `23` redirects. O hash e as contagens runtime finais são capturados pela CI antes de autorizar a extração modular H2.5b.
+O baseline estático atual tem `752` linhas, `325` declarações diretas e `51` imports de controllers em `routes/web.php`, além de `23` redirects. A captura runtime fixa `517` rotas web, `491` nomes efetivos e o hash `8bbfac80f53e31147b1b0cc4715540b67370b08011e4a45a91eba704db787c5b`. O fallback público `public.custom-page` é único e ocupa a posição `507`; dez rotas registadas por providers surgem depois dele, pelo que o contract preserva a ordem real e não assume que o fallback é fisicamente o último.
+
+A auditoria não encontrou colisões método+URI no router efetivo, mas sinalizou três candidatos literais no source para classificação antes da extração. Entre eles, as duas declarações `GET /loja` mostram que `store.front.index` é sobrescrito por `loja.index` no lookup nominal; não existe autorização para apagar ou recriar esse alias silenciosamente. Permanecem também três consumidores frontend de redirects legacy (`/marketing` e `/settings`) em `resources/js/Layouts/Spark/AppLayout.tsx`, que devem migrar para os destinos canónicos antes de qualquer aposentação.
 
 ---
 

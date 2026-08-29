@@ -230,7 +230,7 @@ final class RouteTopologyAuditService
             ->all();
     }
 
-    /** @return list<array{method:string,uri:string,occurrences:list<array{line:int}>}> */
+    /** @return list<array{method:string,uri:string,occurrences:list<array{line:int,name:?string}>}> */
     private function sourceLiteralDuplicateCandidates(): array
     {
         $lines = preg_split('/\R/', File::get(base_path('routes/web.php'))) ?: [];
@@ -245,6 +245,9 @@ final class RouteTopologyAuditService
                 'method' => strtoupper($match[1]),
                 'uri' => $match[2],
                 'line' => $index + 1,
+                'name' => preg_match('/->name\(\s*[\'\"]([^\'\"]+)[\'\"]\s*\)/', $line, $nameMatch) === 1
+                    ? $nameMatch[1]
+                    : null,
             ];
         }
 
@@ -254,7 +257,10 @@ final class RouteTopologyAuditService
             ->map(static fn ($group): array => [
                 'method' => $group->first()['method'],
                 'uri' => $group->first()['uri'],
-                'occurrences' => $group->map(static fn (array $route): array => ['line' => $route['line']])->values()->all(),
+                'occurrences' => $group->map(static fn (array $route): array => [
+                    'line' => $route['line'],
+                    'name' => $route['name'],
+                ])->values()->all(),
             ])
             ->values()
             ->all();
