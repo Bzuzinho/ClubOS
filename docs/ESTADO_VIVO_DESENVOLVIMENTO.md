@@ -588,6 +588,18 @@ PR #237 merged em `d7701cbe05c62b994643c6c91cf859fc199787a2`; CI #933 totalmente
 
 A frente estrutural Família/EE fica encerrada. Alterações futuras nesta área devem preservar estas três estruturas canónicas e tratar apenas evolução funcional/UX, sem reintroduzir mirrors ou relações paralelas.
 
+### H2.4a — Readiness produtiva do stock por variante — em curso
+
+Antes de alterar o ledger ou fazer backfill, `inventory:audit-variant-stock-readiness` recolhe apenas métricas agregadas e read-only sobre:
+
+- variantes ativas, snapshots físicos/reservados e estados inválidos;
+- diferença diagnóstica entre o snapshot agregado de `products` e a soma de `product_variants`;
+- encomendas históricas com variante e correspondência exata, ausente, duplicada ou com quantidade divergente face às saídas `store_order_item`;
+- referências produto↔variante incoerentes e presença/ausência de dimensão de variante em `stock_movements`;
+- fronteiras conhecidas de escrita direta no catálogo e na baixa de venda.
+
+O deploy arquiva `variant-stock-production-readiness-*` sem IDs de linhas/utilizadores, sem findings detalhados e sem executar backfill ou alteração de schema. Os resultados produtivos determinam se H2.4b pode estender o ledger de forma determinística ou se exige reconciliação prévia.
+
 ---
 
 ## 7. Dívida estrutural prioritária
@@ -615,7 +627,7 @@ A frente estrutural Família/EE fica encerrada. Alterações futuras nesta área
 | 7 | H8 | Reporting consolidado. |
 | 8 | H9 | Website: header/footer, notícias e polish final. |
 
-Próximo passo ativo: H2.4 — consolidar `product_variants.stock` no ledger canónico ou formalizar variantes/SKU como entidade física de inventário, começando por inventário de consumidores e invariantes antes de qualquer alteração destrutiva. Família/EE está estruturalmente fechada. A ação operacional Cloudflare R2 permanece pendência externa separada. A matriz H1.17/H1.18 deve ser expandida dentro de cada workstream funcional.
+Próximo passo ativo: H2.4a — deployar `inventory:audit-variant-stock-readiness`, recolher as métricas produtivas minimizadas e só então desenhar H2.4b para integrar `product_variants.stock` no ledger. Família/EE está estruturalmente fechada. A ação operacional Cloudflare R2 permanece pendência externa separada. A matriz H1.17/H1.18 deve ser expandida dentro de cada workstream funcional.
 
 ---
 
