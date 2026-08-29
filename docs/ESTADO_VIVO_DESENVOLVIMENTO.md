@@ -649,6 +649,19 @@ A auditoria não encontrou colisões método+URI no router efetivo, mas sinalizo
 
 PR #243 merged em `358667428714cf8d293c87469a558763e237a531`; CI #950 totalmente verde na PR e CI #951 totalmente verde em `main`, incluindo PostgreSQL, browser QA e deploy para a Oracle VM. O artifact `web-route-topology-358667428714cf8d293c87469a558763e237a531` confirma o mesmo hash e as mesmas contagens após o merge. H2.5a fica encerrada como auditoria read-only: nenhuma rota, URL, middleware ou ordem foi alterada.
 
+### H2.5b — Primeira extração modular de rotas — em curso
+
+O primeiro lote controlado:
+
+- extrai os 22 redirects ingleses de compatibilidade para `routes/web_compatibility.php`, mantendo o `require` na posição original;
+- preserva o redirect autenticado `/portal/loja` junto das rotas do Portal, totalizando os mesmos 23 redirects;
+- migra os três consumidores first-party de `/marketing` e `/settings` no `Spark/AppLayout` para `/campanhas-marketing` e `/configuracoes`;
+- bloqueia em CI qualquer novo consumidor first-party desses redirects;
+- classifica os três candidatos literais: `GET /` corresponde a cinco rotas distintas sob prefixes; `GET /loja` e `PUT /configuracoes/clube` são aliases declarados duas vezes, com apenas o último nome resolvido pelo router;
+- mantém como condição de aceitação o hash H2.5a, as 517 rotas, os 491 nomes, a ordem, middleware, constraints e fallback.
+
+Nenhum redirect ou alias é aposentado neste lote. A compatibilidade externa permanece disponível enquanto a modularização elimina dependências internas.
+
 ---
 
 ## 7. Dívida estrutural prioritária

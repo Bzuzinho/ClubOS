@@ -26,6 +26,7 @@ final class RouteTopologyAuditService
         $duplicates = $this->duplicateSignatureGroups($routes);
         $duplicateNames = $this->duplicateNameGroups($routes);
         $sourceDuplicateCandidates = $this->sourceLiteralDuplicateCandidates();
+        $reviewedSourceClassifications = $this->reviewedSourceLiteralDuplicateClassifications($sourceDuplicateCandidates);
         $redirects = $this->legacyRedirects();
         $legacyConsumers = $this->legacyRedirectConsumers($redirects);
         $routeFiles = $this->routeFiles();
@@ -51,6 +52,12 @@ final class RouteTopologyAuditService
                 'duplicate_signature_group_count' => count($duplicates),
                 'duplicate_name_group_count' => count($duplicateNames),
                 'source_literal_duplicate_candidate_count' => count($sourceDuplicateCandidates),
+                'source_literal_duplicate_reviewed_count' => collect($reviewedSourceClassifications)
+                    ->where('classification', '!=', 'unclassified')
+                    ->count(),
+                'source_literal_duplicate_unclassified_count' => collect($reviewedSourceClassifications)
+                    ->where('classification', 'unclassified')
+                    ->count(),
                 'legacy_redirect_count' => count($redirects),
                 'legacy_redirect_consumer_count' => count($legacyConsumers),
                 'legacy_named_boundary_count' => count($this->legacyNamedBoundaries($routes)),
@@ -78,6 +85,7 @@ final class RouteTopologyAuditService
                 'method_uri_groups' => $duplicates,
                 'name_groups' => $duplicateNames,
                 'source_literal_candidates' => $sourceDuplicateCandidates,
+                'reviewed_source_classifications' => $reviewedSourceClassifications,
             ],
             'legacy' => [
                 'redirects' => $redirects,
@@ -98,6 +106,9 @@ final class RouteTopologyAuditService
                 'no_routes_changed' => true,
                 'duplicate_signatures_require_classification_before_extraction' => true,
                 'source_literal_duplicates_are_candidates_not_runtime_findings' => true,
+                'all_source_literal_duplicate_candidates_reviewed' => collect($reviewedSourceClassifications)
+                    ->where('classification', 'unclassified')
+                    ->isEmpty(),
                 'legacy_redirects_require_zero_runtime_consumers_before_retirement' => true,
             ],
         ];
@@ -266,26 +277,81 @@ final class RouteTopologyAuditService
             ->all();
     }
 
-    /** @return list<array{source:string,target:string,status:int}> */
+    /**
+     * @param list<array{method:string,uri:string,occurrences:list<array{line:int,name:?string}>}> $candidates
+     * @return list<array<string,mixed>>
+     */
+    private function reviewedSourceLiteralDuplicateClassifications(array $candidates): array
+    {
+        $reviews = [
+            'GET /' => [
+                'classification' => 'prefix_scoped_distinct_routes',
+                'decision' => 'preserve',
+                'effective_uris' => ['/', 'website', 'desportivo', 'logistica', 'admin/loja'],
+                'effective_names' => ['public.home', 'website.index', 'desportivo.index', 'logistica.index', 'admin.loja.index'],
+            ],
+            'GET /loja' => [
+                'classification' => 'shadowed_named_alias',
+                'decision' => 'preserve_current_lookup',
+                'effective_uri' => 'loja',
+                'effective_name' => 'loja.index',
+                'shadowed_name' => 'store.front.index',
+            ],
+            'PUT /configuracoes/clube' => [
+                'classification' => 'shadowed_named_alias',
+                'decision' => 'preserve_current_lookup',
+                'effective_uri' => 'configuracoes/clube',
+                'effective_name' => 'configuracoes.clube.update',
+                'shadowed_name' => 'configuracoes.club.update',
+            ],
+        ];
+
+        return collect($candidates)->map(static function (array $candidate) use ($reviews): array {
+            $key = $candidate['method'].' '.$candidate['uri'];
+
+            return [
+                'method' => $candidate['method'],
+                'uri' => $candidate['uri'],
+                'occurrences' => $candidate['occurrences'],
+                ...($reviews[$key] ?? [
+                    'classification' => 'unclassified',
+                    'decision' => 'block_extraction',
+                ]),
+            ];
+        })->values()->all();
+    }
+
+    /** @return list<array{source:string,target:string,status:int,declared_in:string}> */
     private function legacyRedirects(): array
     {
-        $contents = File::get(base_path('routes/web.php'));
-        preg_match_all(
-            '/Route::redirect\(\s*[\'\"]([^\'\"]+)[\'\"]\s*,\s*[\'\"]([^\'\"]+)[\'\"](?:\s*,\s*(\d+))?\s*\)/',
-            $contents,
-            $matches,
-            PREG_SET_ORDER,
-        );
+        $sources = collect([[
+            'path' => 'routes/web.php',
+            'loaded' => true,
+        ]])->concat($this->routeFiles())
+            ->where('loaded', true)
+            ->unique('path')
+            ->values();
 
-        return collect($matches)->map(static fn (array $match): array => [
-            'source' => $match[1],
-            'target' => $match[2],
-            'status' => isset($match[3]) && $match[3] !== '' ? (int) $match[3] : 302,
-        ])->values()->all();
+        return $sources->flatMap(static function (array $source): array {
+            $contents = File::get(base_path($source['path']));
+            preg_match_all(
+                '/Route::redirect\(\s*[\'\"]([^\'\"]+)[\'\"]\s*,\s*[\'\"]([^\'\"]+)[\'\"](?:\s*,\s*(\d+))?\s*\)/',
+                $contents,
+                $matches,
+                PREG_SET_ORDER,
+            );
+
+            return collect($matches)->map(static fn (array $match): array => [
+                'source' => $match[1],
+                'target' => $match[2],
+                'status' => isset($match[3]) && $match[3] !== '' ? (int) $match[3] : 302,
+                'declared_in' => $source['path'],
+            ])->all();
+        })->values()->all();
     }
 
     /**
-     * @param list<array{source:string,target:string,status:int}> $redirects
+     * @param list<array{source:string,target:string,status:int,declared_in:string}> $redirects
      * @return list<array{source:string,path:string,line:int}>
      */
     private function legacyRedirectConsumers(array $redirects): array
