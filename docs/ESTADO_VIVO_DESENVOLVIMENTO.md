@@ -649,7 +649,7 @@ A auditoria não encontrou colisões método+URI no router efetivo, mas sinalizo
 
 PR #243 merged em `358667428714cf8d293c87469a558763e237a531`; CI #950 totalmente verde na PR e CI #951 totalmente verde em `main`, incluindo PostgreSQL, browser QA e deploy para a Oracle VM. O artifact `web-route-topology-358667428714cf8d293c87469a558763e237a531` confirma o mesmo hash e as mesmas contagens após o merge. H2.5a fica encerrada como auditoria read-only: nenhuma rota, URL, middleware ou ordem foi alterada.
 
-### H2.5b — Primeira extração modular de rotas — em curso
+### H2.5b — Primeira extração modular de rotas — concluída
 
 O primeiro lote controlado:
 
@@ -661,6 +661,8 @@ O primeiro lote controlado:
 - mantém como condição de aceitação o hash H2.5a, as 517 rotas, os 491 nomes, a ordem, middleware, constraints e fallback.
 
 Nenhum redirect ou alias é aposentado neste lote. A compatibilidade externa permanece disponível enquanto a modularização elimina dependências internas.
+
+PR #245 merged em `3940b30138d823b843d0410bf982cd1791f32150`; CI #954 totalmente verde na PR e CI #955 totalmente verde em `main`, incluindo PostgreSQL, browser QA e deploy para a Oracle VM. O artifact `web-route-topology-3940b30138d823b843d0410bf982cd1791f32150` confirmou em produção de CI: hash H2.5a inalterado, `517` rotas, `491` nomes, `19/19` ficheiros modulares carregados, `23` redirects preservados, `0` consumidores first-party e `3/3` candidatos classificados. `routes/web.php` desceu para `729` linhas e `303` declarações diretas sem alterar comportamento runtime.
 
 ---
 
@@ -688,7 +690,7 @@ Nenhum redirect ou alias é aposentado neste lote. A compatibilidade externa per
 | 7 | H8 | Reporting consolidado. |
 | 8 | H9 | Website: header/footer, notícias e polish final. |
 
-Próximo passo ativo: H2.5b — executar a primeira extração modular controlada de `routes/web.php` sob o contract H2.5a. O lote deve começar por fronteiras de baixo acoplamento, migrar os consumidores frontend de `/marketing` e `/settings` para os destinos canónicos e classificar os três candidatos duplicados antes de lhes tocar. O hash, a ordem efetiva, os 491 nomes resolvidos e o fallback público devem permanecer idênticos; qualquer mudança intencional exige revisão explícita do baseline. Stock por variante e Família/EE estão estruturalmente fechados. A ação operacional Cloudflare R2 permanece pendência externa separada. A matriz H1.17/H1.18 deve ser expandida dentro de cada workstream funcional.
+Próximo passo ativo: H2.5c — preparar o segundo lote modular e retirar as duas declarações shadowed (`store.front.index` e `configuracoes.club.update`) apenas depois de confirmar consumo zero no repositório. A extração seguinte deve privilegiar outra fronteira de baixo acoplamento, reduzir imports e declarações de `routes/web.php` e conservar o hash H2.5a, ordem, middleware, constraints, nomes efetivos e fallback. Os 23 redirects externos permanecem ativos; a sua aposentação exige evidência externa própria. Stock por variante e Família/EE estão estruturalmente fechados. A ação operacional Cloudflare R2 permanece pendência externa separada. A matriz H1.17/H1.18 deve ser expandida dentro de cada workstream funcional.
 
 ---
 
@@ -696,6 +698,7 @@ Próximo passo ativo: H2.5b — executar a primeira extração modular controlad
 
 | Data | Módulo | Desenvolvimento / análise | Evidência | Estado / pendências |
 |---|---|---|---|---|
+| 2026-08-29 | Rotas / Legacy transversal | H2.5b extraiu os 22 redirects ingleses para um módulo dedicado, migrou todos os consumidores first-party para URLs canónicas e classificou os três candidatos duplicados sem alterar o router efetivo. | PR #245; CI #954/#955; merge `3940b30138d823b843d0410bf982cd1791f32150`; artifact `web-route-topology-3940b30138d823b843d0410bf982cd1791f32150` | Integrado e deployado; hash preservado, 517 rotas, 491 nomes, 19/19 módulos, 23 redirects, 0 consumidores internos e 0 candidatos por classificar. H2.5c avança para aliases shadowed e segundo lote modular. |
 | 2026-08-29 | Rotas / Legacy transversal | H2.5a instalou auditoria read-only e contract SHA-256 da topologia web, incluindo ordem, lookup nominal, middleware, constraints, fallback, redirects, consumidores legacy e ficheiros modulares. | PR #243; CI #950/#951; merge `358667428714cf8d293c87469a558763e237a531`; artifact `web-route-topology-358667428714cf8d293c87469a558763e237a531` | Integrado e deployado; 517 rotas, 491 nomes, 18/18 módulos carregados e fallback único. H2.5b pode iniciar a primeira extração controlada, preservando o contract e classificando os candidatos duplicados. |
 | 2026-08-29 | Inventário / Loja | H2.4b acrescentou a dimensão nullable de variante ao ledger, tornou produto+variante atómicos, converteu baixas e ajustes manuais para o boundary canónico e eliminou os dois writers diretos. | PR #241; CI #944/#945; merge `f8ce467a51c6d605fc3fb62f0fc64585614e1106`; artifact `variant-stock-production-readiness-f8ce467a51c6d605fc3fb62f0fc64585614e1106` | Integrado e deployado; coluna presente, 0 writers diretos, 0 inconsistências e nenhum backfill necessário. Frente estrutural encerrada; H2.5a avança para legacy transversal e rotas modulares. |
 | 2026-08-29 | Inventário / Loja | H2.4a instalou auditoria produtiva agregada/read-only para stock por variante e confirmou ausência total de variantes e histórico associado. | PR #239; CI #938/#939; merge `6972a7aa9e859afe0764c2242b143aa83d110b84`; artifact `variant-stock-production-readiness-6972a7aa9e859afe0764c2242b143aa83d110b84` | Deployado; 0 variantes, 0 incoerências, 2 writers diretos conhecidos e `ready_for_design=true`. H2.4b avança sem backfill. |
