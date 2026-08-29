@@ -14,25 +14,14 @@ class FamilyCanonicalBulkReplacementTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_replacing_guardians_updates_only_canonical_relation_and_preserves_json_mirrors(): void
+    public function test_replacing_guardians_updates_only_canonical_relation(): void
     {
         $member = User::factory()->athlete()->create();
         $firstGuardian = User::factory()->create();
         $secondGuardian = User::factory()->create();
 
-        DB::table('users')->where('id', $member->id)->update([
-            'encarregado_educacao' => json_encode([$firstGuardian->id]),
-        ]);
-        DB::table('users')->where('id', $firstGuardian->id)->update([
-            'educandos' => json_encode([$member->id]),
-        ]);
-
         $service = app(FamilyRelationshipService::class);
         $service->associateGuardian($member, $firstGuardian);
-
-        $memberMirrorBefore = DB::table('users')->where('id', $member->id)->value('encarregado_educacao');
-        $firstGuardianMirrorBefore = DB::table('users')->where('id', $firstGuardian->id)->value('educandos');
-        $secondGuardianMirrorBefore = DB::table('users')->where('id', $secondGuardian->id)->value('educandos');
 
         $service->replaceGuardiansForMember($member, [$secondGuardian->id]);
 
@@ -44,19 +33,6 @@ class FamilyCanonicalBulkReplacementTest extends TestCase
             'user_id' => $member->id,
             'guardian_id' => $secondGuardian->id,
         ]);
-
-        $this->assertSame(
-            $memberMirrorBefore,
-            DB::table('users')->where('id', $member->id)->value('encarregado_educacao'),
-        );
-        $this->assertSame(
-            $firstGuardianMirrorBefore,
-            DB::table('users')->where('id', $firstGuardian->id)->value('educandos'),
-        );
-        $this->assertSame(
-            $secondGuardianMirrorBefore,
-            DB::table('users')->where('id', $secondGuardian->id)->value('educandos'),
-        );
     }
 
     public function test_replacing_dependents_uses_same_canonical_guardian_relation(): void

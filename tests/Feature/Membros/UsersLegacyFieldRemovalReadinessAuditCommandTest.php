@@ -74,13 +74,14 @@ final class UsersLegacyFieldRemovalReadinessAuditCommandTest extends TestCase
         $payload = $this->decodeArtisanJsonOutput(Artisan::output());
         $fields = $this->indexFieldsByName($payload['fields'] ?? []);
 
-        foreach (['nome_completo', 'contacto', 'nif', 'rgpd', 'num_federacao', 'ativo_desportivo', 'encarregado_educacao'] as $requiredField) {
+        foreach (['nome_completo', 'contacto', 'nif', 'rgpd', 'num_federacao', 'ativo_desportivo'] as $requiredField) {
             $this->assertArrayHasKey($requiredField, $fields);
         }
 
         $this->assertSame('keep_operational_explicit', $fields['name']['removal_status'] ?? null);
         $this->assertSame('keep_operational_explicit', $fields['ativo_desportivo']['removal_status'] ?? null);
-        $this->assertSame('keep_operational_explicit', $fields['encarregado_educacao']['removal_status'] ?? null);
+        $this->assertArrayNotHasKey('encarregado_educacao', $fields);
+        $this->assertArrayNotHasKey('educandos', $fields);
         $this->assertSame('candidate_after_legacy_write_cleanup', $fields['nome_completo']['removal_status'] ?? null);
         $this->assertSame('dados_pessoais', $fields['nome_completo']['canonical_area'] ?? null);
         $this->assertSame('candidate_after_legacy_write_cleanup', $fields['rgpd']['removal_status'] ?? null);

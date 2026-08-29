@@ -425,7 +425,6 @@ class MembrosController extends Controller
             'eventsCreated',
             'eventAttendances',
             'documents',
-            'relationships.relatedUser',
             'dadosFinanceiros',
             'centrosCusto',
         ]);

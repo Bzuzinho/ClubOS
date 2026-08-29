@@ -87,8 +87,6 @@ class User extends Authenticatable
             // JSON
             'tipo_membro' => 'array',
             'escalao' => 'array',
-            'encarregado_educacao' => 'array',
-            'educandos' => 'array',
             'arquivo_atestado_medico' => 'array',
             // Integers
             'numero_irmaos' => 'integer',
@@ -273,16 +271,6 @@ class User extends Authenticatable
     public function documents(): HasMany
     {
         return $this->hasMany(UserDocument::class);
-    }
-
-    public function relationships(): HasMany
-    {
-        return $this->hasMany(UserRelationship::class);
-    }
-
-    public function relatedToMe(): HasMany
-    {
-        return $this->hasMany(UserRelationship::class, 'related_user_id');
     }
 
     public function userTypes(): BelongsToMany

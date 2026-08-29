@@ -10,7 +10,6 @@ use App\Http\Controllers\MembrosController;
 use App\Http\Controllers\MemberFamilyRelationsController;
 use App\Http\Controllers\MembrosImportController;
 use App\Http\Controllers\DocumentosMembrosController;
-use App\Http\Controllers\RelacoesMembroController;
 use App\Http\Controllers\EventosController;
 use App\Http\Controllers\DesportivoController;
 use App\Http\Controllers\FinanceiroController;
@@ -274,15 +273,6 @@ Route::middleware(['auth', 'verified'])->group(function () {
             ->middleware('permission.access:membros.ficha,delete')
             ->name('membros.documentos.destroy');
         
-        Route::get('relacoes', [RelacoesMembroController::class, 'index'])
-            ->middleware('permission.access:membros.ficha,view')
-            ->name('membros.relacoes.index');
-        Route::post('relacoes', [RelacoesMembroController::class, 'store'])
-            ->middleware('permission.access:membros.ficha,edit')
-            ->name('membros.relacoes.store');
-        Route::delete('relacoes/{relationship}', [RelacoesMembroController::class, 'destroy'])
-            ->middleware('permission.access:membros.ficha,delete')
-            ->name('membros.relacoes.destroy');
         Route::post('send-access-email', [MembrosController::class, 'sendAccessEmail'])
             ->middleware('permission.access:membros.ficha,edit')
             ->name('membros.send-access-email');

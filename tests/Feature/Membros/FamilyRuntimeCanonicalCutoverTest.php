@@ -16,11 +16,10 @@ final class FamilyRuntimeCanonicalCutoverTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_opening_member_record_does_not_reconcile_stale_json_into_canonical_guardian_relation(): void
+    public function test_opening_member_record_reads_canonical_guardian_relation_without_mutation(): void
     {
         $member = User::factory()->athlete()->create();
         $canonicalGuardian = User::factory()->create();
-        $staleLegacyGuardian = User::factory()->create();
 
         DB::table('user_guardian')->insert([
             'id' => (string) Str::uuid(),
@@ -28,10 +27,6 @@ final class FamilyRuntimeCanonicalCutoverTest extends TestCase
             'guardian_id' => $canonicalGuardian->id,
             'created_at' => now(),
             'updated_at' => now(),
-        ]);
-
-        DB::table('users')->where('id', $member->id)->update([
-            'encarregado_educacao' => json_encode([$staleLegacyGuardian->id], JSON_THROW_ON_ERROR),
         ]);
 
         $response = $this->actingAs($member)
@@ -44,9 +39,6 @@ final class FamilyRuntimeCanonicalCutoverTest extends TestCase
             'user_id' => $member->id,
             'guardian_id' => $canonicalGuardian->id,
         ]);
-        $this->assertDatabaseMissing('user_guardian', [
-            'user_id' => $member->id,
-            'guardian_id' => $staleLegacyGuardian->id,
-        ]);
+        $this->assertSame(1, DB::table('user_guardian')->where('user_id', $member->id)->count());
     }
 }

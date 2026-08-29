@@ -106,11 +106,9 @@ return [
             ],
         ],
         'relationship_family_operational_keep' => [
-            'description' => 'Campos operacionais para relações familiares e educação.',
+            'description' => 'Campo operacional do estado de menor; relações Família/EE vivem nas tabelas canónicas.',
             'fields' => [
                 'menor',
-                'encarregado_educacao',
-                'educandos',
             ],
         ],
         'files_or_historical_review' => [
@@ -190,8 +188,6 @@ return [
         'data_inscricao' => 'sports_operational_keep',
         'tipo_membro' => 'sports_operational_keep',
         'menor' => 'relationship_family_operational_keep',
-        'encarregado_educacao' => 'relationship_family_operational_keep',
-        'educandos' => 'relationship_family_operational_keep',
         'foto_perfil' => 'files_or_historical_review',
         'telefone' => 'unknown_review',
         'numero_cartao_cidadao' => 'unknown_review',
