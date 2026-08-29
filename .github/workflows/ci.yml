@@ -420,6 +420,52 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+      - name: Collect variant stock production readiness audit
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          local_report="${GITHUB_WORKSPACE}/variant-stock-readiness.json"
+          remote_report="/tmp/clubos-variant-stock-readiness-${GITHUB_SHA}.json"
+
+          ssh \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="${HOME}/.ssh/known_hosts" \
+            "${VM_USER}@${VM_HOST}" \
+            "cd '${VM_APP_DIR}' && php artisan inventory:audit-variant-stock-readiness --json --report-path='${remote_report}' >/dev/null && cat '${remote_report}' && rm -f '${remote_report}'" \
+            > "${local_report}"
+
+          jq -e '
+            .version == "variant-stock-readiness-v1"
+            and .read_only == true
+            and .schema_detected.required_source_schema_present == true
+            and .interpretation.no_backfill_or_schema_change_performed == true
+          ' "${local_report}" >/dev/null
+
+          {
+            echo '## Variant stock production readiness audit'
+            echo ''
+            echo "- Commit: \`${GITHUB_SHA}\`"
+            echo "- Variants: \`$(jq -r '.summary.variant_count' "${local_report}")\`"
+            echo "- Tracked products with variants: \`$(jq -r '.summary.tracked_product_with_variants_count' "${local_report}")\`"
+            echo "- Aggregate snapshot differences: \`$(jq -r '.summary.product_variant_aggregate_mismatch_count' "${local_report}")\`"
+            echo "- Historical variant order items: \`$(jq -r '.summary.variant_order_item_count' "${local_report}")\`"
+            echo "- Exactly attributable exits: \`$(jq -r '.summary.variant_order_item_exact_exit_count' "${local_report}")\`"
+            echo "- Missing/duplicate/quantity-mismatch exits: \`$(jq -r '(.summary.variant_order_item_missing_exit_count|tostring) + "/" + (.summary.variant_order_item_duplicate_exit_count|tostring) + "/" + (.summary.variant_order_item_quantity_mismatch_count|tostring)' "${local_report}")\`"
+            echo "- Invalid product/variant references: \`$(jq -r '.summary.invalid_product_variant_reference_count' "${local_report}")\`"
+            echo "- Known direct variant stock writers: \`$(jq -r '.summary.known_direct_variant_stock_writer_count' "${local_report}")\`"
+            echo '- Artifact contains aggregate counts only; no row or user identifiers.'
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload variant stock production readiness audit
+        uses: actions/upload-artifact@v7
+        with:
+          name: variant-stock-production-readiness-${{ github.sha }}
+          path: variant-stock-readiness.json
+          if-no-files-found: error
+          retention-days: 30
+
       - name: Gate Access Control critical findings
         if: steps.access_control_audit.outcome == 'success'
         shell: bash
