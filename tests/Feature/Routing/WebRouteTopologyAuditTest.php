@@ -21,8 +21,8 @@ final class WebRouteTopologyAuditTest extends TestCase
         $this->assertFalse($report['summary']['fallback_registered_last']);
         $this->assertSame('public.custom-page', $report['contract']['fallback_name']);
         $this->assertMatchesRegularExpression('/^[a-f0-9]{64}$/', $report['contract']['hash']);
-        $this->assertSame(20, $report['summary']['modular_route_file_count']);
-        $this->assertSame(20, $report['summary']['loaded_modular_route_file_count']);
+        $this->assertSame(21, $report['summary']['modular_route_file_count']);
+        $this->assertSame(21, $report['summary']['loaded_modular_route_file_count']);
         $this->assertSame(23, $report['summary']['legacy_redirect_count']);
         $this->assertSame(1, $report['summary']['source_literal_duplicate_candidate_count']);
         $this->assertSame(1, $report['summary']['source_literal_duplicate_reviewed_count']);
@@ -47,6 +47,24 @@ final class WebRouteTopologyAuditTest extends TestCase
         $this->assertTrue($report['interpretation']['no_routes_changed']);
         $this->assertTrue($report['interpretation']['all_source_literal_duplicate_candidates_reviewed']);
         $this->assertTrue($report['interpretation']['retired_shadowed_aliases_have_zero_first_party_references']);
+    }
+
+    public function test_settings_routes_are_loaded_from_the_dedicated_module(): void
+    {
+        $report = app(RouteTopologyAuditService::class)->report();
+        $routeFiles = collect($report['modularization']['route_files'])->keyBy('path');
+        $webRoutes = File::get(base_path('routes/web.php'));
+        $settingsRoutes = File::get(base_path('routes/web_settings.php'));
+
+        $this->assertTrue($routeFiles['routes/web_settings.php']['loaded']);
+        $this->assertSame(68, $routeFiles['routes/web_settings.php']['route_call_count']);
+        $this->assertStringContainsString("require __DIR__.'/web_settings.php';", $webRoutes);
+        $this->assertStringNotContainsString('ConfiguracoesController::class', $webRoutes);
+        $this->assertStringNotContainsString('ConfiguracoesDesportivoController::class', $webRoutes);
+        $this->assertStringContainsString("Route::middleware('module.access:configuracoes')", $settingsRoutes);
+        $this->assertStringContainsString("->name('configuracoes');", $settingsRoutes);
+        $this->assertStringContainsString("->name('configuracoes.clube.update');", $settingsRoutes);
+        $this->assertStringContainsString("->name('configuracoes.desportivo.index');", $settingsRoutes);
     }
 
     public function test_compatibility_redirects_are_modular_and_have_no_first_party_consumers(): void
