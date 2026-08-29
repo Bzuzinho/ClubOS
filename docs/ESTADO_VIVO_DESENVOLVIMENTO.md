@@ -45,9 +45,9 @@ Stack produtiva: Laravel 13, PHP 8.3, React 19 + TypeScript, Inertia 2, Vite, Po
 | Website público / construtor | 86% | Renderer, snapshots, publicação e dados dinâmicos avançados. Faltam header/footer globais, notícias completas e validação runtime multi-viewport. |
 | Autenticação / Access Control | 78% | Auditoria e gates produtivos ativos. Zero findings críticos e zero rotas mutáveis sem `module.access`. H1.18 cobre rota protegida, intended redirect, login válido/inválido, logout e recuperação de password em Chromium/Firefox/WebKit desktop e Pixel/iPhone. Permanecem 83 warnings de capability granular e falta matriz por perfis não-admin. |
 | Dashboard / entrada por perfil | 70% | Funcional, com leituras canónicas financeiras. H1.18 valida Dashboard autenticado admin, overflow e WCAG A/AA; o gate foi estabilizado para auditar o estado final após desaparecer o progress transitório Inertia/NProgress, mantendo todas as regras axe. Falta QA final por restantes perfis e operações específicas. |
-| Portal atleta / família | 64% | Estrutura funcional. H2.1–H2.3b reforçaram a base relacional Família/EE e removeram o fallback runtime dos mirrors JSON; falta fecho mobile/PWA, UX e validação sistemática. |
-| Membros / Pessoas | 89% | Normalização avançada. Família/EE ficou consolidada em `user_guardian` + `familias/familia_user`; os mirrors JSON e `user_relationships` foram aprovados para remoção por auditoria produtiva integralmente limpa. O contract físico H2.3d remove as estruturas aposentadas, casts, rotas e classes legacy e acrescenta gate de schema final. |
-| Família / EE / educandos | 90% | `familias/familia_user` é o agregado familiar canónico e `user_guardian` a relação explícita EE↔educando. A auditoria H2.3c provou 12/12 pares históricos cobertos e zero findings; H2.3d elimina fisicamente `user_relationships`, `users.encarregado_educacao` e `users.educandos`, mantendo apenas DTOs/nomes relacionais ainda funcionais. Falta apenas validação final do deploy desta migration. |
+| Portal atleta / família | 64% | Estrutura funcional. H2.1–H2.3d fecharam a base relacional Família/EE e removeram as estruturas legacy; falta fecho mobile/PWA, UX e validação sistemática do Portal. |
+| Membros / Pessoas | 91% | Normalização avançada. Família/EE está consolidada em `user_guardian` + `familias/familia_user`; H2.3d removeu fisicamente mirrors JSON, `user_relationships`, casts, rotas e classes legacy e deixou um gate produtivo permanente de schema final. |
+| Família / EE / educandos | 95% | Estruturalmente fechada: `familias/familia_user` é o agregado familiar canónico e `user_guardian` a relação explícita EE↔educando. Produção confirma as 3 estruturas canónicas presentes, zero estruturas legacy e `ready=true`. Permanecem apenas melhorias funcionais de UX/Portal, não dívida de fonte de verdade. |
 | Desportivo global | 70% | Análise transversal read-only consolidada sobre Treino/Cais/Live/Avaliações/Resultados, com proveniência, splits e export CSV; endpoints legacy Performance já retirados do routing runtime na PR #227. Principal frente por fechar: fluxo ponta a ponta, Portal, reporting consolidado e legacy cleanup. |
 | Planeamento desportivo | 65% | Base sólida; falta fechar UX, integrações e reporting. |
 | Treinos / presenças / Cais | 70% | Núcleo funcional forte; falta consolidar fluxo ponta a ponta e QA operacional. |
@@ -580,11 +580,18 @@ Com o gate produtivo limpo, o contract final:
 - mantém `user_guardian`, `familias` e `familia_user` como estruturas obrigatórias;
 - acrescenta testes de ausência física, rotas canónicas e gate pós-deploy sem dados de linha.
 
+PR #237 merged em `d7701cbe05c62b994643c6c91cf859fc199787a2`; CI #933 totalmente verde na PR e CI #934 totalmente verde em `main`, incluindo PostgreSQL, browser QA e deploy para a Oracle VM. O artifact produtivo `family-final-schema-d7701cbe05c62b994643c6c91cf859fc199787a2` confirmou:
+
+- `3/3` estruturas canónicas presentes (`user_guardian`, `familias`, `familia_user`);
+- `0` estruturas legacy presentes;
+- `ready=true` e auditoria read-only.
+
+A frente estrutural Família/EE fica encerrada. Alterações futuras nesta área devem preservar estas três estruturas canónicas e tratar apenas evolução funcional/UX, sem reintroduzir mirrors ou relações paralelas.
+
 ---
 
 ## 7. Dívida estrutural prioritária
 
-- Família/EE: fechar CI/deploy da H2.3d e confirmar o artifact `family-final-schema`; depois considerar esta frente estrutural encerrada.
 - Inventário: integrar `product_variants.stock` no ledger canónico ou transformar variantes/SKU em entidade física de inventário.
 - Desportivo: fechar fluxo Planeamento → Treino → Cais → Live → Presenças → Competições → Resultados → Portal → reporting → legacy cleanup.
 - Eventos: remover estruturas de compatibilidade sem consumo e criar contract tests com Desportivo.
@@ -599,7 +606,7 @@ Com o gate produtivo limpo, o contract final:
 
 | Ordem | Sprint | Objetivo |
 |---:|---|---|
-| 1 | H2 | Fechar o contract físico Família/EE H2.3d; em seguida avançar para stock variantes, legacy transversal e rotas modulares. |
+| 1 | H2 | Consolidar stock por variante; em seguida avançar para legacy transversal e rotas modulares. |
 | 2 | H3 | Fecho Desportivo ponta a ponta. |
 | 3 | H4 | Decisão e fecho Fiscal. |
 | 4 | H5 | Loja + Logística lifecycle completo. |
@@ -608,7 +615,7 @@ Com o gate produtivo limpo, o contract final:
 | 7 | H8 | Reporting consolidado. |
 | 8 | H9 | Website: header/footer, notícias e polish final. |
 
-Próximo passo ativo: H2.3d — validar a migration/guard rails de remoção física em CI e produção. Depois, Família/EE fica estruturalmente fechada e a prioridade H2 passa para a consolidação de stock por variante. A ação operacional Cloudflare R2 permanece pendência externa separada. A matriz H1.17/H1.18 deve ser expandida dentro de cada workstream funcional.
+Próximo passo ativo: H2.4 — consolidar `product_variants.stock` no ledger canónico ou formalizar variantes/SKU como entidade física de inventário, começando por inventário de consumidores e invariantes antes de qualquer alteração destrutiva. Família/EE está estruturalmente fechada. A ação operacional Cloudflare R2 permanece pendência externa separada. A matriz H1.17/H1.18 deve ser expandida dentro de cada workstream funcional.
 
 ---
 
@@ -616,6 +623,7 @@ Próximo passo ativo: H2.3d — validar a migration/guard rails de remoção fí
 
 | Data | Módulo | Desenvolvimento / análise | Evidência | Estado / pendências |
 |---|---|---|---|---|
+| 2026-08-29 | Membros / Família / EE | H2.3d removeu fisicamente `user_relationships` e os mirrors JSON, retirou código/rotas/auditors de transição e instalou o gate permanente `members:audit-family-final-schema`. | PR #237; CI #933/#934; merge `d7701cbe05c62b994643c6c91cf859fc199787a2`; artifact `family-final-schema-d7701cbe05c62b994643c6c91cf859fc199787a2` | Integrado e deployado na Oracle VM; produção confirma 3/3 estruturas canónicas, zero legacy e `ready=true`. Frente estrutural encerrada; prioridade H2 passa para stock por variante. |
 | 2026-08-29 | Membros / Família / EE | H2.3c executou em produção os audits minimizados e confirmou readiness integral: `user_relationships` vazio; 12/12 pares JSON cobertos; zero consumers, uncovered, invalid e self-reference. | PR #236; CI #930/#931; merge `1489e01d82e407926edb332b51ae9a248849067b`; artifacts `family-legacy-relationships-production-readiness-*` e `family-json-mirrors-production-readiness-*` | Deployado e aprovado para contract físico; não é necessário backfill. H2.3d remove as estruturas aposentadas e instala o gate final de schema. |
 | 2026-08-29 | Membros / Família / EE | H2.3b removeu consumidores runtime dos mirrors JSON, convergiu edição/leitura em `user_guardian`/`familia_user` e eliminou a reconciliação destrutiva ao abrir fichas. | PR #235; CI #928/#929; merge `c8e8a36073b45c5ed49abd7702ec8fd93db83c59`; `FamilyRelationshipService`; `FamilyRuntimeCanonicalCutoverTest`; `FamilyCanonicalBulkReplacementTest` | Integrado e deployado na Oracle VM. H2.3c recolhe agora evidência produtiva minimizada; não existe autorização para drop até os resultados reais estarem limpos. |
 | 2026-08-29 | Membros / Família / EE | H2.3a iniciou o cutover dos mirrors JSON: serviço canónico deixa de escrever JSON, mirrors deixam de ser mass-assignable e auditor read-only mede consumidores/cobertura; E2E accessibility estabilizado sem silenciar regras. | PR #232; CI #924/#925; merge `c606daeffadfc07b000d1448293379e4d821e13a`; `FamilyJsonMirrorAuditor`; `AuditFamilyJsonMirrorsCommand`; `tests/e2e/authenticated-access.spec.ts` | Integrado e deployado na Oracle VM; a H2.3b retirou depois os consumidores runtime restantes. |
