@@ -600,6 +600,15 @@ Antes de alterar o ledger ou fazer backfill, `inventory:audit-variant-stock-read
 
 O deploy arquiva `variant-stock-production-readiness-*` sem IDs de linhas/utilizadores, sem findings detalhados e sem executar backfill ou alteração de schema. Os resultados produtivos determinam se H2.4b pode estender o ledger de forma determinística ou se exige reconciliação prévia.
 
+PR #239 merged em `6972a7aa9e859afe0764c2242b143aa83d110b84`; CI #938 totalmente verde na PR e CI #939 totalmente verde em `main`, incluindo deploy na Oracle VM. O artifact `variant-stock-production-readiness-6972a7aa9e859afe0764c2242b143aa83d110b84` confirmou em produção:
+
+- `0` variantes, `0` snapshots não-zero/inválidos e `0` produtos com variantes;
+- `0` encomendas históricas com variante e, portanto, nenhum exit por reconciliar ou atribuir;
+- schema fonte integralmente presente, dimensão `product_variant_id` ainda ausente de `stock_movements` e `ready_for_design=true`;
+- `2` fronteiras conhecidas de escrita direta: baixa na venda e edição manual no catálogo.
+
+Não é necessário backfill. H2.4b pode introduzir a dimensão nullable de variante no ledger e migrar as duas fronteiras de escrita com testes de idempotência/concorrência, sem transformação histórica de dados.
+
 ---
 
 ## 7. Dívida estrutural prioritária
@@ -627,7 +636,7 @@ O deploy arquiva `variant-stock-production-readiness-*` sem IDs de linhas/utiliz
 | 7 | H8 | Reporting consolidado. |
 | 8 | H9 | Website: header/footer, notícias e polish final. |
 
-Próximo passo ativo: H2.4a — deployar `inventory:audit-variant-stock-readiness`, recolher as métricas produtivas minimizadas e só então desenhar H2.4b para integrar `product_variants.stock` no ledger. Família/EE está estruturalmente fechada. A ação operacional Cloudflare R2 permanece pendência externa separada. A matriz H1.17/H1.18 deve ser expandida dentro de cada workstream funcional.
+Próximo passo ativo: H2.4b — acrescentar `product_variant_id` nullable ao ledger, tornar as operações de variante atómicas com o snapshot agregado do produto e retirar as duas escritas diretas identificadas. A produção não tem variantes nem histórico a converter, pelo que não há backfill. Família/EE está estruturalmente fechada. A ação operacional Cloudflare R2 permanece pendência externa separada. A matriz H1.17/H1.18 deve ser expandida dentro de cada workstream funcional.
 
 ---
 
@@ -635,6 +644,7 @@ Próximo passo ativo: H2.4a — deployar `inventory:audit-variant-stock-readines
 
 | Data | Módulo | Desenvolvimento / análise | Evidência | Estado / pendências |
 |---|---|---|---|---|
+| 2026-08-29 | Inventário / Loja | H2.4a instalou auditoria produtiva agregada/read-only para stock por variante e confirmou ausência total de variantes e histórico associado. | PR #239; CI #938/#939; merge `6972a7aa9e859afe0764c2242b143aa83d110b84`; artifact `variant-stock-production-readiness-6972a7aa9e859afe0764c2242b143aa83d110b84` | Deployado; 0 variantes, 0 incoerências, 2 writers diretos conhecidos e `ready_for_design=true`. H2.4b avança sem backfill. |
 | 2026-08-29 | Membros / Família / EE | H2.3d removeu fisicamente `user_relationships` e os mirrors JSON, retirou código/rotas/auditors de transição e instalou o gate permanente `members:audit-family-final-schema`. | PR #237; CI #933/#934; merge `d7701cbe05c62b994643c6c91cf859fc199787a2`; artifact `family-final-schema-d7701cbe05c62b994643c6c91cf859fc199787a2` | Integrado e deployado na Oracle VM; produção confirma 3/3 estruturas canónicas, zero legacy e `ready=true`. Frente estrutural encerrada; prioridade H2 passa para stock por variante. |
 | 2026-08-29 | Membros / Família / EE | H2.3c executou em produção os audits minimizados e confirmou readiness integral: `user_relationships` vazio; 12/12 pares JSON cobertos; zero consumers, uncovered, invalid e self-reference. | PR #236; CI #930/#931; merge `1489e01d82e407926edb332b51ae9a248849067b`; artifacts `family-legacy-relationships-production-readiness-*` e `family-json-mirrors-production-readiness-*` | Deployado e aprovado para contract físico; não é necessário backfill. H2.3d remove as estruturas aposentadas e instala o gate final de schema. |
 | 2026-08-29 | Membros / Família / EE | H2.3b removeu consumidores runtime dos mirrors JSON, convergiu edição/leitura em `user_guardian`/`familia_user` e eliminou a reconciliação destrutiva ao abrir fichas. | PR #235; CI #928/#929; merge `c8e8a36073b45c5ed49abd7702ec8fd93db83c59`; `FamilyRelationshipService`; `FamilyRuntimeCanonicalCutoverTest`; `FamilyCanonicalBulkReplacementTest` | Integrado e deployado na Oracle VM. H2.3c recolhe agora evidência produtiva minimizada; não existe autorização para drop até os resultados reais estarem limpos. |
