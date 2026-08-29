@@ -11,7 +11,7 @@ class MembrosUpdateEducandosTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_update_persists_educandos_relationships(): void
+    public function test_update_persists_canonical_educandos_relationships_without_writing_json_mirrors(): void
     {
         $this->withoutMiddleware();
 
@@ -56,9 +56,9 @@ class MembrosUpdateEducandosTest extends TestCase
         $educando->refresh();
 
         $this->assertSame([$educando->id], $guardian->educandos()->pluck('users.id')->all());
-        $this->assertContains($educando->id, $guardian->educandos ?? []);
+        $this->assertSame([], $guardian->educandos ?? []);
         $this->assertSame([$guardian->id], $educando->encarregados()->pluck('users.id')->all());
-        $this->assertContains($guardian->id, $educando->encarregado_educacao ?? []);
+        $this->assertSame([], $educando->encarregado_educacao ?? []);
 
         $showResponse = $this->inertiaGetAs($guardian, route('membros.show', ['member' => $guardian->id]));
 
