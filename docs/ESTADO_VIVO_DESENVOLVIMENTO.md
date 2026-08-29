@@ -2,7 +2,7 @@
 
 > Fonte de verdade funcional e técnica do projeto ClubOS.
 >
-> Estado consolidado em 2026-08-28.
+> Estado consolidado em 2026-08-29.
 >
 > O histórico detalhado anterior à consolidação está preservado em `docs/history/ESTADO_VIVO_DESENVOLVIMENTO_ATE_2026-08-20.md`.
 
@@ -26,8 +26,8 @@ Não está recomendada uma reescrita do ClubOS.
 
 | Área | Estado atual |
 |---|---:|
-| Implementação funcional global | ~75% |
-| Prontidão operacional | ~79% |
+| Implementação funcional global | ~76% |
+| Prontidão operacional | ~80% |
 | Arquitetura backend | Boa |
 | Testes backend | Fortes |
 | Frontend / E2E / mobile QA | Baseline automático autenticado ativo; cobertura profunda por fluxo a expandir |
@@ -41,13 +41,13 @@ Stack produtiva: Laravel 13, PHP 8.3, React 19 + TypeScript, Inertia 2, Vite, Po
 
 | Módulo / Área | Estado estimado | Estado atual / pendências principais |
 |---|---:|---|
-| Base técnica / arquitetura | 94% | H0.1a/H0.1b/H0.2 concluídos em produção. H1.1 e H1.4–H1.15 fecharam Composer/npm/TypeScript em zero; H1.16 colocou em produção os guard rails de least privilege/verification do R2; H1.17 tornou lint, unit/component, multi-browser/mobile E2E e acessibilidade gates canónicos de CI; H1.18 acrescentou autenticação real e navegação core nos cinco perfis Playwright. Resta a ação operacional externa de rotação/locks R2 e expansão progressiva da cobertura profunda por fluxo. |
+| Base técnica / arquitetura | 94% | H0.1a/H0.1b/H0.2 concluídos em produção. H1.1 e H1.4–H1.15 fecharam Composer/npm/TypeScript em zero; H1.16 colocou em produção os guard rails de least privilege/verification do R2; H1.17 tornou lint, unit/component, multi-browser/mobile E2E e acessibilidade gates canónicos de CI; H1.18 acrescentou autenticação real e navegação core nos cinco perfis Playwright. A PR #233 tornou o Composer security gate resiliente a falhas transitórias de rede sem enfraquecer o fail-closed. Resta a ação operacional externa de rotação/locks R2 e expansão progressiva da cobertura profunda por fluxo. |
 | Website público / construtor | 86% | Renderer, snapshots, publicação e dados dinâmicos avançados. Faltam header/footer globais, notícias completas e validação runtime multi-viewport. |
 | Autenticação / Access Control | 78% | Auditoria e gates produtivos ativos. Zero findings críticos e zero rotas mutáveis sem `module.access`. H1.18 cobre rota protegida, intended redirect, login válido/inválido, logout e recuperação de password em Chromium/Firefox/WebKit desktop e Pixel/iPhone. Permanecem 83 warnings de capability granular e falta matriz por perfis não-admin. |
-| Dashboard / entrada por perfil | 70% | Funcional, com leituras canónicas financeiras. H1.18 valida Dashboard autenticado admin, overflow e WCAG A/AA; falta QA final por restantes perfis e operações específicas. |
-| Portal atleta / família | 63% | Estrutura funcional. Falta fecho mobile/PWA, UX e validação sistemática. |
-| Membros / Pessoas | 85% | Normalização avançada. Família/EE ainda mantém múltiplas representações históricas a consolidar. |
-| Família / EE / educandos | 70% | Gestão funcional existe; falta fonte relacional única e cutover progressivo do legacy. |
+| Dashboard / entrada por perfil | 70% | Funcional, com leituras canónicas financeiras. H1.18 valida Dashboard autenticado admin, overflow e WCAG A/AA; o gate foi estabilizado para auditar o estado final após desaparecer o progress transitório Inertia/NProgress, mantendo todas as regras axe. Falta QA final por restantes perfis e operações específicas. |
+| Portal atleta / família | 64% | Estrutura funcional. H2.1–H2.3a reforçaram a base relacional Família/EE; falta fecho mobile/PWA, UX e validação sistemática. |
+| Membros / Pessoas | 87% | Normalização avançada. H2.1 centralizou a escrita Família/EE; H2.2 neutralizou `user_relationships`; H2.3a iniciou o cutover dos mirrors JSON. Restam consumidores legacy explícitos a remover em H2.3b antes de qualquer drop físico. |
+| Família / EE / educandos | 80% | `familias/familia_user` é o agregado familiar canónico e `user_guardian` a relação explícita EE↔educando. `user_relationships` está tombstoned/read-only auditado. H2.3a parou a sincronização JSON no serviço canónico e retirou `encarregado_educacao`/`educandos` de `User::$fillable`; `MembrosController` e o fallback de `Membros/Show.tsx` ainda mantêm consumo legacy controlado, pelo que o cleanup físico ainda não está autorizado. |
 | Desportivo global | 70% | Análise transversal read-only consolidada sobre Treino/Cais/Live/Avaliações/Resultados, com proveniência, splits e export CSV; endpoints legacy Performance já retirados do routing runtime na PR #227. Principal frente por fechar: fluxo ponta a ponta, Portal, reporting consolidado e legacy cleanup. |
 | Planeamento desportivo | 65% | Base sólida; falta fechar UX, integrações e reporting. |
 | Treinos / presenças / Cais | 70% | Núcleo funcional forte; falta consolidar fluxo ponta a ponta e QA operacional. |
@@ -484,9 +484,65 @@ Expansão do mesmo gate Playwright, sem pipeline paralelo:
 
 A H1.18 fecha a lacuna de autenticação e navegação core no baseline transversal. Não equivale a QA completa dos módulos: ficam para os workstreams funcionais os perfis não-admin, Portal, workspaces/tabs, tablet e operações críticas.
 
-## 6. Dívida estrutural prioritária
+### H1.19 — Resiliência dos gates Composer e accessibility — integrada em 2026-08-29
 
-- Família/EE: convergir `user_guardian`, `familias/familia_user`, `user_relationships` e compatibilidades para uma fonte canónica.
+Dois problemas de CI foram resolvidos sem reduzir o rigor dos gates:
+
+- PR #233: `composer audit` repete apenas falhas técnicas/relatórios inválidos até 3 tentativas; qualquer relatório válido com advisory continua a falhar imediatamente e uma indisponibilidade persistente continua fail-closed;
+- durante H2.3a, o axe/WebKit apanhou o `#nprogress` transitório do Inertia com `role="bar"`; o E2E passou a esperar a remoção desse chrome de navegação antes de auditar o Dashboard estável, sem ignorar `aria-roles` nem qualquer regra WCAG;
+- CI #924 validou a correção na PR e CI #925 repetiu-a em `main` antes do deploy.
+
+---
+
+## 6. H2 — Consolidação estrutural
+
+### H2.1 — Boundary canónico de escrita Família/EE — PR #230
+
+Concluído e deployado:
+
+- `FamilyRelationshipService` centraliza associação/remoção de EE e gestão de membros do agregado;
+- `familias/familia_user` é o agregado familiar canónico;
+- `user_guardian` é a relação explícita EE↔educando;
+- uma associação de guardian não inventa família quando não existe e não adivinha quando existem várias;
+- quando existe exatamente uma família, a projeção para `familia_user` é feita de forma determinística;
+- remover guardianship preserva membership familiar e ajusta apenas o papel quando a família é inequívoca;
+- regressões cobrem cenários zero/uma/várias famílias.
+
+PR #230 merged em `deee18a7fadb0288efafd67306471e8b8c849075`; CI #905 verde e CI #906 validou/deployou `main` na Oracle VM.
+
+### H2.2 — Neutralização de `user_relationships` legacy — PR #231
+
+Concluído e em produção:
+
+- `RelacoesMembroController` deixou de ler/escrever `user_relationships` e funciona apenas como tombstone explícito `410 Gone` para clientes antigos;
+- as rotas canónicas `membros.familia.*` permanecem a superfície suportada;
+- `FamilyLegacyRelationshipAuditor` classifica cobertura dos registos legacy por `user_guardian` e família partilhada;
+- comando read-only `members:audit-family-legacy-relationships --json --fail-on-uncovered` mede readiness sem apagar dados;
+- relações sem projeção canónica e tipos desconhecidos continuam a bloquear cleanup físico.
+
+PR #231 merged em `ef9ae22b820cdd8eec940f1a618ca01707c98897`. A primeira tentativa de `main` encontrou apenas um timeout transitório no endpoint de advisories do Packagist; a PR #233 endureceu o gate sem o enfraquecer e a CI #921 confirmou novamente deploy integral na Oracle VM.
+
+### H2.3a — Staged cutover dos mirrors JSON Família/EE — PR #232
+
+Concluído e deployado em `main`, mas **não autoriza ainda drop físico**:
+
+- o `FamilyRelationshipService` deixou de sincronizar `users.encarregado_educacao` e `users.educandos`;
+- os dois mirrors saíram de `User::$fillable`, impedindo reativação por mass assignment;
+- os casts permanecem temporariamente para auditoria/histórico;
+- `FamilyJsonMirrorAuditor` mede consumidores runtime, pares declarados, cobertura por `user_guardian`, referências inválidas, auto-referências e readiness;
+- comando `members:audit-family-json-mirrors --json --fail-on-finding` é read-only;
+- fixtures e testes foram alinhados com a pivot real `user_guardian` e com a ausência intencional de sincronização JSON no serviço canónico;
+- o source scan identifica ainda consumidores legacy reais, sobretudo `MembrosController` e o fallback de `resources/js/Pages/Membros/Show.tsx`.
+
+PR #232 merged em `c606daeffadfc07b000d1448293379e4d821e13a`; CI #924 totalmente verde na PR e CI #925 totalmente verde em `main`, incluindo PHP, PostgreSQL, multi-browser/mobile E2E, accessibility e deploy na Oracle VM.
+
+Próximo subpasso: H2.3b deve remover as leituras/escritas runtime JSON restantes, fazendo `MembrosController` e `Membros/Show.tsx` consumir exclusivamente as relações canónicas. Só depois o audit de dados produtivos poderá decidir backfill/cleanup físico; não inferir relações ausentes.
+
+---
+
+## 7. Dívida estrutural prioritária
+
+- Família/EE: concluir H2.3b, remover consumidores JSON runtime, auditar dados produtivos e só depois decidir backfill/drop; `user_relationships` já está neutralizado e `user_guardian` + `familia_user` são as fontes canónicas atuais.
 - Inventário: integrar `product_variants.stock` no ledger canónico ou transformar variantes/SKU em entidade física de inventário.
 - Desportivo: fechar fluxo Planeamento → Treino → Cais → Live → Presenças → Competições → Resultados → Portal → reporting → legacy cleanup.
 - Eventos: remover estruturas de compatibilidade sem consumo e criar contract tests com Desportivo.
@@ -497,28 +553,31 @@ A H1.18 fecha a lacuna de autenticação e navegação core no baseline transver
 
 ---
 
-## 7. Prioridades recomendadas
+## 8. Prioridades recomendadas
 
 | Ordem | Sprint | Objetivo |
 |---:|---|---|
-| 1 | H1 | Código/CI transversal fechado até H1.18: Composer 0, npm 0, TypeScript 0/0 e matriz frontend automática autenticada ativa. Fica apenas a ação operacional externa R2; a cobertura QA profunda passa a crescer dentro das sprints funcionais. |
-| 2 | H2 | Família/EE, stock variantes, legacy e rotas modulares. |
-| 3 | H3 | Fecho Desportivo ponta a ponta. |
-| 4 | H4 | Decisão e fecho Fiscal. |
-| 5 | H5 | Loja + Logística lifecycle completo. |
-| 6 | H6 | Comunicação assíncrona e futura integração Redes. |
-| 7 | H7 | Portal/PWA/mobile. |
-| 8 | H8 | Reporting consolidado. |
-| 9 | H9 | Website: header/footer, notícias e polish final. |
+| 1 | H2 | Família/EE em execução: H2.1, H2.2 e H2.3a concluídos/deployados; fechar H2.3b e auditoria de dados, depois avançar stock variantes, legacy e rotas modulares. |
+| 2 | H3 | Fecho Desportivo ponta a ponta. |
+| 3 | H4 | Decisão e fecho Fiscal. |
+| 4 | H5 | Loja + Logística lifecycle completo. |
+| 5 | H6 | Comunicação assíncrona e futura integração Redes. |
+| 6 | H7 | Portal/PWA/mobile. |
+| 7 | H8 | Reporting consolidado. |
+| 8 | H9 | Website: header/footer, notícias e polish final. |
 
-Próximo passo ativo: iniciar H2 pela consolidação Família/EE e respetivas fontes relacionais, mantendo a ação operacional Cloudflare R2 como pendência externa separada. A matriz H1.17/H1.18 deve ser expandida dentro de cada workstream funcional.
+Próximo passo ativo: H2.3b — retirar os consumidores runtime dos mirrors JSON Família/EE e projetar o fluxo de edição/leitura exclusivamente sobre `user_guardian` e `familias/familia_user`, mantendo a ação operacional Cloudflare R2 como pendência externa separada. Depois, executar auditoria produtiva antes de qualquer cleanup físico. A matriz H1.17/H1.18 deve ser expandida dentro de cada workstream funcional.
 
 ---
 
-## 8. Histórico vivo recente
+## 9. Histórico vivo recente
 
 | Data | Módulo | Desenvolvimento / análise | Evidência | Estado / pendências |
 |---|---|---|---|---|
+| 2026-08-29 | Membros / Família / EE | H2.3a iniciou o cutover dos mirrors JSON: serviço canónico deixa de escrever JSON, mirrors deixam de ser mass-assignable e auditor read-only mede consumidores/cobertura; E2E accessibility estabilizado sem silenciar regras. | PR #232; CI #924/#925; merge `c606daeffadfc07b000d1448293379e4d821e13a`; `FamilyJsonMirrorAuditor`; `AuditFamilyJsonMirrorsCommand`; `tests/e2e/authenticated-access.spec.ts` | Integrado e deployado na Oracle VM. H2.3b deve retirar os consumidores runtime restantes antes de audit/backfill/drop físico. |
+| 2026-08-29 | CI / Segurança | Retry seguro no Composer audit após timeout transitório do Packagist: repete apenas resposta técnica inválida e continua fail-closed para advisories e indisponibilidade persistente. | PR #233; merge `c68903abefcf1ca5a719f1c421dd1346f42f3cd8`; CI #921 | Integrado e deployado; baseline Composer continua 0 advisories sem bypass de segurança. |
+| 2026-08-28 | Membros / Família / EE | H2.2 neutralizou `user_relationships`: runtime legacy responde 410 e auditor read-only mede cobertura pela estrutura canónica. | PR #231; merge `ef9ae22b820cdd8eec940f1a618ca01707c98897`; `FamilyLegacyRelationshipAuditor`; `LegacyMemberRelationshipRuntimeRetirementTest` | Integrado e em produção; limpeza física fica condicionada a auditoria de dados. |
+| 2026-08-28 | Membros / Família / EE | H2.1 introduziu boundary canónico de escrita e regras determinísticas entre `user_guardian` e `familia_user`, sem inventar agregados familiares. | PR #230; CI #905/#906; merge `deee18a7fadb0288efafd67306471e8b8c849075`; `FamilyRelationshipServiceCanonicalWriteTest` | Integrado e deployado; base para H2.2/H2.3. |
 | 2026-08-28 | QA / Frontend autenticado | H1.18 acrescentou fixtures determinísticas, autenticação/sessão real, recuperação de password, WCAG/overflow no Dashboard e navegação core para Membros, Desportivo, Eventos, Financeiro e Configurações nos cinco perfis Playwright. | PR #228; CI #900/#901; merge `34ad7cb1b59c79b946584aa6fd58c908b8fd4154`; `tests/e2e/authenticated-access.spec.ts`; `docs/qa/FRONTEND_QA_MATRIX.md` | Integrado em `main`; falta cobertura profunda por perfil, workspace, tablet e operações críticas dentro dos workstreams funcionais. |
 | 2026-08-28 | Desportivo / Análise | Hardening da workspace transversal: métricas Cais + Live com proveniência separada, agregação de grupos em batch, splits competitivos expansíveis, export CSV e retirada dos endpoints legacy Performance do routing ativo. | PR #227; CI #898; merge `5932732b8777e0055e0e15c101b5eae7bcbb8adb`; `SportsAnalysisWorkspaceService`; `SportsAnalysisWorkspaceFunctionalTest`; `docs/modules/desportivo_analysis_workspace.md` | Integrado em `main`, sem migrations; Análise permanece read-only e o cleanup físico do legacy residual fica para workstream controlado. |
 | 2026-08-28 | QA / Frontend | H1.17 criou o baseline automático de lint, unit/component, multi-browser/mobile E2E e acessibilidade, tornando o browser QA dependência do deploy. | PR #225; CI técnica #875; `docs/qa/FRONTEND_QA_MATRIX.md`; `playwright.config.ts`; `vitest.config.ts`; `eslint.config.js` | Tooling transversal fechado; cobertura deve crescer por fluxo/módulo sem enfraquecer os gates. |
