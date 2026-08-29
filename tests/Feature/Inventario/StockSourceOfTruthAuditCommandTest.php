@@ -179,20 +179,15 @@ final class StockSourceOfTruthAuditCommandTest extends TestCase
         );
     }
 
-    public function test_canonical_product_stock_service_variant_write_is_documented_boundary_not_direct_product_write(): void
+    public function test_variant_stock_writes_are_fully_routed_through_ledger(): void
     {
         $payload = $this->jsonPayload(['--include-info' => true]);
         $codes = collect($payload['findings'])->pluck('code')->all();
-        $variantFinding = collect($payload['findings'])
-            ->first(fn (array $finding): bool => ($finding['code'] ?? null) === 'variant_stock_write_candidate'
-                && str_contains((string) ($finding['file'] ?? ''), 'CanonicalProductStockService.php'));
 
         $this->assertSame(0, $payload['summary']['direct_stock_write_candidate_count']);
-        $this->assertGreaterThanOrEqual(1, $payload['summary']['variant_stock_write_candidate_count']);
+        $this->assertSame(0, $payload['summary']['variant_stock_write_candidate_count']);
         $this->assertNotContains('direct_stock_write_candidate', $codes);
-        $this->assertIsArray($variantFinding);
-        $this->assertSame('info', $variantFinding['severity']);
-        $this->assertFalse((bool) $variantFinding['actionable']);
+        $this->assertNotContains('variant_stock_write_candidate', $codes);
 
         $actionablePayload = $this->jsonPayload(['--only-actionable' => true]);
         $this->assertNotContains('variant_stock_write_candidate', collect($actionablePayload['findings'])->pluck('code')->all());

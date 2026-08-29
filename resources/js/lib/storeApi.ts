@@ -39,6 +39,7 @@ export interface StoreVariant {
     preco_extra: number;
     stock_atual: number;
     etiqueta?: string | null;
+    ativo?: boolean;
 }
 
 export interface StoreProduct {

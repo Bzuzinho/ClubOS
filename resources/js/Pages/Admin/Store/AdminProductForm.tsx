@@ -70,10 +70,14 @@ export default function AdminProductForm() {
         stock_atual: product ? String(product.stock_atual) : '0',
         stock_minimo: product?.stock_minimo != null ? String(product.stock_minimo) : '',
         ordem: product?.ordem != null ? String(product.ordem) : '',
-        variantes: product?.variantes?.map((variant) => ({ ...variant, ativo: true })) || [],
+        variantes: product?.variantes?.map((variant) => ({ ...variant, ativo: variant.ativo ?? true })) || [],
     });
 
     const pageTitle = useMemo(() => (editing ? `Editar ${product?.nome}` : 'Novo produto da Loja'), [editing, product?.nome]);
+    const variantStockTotal = useMemo(
+        () => form.variantes.reduce((total, variant) => total + Number(variant.stock_atual || 0), 0),
+        [form.variantes],
+    );
 
     const updateVariant = (index: number, field: keyof ProductVariantInput, value: string | number | boolean) => {
         setForm((current) => ({
@@ -103,7 +107,7 @@ export default function AdminProductForm() {
                 ativo: form.ativo,
                 destaque: form.destaque,
                 gere_stock: form.gere_stock,
-                stock_atual: Number(form.stock_atual || 0),
+                stock_atual: form.variantes.length > 0 ? variantStockTotal : Number(form.stock_atual || 0),
                 stock_minimo: form.stock_minimo === '' ? null : Number(form.stock_minimo),
                 ordem: form.ordem === '' ? null : Number(form.ordem),
                 variantes: form.variantes.map((variant) => ({
@@ -184,7 +188,8 @@ export default function AdminProductForm() {
                             </div>
                             <div>
                                 <label className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Stock atual</label>
-                                <Input type="number" min="0" value={form.stock_atual} onChange={(event) => setForm((current) => ({ ...current, stock_atual: event.target.value }))} className="mt-2" />
+                                <Input type="number" min="0" value={form.variantes.length > 0 ? String(variantStockTotal) : form.stock_atual} disabled={form.variantes.length > 0} onChange={(event) => setForm((current) => ({ ...current, stock_atual: event.target.value }))} className="mt-2" />
+                                {form.variantes.length > 0 && <p className="mt-1 text-xs text-slate-500">Calculado pela soma das variantes.</p>}
                             </div>
                             <div>
                                 <label className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Stock mínimo</label>

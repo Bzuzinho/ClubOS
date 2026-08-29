@@ -5,8 +5,10 @@ namespace App\Http\Controllers;
 use App\Models\ItemCategory;
 use App\Models\Product;
 use App\Models\ProductVariant;
+use App\Services\Inventario\StockLedgerService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Inertia\Inertia;
@@ -14,6 +16,11 @@ use Inertia\Response;
 
 class AdminLojaProdutoController extends Controller
 {
+    public function __construct(
+        private readonly StockLedgerService $stockLedger,
+    ) {
+    }
+
     public function index(Request $request): Response|JsonResponse
     {
         $query = Product::query()
@@ -65,10 +72,24 @@ class AdminLojaProdutoController extends Controller
 
     public function store(Request $request): JsonResponse
     {
-        $validated = $this->normalizePayload($this->validatePayload($request));
+        $input = $this->validatePayload($request);
+        $desiredStock = (int) $input['stock_atual'];
+        $variants = is_array($request->input('variantes')) ? $request->input('variantes') : [];
 
-        $product = Product::create($validated);
-        $this->syncVariants($product, $request->input('variantes', []));
+        $product = DB::transaction(function () use ($input, $desiredStock, $variants, $request): Product {
+            $product = Product::create([
+                ...$this->normalizePayload($input),
+                'stock' => 0,
+                'stock_reservado' => 0,
+            ]);
+            $hasVariants = $this->syncVariants($product, $variants, (string) $request->user()?->id);
+
+            if (! $hasVariants) {
+                $this->stockLedger->adjustProductToStock($product, $desiredStock, $this->catalogAdjustmentContext($product));
+            }
+
+            return $product;
+        });
 
         return response()->json($this->serializeProduct($product->fresh(['category', 'variants'])), 201);
     }
@@ -88,13 +109,24 @@ class AdminLojaProdutoController extends Controller
 
     public function update(Request $request, Product $produto): JsonResponse
     {
-        $validated = $this->normalizePayload(
-            $this->validatePayload($request, $produto),
-            $produto,
-        );
+        $input = $this->validatePayload($request, $produto);
+        $desiredStock = (int) $input['stock_atual'];
+        $variants = is_array($request->input('variantes')) ? $request->input('variantes') : [];
 
-        $produto->update($validated);
-        $this->syncVariants($produto, $request->input('variantes', []));
+        DB::transaction(function () use ($input, $desiredStock, $variants, $produto, $request): void {
+            $produto->update($this->normalizePayload($input, $produto));
+            $hadVariants = $produto->variants()->exists();
+
+            if ($variants !== [] && ! $hadVariants) {
+                $this->stockLedger->adjustProductToStock($produto, 0, $this->catalogAdjustmentContext($produto));
+            }
+
+            $hasVariants = $this->syncVariants($produto, $variants, (string) $request->user()?->id);
+
+            if (! $hasVariants) {
+                $this->stockLedger->adjustProductToStock($produto, $desiredStock, $this->catalogAdjustmentContext($produto));
+            }
+        });
 
         return response()->json($this->serializeProduct($produto->fresh(['category', 'variants'])));
     }
@@ -141,7 +173,6 @@ class AdminLojaProdutoController extends Controller
             'descricao' => $validated['descricao'] ?? null,
             'preco' => $produto?->preco ?? $salePrice,
             'preco_venda' => $salePrice,
-            'stock' => (int) ($validated['stock_atual'] ?? 0),
             'stock_minimo' => $validated['stock_minimo'] ?? 0,
             'imagem' => $validated['imagem_principal_path'] ?? null,
             'ativo' => (bool) $validated['ativo'],
@@ -155,10 +186,22 @@ class AdminLojaProdutoController extends Controller
         ];
     }
 
-    private function syncVariants(Product $produto, array $variantes): void
+    private function syncVariants(Product $produto, array $variantes, ?string $actorId = null): bool
     {
         $existingIds = collect($variantes)->pluck('id')->filter()->all();
-        $produto->variants()->whereNotIn('id', $existingIds)->delete();
+        $retired = $produto->variants()
+            ->when($existingIds !== [], fn ($query) => $query->whereNotIn('id', $existingIds))
+            ->get();
+
+        foreach ($retired as $variant) {
+            $this->stockLedger->adjustVariantToStock(
+                $produto,
+                $variant,
+                0,
+                $this->catalogAdjustmentContext($produto, $variant, $actorId),
+            );
+            $variant->update(['ativo' => false]);
+        }
 
         foreach ($variantes as $variant) {
             $payload = validator($variant, [
@@ -176,7 +219,13 @@ class AdminLojaProdutoController extends Controller
 
             $variantModel = filled($variantId)
                 ? $produto->variants()->whereKey($variantId)->firstOrFail()
-                : new ProductVariant(['product_id' => $produto->id]);
+                : new ProductVariant([
+                    'product_id' => $produto->id,
+                    'stock' => 0,
+                    'stock_reservado' => 0,
+                ]);
+
+            $desiredStock = (int) ($payload['stock_atual'] ?? 0);
 
             $variantModel->fill([
                 'nome' => $payload['nome'] ?? null,
@@ -184,12 +233,34 @@ class AdminLojaProdutoController extends Controller
                 'cor' => $payload['cor'] ?? null,
                 'sku' => $payload['sku'] ?? null,
                 'preco_extra' => $payload['preco_extra'] ?? 0,
-                'stock' => $payload['stock_atual'] ?? 0,
                 'ativo' => $payload['ativo'],
             ]);
             $variantModel->product_id = $produto->id;
             $variantModel->save();
+
+            $this->stockLedger->adjustVariantToStock(
+                $produto,
+                $variantModel,
+                $desiredStock,
+                $this->catalogAdjustmentContext($produto, $variantModel, $actorId),
+            );
         }
+
+        return $variantes !== [];
+    }
+
+    /** @return array<string,mixed> */
+    private function catalogAdjustmentContext(Product $product, ?ProductVariant $variant = null, ?string $actorId = null): array
+    {
+        return [
+            'source_type' => 'catalog_manual_adjustment',
+            'source_id' => $variant?->id ?? $product->id,
+            'idempotency_key' => 'catalog-adjustment-'.Str::uuid(),
+            'notes' => $variant
+                ? 'Ajuste manual de stock de variante no catálogo'
+                : 'Ajuste manual de stock de produto no catálogo',
+            'created_by' => filled($actorId) ? $actorId : null,
+        ];
     }
 
     private function categoriesPayload(): array

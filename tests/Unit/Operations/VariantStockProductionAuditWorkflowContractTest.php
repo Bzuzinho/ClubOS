@@ -18,6 +18,8 @@ final class VariantStockProductionAuditWorkflowContractTest extends TestCase
         );
         $this->assertStringContainsString('.version == "variant-stock-readiness-v1"', $workflow);
         $this->assertStringContainsString('.read_only == true', $workflow);
+        $this->assertStringContainsString('.schema_detected.stock_movement_variant_column_present == true', $workflow);
+        $this->assertStringContainsString('.summary.known_direct_variant_stock_writer_count == 0', $workflow);
         $this->assertStringContainsString('.interpretation.no_backfill_or_schema_change_performed == true', $workflow);
         $this->assertStringContainsString('variant-stock-production-readiness-${{ github.sha }}', $workflow);
         $this->assertStringContainsString('Artifact contains aggregate counts only; no row or user identifiers.', $workflow);

@@ -28,7 +28,7 @@ final class VariantStockReadinessAuditCommandTest extends TestCase
         $this->assertSame('variant-stock-readiness-v1', $payload['version'] ?? null);
         $this->assertTrue((bool) ($payload['read_only'] ?? false));
         $this->assertTrue((bool) ($payload['schema_detected']['required_source_schema_present'] ?? false));
-        $this->assertFalse((bool) ($payload['schema_detected']['stock_movement_variant_column_present'] ?? true));
+        $this->assertTrue((bool) ($payload['schema_detected']['stock_movement_variant_column_present'] ?? false));
         $this->assertSame(0, (int) ($payload['summary']['variant_count'] ?? -1));
         $this->assertTrue((bool) ($payload['summary']['ready_for_design'] ?? false));
     }
@@ -99,7 +99,7 @@ final class VariantStockReadinessAuditCommandTest extends TestCase
         $this->assertSame(1, (int) $payload['summary']['variant_order_item_exact_exit_count']);
         $this->assertSame(0, (int) $payload['summary']['variant_order_item_missing_exit_count']);
         $this->assertSame(0, (int) $payload['summary']['invalid_product_variant_reference_count']);
-        $this->assertSame(2, (int) $payload['summary']['known_direct_variant_stock_writer_count']);
+        $this->assertSame(0, (int) $payload['summary']['known_direct_variant_stock_writer_count']);
         $this->assertTrue((bool) $payload['summary']['ready_for_design']);
 
         $this->assertSame($before, [
