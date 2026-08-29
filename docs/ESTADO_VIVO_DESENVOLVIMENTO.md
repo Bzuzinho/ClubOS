@@ -588,7 +588,7 @@ PR #237 merged em `d7701cbe05c62b994643c6c91cf859fc199787a2`; CI #933 totalmente
 
 A frente estrutural Família/EE fica encerrada. Alterações futuras nesta área devem preservar estas três estruturas canónicas e tratar apenas evolução funcional/UX, sem reintroduzir mirrors ou relações paralelas.
 
-### H2.4a — Readiness produtiva do stock por variante — em curso
+### H2.4a — Readiness produtiva do stock por variante — concluída
 
 Antes de alterar o ledger ou fazer backfill, `inventory:audit-variant-stock-readiness` recolhe apenas métricas agregadas e read-only sobre:
 
@@ -609,7 +609,7 @@ PR #239 merged em `6972a7aa9e859afe0764c2242b143aa83d110b84`; CI #938 totalmente
 
 Não é necessário backfill. H2.4b pode introduzir a dimensão nullable de variante no ledger e migrar as duas fronteiras de escrita com testes de idempotência/concorrência, sem transformação histórica de dados.
 
-### H2.4b — Ledger canónico com dimensão de variante — em implementação
+### H2.4b — Ledger canónico com dimensão de variante — concluída
 
 O contract H2.4b:
 
@@ -621,13 +621,21 @@ O contract H2.4b:
 - deixa de apagar variantes com histórico: variantes omitidas são zeradas pelo ledger e desativadas;
 - transforma a antiga exceção estática de escrita de variante num erro acionável e reforça o gate produtivo para exigir a coluna e zero writers diretos.
 
-Como a auditoria H2.4a confirmou zero variantes em produção, a migration não necessita de backfill nem altera movimentos históricos.
+Como a auditoria H2.4a confirmou zero variantes em produção, a migration não necessitou de backfill nem alterou movimentos históricos.
+
+PR #241 merged em `f8ce467a51c6d605fc3fb62f0fc64585614e1106`; CI #944 totalmente verde na PR e CI #945 totalmente verde em `main`, incluindo PostgreSQL, browser QA e deploy para a Oracle VM. O artifact produtivo `variant-stock-production-readiness-f8ce467a51c6d605fc3fb62f0fc64585614e1106` confirmou:
+
+- `stock_movements.product_variant_id` presente e schema fonte integralmente detetado;
+- `0` writers diretos conhecidos de stock de variante;
+- `0` variantes, `0` snapshots inválidos, `0` mismatches agregados e `0` movimentos históricos por reconciliar;
+- `ready_for_design=true`, com auditoria read-only e sem backfill.
+
+A frente estrutural de stock por variante fica encerrada. Novas mutações de `product_variants.stock` ou `stock_reservado` devem passar pelo `StockLedgerService` e preservar, na mesma transação, os snapshots do produto e da variante.
 
 ---
 
 ## 7. Dívida estrutural prioritária
 
-- Inventário: integrar `product_variants.stock` no ledger canónico ou transformar variantes/SKU em entidade física de inventário.
 - Desportivo: fechar fluxo Planeamento → Treino → Cais → Live → Presenças → Competições → Resultados → Portal → reporting → legacy cleanup.
 - Eventos: remover estruturas de compatibilidade sem consumo e criar contract tests com Desportivo.
 - Rotas: modularizar `routes/web.php` sem alterar URLs.
@@ -641,7 +649,7 @@ Como a auditoria H2.4a confirmou zero variantes em produção, a migration não 
 
 | Ordem | Sprint | Objetivo |
 |---:|---|---|
-| 1 | H2 | Consolidar stock por variante; em seguida avançar para legacy transversal e rotas modulares. |
+| 1 | H2 | Avançar para legacy transversal e rotas modulares, preservando URLs, nomes e middleware. |
 | 2 | H3 | Fecho Desportivo ponta a ponta. |
 | 3 | H4 | Decisão e fecho Fiscal. |
 | 4 | H5 | Loja + Logística lifecycle completo. |
@@ -650,7 +658,7 @@ Como a auditoria H2.4a confirmou zero variantes em produção, a migration não 
 | 7 | H8 | Reporting consolidado. |
 | 8 | H9 | Website: header/footer, notícias e polish final. |
 
-Próximo passo ativo: H2.4b — acrescentar `product_variant_id` nullable ao ledger, tornar as operações de variante atómicas com o snapshot agregado do produto e retirar as duas escritas diretas identificadas. A produção não tem variantes nem histórico a converter, pelo que não há backfill. Família/EE está estruturalmente fechada. A ação operacional Cloudflare R2 permanece pendência externa separada. A matriz H1.17/H1.18 deve ser expandida dentro de cada workstream funcional.
+Próximo passo ativo: H2.5a — inventariar a topologia e os consumidores legacy ainda concentrados em `routes/web.php`, fixar o contract atual com testes e preparar a extração modular sem alterar URLs, nomes de rota, ordem, middleware ou fallback público. Stock por variante e Família/EE estão estruturalmente fechados. A ação operacional Cloudflare R2 permanece pendência externa separada. A matriz H1.17/H1.18 deve ser expandida dentro de cada workstream funcional.
 
 ---
 
@@ -658,6 +666,7 @@ Próximo passo ativo: H2.4b — acrescentar `product_variant_id` nullable ao led
 
 | Data | Módulo | Desenvolvimento / análise | Evidência | Estado / pendências |
 |---|---|---|---|---|
+| 2026-08-29 | Inventário / Loja | H2.4b acrescentou a dimensão nullable de variante ao ledger, tornou produto+variante atómicos, converteu baixas e ajustes manuais para o boundary canónico e eliminou os dois writers diretos. | PR #241; CI #944/#945; merge `f8ce467a51c6d605fc3fb62f0fc64585614e1106`; artifact `variant-stock-production-readiness-f8ce467a51c6d605fc3fb62f0fc64585614e1106` | Integrado e deployado; coluna presente, 0 writers diretos, 0 inconsistências e nenhum backfill necessário. Frente estrutural encerrada; H2.5a avança para legacy transversal e rotas modulares. |
 | 2026-08-29 | Inventário / Loja | H2.4a instalou auditoria produtiva agregada/read-only para stock por variante e confirmou ausência total de variantes e histórico associado. | PR #239; CI #938/#939; merge `6972a7aa9e859afe0764c2242b143aa83d110b84`; artifact `variant-stock-production-readiness-6972a7aa9e859afe0764c2242b143aa83d110b84` | Deployado; 0 variantes, 0 incoerências, 2 writers diretos conhecidos e `ready_for_design=true`. H2.4b avança sem backfill. |
 | 2026-08-29 | Membros / Família / EE | H2.3d removeu fisicamente `user_relationships` e os mirrors JSON, retirou código/rotas/auditors de transição e instalou o gate permanente `members:audit-family-final-schema`. | PR #237; CI #933/#934; merge `d7701cbe05c62b994643c6c91cf859fc199787a2`; artifact `family-final-schema-d7701cbe05c62b994643c6c91cf859fc199787a2` | Integrado e deployado na Oracle VM; produção confirma 3/3 estruturas canónicas, zero legacy e `ready=true`. Frente estrutural encerrada; prioridade H2 passa para stock por variante. |
 | 2026-08-29 | Membros / Família / EE | H2.3c executou em produção os audits minimizados e confirmou readiness integral: `user_relationships` vazio; 12/12 pares JSON cobertos; zero consumers, uncovered, invalid e self-reference. | PR #236; CI #930/#931; merge `1489e01d82e407926edb332b51ae9a248849067b`; artifacts `family-legacy-relationships-production-readiness-*` e `family-json-mirrors-production-readiness-*` | Deployado e aprovado para contract físico; não é necessário backfill. H2.3d remove as estruturas aposentadas e instala o gate final de schema. |
