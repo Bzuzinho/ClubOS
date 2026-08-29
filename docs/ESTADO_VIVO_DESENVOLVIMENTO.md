@@ -45,9 +45,9 @@ Stack produtiva: Laravel 13, PHP 8.3, React 19 + TypeScript, Inertia 2, Vite, Po
 | Website público / construtor | 86% | Renderer, snapshots, publicação e dados dinâmicos avançados. Faltam header/footer globais, notícias completas e validação runtime multi-viewport. |
 | Autenticação / Access Control | 78% | Auditoria e gates produtivos ativos. Zero findings críticos e zero rotas mutáveis sem `module.access`. H1.18 cobre rota protegida, intended redirect, login válido/inválido, logout e recuperação de password em Chromium/Firefox/WebKit desktop e Pixel/iPhone. Permanecem 83 warnings de capability granular e falta matriz por perfis não-admin. |
 | Dashboard / entrada por perfil | 70% | Funcional, com leituras canónicas financeiras. H1.18 valida Dashboard autenticado admin, overflow e WCAG A/AA; o gate foi estabilizado para auditar o estado final após desaparecer o progress transitório Inertia/NProgress, mantendo todas as regras axe. Falta QA final por restantes perfis e operações específicas. |
-| Portal atleta / família | 64% | Estrutura funcional. H2.1–H2.3a reforçaram a base relacional Família/EE; falta fecho mobile/PWA, UX e validação sistemática. |
-| Membros / Pessoas | 87% | Normalização avançada. H2.1 centralizou a escrita Família/EE; H2.2 neutralizou `user_relationships`; H2.3a iniciou o cutover dos mirrors JSON. Restam consumidores legacy explícitos a remover em H2.3b antes de qualquer drop físico. |
-| Família / EE / educandos | 80% | `familias/familia_user` é o agregado familiar canónico e `user_guardian` a relação explícita EE↔educando. `user_relationships` está tombstoned/read-only auditado. H2.3a parou a sincronização JSON no serviço canónico e retirou `encarregado_educacao`/`educandos` de `User::$fillable`; `MembrosController` e o fallback de `Membros/Show.tsx` ainda mantêm consumo legacy controlado, pelo que o cleanup físico ainda não está autorizado. |
+| Portal atleta / família | 64% | Estrutura funcional. H2.1–H2.3b reforçaram a base relacional Família/EE e removeram o fallback runtime dos mirrors JSON; falta fecho mobile/PWA, UX e validação sistemática. |
+| Membros / Pessoas | 88% | Normalização avançada. H2.1 centralizou a escrita Família/EE; H2.2 neutralizou `user_relationships`; H2.3a parou a escrita nos mirrors JSON e H2.3b removeu os consumidores runtime. O cleanup físico continua bloqueado até existirem resultados reais de produção preservados e analisados. |
+| Família / EE / educandos | 84% | `familias/familia_user` é o agregado familiar canónico e `user_guardian` a relação explícita EE↔educando. `user_relationships` está tombstoned. H2.3b removeu leituras/escritas runtime dos JSON históricos e impede que abrir uma ficha reescreva a pivot canónica a partir de dados stale. A H2.3c acrescenta recolha pós-deploy, read-only e sem PII, para decidir backfill ou cleanup físico apenas com evidência produtiva. |
 | Desportivo global | 70% | Análise transversal read-only consolidada sobre Treino/Cais/Live/Avaliações/Resultados, com proveniência, splits e export CSV; endpoints legacy Performance já retirados do routing runtime na PR #227. Principal frente por fechar: fluxo ponta a ponta, Portal, reporting consolidado e legacy cleanup. |
 | Planeamento desportivo | 65% | Base sólida; falta fechar UX, integrações e reporting. |
 | Treinos / presenças / Cais | 70% | Núcleo funcional forte; falta consolidar fluxo ponta a ponta e QA operacional. |
@@ -536,13 +536,35 @@ Concluído e deployado em `main`, mas **não autoriza ainda drop físico**:
 
 PR #232 merged em `c606daeffadfc07b000d1448293379e4d821e13a`; CI #924 totalmente verde na PR e CI #925 totalmente verde em `main`, incluindo PHP, PostgreSQL, multi-browser/mobile E2E, accessibility e deploy na Oracle VM.
 
-Próximo subpasso: H2.3b deve remover as leituras/escritas runtime JSON restantes, fazendo `MembrosController` e `Membros/Show.tsx` consumir exclusivamente as relações canónicas. Só depois o audit de dados produtivos poderá decidir backfill/cleanup físico; não inferir relações ausentes.
+O subpasso seguinte foi a H2.3b, que removeu estas leituras/escritas runtime. O audit de dados produtivos continua obrigatório antes de decidir backfill/cleanup físico; não inferir relações ausentes.
+
+### H2.3b — Cutover runtime dos mirrors JSON Família/EE — PR #235
+
+Concluído e deployado, ainda sem qualquer drop físico:
+
+- `MembrosController::show()` deixou de chamar a reconciliação legacy que podia ler JSON stale e reescrever `user_guardian` ao abrir uma ficha;
+- leituras e fallbacks JSON foram removidos do controller e de `Membros/Show.tsx`;
+- pedidos antigos que ainda enviam `encarregado_educacao`/`educandos` são tratados como vocabulário DTO e passam por `FamilyRelationshipService`;
+- `replaceGuardiansForMember()` e `replaceDependentsForGuardian()` substituem conjuntos de relações de forma canónica, idempotente e sem escrever nos mirrors;
+- testes cobrem substituição, deduplicação, idempotência, preservação dos JSON e ficha com dados stale;
+- `FamilyJsonMirrorAuditor` passou ao contrato H2.3b e exige zero consumidores runtime.
+
+PR #235 merged em `c8e8a36073b45c5ed49abd7702ec8fd93db83c59`; CI #928 totalmente verde na PR e CI #929 totalmente verde em `main`, incluindo deploy para a Oracle VM.
+
+### H2.3c — Auditorias produtivas Família/EE — preparação automática
+
+O deploy de `main` passa a recolher, após a release atómica, os relatórios read-only de:
+
+- `members:audit-family-legacy-relationships --json`;
+- `members:audit-family-json-mirrors --json`.
+
+Os artifacts são minimizados antes do upload: não incluem identificadores de linhas, utilizadores, snippets ou findings detalhados. O pipeline apenas mede e preserva evidência; não faz backfill, não apaga dados e não bloqueia um deploy funcional por divergências históricas. O cleanup físico só pode avançar quando os dois relatórios reais demonstrarem cobertura canónica total e zero referências inválidas, self-references, tipos desconhecidos ou pares uncovered.
 
 ---
 
 ## 7. Dívida estrutural prioritária
 
-- Família/EE: concluir H2.3b, remover consumidores JSON runtime, auditar dados produtivos e só depois decidir backfill/drop; `user_relationships` já está neutralizado e `user_guardian` + `familia_user` são as fontes canónicas atuais.
+- Família/EE: H2.3b está concluída e deployada; recolher e interpretar os audits produtivos H2.3c e só depois decidir backfill/drop. `user_relationships` está neutralizado e `user_guardian` + `familia_user` são as fontes canónicas atuais.
 - Inventário: integrar `product_variants.stock` no ledger canónico ou transformar variantes/SKU em entidade física de inventário.
 - Desportivo: fechar fluxo Planeamento → Treino → Cais → Live → Presenças → Competições → Resultados → Portal → reporting → legacy cleanup.
 - Eventos: remover estruturas de compatibilidade sem consumo e criar contract tests com Desportivo.
@@ -557,7 +579,7 @@ Próximo subpasso: H2.3b deve remover as leituras/escritas runtime JSON restante
 
 | Ordem | Sprint | Objetivo |
 |---:|---|---|
-| 1 | H2 | Família/EE em execução: H2.1, H2.2 e H2.3a concluídos/deployados; fechar H2.3b e auditoria de dados, depois avançar stock variantes, legacy e rotas modulares. |
+| 1 | H2 | Família/EE em execução: H2.1–H2.3b concluídos/deployados; recolher auditoria produtiva H2.3c e decidir backfill/cleanup, depois avançar stock variantes, legacy e rotas modulares. |
 | 2 | H3 | Fecho Desportivo ponta a ponta. |
 | 3 | H4 | Decisão e fecho Fiscal. |
 | 4 | H5 | Loja + Logística lifecycle completo. |
@@ -566,7 +588,7 @@ Próximo subpasso: H2.3b deve remover as leituras/escritas runtime JSON restante
 | 7 | H8 | Reporting consolidado. |
 | 8 | H9 | Website: header/footer, notícias e polish final. |
 
-Próximo passo ativo: H2.3b — retirar os consumidores runtime dos mirrors JSON Família/EE e projetar o fluxo de edição/leitura exclusivamente sobre `user_guardian` e `familias/familia_user`, mantendo a ação operacional Cloudflare R2 como pendência externa separada. Depois, executar auditoria produtiva antes de qualquer cleanup físico. A matriz H1.17/H1.18 deve ser expandida dentro de cada workstream funcional.
+Próximo passo ativo: H2.3c — recolher automaticamente em produção os audits de `user_relationships` e mirrors JSON, preservar apenas métricas minimizadas e decidir, com os resultados reais, se é necessário backfill conservador antes de qualquer cleanup físico. A ação operacional Cloudflare R2 permanece pendência externa separada. A matriz H1.17/H1.18 deve ser expandida dentro de cada workstream funcional.
 
 ---
 
@@ -574,7 +596,8 @@ Próximo passo ativo: H2.3b — retirar os consumidores runtime dos mirrors JSON
 
 | Data | Módulo | Desenvolvimento / análise | Evidência | Estado / pendências |
 |---|---|---|---|---|
-| 2026-08-29 | Membros / Família / EE | H2.3a iniciou o cutover dos mirrors JSON: serviço canónico deixa de escrever JSON, mirrors deixam de ser mass-assignable e auditor read-only mede consumidores/cobertura; E2E accessibility estabilizado sem silenciar regras. | PR #232; CI #924/#925; merge `c606daeffadfc07b000d1448293379e4d821e13a`; `FamilyJsonMirrorAuditor`; `AuditFamilyJsonMirrorsCommand`; `tests/e2e/authenticated-access.spec.ts` | Integrado e deployado na Oracle VM. H2.3b deve retirar os consumidores runtime restantes antes de audit/backfill/drop físico. |
+| 2026-08-29 | Membros / Família / EE | H2.3b removeu consumidores runtime dos mirrors JSON, convergiu edição/leitura em `user_guardian`/`familia_user` e eliminou a reconciliação destrutiva ao abrir fichas. | PR #235; CI #928/#929; merge `c8e8a36073b45c5ed49abd7702ec8fd93db83c59`; `FamilyRelationshipService`; `FamilyRuntimeCanonicalCutoverTest`; `FamilyCanonicalBulkReplacementTest` | Integrado e deployado na Oracle VM. H2.3c recolhe agora evidência produtiva minimizada; não existe autorização para drop até os resultados reais estarem limpos. |
+| 2026-08-29 | Membros / Família / EE | H2.3a iniciou o cutover dos mirrors JSON: serviço canónico deixa de escrever JSON, mirrors deixam de ser mass-assignable e auditor read-only mede consumidores/cobertura; E2E accessibility estabilizado sem silenciar regras. | PR #232; CI #924/#925; merge `c606daeffadfc07b000d1448293379e4d821e13a`; `FamilyJsonMirrorAuditor`; `AuditFamilyJsonMirrorsCommand`; `tests/e2e/authenticated-access.spec.ts` | Integrado e deployado na Oracle VM; a H2.3b retirou depois os consumidores runtime restantes. |
 | 2026-08-29 | CI / Segurança | Retry seguro no Composer audit após timeout transitório do Packagist: repete apenas resposta técnica inválida e continua fail-closed para advisories e indisponibilidade persistente. | PR #233; merge `c68903abefcf1ca5a719f1c421dd1346f42f3cd8`; CI #921 | Integrado e deployado; baseline Composer continua 0 advisories sem bypass de segurança. |
 | 2026-08-28 | Membros / Família / EE | H2.2 neutralizou `user_relationships`: runtime legacy responde 410 e auditor read-only mede cobertura pela estrutura canónica. | PR #231; merge `ef9ae22b820cdd8eec940f1a618ca01707c98897`; `FamilyLegacyRelationshipAuditor`; `LegacyMemberRelationshipRuntimeRetirementTest` | Integrado e em produção; limpeza física fica condicionada a auditoria de dados. |
 | 2026-08-28 | Membros / Família / EE | H2.1 introduziu boundary canónico de escrita e regras determinísticas entre `user_guardian` e `familia_user`, sem inventar agregados familiares. | PR #230; CI #905/#906; merge `deee18a7fadb0288efafd67306471e8b8c849075`; `FamilyRelationshipServiceCanonicalWriteTest` | Integrado e deployado; base para H2.2/H2.3. |
