@@ -16,7 +16,8 @@ final class WebRouteTopologyWorkflowContractTest extends TestCase
         self::assertStringContainsString('php artisan routes:audit-web-topology', $workflow);
         self::assertStringContainsString('--fail-on-contract-drift', $workflow);
         self::assertStringContainsString('.summary.contract_matches_baseline == true', $workflow);
-        self::assertStringContainsString('.summary.fallback_is_last == true', $workflow);
+        self::assertStringContainsString('.summary.fallback_route_count == 1', $workflow);
+        self::assertStringContainsString('.contract.fallback_name == "public.custom-page"', $workflow);
         self::assertStringContainsString('.contract.hash == .contract.baseline_hash', $workflow);
         self::assertStringContainsString('name: web-route-topology-${{ github.sha }}', $workflow);
     }

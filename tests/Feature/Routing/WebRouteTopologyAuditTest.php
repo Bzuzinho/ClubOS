@@ -17,12 +17,23 @@ final class WebRouteTopologyAuditTest extends TestCase
         $this->assertSame('web-route-topology-v1', $report['version']);
         $this->assertTrue($report['read_only']);
         $this->assertTrue($report['summary']['contract_matches_baseline']);
-        $this->assertTrue($report['summary']['fallback_is_last']);
+        $this->assertSame(1, $report['summary']['fallback_route_count']);
+        $this->assertFalse($report['summary']['fallback_registered_last']);
         $this->assertSame('public.custom-page', $report['contract']['fallback_name']);
         $this->assertMatchesRegularExpression('/^[a-f0-9]{64}$/', $report['contract']['hash']);
         $this->assertSame(18, $report['summary']['modular_route_file_count']);
         $this->assertSame(18, $report['summary']['loaded_modular_route_file_count']);
         $this->assertSame(23, $report['summary']['legacy_redirect_count']);
+        $this->assertArrayHasKey('store.front.index', $report['contract']['named_routes']);
+        $this->assertArrayHasKey('loja.index', $report['contract']['named_routes']);
+        $this->assertSame('loja', $report['contract']['named_routes']['store.front.index']['uri']);
+        $this->assertSame('loja', $report['contract']['named_routes']['loja.index']['uri']);
+        $this->assertTrue(collect($report['duplicates']['source_literal_candidates'])->contains(
+            fn (array $candidate): bool => $candidate['method'] === 'GET' && $candidate['uri'] === '/loja',
+        ));
+        $this->assertTrue(collect($report['duplicates']['source_literal_candidates'])->contains(
+            fn (array $candidate): bool => $candidate['method'] === 'PUT' && $candidate['uri'] === '/configuracoes/clube',
+        ));
         $this->assertTrue($report['interpretation']['diagnostic_only']);
         $this->assertTrue($report['interpretation']['no_routes_changed']);
     }

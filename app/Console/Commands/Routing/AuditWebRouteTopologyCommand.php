@@ -39,7 +39,8 @@ final class AuditWebRouteTopologyCommand extends Command
                 ['legacy_redirect_consumers', $summary['legacy_redirect_consumer_count']],
                 ['modular_route_files', $summary['modular_route_file_count']],
                 ['web.php lines', $summary['web_source_line_count']],
-                ['fallback_is_last', $summary['fallback_is_last'] ? 'true' : 'false'],
+                ['fallback_routes', $summary['fallback_route_count']],
+                ['fallback_registered_last', $summary['fallback_registered_last'] ? 'true' : 'false'],
                 ['contract_matches_baseline', $summary['contract_matches_baseline'] ? 'true' : 'false'],
             ]);
         }

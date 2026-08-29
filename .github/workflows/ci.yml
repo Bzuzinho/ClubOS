@@ -85,8 +85,10 @@ jobs:
             .version == "web-route-topology-v1"
             and .read_only == true
             and .summary.web_route_count > 0
+            and .summary.named_route_lookup_count > 0
             and .summary.contract_matches_baseline == true
-            and .summary.fallback_is_last == true
+            and .summary.fallback_route_count == 1
+            and .contract.fallback_name == "public.custom-page"
             and .summary.loaded_modular_route_file_count == .summary.modular_route_file_count
             and .contract.hash == .contract.baseline_hash
             and .interpretation.no_routes_changed == true

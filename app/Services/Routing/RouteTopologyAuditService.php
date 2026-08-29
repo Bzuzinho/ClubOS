@@ -19,21 +19,26 @@ final class RouteTopologyAuditService
     public function report(): array
     {
         $routes = $this->webRouteSignatures();
-        $contractHash = hash('sha256', json_encode($routes, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) ?: '[]');
+        $namedRoutes = $this->namedWebRouteSignatures();
+        $contractPayload = ['ordered_routes' => $routes, 'named_routes' => $namedRoutes];
+        $contractHash = hash('sha256', json_encode($contractPayload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) ?: '[]');
         $baseline = $this->baseline();
         $duplicates = $this->duplicateSignatureGroups($routes);
         $duplicateNames = $this->duplicateNameGroups($routes);
+        $sourceDuplicateCandidates = $this->sourceLiteralDuplicateCandidates();
         $redirects = $this->legacyRedirects();
         $legacyConsumers = $this->legacyRedirectConsumers($redirects);
         $routeFiles = $this->routeFiles();
-        $fallback = collect($routes)->firstWhere('is_fallback', true);
+        $fallbackRoutes = collect($routes)->where('is_fallback', true)->values();
+        $fallback = $fallbackRoutes->first();
         $last = $routes === [] ? null : $routes[array_key_last($routes)];
-        $fallbackIsLast = $fallback !== null && $last !== null && $fallback['position'] === $last['position'];
+        $fallbackRegisteredLast = $fallback !== null && $last !== null && $fallback['position'] === $last['position'];
         $contractMatches = ($baseline['version'] ?? null) === self::VERSION
             && ($baseline['contract_hash'] ?? null) === $contractHash
             && (int) ($baseline['route_count'] ?? -1) === count($routes)
+            && (int) ($baseline['named_route_count'] ?? -1) === count($namedRoutes)
             && ($baseline['fallback_name'] ?? null) === ($fallback['name'] ?? null)
-            && (bool) ($baseline['fallback_must_be_last'] ?? true) === $fallbackIsLast;
+            && (bool) ($baseline['fallback_registered_last'] ?? false) === $fallbackRegisteredLast;
 
         return [
             'version' => self::VERSION,
@@ -41,9 +46,11 @@ final class RouteTopologyAuditService
             'summary' => [
                 'web_route_count' => count($routes),
                 'named_web_route_count' => collect($routes)->whereNotNull('name')->count(),
+                'named_route_lookup_count' => count($namedRoutes),
                 'unnamed_web_route_count' => collect($routes)->whereNull('name')->count(),
                 'duplicate_signature_group_count' => count($duplicates),
                 'duplicate_name_group_count' => count($duplicateNames),
+                'source_literal_duplicate_candidate_count' => count($sourceDuplicateCandidates),
                 'legacy_redirect_count' => count($redirects),
                 'legacy_redirect_consumer_count' => count($legacyConsumers),
                 'legacy_named_boundary_count' => count($this->legacyNamedBoundaries($routes)),
@@ -52,7 +59,8 @@ final class RouteTopologyAuditService
                 'web_source_line_count' => $this->lineCount(base_path('routes/web.php')),
                 'web_source_route_call_count' => $this->routeCallCount(base_path('routes/web.php')),
                 'web_source_controller_import_count' => $this->controllerImportCount(base_path('routes/web.php')),
-                'fallback_is_last' => $fallbackIsLast,
+                'fallback_route_count' => $fallbackRoutes->count(),
+                'fallback_registered_last' => $fallbackRegisteredLast,
                 'contract_matches_baseline' => $contractMatches,
             ],
             'contract' => [
@@ -64,10 +72,12 @@ final class RouteTopologyAuditService
                 'fallback_position' => $fallback['position'] ?? null,
                 'last_route_position' => $last['position'] ?? null,
                 'signatures' => $routes,
+                'named_routes' => $namedRoutes,
             ],
             'duplicates' => [
                 'method_uri_groups' => $duplicates,
                 'name_groups' => $duplicateNames,
+                'source_literal_candidates' => $sourceDuplicateCandidates,
             ],
             'legacy' => [
                 'redirects' => $redirects,
@@ -81,12 +91,13 @@ final class RouteTopologyAuditService
                     'app/Providers/AppServiceProvider.php',
                     'bootstrap/app.php',
                 ],
-                'preserve' => ['methods', 'uri', 'domain', 'name', 'action', 'middleware', 'where', 'order', 'fallback'],
+                'preserve' => ['methods', 'uri', 'domain', 'name_lookup', 'action', 'middleware', 'where', 'order', 'fallback'],
             ],
             'interpretation' => [
                 'diagnostic_only' => true,
                 'no_routes_changed' => true,
                 'duplicate_signatures_require_classification_before_extraction' => true,
+                'source_literal_duplicates_are_candidates_not_runtime_findings' => true,
                 'legacy_redirects_require_zero_runtime_consumers_before_retirement' => true,
             ],
         ];
@@ -123,9 +134,47 @@ final class RouteTopologyAuditService
                 'action' => $route->getActionName(),
                 'middleware' => $middleware,
                 'where' => $where,
-                'is_fallback' => (bool) ($route->getAction('isFallback') ?? false),
+                'is_fallback' => $this->isFallback($route),
             ];
         }
+
+        return $signatures;
+    }
+
+    /** @return array<string,array<string,mixed>> */
+    private function namedWebRouteSignatures(): array
+    {
+        $signatures = [];
+
+        foreach (Route::getRoutes()->getRoutesByName() as $name => $route) {
+            if (! $route instanceof IlluminateRoute) {
+                continue;
+            }
+
+            $middleware = array_values(array_map(
+                static fn (mixed $value): string => is_string($value) ? $value : get_debug_type($value),
+                $route->gatherMiddleware(),
+            ));
+
+            if (! in_array('web', $middleware, true)) {
+                continue;
+            }
+
+            $where = $route->wheres;
+            ksort($where);
+
+            $signatures[(string) $name] = [
+                'methods' => array_values($route->methods()),
+                'uri' => $route->uri(),
+                'domain' => $route->getDomain(),
+                'action' => $route->getActionName(),
+                'middleware' => $middleware,
+                'where' => $where,
+                'is_fallback' => $this->isFallback($route),
+            ];
+        }
+
+        ksort($signatures);
 
         return $signatures;
     }
@@ -176,6 +225,36 @@ final class RouteTopologyAuditService
                     'uri' => $route['uri'],
                     'action' => $route['action'],
                 ])->values()->all(),
+            ])
+            ->values()
+            ->all();
+    }
+
+    /** @return list<array{method:string,uri:string,occurrences:list<array{line:int}>}> */
+    private function sourceLiteralDuplicateCandidates(): array
+    {
+        $lines = preg_split('/\R/', File::get(base_path('routes/web.php'))) ?: [];
+        $declarations = [];
+
+        foreach ($lines as $index => $line) {
+            if (preg_match('/Route::(get|post|put|patch|delete|options)\s*\(\s*[\'\"]([^\'\"]+)[\'\"]/', $line, $match) !== 1) {
+                continue;
+            }
+
+            $declarations[] = [
+                'method' => strtoupper($match[1]),
+                'uri' => $match[2],
+                'line' => $index + 1,
+            ];
+        }
+
+        return collect($declarations)
+            ->groupBy(static fn (array $route): string => $route['method'].' '.$route['uri'])
+            ->filter(static fn ($group): bool => $group->count() > 1)
+            ->map(static fn ($group): array => [
+                'method' => $group->first()['method'],
+                'uri' => $group->first()['uri'],
+                'occurrences' => $group->map(static fn (array $route): array => ['line' => $route['line']])->values()->all(),
             ])
             ->values()
             ->all();
@@ -308,6 +387,12 @@ final class RouteTopologyAuditService
         }
 
         return json_decode(File::get($path), true) ?: [];
+    }
+
+    private function isFallback(IlluminateRoute $route): bool
+    {
+        return (bool) ($route->isFallback ?? false)
+            || ($route->uri() === '{fallbackPlaceholder}' && ($route->wheres['fallbackPlaceholder'] ?? null) === '.*');
     }
 
     private function lineCount(string $path): int
