@@ -8,7 +8,7 @@ use PHPUnit\Framework\TestCase;
 
 final class FamilyProductionAuditWorkflowContractTest extends TestCase
 {
-    public function test_main_deploy_collects_minimised_read_only_family_readiness_artifacts(): void
+    public function test_main_deploy_gates_and_preserves_final_family_schema_audit(): void
     {
         $workflowPath = dirname(__DIR__, 3).'/.github/workflows/ci.yml';
         self::assertFileExists($workflowPath);
@@ -17,33 +17,28 @@ final class FamilyProductionAuditWorkflowContractTest extends TestCase
         self::assertIsString($workflow);
 
         self::assertStringContainsString(
-            'php artisan members:audit-family-legacy-relationships --json',
+            'php artisan members:audit-family-final-schema --json --fail-on-finding',
             $workflow,
         );
         self::assertStringContainsString(
-            'php artisan members:audit-family-json-mirrors --json',
-            $workflow,
-        );
-        self::assertStringContainsString("jq 'del(.unresolved)'", $workflow);
-        self::assertStringContainsString(
-            "jq 'del(.source.findings, .data.unresolved)'",
+            '.version == "family-final-schema-v1"',
             $workflow,
         );
         self::assertStringContainsString(
-            'family-legacy-relationships-production-readiness-${{ github.sha }}',
+            '.summary.legacy_structures_present_count == 0',
             $workflow,
         );
         self::assertStringContainsString(
-            'family-json-mirrors-production-readiness-${{ github.sha }}',
+            'family-final-schema-${{ github.sha }}',
             $workflow,
         );
 
         self::assertStringNotContainsString(
-            'members:audit-family-legacy-relationships --json --fail-on-uncovered',
+            'members:audit-family-legacy-relationships',
             $workflow,
         );
         self::assertStringNotContainsString(
-            'members:audit-family-json-mirrors --json --fail-on-finding',
+            'members:audit-family-json-mirrors',
             $workflow,
         );
     }

@@ -142,8 +142,8 @@ class MemberDataStructureTest extends TestCase
             'consentimento',
             'afiliacao',
             'declaracao_de_transporte',
-            'encarregado_educacao',
-            'educandos',
         ]));
+        $this->assertFalse(Schema::hasColumn('users', 'encarregado_educacao'));
+        $this->assertFalse(Schema::hasColumn('users', 'educandos'));
     }
 }

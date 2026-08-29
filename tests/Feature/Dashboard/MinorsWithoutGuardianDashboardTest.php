@@ -34,7 +34,6 @@ final class MinorsWithoutGuardianDashboardTest extends TestCase
             'users' => DB::table('users')->count(),
             'guardians' => DB::table('user_guardian')->count(),
             'families' => DB::table('familia_user')->count(),
-            'relationships' => DB::table('user_relationships')->count(),
         ];
 
         $response = $this->inertiaGetAs($admin, route('dashboard'));
@@ -55,7 +54,6 @@ final class MinorsWithoutGuardianDashboardTest extends TestCase
         $this->assertSame($before['users'], DB::table('users')->count());
         $this->assertSame($before['guardians'], DB::table('user_guardian')->count());
         $this->assertSame($before['families'], DB::table('familia_user')->count());
-        $this->assertSame($before['relationships'], DB::table('user_relationships')->count());
     }
 
     public function test_dashboard_summary_exposes_more_records_and_all_members_link(): void

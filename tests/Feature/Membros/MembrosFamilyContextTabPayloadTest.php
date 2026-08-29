@@ -46,9 +46,6 @@ class MembrosFamilyContextTabPayloadTest extends TestCase
             'updated_at' => now(),
         ]);
 
-        $guardian->forceFill(['educandos' => [$athlete->id]])->save();
-        $athlete->forceFill(['encarregado_educacao' => [$guardian->id]])->save();
-
         $family = Familia::query()->create([
             'nome' => 'Familia Contexto',
             'descricao' => 'Teste',
@@ -123,9 +120,6 @@ class MembrosFamilyContextTabPayloadTest extends TestCase
             'created_at' => now(),
             'updated_at' => now(),
         ]);
-
-        $guardian->forceFill(['educandos' => [$educando->id]])->save();
-        $educando->forceFill(['encarregado_educacao' => [$guardian->id]])->save();
 
         $response = $this->inertiaGetAs($admin, route('membros.show', ['member' => $guardian->id]));
 

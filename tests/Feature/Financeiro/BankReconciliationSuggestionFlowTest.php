@@ -234,7 +234,7 @@ class BankReconciliationSuggestionFlowTest extends TestCase
         ]);
     }
 
-    public function test_it_generates_suggestion_when_guardian_has_legacy_educandos_attribute_values(): void
+    public function test_it_generates_suggestion_from_canonical_guardian_relationship(): void
     {
         $admin = User::factory()->admin()->create();
         $guardian = $this->createFinanceUser([
@@ -247,7 +247,6 @@ class BankReconciliationSuggestionFlowTest extends TestCase
             'email' => 'vania-raquel@example.com',
         ]);
         $guardian->educandos()->attach($child->id);
-        $guardian->forceFill(['educandos' => [$child->id]])->save();
 
         $invoice = $this->createInvoice($child, 22.50, 'mensalidade', '2026-01-10', [
             'data_fatura' => '2026-01-01',

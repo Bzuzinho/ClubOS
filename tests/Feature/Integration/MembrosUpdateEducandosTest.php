@@ -56,9 +56,9 @@ class MembrosUpdateEducandosTest extends TestCase
         $educando->refresh();
 
         $this->assertSame([$educando->id], $guardian->educandos()->pluck('users.id')->all());
-        $this->assertSame([], $guardian->educandos ?? []);
         $this->assertSame([$guardian->id], $educando->encarregados()->pluck('users.id')->all());
-        $this->assertSame([], $educando->encarregado_educacao ?? []);
+        $this->assertArrayNotHasKey('educandos', $guardian->getAttributes());
+        $this->assertArrayNotHasKey('encarregado_educacao', $educando->getAttributes());
 
         $showResponse = $this->inertiaGetAs($guardian, route('membros.show', ['member' => $guardian->id]));
 

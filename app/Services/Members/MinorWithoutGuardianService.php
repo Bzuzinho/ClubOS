@@ -140,12 +140,6 @@ final class MinorWithoutGuardianService
             }
         }
 
-        if (Schema::hasTable('user_relationships')) {
-            $ids = $ids
-                ->merge(DB::table('user_relationships')->whereIn('type', self::GUARDIAN_ROLES)->pluck('user_id'))
-                ->merge(DB::table('user_relationships')->whereIn('type', ['educando', 'dependent', 'dependente'])->pluck('related_user_id'));
-        }
-
         return $ids->map(fn (mixed $id): string => (string) $id)->unique()->values();
     }
 }

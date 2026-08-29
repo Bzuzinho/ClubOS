@@ -196,7 +196,6 @@ final class MemberModelAuditService
             'user_guardian',
             'familias',
             'familia_user',
-            'user_relationships',
             'user_types',
             'user_user_type',
             'user_type_permissions',
@@ -246,8 +245,7 @@ final class MemberModelAuditService
             'family_sources' => [
                 'user_guardian' => $tables['user_guardian'],
                 'familia_user' => $tables['familia_user'],
-                'user_relationships' => $tables['user_relationships'],
-                'users_legacy_arrays' => Schema::hasColumn('users', 'encarregado_educacao') || Schema::hasColumn('users', 'educandos'),
+                'canonical_only' => $tables['user_guardian'] && $tables['familia_user'],
             ],
             'permission_sources' => [
                 'perfil' => Schema::hasColumn('users', 'perfil'),

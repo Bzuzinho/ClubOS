@@ -46,8 +46,8 @@ Stack produtiva: Laravel 13, PHP 8.3, React 19 + TypeScript, Inertia 2, Vite, Po
 | Autenticação / Access Control | 78% | Auditoria e gates produtivos ativos. Zero findings críticos e zero rotas mutáveis sem `module.access`. H1.18 cobre rota protegida, intended redirect, login válido/inválido, logout e recuperação de password em Chromium/Firefox/WebKit desktop e Pixel/iPhone. Permanecem 83 warnings de capability granular e falta matriz por perfis não-admin. |
 | Dashboard / entrada por perfil | 70% | Funcional, com leituras canónicas financeiras. H1.18 valida Dashboard autenticado admin, overflow e WCAG A/AA; o gate foi estabilizado para auditar o estado final após desaparecer o progress transitório Inertia/NProgress, mantendo todas as regras axe. Falta QA final por restantes perfis e operações específicas. |
 | Portal atleta / família | 64% | Estrutura funcional. H2.1–H2.3b reforçaram a base relacional Família/EE e removeram o fallback runtime dos mirrors JSON; falta fecho mobile/PWA, UX e validação sistemática. |
-| Membros / Pessoas | 88% | Normalização avançada. H2.1 centralizou a escrita Família/EE; H2.2 neutralizou `user_relationships`; H2.3a parou a escrita nos mirrors JSON e H2.3b removeu os consumidores runtime. O cleanup físico continua bloqueado até existirem resultados reais de produção preservados e analisados. |
-| Família / EE / educandos | 84% | `familias/familia_user` é o agregado familiar canónico e `user_guardian` a relação explícita EE↔educando. `user_relationships` está tombstoned. H2.3b removeu leituras/escritas runtime dos JSON históricos e impede que abrir uma ficha reescreva a pivot canónica a partir de dados stale. A H2.3c acrescenta recolha pós-deploy, read-only e sem PII, para decidir backfill ou cleanup físico apenas com evidência produtiva. |
+| Membros / Pessoas | 89% | Normalização avançada. Família/EE ficou consolidada em `user_guardian` + `familias/familia_user`; os mirrors JSON e `user_relationships` foram aprovados para remoção por auditoria produtiva integralmente limpa. O contract físico H2.3d remove as estruturas aposentadas, casts, rotas e classes legacy e acrescenta gate de schema final. |
+| Família / EE / educandos | 90% | `familias/familia_user` é o agregado familiar canónico e `user_guardian` a relação explícita EE↔educando. A auditoria H2.3c provou 12/12 pares históricos cobertos e zero findings; H2.3d elimina fisicamente `user_relationships`, `users.encarregado_educacao` e `users.educandos`, mantendo apenas DTOs/nomes relacionais ainda funcionais. Falta apenas validação final do deploy desta migration. |
 | Desportivo global | 70% | Análise transversal read-only consolidada sobre Treino/Cais/Live/Avaliações/Resultados, com proveniência, splits e export CSV; endpoints legacy Performance já retirados do routing runtime na PR #227. Principal frente por fechar: fluxo ponta a ponta, Portal, reporting consolidado e legacy cleanup. |
 | Planeamento desportivo | 65% | Base sólida; falta fechar UX, integrações e reporting. |
 | Treinos / presenças / Cais | 70% | Núcleo funcional forte; falta consolidar fluxo ponta a ponta e QA operacional. |
@@ -551,20 +551,40 @@ Concluído e deployado, ainda sem qualquer drop físico:
 
 PR #235 merged em `c8e8a36073b45c5ed49abd7702ec8fd93db83c59`; CI #928 totalmente verde na PR e CI #929 totalmente verde em `main`, incluindo deploy para a Oracle VM.
 
-### H2.3c — Auditorias produtivas Família/EE — preparação automática
+### H2.3c — Auditorias produtivas Família/EE — concluída
 
 O deploy de `main` passa a recolher, após a release atómica, os relatórios read-only de:
 
 - `members:audit-family-legacy-relationships --json`;
 - `members:audit-family-json-mirrors --json`.
 
-Os artifacts são minimizados antes do upload: não incluem identificadores de linhas, utilizadores, snippets ou findings detalhados. O pipeline apenas mede e preserva evidência; não faz backfill, não apaga dados e não bloqueia um deploy funcional por divergências históricas. O cleanup físico só pode avançar quando os dois relatórios reais demonstrarem cobertura canónica total e zero referências inválidas, self-references, tipos desconhecidos ou pares uncovered.
+Os artifacts são minimizados antes do upload: não incluem identificadores de linhas, utilizadores, snippets ou findings detalhados. O pipeline apenas mede e preserva evidência; não faz backfill nem apaga dados.
+
+PR #236 merged em `1489e01d82e407926edb332b51ae9a248849067b`; CI #930 verde na PR e CI #931 verde em `main`, com deploy completo. Resultados reais de produção:
+
+- `user_relationships`: tabela presente, `0` linhas, `0` uncovered e `0` tipos desconhecidos;
+- mirrors JSON: `24` links declarados, `12` pares únicos e `12` pares cobertos por `user_guardian`;
+- `0` consumidores runtime, `0` pares uncovered, `0` referências inválidas e `0` self-references;
+- ambos os relatórios devolveram `ready_for_physical_cleanup=true`.
+
+Não foi necessário backfill: toda a informação histórica relevante já estava coberta pela representação canónica.
+
+### H2.3d — Contract físico final Família/EE
+
+Com o gate produtivo limpo, o contract final:
+
+- remove por migration `user_relationships`, `users.encarregado_educacao` e `users.educandos`;
+- remove casts mortos, `UserRelationship`, `RelacoesMembroController`, rotas tombstone e relações Eloquent legacy;
+- retira a última leitura tolerante de `user_relationships` no alerta de menores e do mapa de modelo de Pessoas;
+- aposenta os dois auditors de transição e substitui-os por `members:audit-family-final-schema`;
+- mantém `user_guardian`, `familias` e `familia_user` como estruturas obrigatórias;
+- acrescenta testes de ausência física, rotas canónicas e gate pós-deploy sem dados de linha.
 
 ---
 
 ## 7. Dívida estrutural prioritária
 
-- Família/EE: H2.3b está concluída e deployada; recolher e interpretar os audits produtivos H2.3c e só depois decidir backfill/drop. `user_relationships` está neutralizado e `user_guardian` + `familia_user` são as fontes canónicas atuais.
+- Família/EE: fechar CI/deploy da H2.3d e confirmar o artifact `family-final-schema`; depois considerar esta frente estrutural encerrada.
 - Inventário: integrar `product_variants.stock` no ledger canónico ou transformar variantes/SKU em entidade física de inventário.
 - Desportivo: fechar fluxo Planeamento → Treino → Cais → Live → Presenças → Competições → Resultados → Portal → reporting → legacy cleanup.
 - Eventos: remover estruturas de compatibilidade sem consumo e criar contract tests com Desportivo.
@@ -579,7 +599,7 @@ Os artifacts são minimizados antes do upload: não incluem identificadores de l
 
 | Ordem | Sprint | Objetivo |
 |---:|---|---|
-| 1 | H2 | Família/EE em execução: H2.1–H2.3b concluídos/deployados; recolher auditoria produtiva H2.3c e decidir backfill/cleanup, depois avançar stock variantes, legacy e rotas modulares. |
+| 1 | H2 | Fechar o contract físico Família/EE H2.3d; em seguida avançar para stock variantes, legacy transversal e rotas modulares. |
 | 2 | H3 | Fecho Desportivo ponta a ponta. |
 | 3 | H4 | Decisão e fecho Fiscal. |
 | 4 | H5 | Loja + Logística lifecycle completo. |
@@ -588,7 +608,7 @@ Os artifacts são minimizados antes do upload: não incluem identificadores de l
 | 7 | H8 | Reporting consolidado. |
 | 8 | H9 | Website: header/footer, notícias e polish final. |
 
-Próximo passo ativo: H2.3c — recolher automaticamente em produção os audits de `user_relationships` e mirrors JSON, preservar apenas métricas minimizadas e decidir, com os resultados reais, se é necessário backfill conservador antes de qualquer cleanup físico. A ação operacional Cloudflare R2 permanece pendência externa separada. A matriz H1.17/H1.18 deve ser expandida dentro de cada workstream funcional.
+Próximo passo ativo: H2.3d — validar a migration/guard rails de remoção física em CI e produção. Depois, Família/EE fica estruturalmente fechada e a prioridade H2 passa para a consolidação de stock por variante. A ação operacional Cloudflare R2 permanece pendência externa separada. A matriz H1.17/H1.18 deve ser expandida dentro de cada workstream funcional.
 
 ---
 
@@ -596,6 +616,7 @@ Próximo passo ativo: H2.3c — recolher automaticamente em produção os audits
 
 | Data | Módulo | Desenvolvimento / análise | Evidência | Estado / pendências |
 |---|---|---|---|---|
+| 2026-08-29 | Membros / Família / EE | H2.3c executou em produção os audits minimizados e confirmou readiness integral: `user_relationships` vazio; 12/12 pares JSON cobertos; zero consumers, uncovered, invalid e self-reference. | PR #236; CI #930/#931; merge `1489e01d82e407926edb332b51ae9a248849067b`; artifacts `family-legacy-relationships-production-readiness-*` e `family-json-mirrors-production-readiness-*` | Deployado e aprovado para contract físico; não é necessário backfill. H2.3d remove as estruturas aposentadas e instala o gate final de schema. |
 | 2026-08-29 | Membros / Família / EE | H2.3b removeu consumidores runtime dos mirrors JSON, convergiu edição/leitura em `user_guardian`/`familia_user` e eliminou a reconciliação destrutiva ao abrir fichas. | PR #235; CI #928/#929; merge `c8e8a36073b45c5ed49abd7702ec8fd93db83c59`; `FamilyRelationshipService`; `FamilyRuntimeCanonicalCutoverTest`; `FamilyCanonicalBulkReplacementTest` | Integrado e deployado na Oracle VM. H2.3c recolhe agora evidência produtiva minimizada; não existe autorização para drop até os resultados reais estarem limpos. |
 | 2026-08-29 | Membros / Família / EE | H2.3a iniciou o cutover dos mirrors JSON: serviço canónico deixa de escrever JSON, mirrors deixam de ser mass-assignable e auditor read-only mede consumidores/cobertura; E2E accessibility estabilizado sem silenciar regras. | PR #232; CI #924/#925; merge `c606daeffadfc07b000d1448293379e4d821e13a`; `FamilyJsonMirrorAuditor`; `AuditFamilyJsonMirrorsCommand`; `tests/e2e/authenticated-access.spec.ts` | Integrado e deployado na Oracle VM; a H2.3b retirou depois os consumidores runtime restantes. |
 | 2026-08-29 | CI / Segurança | Retry seguro no Composer audit após timeout transitório do Packagist: repete apenas resposta técnica inválida e continua fail-closed para advisories e indisponibilidade persistente. | PR #233; merge `c68903abefcf1ca5a719f1c421dd1346f42f3cd8`; CI #921 | Integrado e deployado; baseline Composer continua 0 advisories sem bypass de segurança. |
