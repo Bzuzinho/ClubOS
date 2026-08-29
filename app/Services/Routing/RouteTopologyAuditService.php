@@ -15,6 +15,21 @@ final class RouteTopologyAuditService
 
     private const BASELINE_PATH = 'qa/baselines/web-route-topology.json';
 
+    private const RETIRED_SHADOWED_ALIASES = [
+        [
+            'method' => 'GET',
+            'uri' => 'loja',
+            'retired_name' => 'store.front.index',
+            'effective_name' => 'loja.index',
+        ],
+        [
+            'method' => 'PUT',
+            'uri' => 'configuracoes/clube',
+            'retired_name' => 'configuracoes.club.update',
+            'effective_name' => 'configuracoes.clube.update',
+        ],
+    ];
+
     /** @return array<string,mixed> */
     public function report(): array
     {
@@ -29,6 +44,7 @@ final class RouteTopologyAuditService
         $reviewedSourceClassifications = $this->reviewedSourceLiteralDuplicateClassifications($sourceDuplicateCandidates);
         $redirects = $this->legacyRedirects();
         $legacyConsumers = $this->legacyRedirectConsumers($redirects);
+        $retiredShadowedAliasReferences = $this->retiredShadowedAliasReferences();
         $routeFiles = $this->routeFiles();
         $fallbackRoutes = collect($routes)->where('is_fallback', true)->values();
         $fallback = $fallbackRoutes->first();
@@ -60,6 +76,8 @@ final class RouteTopologyAuditService
                     ->count(),
                 'legacy_redirect_count' => count($redirects),
                 'legacy_redirect_consumer_count' => count($legacyConsumers),
+                'retired_shadowed_alias_count' => count(self::RETIRED_SHADOWED_ALIASES),
+                'retired_shadowed_alias_reference_count' => count($retiredShadowedAliasReferences),
                 'legacy_named_boundary_count' => count($this->legacyNamedBoundaries($routes)),
                 'modular_route_file_count' => count($routeFiles),
                 'loaded_modular_route_file_count' => collect($routeFiles)->where('loaded', true)->count(),
@@ -86,6 +104,8 @@ final class RouteTopologyAuditService
                 'name_groups' => $duplicateNames,
                 'source_literal_candidates' => $sourceDuplicateCandidates,
                 'reviewed_source_classifications' => $reviewedSourceClassifications,
+                'retired_shadowed_aliases' => self::RETIRED_SHADOWED_ALIASES,
+                'retired_shadowed_alias_references' => $retiredShadowedAliasReferences,
             ],
             'legacy' => [
                 'redirects' => $redirects,
@@ -110,6 +130,7 @@ final class RouteTopologyAuditService
                     ->where('classification', 'unclassified')
                     ->isEmpty(),
                 'legacy_redirects_require_zero_runtime_consumers_before_retirement' => true,
+                'retired_shadowed_aliases_have_zero_first_party_references' => $retiredShadowedAliasReferences === [],
             ],
         ];
     }
@@ -290,20 +311,6 @@ final class RouteTopologyAuditService
                 'effective_uris' => ['/', 'website', 'desportivo', 'logistica', 'admin/loja'],
                 'effective_names' => ['public.home', 'website.index', 'desportivo.index', 'logistica.index', 'admin.loja.index'],
             ],
-            'GET /loja' => [
-                'classification' => 'shadowed_named_alias',
-                'decision' => 'preserve_current_lookup',
-                'effective_uri' => 'loja',
-                'effective_name' => 'loja.index',
-                'shadowed_name' => 'store.front.index',
-            ],
-            'PUT /configuracoes/clube' => [
-                'classification' => 'shadowed_named_alias',
-                'decision' => 'preserve_current_lookup',
-                'effective_uri' => 'configuracoes/clube',
-                'effective_name' => 'configuracoes.clube.update',
-                'shadowed_name' => 'configuracoes.club.update',
-            ],
         ];
 
         return collect($candidates)->map(static function (array $candidate) use ($reviews): array {
@@ -381,6 +388,43 @@ final class RouteTopologyAuditService
 
                         $findings[] = [
                             'source' => $source,
+                            'path' => str_replace(base_path().DIRECTORY_SEPARATOR, '', $file->getPathname()),
+                            'line' => $index + 1,
+                        ];
+                    }
+                }
+            }
+        }
+
+        return collect($findings)->unique(static fn (array $finding): string => implode(':', $finding))->values()->all();
+    }
+
+    /** @return list<array{retired_name:string,path:string,line:int}> */
+    private function retiredShadowedAliasReferences(): array
+    {
+        $roots = [app_path(), resource_path('js'), base_path('routes')];
+        $findings = [];
+
+        foreach ($roots as $root) {
+            foreach (File::allFiles($root) as $file) {
+                if (! $file instanceof SplFileInfo || ! in_array(strtolower($file->getExtension()), ['php', 'js', 'jsx', 'ts', 'tsx'], true)) {
+                    continue;
+                }
+
+                if ($file->getPathname() === __FILE__) {
+                    continue;
+                }
+
+                $lines = preg_split('/\R/', File::get($file->getPathname())) ?: [];
+
+                foreach (self::RETIRED_SHADOWED_ALIASES as $alias) {
+                    foreach ($lines as $index => $line) {
+                        if (! str_contains($line, $alias['retired_name'])) {
+                            continue;
+                        }
+
+                        $findings[] = [
+                            'retired_name' => $alias['retired_name'],
                             'path' => str_replace(base_path().DIRECTORY_SEPARATOR, '', $file->getPathname()),
                             'line' => $index + 1,
                         ];
