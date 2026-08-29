@@ -78,8 +78,8 @@ final class AuditVariantStockReadinessCommand extends Command
             'products_table_present' => $products,
             'product_variants_table_present' => $variants,
             'stock_movements_table_present' => $movements,
-            'store_order_items_table_present' => $orderItems,
-            'store_order_item_variant_column_present' => $orderItemVariant,
+            'loja_order_items_table_present' => $orderItems,
+            'loja_order_item_variant_column_present' => $orderItemVariant,
             'stock_movement_variant_column_present' => $movements && Schema::hasColumn('stock_movements', 'product_variant_id'),
             'required_source_schema_present' => $products && $variants && $movements && $orderItems && $orderItemVariant,
         ];
@@ -209,13 +209,15 @@ final class AuditVariantStockReadinessCommand extends Command
     private function knownDirectWriterCount(): int
     {
         $boundaries = [
-            [app_path('Services/Catalog/CanonicalProductStockService.php'), "->decrement('stock'"],
-            [app_path('Http/Controllers/AdminLojaProdutoController.php'), "'stock' => \$payload['stock_atual']"],
+            [app_path('Services/Catalog/CanonicalProductStockService.php'), ['->decrement(', "'stock'"]],
+            [app_path('Http/Controllers/AdminLojaProdutoController.php'), ["'stock'", '$payload', "['stock_atual']"]],
         ];
 
         return collect($boundaries)->filter(
             static fn (array $boundary): bool => File::exists($boundary[0])
-                && str_contains(File::get($boundary[0]), $boundary[1]),
+                && collect($boundary[1])->every(
+                    static fn (string $needle): bool => str_contains(File::get($boundary[0]), $needle),
+                ),
         )->count();
     }
 }
