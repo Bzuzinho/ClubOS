@@ -40,7 +40,7 @@ final class FamilyJsonMirrorAuditor
         $data = $this->auditDataCoverage();
 
         return [
-            'version' => 'H2.3a',
+            'version' => 'H2.3b',
             'summary' => [
                 'source_findings_count' => count($source['findings']),
                 'declared_json_links_count' => $data['declared_json_links_count'],

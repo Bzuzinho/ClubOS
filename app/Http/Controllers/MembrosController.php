@@ -16,6 +16,7 @@ use App\Models\Movement;
 use App\Models\PaymentAllocation;
 use App\Services\Communication\InternalCommunicationService;
 use App\Services\AccessControl\UserTypeAccessControlService;
+use App\Services\Family\FamilyRelationshipService;
 use App\Services\Family\FamilyService;
 use App\Services\Financeiro\CurrentAccountService;
 use App\Services\Financeiro\MemberCostCenterResolver;
@@ -360,19 +361,24 @@ class MembrosController extends Controller
                 }
             }
             
-            // Sync relationships
             if (isset($data['user_types'])) {
                 $member->userTypes()->sync($data['user_types']);
             }
-            
-            // Sync guardian relationship (with reciprocal update)
+
+            $familyRelationshipService = app(FamilyRelationshipService::class);
+
             if ($request->boolean('sync_encarregado_educacao')) {
-                $this->syncGuardianRelations($member, is_array($data['encarregado_educacao'] ?? null) ? $data['encarregado_educacao'] : []);
+                $familyRelationshipService->replaceGuardiansForMember(
+                    $member,
+                    is_array($data['encarregado_educacao'] ?? null) ? $data['encarregado_educacao'] : [],
+                );
             }
 
-            // Sync educandos relationship (with reciprocal update)
             if ($request->boolean('sync_educandos')) {
-                $this->syncEducandoRelations($member, is_array($data['educandos'] ?? null) ? $data['educandos'] : []);
+                $familyRelationshipService->replaceDependentsForGuardian(
+                    $member,
+                    is_array($data['educandos'] ?? null) ? $data['educandos'] : [],
+                );
             }
 
             if (array_key_exists('centro_custo', $data) && is_array($data['centro_custo'])) {
@@ -409,8 +415,6 @@ class MembrosController extends Controller
             ?? request()->segment(2)
         );
 
-        $this->reconcileLegacyRelationState($memberKey);
-
         $member = User::query()->whereKey($memberKey)->firstOrFail();
 
         $member->load([
@@ -428,44 +432,12 @@ class MembrosController extends Controller
 
         $memberData = $member->toArray();
 
-        // M2.3 — camada de leitura canónica com fallback (não altera escrita)
+        // Canonical member data and relationships are read from relational sources.
         $member->loadMissing(['dadosPessoais', 'dadosConfiguracao']);
         $memberData = app(MemberDataReadService::class)->mergedMemberPayload($member, $memberData);
         $memberData = array_merge($memberData, $this->memberDocumentDataResolver->memberDocumentPayload($member));
         $memberData['memberTypes'] = $this->memberTypeResolver->typesFor($member);
 
-        $legacyEducandoIds = $this->normalizeRelationIds($member->getAttribute('educandos'));
-        $legacyGuardianIds = $this->normalizeRelationIds($member->getAttribute('encarregado_educacao'));
-
-        if (($memberData['educandos'] ?? []) === [] && $legacyEducandoIds !== []) {
-            $memberData['educandos'] = User::query()
-                ->with('dadosPessoais:id,user_id,nome_completo')
-                ->whereIn('id', $legacyEducandoIds)
-                ->select('id', 'name', 'numero_socio', 'foto_perfil', 'estado', 'tipo_membro', 'menor')
-                ->get()
-                ->map(function (User $user): User {
-                    $user->setAttribute('nome_completo', $this->memberIdentityDisplayResolver->displayName($user));
-
-                    return $user;
-                })
-                ->sortBy(fn (User $user) => array_search((string) $user->getKey(), $legacyEducandoIds, true))
-                ->values();
-        }
-
-        if (($memberData['encarregados'] ?? []) === [] && $legacyGuardianIds !== []) {
-            $memberData['encarregados'] = User::query()
-                ->with('dadosPessoais:id,user_id,nome_completo')
-                ->whereIn('id', $legacyGuardianIds)
-                ->select('id', 'name', 'numero_socio', 'foto_perfil', 'estado', 'tipo_membro', 'menor')
-                ->get()
-                ->map(function (User $user): User {
-                    $user->setAttribute('nome_completo', $this->memberIdentityDisplayResolver->displayName($user));
-
-                    return $user;
-                })
-                ->sortBy(fn (User $user) => array_search((string) $user->getKey(), $legacyGuardianIds, true))
-                ->values();
-        }
         $memberDataReadService = app(MemberDataReadService::class);
 
         $allUsers = User::query()
@@ -607,8 +579,14 @@ class MembrosController extends Controller
      */
     private function buildFamilyContext(User $member, bool $canManageFamilyRelations, FamilyService $familyService): array
     {
-        $guardians = collect($member->encarregados ?? [])
-            ->map(fn ($guardian) => $this->resolveRelatedUser($guardian))
+        $guardianUsers = $member->relationLoaded('encarregados')
+            ? $member->getRelation('encarregados')
+            : $member->encarregados()->get();
+        $dependentUsers = $member->relationLoaded('educandos')
+            ? $member->getRelation('educandos')
+            : $member->educandos()->get();
+
+        $guardians = collect($guardianUsers)
             ->filter(fn ($guardian) => $guardian instanceof User)
             ->map(function (User $guardian) {
                 $guardian->loadMissing('dadosPessoais');
@@ -625,8 +603,7 @@ class MembrosController extends Controller
             })
             ->values();
 
-        $dependents = collect($member->educandos ?? [])
-            ->map(fn ($educando) => $this->resolveRelatedUser($educando))
+        $dependents = collect($dependentUsers)
             ->filter(fn ($educando) => $educando instanceof User)
             ->map(function (User $educando) {
                 $educando->loadMissing('dadosPessoais');
@@ -911,21 +888,20 @@ class MembrosController extends Controller
 
                 return $memberAfterEligibilityWrite;
             });
-            
-            // Explicit sync flags let the frontend clear relations by sending empty arrays.
+
+            $familyRelationshipService = app(FamilyRelationshipService::class);
+
             if ($request->boolean('sync_encarregado_educacao')) {
-                $this->syncGuardianRelations(
+                $familyRelationshipService->replaceGuardiansForMember(
                     $member,
                     is_array($data['encarregado_educacao'] ?? null) ? $data['encarregado_educacao'] : [],
-                    $memberKey
                 );
             }
 
             if ($request->boolean('sync_educandos')) {
-                $this->syncEducandoRelations(
+                $familyRelationshipService->replaceDependentsForGuardian(
                     $member,
                     is_array($data['educandos'] ?? null) ? $data['educandos'] : [],
-                    $memberKey
                 );
             }
 
@@ -1011,16 +987,6 @@ class MembrosController extends Controller
     }
     
     // Helper methods
-
-    /**
-     * Normalize relation ids to a unique string array.
-     */
-    private function normalizeRelationIds(?array $ids): array
-    {
-        $normalized = array_map('strval', $ids ?? []);
-        $normalized = array_filter($normalized, fn ($id) => $id !== '');
-        return array_values(array_unique($normalized));
-    }
 
     private function syncAuthIdentityFields(array $data, ?User $member = null): array
     {
@@ -1161,243 +1127,6 @@ class MembrosController extends Controller
             if (array_key_exists('discount_reason', $data) && blank($financeData->discount_reason)) {
                 $financeData->discount_reason = null;
             }
-        }
-    }
-
-    /**
-     * Sync guardians and mirror the relationship on each guardian.
-     */
-    private function syncGuardianRelations(User $member, array $guardianIds, ?string $memberKey = null): void
-    {
-        $memberKey = $memberKey ?: $this->resolveUserKey($member);
-        $guardianIds = $this->normalizeRelationIds($guardianIds);
-        $currentGuardianIds = $this->normalizeRelationIds(
-            User::query()->whereKey($memberKey)->value('encarregado_educacao')
-        );
-        $this->persistRelationAttributeById($memberKey, 'encarregado_educacao', $guardianIds);
-
-        $added = array_diff($guardianIds, $currentGuardianIds);
-        $removed = array_diff($currentGuardianIds, $guardianIds);
-
-        $this->replaceGuardianPivotRowsForMember($memberKey, $guardianIds);
-
-        if (!empty($added) || !empty($removed)) {
-            $affectedIds = array_values(array_unique(array_merge($added, $removed)));
-            $guardians = User::whereIn('id', $affectedIds)->get()->keyBy('id');
-
-            foreach ($added as $guardianId) {
-                if ($guardians->has($guardianId)) {
-                    $guardian = $guardians[$guardianId];
-                    $educandos = $this->normalizeRelationIds($guardian->educandos);
-                    if (!in_array($memberKey, $educandos, true)) {
-                        $educandos[] = $memberKey;
-                    }
-                    $this->persistRelationAttribute(
-                        $guardianId,
-                        'educandos',
-                        array_values(array_unique($educandos))
-                    );
-                }
-            }
-
-            foreach ($removed as $guardianId) {
-                if ($guardians->has($guardianId)) {
-                    $guardian = $guardians[$guardianId];
-                    $this->persistRelationAttribute(
-                        $guardianId,
-                        'educandos',
-                        array_values(array_filter(
-                            $this->normalizeRelationIds($guardian->educandos),
-                            fn (string $educandoId) => $educandoId !== $memberKey
-                        ))
-                    );
-                }
-            }
-        }
-
-        if ($guardianIds !== []) {
-            $currentGuardians = User::whereIn('id', $guardianIds)->get()->keyBy('id');
-            foreach ($guardianIds as $guardianId) {
-                $guardian = $currentGuardians->get($guardianId);
-                if (!$guardian) {
-                    continue;
-                }
-
-                $educandos = $this->normalizeRelationIds($guardian->educandos);
-                if (!in_array($memberKey, $educandos, true)) {
-                    $educandos[] = $memberKey;
-                    $this->persistRelationAttribute(
-                        $guardianId,
-                        'educandos',
-                        array_values(array_unique($educandos))
-                    );
-                }
-            }
-        }
-    }
-
-    /**
-     * Sync educandos and mirror the relationship on each educando.
-     */
-    private function syncEducandoRelations(User $member, array $educandoIds, ?string $memberKey = null): void
-    {
-        $memberKey = $memberKey ?: $this->resolveUserKey($member);
-        $educandoIds = $this->normalizeRelationIds($educandoIds);
-        $currentEducandoIds = $this->normalizeRelationIds(
-            User::query()->whereKey($memberKey)->value('educandos')
-        );
-        $this->persistRelationAttributeById($memberKey, 'educandos', $educandoIds);
-
-        $added = array_diff($educandoIds, $currentEducandoIds);
-        $removed = array_diff($currentEducandoIds, $educandoIds);
-
-        $this->replaceEducandoPivotRowsForGuardian($memberKey, $educandoIds);
-
-        if (!empty($added) || !empty($removed)) {
-            $affectedIds = array_values(array_unique(array_merge($added, $removed)));
-            $educandos = User::whereIn('id', $affectedIds)->get()->keyBy('id');
-
-            foreach ($added as $educandoId) {
-                if ($educandos->has($educandoId)) {
-                    $educando = $educandos[$educandoId];
-                    $guardianIds = $this->normalizeRelationIds($educando->encarregado_educacao);
-                    if (!in_array($memberKey, $guardianIds, true)) {
-                        $guardianIds[] = $memberKey;
-                    }
-                    $this->persistRelationAttribute(
-                        $educandoId,
-                        'encarregado_educacao',
-                        array_values(array_unique($guardianIds))
-                    );
-                }
-            }
-
-            foreach ($removed as $educandoId) {
-                if ($educandos->has($educandoId)) {
-                    $educando = $educandos[$educandoId];
-                    $this->persistRelationAttribute(
-                        $educandoId,
-                        'encarregado_educacao',
-                        array_values(array_filter(
-                            $this->normalizeRelationIds($educando->encarregado_educacao),
-                            fn (string $guardianId) => $guardianId !== $memberKey
-                        ))
-                    );
-                }
-            }
-        }
-
-        if ($educandoIds !== []) {
-            $currentEducandos = User::whereIn('id', $educandoIds)->get()->keyBy('id');
-            foreach ($educandoIds as $educandoId) {
-                $educando = $currentEducandos->get($educandoId);
-                if (!$educando) {
-                    continue;
-                }
-
-                $guardianIds = $this->normalizeRelationIds($educando->encarregado_educacao);
-                if (!in_array($memberKey, $guardianIds, true)) {
-                    $guardianIds[] = $memberKey;
-                    $this->persistRelationAttribute(
-                        $educandoId,
-                        'encarregado_educacao',
-                        array_values(array_unique($guardianIds))
-                    );
-                }
-            }
-        }
-    }
-
-    private function persistRelationAttribute(string $userId, string $attribute, array $ids): void
-    {
-        $this->persistRelationAttributeById($userId, $attribute, $ids);
-    }
-
-    private function persistRelationAttributeById(string $userId, string $attribute, array $ids): void
-    {
-        User::whereKey($userId)->update([$attribute => $ids]);
-    }
-
-    private function resolveUserKey(User $user): string
-    {
-        $key = $user->getKey() ?? $user->getOriginal('id') ?? $user->getAttribute('id');
-
-        if (!$key) {
-            throw new \RuntimeException('User key is missing during member relationship sync.');
-        }
-
-        return (string) $key;
-    }
-
-    private function replaceGuardianPivotRowsForMember(string $memberKey, array $guardianIds): void
-    {
-        DB::table('user_guardian')->where('user_id', $memberKey)->delete();
-
-        if ($guardianIds === []) {
-            return;
-        }
-
-        $timestamp = now();
-        DB::table('user_guardian')->insert(array_map(
-            fn (string $guardianId) => [
-                'id' => (string) Str::uuid(),
-                'user_id' => $memberKey,
-                'guardian_id' => $guardianId,
-                'created_at' => $timestamp,
-                'updated_at' => $timestamp,
-            ],
-            $guardianIds
-        ));
-    }
-
-    private function replaceEducandoPivotRowsForGuardian(string $guardianKey, array $educandoIds): void
-    {
-        DB::table('user_guardian')->where('guardian_id', $guardianKey)->delete();
-
-        if ($educandoIds === []) {
-            return;
-        }
-
-        $timestamp = now();
-        DB::table('user_guardian')->insert(array_map(
-            fn (string $educandoId) => [
-                'id' => (string) Str::uuid(),
-                'user_id' => $educandoId,
-                'guardian_id' => $guardianKey,
-                'created_at' => $timestamp,
-                'updated_at' => $timestamp,
-            ],
-            $educandoIds
-        ));
-    }
-
-    private function reconcileLegacyRelationState(string $memberKey): void
-    {
-        $legacyEducandoIds = $this->normalizeRelationIds(
-            User::query()->whereKey($memberKey)->value('educandos')
-        );
-        $legacyGuardianIds = $this->normalizeRelationIds(
-            User::query()->whereKey($memberKey)->value('encarregado_educacao')
-        );
-
-        $pivotEducandoIds = DB::table('user_guardian')
-            ->where('guardian_id', $memberKey)
-            ->pluck('user_id')
-            ->map(fn ($id) => (string) $id)
-            ->all();
-
-        $pivotGuardianIds = DB::table('user_guardian')
-            ->where('user_id', $memberKey)
-            ->pluck('guardian_id')
-            ->map(fn ($id) => (string) $id)
-            ->all();
-
-        if ($legacyEducandoIds !== $pivotEducandoIds) {
-            $this->replaceEducandoPivotRowsForGuardian($memberKey, $legacyEducandoIds);
-        }
-
-        if ($legacyGuardianIds !== $pivotGuardianIds) {
-            $this->replaceGuardianPivotRowsForMember($memberKey, $legacyGuardianIds);
         }
     }
     

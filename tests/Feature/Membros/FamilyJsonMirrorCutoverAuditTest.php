@@ -16,28 +16,18 @@ final class FamilyJsonMirrorCutoverAuditTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_runtime_source_audit_identifies_real_remaining_legacy_consumers_without_semantic_false_positives(): void
+    public function test_runtime_source_audit_has_no_direct_family_json_mirror_consumers(): void
     {
         $audit = app(FamilyJsonMirrorAuditor::class)->audit();
         $findings = collect($audit['source']['findings'] ?? []);
-        $files = $findings->pluck('file')->unique()->values()->all();
 
-        $this->assertNotEmpty(
-            $findings,
-            'H2.3a must keep physical cleanup blocked while known runtime legacy consumers still exist.',
+        $this->assertSame(
+            [],
+            $findings->all(),
+            'H2.3b requires all runtime reads and writes of the historical family JSON mirrors to be removed.',
         );
-        $this->assertContains('app/Http/Controllers/MembrosController.php', $files);
-        $this->assertContains('resources/js/Pages/Membros/Show.tsx', $files);
-
-        // Domain vocabulary and canonical DTO/summary keys must not be mistaken
-        // for direct reads of the retired users JSON columns.
-        $this->assertNotContains('app/Http/Controllers/FamilyPortalController.php', $files);
-        $this->assertNotContains('app/Services/Family/FamilyService.php', $files);
-        $this->assertNotContains('app/Services/Family/FamilyLegacyRelationshipAuditor.php', $files);
-        $this->assertNotContains('app/Services/AccessControl/ResolveCurrentUserType.php', $files);
-        $this->assertNotContains('app/Services/Members/MemberImportService.php', $files);
-        $this->assertNotContains('resources/js/Pages/Dashboard/Atleta.tsx', $files);
-        $this->assertFalse((bool) ($audit['summary']['ready_for_physical_cleanup'] ?? true));
+        $this->assertSame(0, (int) ($audit['summary']['source_findings_count'] ?? -1));
+        $this->assertTrue((bool) ($audit['summary']['ready_for_physical_cleanup'] ?? false));
     }
 
     public function test_json_mirror_pair_is_covered_when_user_guardian_exists(): void
