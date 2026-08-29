@@ -1,0 +1,7 @@
+{
+    "version": "web-route-topology-v1",
+    "contract_hash": "pending-ci-capture",
+    "route_count": 0,
+    "fallback_name": "public.custom-page",
+    "fallback_must_be_last": true
+}

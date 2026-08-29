@@ -1,0 +1,23 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Tests\Unit\Operations;
+
+use PHPUnit\Framework\TestCase;
+
+final class WebRouteTopologyWorkflowContractTest extends TestCase
+{
+    public function test_ci_enforces_and_archives_the_web_route_topology_contract(): void
+    {
+        $workflow = file_get_contents(dirname(__DIR__, 3).'/.github/workflows/ci.yml');
+
+        self::assertIsString($workflow);
+        self::assertStringContainsString('php artisan routes:audit-web-topology', $workflow);
+        self::assertStringContainsString('--fail-on-contract-drift', $workflow);
+        self::assertStringContainsString('.summary.contract_matches_baseline == true', $workflow);
+        self::assertStringContainsString('.summary.fallback_is_last == true', $workflow);
+        self::assertStringContainsString('.contract.hash == .contract.baseline_hash', $workflow);
+        self::assertStringContainsString('name: web-route-topology-${{ github.sha }}', $workflow);
+    }
+}

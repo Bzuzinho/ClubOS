@@ -46,6 +46,7 @@ return Application::configure(basePath: dirname(__DIR__))
         \App\Console\Commands\Inventario\EquipmentLoanStockInspectionCommand::class,
         \App\Console\Commands\Inventario\EquipmentLoanStockResolutionCommand::class,
         \App\Console\Commands\Inventario\StoreLogisticsStockAuditCommand::class,
+        \App\Console\Commands\Routing\AuditWebRouteTopologyCommand::class,
         \App\Console\Commands\Pessoas\GrantPlatformAccessCommand::class,
         \App\Console\Commands\Pessoas\MemberModelAuditCommand::class,
         \App\Console\Commands\Pessoas\MemberPlatformAccessInspectionCommand::class,
