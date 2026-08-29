@@ -2,6 +2,7 @@
 
 namespace App\Services\Catalog;
 
+use App\Exceptions\Inventario\InsufficientStockException;
 use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Services\Inventario\StockLedgerService;
@@ -35,6 +36,21 @@ class CanonicalProductStockService
 
     public function ensureAvailableForStore(Product $product, ?ProductVariant $variant, int $quantity): void
     {
+        $this->ensureEligibleForStore($product, $variant, $quantity);
+
+        if (! $product->tracks_stock) {
+            return;
+        }
+
+        if ($quantity > $this->availableStock($product, $variant)) {
+            throw ValidationException::withMessages([
+                'quantidade' => 'Quantidade pedida superior ao stock disponível.',
+            ]);
+        }
+    }
+
+    private function ensureEligibleForStore(Product $product, ?ProductVariant $variant, int $quantity): void
+    {
         if (! $product->ativo) {
             throw ValidationException::withMessages([
                 'article_id' => 'O produto selecionado está inativo.',
@@ -56,16 +72,6 @@ class CanonicalProductStockService
         if ($quantity < 1) {
             throw ValidationException::withMessages([
                 'quantidade' => 'A quantidade deve ser pelo menos 1.',
-            ]);
-        }
-
-        if (! $product->tracks_stock) {
-            return;
-        }
-
-        if ($quantity > $this->availableStock($product, $variant)) {
-            throw ValidationException::withMessages([
-                'quantidade' => 'Quantidade pedida superior ao stock disponível.',
             ]);
         }
     }
@@ -98,19 +104,26 @@ class CanonicalProductStockService
      */
     public function decrementOnSale(Product $product, ?ProductVariant $variant, int $quantity, array $context = []): void
     {
+        $this->ensureEligibleForStore($product, $variant, $quantity);
+
         if (! $product->tracks_stock) {
             return;
         }
 
-        $this->ensureAvailableForStore($product, $variant, $quantity);
-        $this->stockLedger->registerExit($product, $quantity, [
-            'product_variant_id' => $variant?->id,
-            'source_type' => $context['source_type'] ?? 'store_order_item',
-            'source_id' => $context['source_id'] ?? null,
-            'idempotency_key' => $context['idempotency_key'] ?? null,
-            'notes' => $context['notes'] ?? 'Saída de stock por encomenda da loja',
-            'created_by' => $context['created_by'] ?? null,
-            'occurred_at' => $context['occurred_at'] ?? now(),
-        ]);
+        try {
+            $this->stockLedger->registerExit($product, $quantity, [
+                'product_variant_id' => $variant?->id,
+                'source_type' => $context['source_type'] ?? 'store_order_item',
+                'source_id' => $context['source_id'] ?? null,
+                'idempotency_key' => $context['idempotency_key'] ?? null,
+                'notes' => $context['notes'] ?? 'Saída de stock por encomenda da loja',
+                'created_by' => $context['created_by'] ?? null,
+                'occurred_at' => $context['occurred_at'] ?? now(),
+            ]);
+        } catch (InsufficientStockException) {
+            throw ValidationException::withMessages([
+                'quantidade' => 'Quantidade pedida superior ao stock disponível.',
+            ]);
+        }
     }
 }
