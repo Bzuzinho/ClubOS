@@ -377,6 +377,112 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+      - name: Collect Family legacy relationships production readiness audit
+        id: family_legacy_audit
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          raw_report="${RUNNER_TEMP}/family-legacy-relationships-raw.json"
+          local_report="${GITHUB_WORKSPACE}/family-legacy-relationships-readiness.json"
+
+          ssh \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="${HOME}/.ssh/known_hosts" \
+            "${VM_USER}@${VM_HOST}" \
+            "cd '${VM_APP_DIR}' && php artisan members:audit-family-legacy-relationships --json" \
+            > "${raw_report}"
+
+          jq -e '
+            .version == "H2.2"
+            and (.summary.uncovered_count | type == "number")
+            and (.summary.unknown_type_count | type == "number")
+            and (.summary.ready_for_physical_cleanup | type == "boolean")
+          ' "${raw_report}" >/dev/null
+
+          jq 'del(.unresolved)' "${raw_report}" > "${local_report}"
+
+          echo "uncovered_count=$(jq -r '.summary.uncovered_count' "${local_report}")" >> "${GITHUB_OUTPUT}"
+          echo "unknown_type_count=$(jq -r '.summary.unknown_type_count' "${local_report}")" >> "${GITHUB_OUTPUT}"
+          echo "ready_for_physical_cleanup=$(jq -r '.summary.ready_for_physical_cleanup' "${local_report}")" >> "${GITHUB_OUTPUT}"
+
+          {
+            echo '## Family legacy relationships production readiness audit'
+            echo ''
+            echo "- Commit: \`${GITHUB_SHA}\`"
+            echo "- Legacy rows: \`$(jq -r '.summary.total_rows' "${local_report}")\`"
+            echo "- Canonically covered: \`$(jq -r '.summary.canonical_covered_count' "${local_report}")\`"
+            echo "- Uncovered: \`$(jq -r '.summary.uncovered_count' "${local_report}")\`"
+            echo "- Unknown types: \`$(jq -r '.summary.unknown_type_count' "${local_report}")\`"
+            echo "- Ready for physical cleanup: \`$(jq -r '.summary.ready_for_physical_cleanup' "${local_report}")\`"
+            echo '- Artifact is minimised and excludes row-level identifiers.'
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload Family legacy relationships production readiness audit
+        uses: actions/upload-artifact@v7
+        with:
+          name: family-legacy-relationships-production-readiness-${{ github.sha }}
+          path: family-legacy-relationships-readiness.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Collect Family JSON mirrors production readiness audit
+        id: family_json_audit
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          raw_report="${RUNNER_TEMP}/family-json-mirrors-raw.json"
+          local_report="${GITHUB_WORKSPACE}/family-json-mirrors-readiness.json"
+
+          ssh \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="${HOME}/.ssh/known_hosts" \
+            "${VM_USER}@${VM_HOST}" \
+            "cd '${VM_APP_DIR}' && php artisan members:audit-family-json-mirrors --json" \
+            > "${raw_report}"
+
+          jq -e '
+            .version == "H2.3b"
+            and (.summary.source_findings_count | type == "number")
+            and (.summary.uncovered_pairs_count | type == "number")
+            and (.summary.invalid_reference_count | type == "number")
+            and (.summary.self_reference_count | type == "number")
+            and (.summary.ready_for_physical_cleanup | type == "boolean")
+          ' "${raw_report}" >/dev/null
+
+          jq 'del(.source.findings, .data.unresolved)' "${raw_report}" > "${local_report}"
+
+          echo "source_findings_count=$(jq -r '.summary.source_findings_count' "${local_report}")" >> "${GITHUB_OUTPUT}"
+          echo "uncovered_pairs_count=$(jq -r '.summary.uncovered_pairs_count' "${local_report}")" >> "${GITHUB_OUTPUT}"
+          echo "invalid_reference_count=$(jq -r '.summary.invalid_reference_count' "${local_report}")" >> "${GITHUB_OUTPUT}"
+          echo "self_reference_count=$(jq -r '.summary.self_reference_count' "${local_report}")" >> "${GITHUB_OUTPUT}"
+          echo "ready_for_physical_cleanup=$(jq -r '.summary.ready_for_physical_cleanup' "${local_report}")" >> "${GITHUB_OUTPUT}"
+
+          {
+            echo '## Family JSON mirrors production readiness audit'
+            echo ''
+            echo "- Commit: \`${GITHUB_SHA}\`"
+            echo "- Runtime source findings: \`$(jq -r '.summary.source_findings_count' "${local_report}")\`"
+            echo "- Historical JSON pairs: \`$(jq -r '.summary.unique_json_pairs_count' "${local_report}")\`"
+            echo "- Canonically covered pairs: \`$(jq -r '.summary.canonical_covered_pairs_count' "${local_report}")\`"
+            echo "- Uncovered pairs: \`$(jq -r '.summary.uncovered_pairs_count' "${local_report}")\`"
+            echo "- Invalid references: \`$(jq -r '.summary.invalid_reference_count' "${local_report}")\`"
+            echo "- Self references: \`$(jq -r '.summary.self_reference_count' "${local_report}")\`"
+            echo "- Ready for physical cleanup: \`$(jq -r '.summary.ready_for_physical_cleanup' "${local_report}")\`"
+            echo '- Artifact is minimised and excludes source snippets and row-level identifiers.'
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload Family JSON mirrors production readiness audit
+        uses: actions/upload-artifact@v7
+        with:
+          name: family-json-mirrors-production-readiness-${{ github.sha }}
+          path: family-json-mirrors-readiness.json
+          if-no-files-found: error
+          retention-days: 30
+
       - name: Gate Access Control critical findings
         if: steps.access_control_audit.outcome == 'success'
         shell: bash
@@ -408,5 +514,6 @@ jobs:
             echo '- SSH host identity: pinned known_hosts entry enforced'
             echo '- Desportivo legacy readiness audit: collected read-only from production'
             echo '- Access Control readiness audit: collected, artifact preserved and critical findings gated separately'
+            echo '- Family legacy/JSON readiness audits: collected read-only from production with minimised artifacts and no automatic data mutation'
             echo '- Result: successful'
           } >> "${GITHUB_STEP_SUMMARY}"
