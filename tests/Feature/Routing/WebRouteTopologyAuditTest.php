@@ -21,35 +21,32 @@ final class WebRouteTopologyAuditTest extends TestCase
         $this->assertFalse($report['summary']['fallback_registered_last']);
         $this->assertSame('public.custom-page', $report['contract']['fallback_name']);
         $this->assertMatchesRegularExpression('/^[a-f0-9]{64}$/', $report['contract']['hash']);
-        $this->assertSame(19, $report['summary']['modular_route_file_count']);
-        $this->assertSame(19, $report['summary']['loaded_modular_route_file_count']);
+        $this->assertSame(20, $report['summary']['modular_route_file_count']);
+        $this->assertSame(20, $report['summary']['loaded_modular_route_file_count']);
         $this->assertSame(23, $report['summary']['legacy_redirect_count']);
-        $this->assertSame(3, $report['summary']['source_literal_duplicate_reviewed_count']);
+        $this->assertSame(1, $report['summary']['source_literal_duplicate_candidate_count']);
+        $this->assertSame(1, $report['summary']['source_literal_duplicate_reviewed_count']);
         $this->assertSame(0, $report['summary']['source_literal_duplicate_unclassified_count']);
+        $this->assertSame(2, $report['summary']['retired_shadowed_alias_count']);
+        $this->assertSame(0, $report['summary']['retired_shadowed_alias_reference_count']);
         $this->assertArrayNotHasKey('store.front.index', $report['contract']['named_routes']);
+        $this->assertArrayNotHasKey('configuracoes.club.update', $report['contract']['named_routes']);
         $this->assertArrayHasKey('loja.index', $report['contract']['named_routes']);
+        $this->assertArrayHasKey('configuracoes.clube.update', $report['contract']['named_routes']);
         $this->assertSame('loja', $report['contract']['named_routes']['loja.index']['uri']);
-        $lojaCandidate = collect($report['duplicates']['source_literal_candidates'])->first(
-            fn (array $candidate): bool => $candidate['method'] === 'GET' && $candidate['uri'] === '/loja',
-        );
-        $this->assertNotNull($lojaCandidate);
-        $this->assertSame(
-            ['store.front.index', 'loja.index'],
-            collect($lojaCandidate['occurrences'])->pluck('name')->all(),
-        );
-        $this->assertTrue(collect($report['duplicates']['source_literal_candidates'])->contains(
-            fn (array $candidate): bool => $candidate['method'] === 'PUT' && $candidate['uri'] === '/configuracoes/clube',
-        ));
+        $this->assertSame('configuracoes/clube', $report['contract']['named_routes']['configuracoes.clube.update']['uri']);
         $classifications = collect($report['duplicates']['reviewed_source_classifications'])
             ->keyBy(fn (array $candidate): string => $candidate['method'].' '.$candidate['uri']);
         $this->assertSame('prefix_scoped_distinct_routes', $classifications['GET /']['classification']);
-        $this->assertSame('loja.index', $classifications['GET /loja']['effective_name']);
-        $this->assertSame('store.front.index', $classifications['GET /loja']['shadowed_name']);
-        $this->assertSame('configuracoes.clube.update', $classifications['PUT /configuracoes/clube']['effective_name']);
-        $this->assertSame('configuracoes.club.update', $classifications['PUT /configuracoes/clube']['shadowed_name']);
+        $this->assertCount(1, $classifications);
+        $retiredAliases = collect($report['duplicates']['retired_shadowed_aliases'])->keyBy('retired_name');
+        $this->assertSame('loja.index', $retiredAliases['store.front.index']['effective_name']);
+        $this->assertSame('configuracoes.clube.update', $retiredAliases['configuracoes.club.update']['effective_name']);
+        $this->assertSame([], $report['duplicates']['retired_shadowed_alias_references']);
         $this->assertTrue($report['interpretation']['diagnostic_only']);
         $this->assertTrue($report['interpretation']['no_routes_changed']);
         $this->assertTrue($report['interpretation']['all_source_literal_duplicate_candidates_reviewed']);
+        $this->assertTrue($report['interpretation']['retired_shadowed_aliases_have_zero_first_party_references']);
     }
 
     public function test_compatibility_redirects_are_modular_and_have_no_first_party_consumers(): void
@@ -71,6 +68,12 @@ final class WebRouteTopologyAuditTest extends TestCase
                 && $redirect['declared_in'] === 'routes/web_compatibility.php',
         ));
         $this->assertTrue($routeFiles['routes/web_compatibility.php']['loaded']);
+        $this->assertTrue($routeFiles['routes/web_portal.php']['loaded']);
+        $this->assertTrue($redirects->contains(
+            fn (array $redirect): bool => $redirect['source'] === '/portal/loja'
+                && $redirect['target'] === '/loja'
+                && $redirect['declared_in'] === 'routes/web_portal.php',
+        ));
         $this->assertStringContainsString("href: '/campanhas-marketing'", $appLayout);
         $this->assertStringContainsString('href="/configuracoes"', $appLayout);
         $this->assertStringNotContainsString("href: '/marketing'", $appLayout);
