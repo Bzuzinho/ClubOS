@@ -664,7 +664,7 @@ Nenhum redirect ou alias é aposentado neste lote. A compatibilidade externa per
 
 PR #245 merged em `3940b30138d823b843d0410bf982cd1791f32150`; CI #954 totalmente verde na PR e CI #955 totalmente verde em `main`, incluindo PostgreSQL, browser QA e deploy para a Oracle VM. O artifact `web-route-topology-3940b30138d823b843d0410bf982cd1791f32150` confirmou em produção de CI: hash H2.5a inalterado, `517` rotas, `491` nomes, `19/19` ficheiros modulares carregados, `23` redirects preservados, `0` consumidores first-party e `3/3` candidatos classificados. `routes/web.php` desceu para `729` linhas e `303` declarações diretas sem alterar comportamento runtime.
 
-### H2.5c — Portal modular e aliases shadowed — em curso
+### H2.5c — Portal modular e aliases shadowed — concluída
 
 O segundo lote controlado:
 
@@ -674,7 +674,7 @@ O segundo lote controlado:
 - reduz os candidatos literais para o único caso prefix-scoped `GET /`, já classificado, mantendo os 23 redirects de compatibilidade ativos;
 - conserva como condição de aceitação o hash H2.5a, as 517 rotas, os 491 nomes, ordem, middleware, constraints e fallback.
 
-A implementação fica condicionada a CI integral, merge, deploy de `main` e verificação do artifact topológico antes do fecho desta fase.
+PR #247 merged em `3536f70d31d27f0d512d5293f03b7c33e5f575e4`; CI #958 totalmente verde na PR e CI #959 totalmente verde em `main`, incluindo PostgreSQL, browser QA, deploy para a Oracle VM e audits produtivos pós-deploy. O artifact `web-route-topology-3536f70d31d27f0d512d5293f03b7c33e5f575e4` confirmou: hash H2.5a inalterado, `517` rotas, `491` nomes, `20/20` ficheiros modulares carregados, `23` redirects preservados, `0` referências first-party aos aliases retirados e `1/1` candidato literal classificado. `routes/web.php` desceu para `662` linhas, `271` declarações diretas e `41` imports de controllers sem alterar comportamento runtime.
 
 ---
 
@@ -702,7 +702,7 @@ A implementação fica condicionada a CI integral, merge, deploy de `main` e ver
 | 7 | H8 | Reporting consolidado. |
 | 8 | H9 | Website: header/footer, notícias e polish final. |
 
-Próximo passo ativo: H2.5c — validar em CI o segundo lote modular, confirmar o contract H2.5a após a remoção das duas declarações shadowed e verificar o deploy de `main`. Os 23 redirects externos permanecem ativos; a sua aposentação exige evidência externa própria. Stock por variante e Família/EE estão estruturalmente fechados. A ação operacional Cloudflare R2 permanece pendência externa separada. A matriz H1.17/H1.18 deve ser expandida dentro de cada workstream funcional.
+Próximo passo ativo: H2.5d — preparar o terceiro lote modular, privilegiando a fronteira coesa de Configurações e preservando o contract H2.5a, ordem, middleware, constraints, nomes efetivos e fallback. A extração deve reduzir novamente imports e declarações diretas sem misturar a segunda fronteira financeira nem aposentar os 23 redirects externos, cuja remoção exige evidência externa própria. Stock por variante e Família/EE estão estruturalmente fechados. A ação operacional Cloudflare R2 permanece pendência externa separada. A matriz H1.17/H1.18 deve ser expandida dentro de cada workstream funcional.
 
 ---
 
@@ -710,7 +710,7 @@ Próximo passo ativo: H2.5c — validar em CI o segundo lote modular, confirmar 
 
 | Data | Módulo | Desenvolvimento / análise | Evidência | Estado / pendências |
 |---|---|---|---|---|
-| 2026-08-29 | Rotas / Portal | H2.5c confirmou zero consumidores dos dois aliases shadowed, retirou as declarações mortas e extraiu Portal/Loja/Família para um segundo módulo, com gate permanente contra reintrodução. | `routes/web_portal.php`; `RouteTopologyAuditService`; contract H2.5a | Em validação; exige CI integral, merge, deploy de `main` e artifact topológico sem drift. |
+| 2026-08-29 | Rotas / Portal | H2.5c confirmou zero consumidores dos dois aliases shadowed, retirou as declarações mortas e extraiu Portal/Loja/Família para um segundo módulo, com gate permanente contra reintrodução. | PR #247; CI #958/#959; merge `3536f70d31d27f0d512d5293f03b7c33e5f575e4`; artifact `web-route-topology-3536f70d31d27f0d512d5293f03b7c33e5f575e4` | Integrado e deployado; hash preservado, 517 rotas, 491 nomes, 20/20 módulos, 23 redirects, 0 referências aos aliases retirados e 1/1 candidato classificado. H2.5d avança para Configurações. |
 | 2026-08-29 | Rotas / Legacy transversal | H2.5b extraiu os 22 redirects ingleses para um módulo dedicado, migrou todos os consumidores first-party para URLs canónicas e classificou os três candidatos duplicados sem alterar o router efetivo. | PR #245; CI #954/#955; merge `3940b30138d823b843d0410bf982cd1791f32150`; artifact `web-route-topology-3940b30138d823b843d0410bf982cd1791f32150` | Integrado e deployado; hash preservado, 517 rotas, 491 nomes, 19/19 módulos, 23 redirects, 0 consumidores internos e 0 candidatos por classificar. H2.5c avança para aliases shadowed e segundo lote modular. |
 | 2026-08-29 | Rotas / Legacy transversal | H2.5a instalou auditoria read-only e contract SHA-256 da topologia web, incluindo ordem, lookup nominal, middleware, constraints, fallback, redirects, consumidores legacy e ficheiros modulares. | PR #243; CI #950/#951; merge `358667428714cf8d293c87469a558763e237a531`; artifact `web-route-topology-358667428714cf8d293c87469a558763e237a531` | Integrado e deployado; 517 rotas, 491 nomes, 18/18 módulos carregados e fallback único. H2.5b pode iniciar a primeira extração controlada, preservando o contract e classificando os candidatos duplicados. |
 | 2026-08-29 | Inventário / Loja | H2.4b acrescentou a dimensão nullable de variante ao ledger, tornou produto+variante atómicos, converteu baixas e ajustes manuais para o boundary canónico e eliminou os dois writers diretos. | PR #241; CI #944/#945; merge `f8ce467a51c6d605fc3fb62f0fc64585614e1106`; artifact `variant-stock-production-readiness-f8ce467a51c6d605fc3fb62f0fc64585614e1106` | Integrado e deployado; coluna presente, 0 writers diretos, 0 inconsistências e nenhum backfill necessário. Frente estrutural encerrada; H2.5a avança para legacy transversal e rotas modulares. |
