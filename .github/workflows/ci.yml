@@ -440,6 +440,8 @@ jobs:
             .version == "variant-stock-readiness-v1"
             and .read_only == true
             and .schema_detected.required_source_schema_present == true
+            and .schema_detected.stock_movement_variant_column_present == true
+            and .summary.known_direct_variant_stock_writer_count == 0
             and .interpretation.no_backfill_or_schema_change_performed == true
           ' "${local_report}" >/dev/null
 

@@ -609,6 +609,20 @@ PR #239 merged em `6972a7aa9e859afe0764c2242b143aa83d110b84`; CI #938 totalmente
 
 Não é necessário backfill. H2.4b pode introduzir a dimensão nullable de variante no ledger e migrar as duas fronteiras de escrita com testes de idempotência/concorrência, sem transformação histórica de dados.
 
+### H2.4b — Ledger canónico com dimensão de variante — em implementação
+
+O contract H2.4b:
+
+- acrescenta `stock_movements.product_variant_id` nullable, com FK restritiva e índice cronológico;
+- faz cada movimento de variante atualizar atomicamente o snapshot agregado do produto e o snapshot da variante;
+- preserva variantes pré-ledger através de movimentos de abertura neutros para o agregado, evitando dupla contagem;
+- encaminha baixas da Loja e ajustes manuais do catálogo pelo `StockLedgerService`, com idempotência e locks;
+- deriva o stock agregado pela soma das variantes quando estas existem e torna esse valor read-only no formulário;
+- deixa de apagar variantes com histórico: variantes omitidas são zeradas pelo ledger e desativadas;
+- transforma a antiga exceção estática de escrita de variante num erro acionável e reforça o gate produtivo para exigir a coluna e zero writers diretos.
+
+Como a auditoria H2.4a confirmou zero variantes em produção, a migration não necessita de backfill nem altera movimentos históricos.
+
 ---
 
 ## 7. Dívida estrutural prioritária

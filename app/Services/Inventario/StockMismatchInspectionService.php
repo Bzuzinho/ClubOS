@@ -350,7 +350,7 @@ final class StockMismatchInspectionService
         $type = (string) ($movement->movement_type ?? '');
         $quantity = $this->int($movement->quantity ?? 0);
 
-        if (! in_array($type, ['entry', 'return', 'cancel_reservation', 'exit', 'reservation', 'deliver_reservation', 'adjustment', 'ajuste', 'correction', 'correcao', 'import', 'importacao', 'sale', 'venda'], true)) {
+        if (! in_array($type, ['entry', 'return', 'cancel_reservation', 'exit', 'reservation', 'deliver_reservation', 'adjustment', 'ajuste', 'correction', 'correcao', 'import', 'importacao', 'sale', 'venda', 'variant_opening_snapshot', 'variant_opening_reservation'], true)) {
             $flags[] = 'unknown_movement_type';
         }
 

@@ -57,6 +57,7 @@ class AdminStoreCanonicalCatalogTest extends TestCase
             ->assertJsonPath('slug', 'polo-staff')
             ->assertJsonPath('preco', 29.9)
             ->assertJsonPath('imagem_principal_path', '/storage/polo.png')
+            ->assertJsonPath('stock_atual', 6)
             ->assertJsonPath('variantes.0.stock_atual', 6);
 
         $product = Product::query()->where('codigo', 'ADM-CAN-001')->firstOrFail();
@@ -70,13 +71,20 @@ class AdminStoreCanonicalCatalogTest extends TestCase
             'allow_sale' => true,
             'visible_in_store' => true,
             'track_stock' => true,
-            'stock' => 14,
+            'stock' => 6,
         ]);
 
         $this->assertDatabaseHas('product_variants', [
             'product_id' => $product->id,
             'sku' => 'ADM-CAN-001-L',
             'stock' => 6,
+        ]);
+        $this->assertDatabaseHas('stock_movements', [
+            'article_id' => $product->id,
+            'product_variant_id' => $product->variants()->firstOrFail()->id,
+            'movement_type' => 'adjustment',
+            'quantity' => 6,
+            'reference_type' => 'catalog_manual_adjustment',
         ]);
     }
 

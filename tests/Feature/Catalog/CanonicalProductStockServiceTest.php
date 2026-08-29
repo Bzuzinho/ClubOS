@@ -66,6 +66,7 @@ final class CanonicalProductStockServiceTest extends TestCase
         $this->assertSame(2, (int) $variant->fresh()->stock);
         $this->assertSame(1, StockMovement::query()
             ->where('article_id', $product->id)
+            ->where('product_variant_id', $variant->id)
             ->where('movement_type', 'exit')
             ->where('reference_type', 'store_order_item')
             ->where('reference_id', $sourceId)

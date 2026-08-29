@@ -30,15 +30,19 @@ final class StockSourceOfTruthAuditService
         'venda',
         'reservation',
         'deliver_reservation',
+        'variant_opening_snapshot',
+        'variant_opening_reservation',
     ];
 
     private const ACCEPTED_NULL_REFERENCE_TYPES = [
         'audit_orphan_resolution',
         'ledger_opening_snapshot',
+        'variant_ledger_opening_snapshot',
     ];
 
     private const DUPLICATE_EXEMPT_SOURCE_TYPES = [
         'audit_orphan_resolution',
+        'variant_ledger_opening_snapshot',
     ];
 
     public function __construct(
@@ -361,6 +365,7 @@ final class StockSourceOfTruthAuditService
             'reservation' => $quantity > 0 ? 'reserve' : ($quantity < 0 ? 'release_reservation' : 'unknown'),
             'deliver_reservation' => 'release_reservation',
             'adjustment', 'ajuste', 'correction', 'correcao', 'import', 'importacao', 'cancel_reservation' => 'adjustment',
+            'variant_opening_snapshot', 'variant_opening_reservation' => 'variant_opening',
             default => 'unknown',
         };
     }
@@ -420,17 +425,6 @@ final class StockSourceOfTruthAuditService
                     $relativePath = str_replace(base_path().DIRECTORY_SEPARATOR, '', $path);
                     $snippet = trim($line);
 
-                    if ($this->isDocumentedVariantStockWrite($relativePath, $snippet)) {
-                        $findings[] = $this->finding('info', 'variant_stock_write_candidate', false, 'documented_variant_stock_outside_product_ledger_boundary', null, [
-                            'file' => $relativePath,
-                            'line' => $index + 1,
-                            'snippet' => $snippet,
-                            'boundary' => 'product_variants.stock is independent from products.stock and has no stock_movements ledger in B2.3',
-                        ]);
-
-                        break;
-                    }
-
                     $findings[] = $this->finding('warning', 'direct_stock_write_candidate', true, 'route_stock_writes_through_stock_ledger_service', null, [
                         'file' => $relativePath,
                         'line' => $index + 1,
@@ -442,13 +436,6 @@ final class StockSourceOfTruthAuditService
         }
 
         return $findings;
-    }
-
-    private function isDocumentedVariantStockWrite(string $relativePath, string $snippet): bool
-    {
-        return str_replace('/', DIRECTORY_SEPARATOR, $relativePath) === 'app'.DIRECTORY_SEPARATOR.'Services'.DIRECTORY_SEPARATOR.'Catalog'.DIRECTORY_SEPARATOR.'CanonicalProductStockService.php'
-            && str_contains($snippet, '$variant->decrement')
-            && str_contains($snippet, "'stock'");
     }
 
     /**

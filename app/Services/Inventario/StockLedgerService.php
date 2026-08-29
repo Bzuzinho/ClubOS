@@ -8,6 +8,7 @@ use App\Exceptions\Inventario\InsufficientStockException;
 use App\Exceptions\Inventario\InvalidStockMovementException;
 use App\Exceptions\Inventario\StockSnapshotMismatchException;
 use App\Models\Product;
+use App\Models\ProductVariant;
 use App\Models\StockMovement;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -42,6 +43,66 @@ final class StockLedgerService
     public function registerReturn(Product $product, int|float $quantity, array $context = []): StockMovement
     {
         return $this->registerPhysicalMovement($product, 'return', $quantity, $context);
+    }
+
+    /**
+     * Ajusta o snapshot agregado para um valor absoluto através do ledger.
+     *
+     * @param array<string,mixed> $context
+     */
+    public function adjustProductToStock(Product $product, int $desiredStock, array $context = []): ?StockMovement
+    {
+        if ($desiredStock < 0) {
+            throw new InvalidStockMovementException('desired_stock_must_not_be_negative');
+        }
+
+        return DB::transaction(function () use ($product, $desiredStock, $context): ?StockMovement {
+            $locked = Product::query()->whereKey($product->getKey())->lockForUpdate()->firstOrFail();
+            $this->ensureOpeningSnapshotMovement($locked);
+            $current = $this->calculatedSnapshot((string) $locked->id)['physical_stock'];
+            $delta = $desiredStock - $current;
+
+            if ($delta === 0) {
+                return null;
+            }
+
+            return $this->register($locked, 'adjustment', $delta, $context);
+        });
+    }
+
+    /**
+     * Ajusta uma variante e o agregado do produto na mesma transação.
+     *
+     * @param array<string,mixed> $context
+     */
+    public function adjustVariantToStock(Product $product, ProductVariant $variant, int $desiredStock, array $context = []): ?StockMovement
+    {
+        if ($desiredStock < 0) {
+            throw new InvalidStockMovementException('desired_variant_stock_must_not_be_negative');
+        }
+
+        return DB::transaction(function () use ($product, $variant, $desiredStock, $context): ?StockMovement {
+            $lockedProduct = Product::query()->whereKey($product->getKey())->lockForUpdate()->firstOrFail();
+            $lockedVariant = ProductVariant::query()
+                ->whereKey($variant->getKey())
+                ->where('product_id', $lockedProduct->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            $this->ensureOpeningSnapshotMovement($lockedProduct);
+            $this->ensureVariantOpeningSnapshotMovement($lockedProduct, $lockedVariant);
+            $current = $this->calculatedVariantSnapshot((string) $lockedVariant->id)['physical_stock'];
+            $delta = $desiredStock - $current;
+
+            if ($delta === 0) {
+                return null;
+            }
+
+            return $this->register($lockedProduct, 'adjustment', $delta, [
+                ...$context,
+                'product_variant_id' => (string) $lockedVariant->id,
+            ]);
+        });
     }
 
     /**
@@ -156,6 +217,11 @@ final class StockLedgerService
             $locked = Product::query()->whereKey($product->getKey())->lockForUpdate()->firstOrFail();
             $this->ensureOpeningSnapshotMovement($locked);
 
+            $variant = $this->lockedVariant($locked, $context);
+            if ($variant) {
+                $this->ensureVariantOpeningSnapshotMovement($locked, $variant);
+            }
+
             $existing = $this->existingMovement($locked, $type, $quantity, $context);
             if ($existing) {
                 return $existing;
@@ -174,9 +240,24 @@ final class StockLedgerService
 
             $this->guardNegativeSnapshot($afterPhysical, $afterAvailable, $context);
 
+            $variantAfter = null;
+            if ($variant) {
+                $variantBefore = $this->calculatedVariantSnapshot((string) $variant->id);
+                $variantAfter = [
+                    'physical_stock' => $variantBefore['physical_stock'] + $deltas['physical'],
+                    'reserved_stock' => $variantBefore['reserved_stock'] + $deltas['reserved'],
+                ];
+                $this->guardNegativeSnapshot(
+                    $variantAfter['physical_stock'],
+                    $variantAfter['physical_stock'] - $variantAfter['reserved_stock'],
+                    $context,
+                );
+            }
+
             $movement = new StockMovement();
             $movement->forceFill([
                 'article_id' => $locked->id,
+                'product_variant_id' => $variant?->id,
                 'movement_type' => $type,
                 'quantity' => $quantity,
                 'unit_cost' => $context['unit_cost'] ?? null,
@@ -188,6 +269,13 @@ final class StockLedgerService
                 'updated_at' => Carbon::now(),
             ])->save();
 
+            if ($variant && $variantAfter) {
+                $variant->forceFill([
+                    'stock' => $variantAfter['physical_stock'],
+                    'stock_reservado' => $variantAfter['reserved_stock'],
+                ])->save();
+            }
+
             $locked->forceFill([
                 'stock' => $afterPhysical,
                 'stock_reservado' => $afterReserved,
@@ -196,6 +284,14 @@ final class StockLedgerService
             $fresh = $locked->fresh();
             if ((int) $fresh->stock !== $afterPhysical || (int) $fresh->stock_reservado !== $afterReserved) {
                 throw new StockSnapshotMismatchException('stock_snapshot_mismatch_after_ledger_operation');
+            }
+
+            if ($variant && $variantAfter) {
+                $freshVariant = $variant->fresh();
+                if ((int) $freshVariant->stock !== $variantAfter['physical_stock']
+                    || (int) $freshVariant->stock_reservado !== $variantAfter['reserved_stock']) {
+                    throw new StockSnapshotMismatchException('variant_stock_snapshot_mismatch_after_ledger_operation');
+                }
             }
 
             return $movement;
@@ -219,6 +315,11 @@ final class StockLedgerService
             ->where('article_id', $product->id)
             ->where('movement_type', $type)
             ->where('quantity', $quantity);
+
+        $variantId = $this->sourceId($context, 'product_variant_id');
+        $variantId === null
+            ? $query->whereNull('product_variant_id')
+            : $query->where('product_variant_id', $variantId);
 
         if ($sourceType !== null) {
             $query->where('reference_type', $sourceType);
@@ -244,7 +345,7 @@ final class StockLedgerService
      */
     private function validateContext(array $context): void
     {
-        foreach (['source_id', 'created_by'] as $field) {
+        foreach (['source_id', 'created_by', 'product_variant_id'] as $field) {
             $value = $context[$field] ?? null;
             if ($value === null) {
                 continue;
@@ -344,6 +445,46 @@ final class StockLedgerService
         }
     }
 
+    private function ensureVariantOpeningSnapshotMovement(Product $product, ProductVariant $variant): void
+    {
+        if (StockMovement::query()->where('product_variant_id', $variant->id)->exists()) {
+            return;
+        }
+
+        $physical = (int) ($variant->stock ?? 0);
+        $reserved = (int) ($variant->stock_reservado ?? 0);
+
+        if ($physical !== 0) {
+            $movement = new StockMovement();
+            $movement->forceFill([
+                'article_id' => $product->id,
+                'product_variant_id' => $variant->id,
+                'movement_type' => 'variant_opening_snapshot',
+                'quantity' => $physical,
+                'reference_type' => 'variant_ledger_opening_snapshot',
+                'reference_id' => $variant->id,
+                'notes' => 'Snapshot inicial da variante antes do ledger H2.4b [action_key:physical]',
+                'created_at' => Carbon::now(),
+                'updated_at' => Carbon::now(),
+            ])->save();
+        }
+
+        if ($reserved !== 0) {
+            $movement = new StockMovement();
+            $movement->forceFill([
+                'article_id' => $product->id,
+                'product_variant_id' => $variant->id,
+                'movement_type' => 'variant_opening_reservation',
+                'quantity' => $reserved,
+                'reference_type' => 'variant_ledger_opening_snapshot',
+                'reference_id' => $variant->id,
+                'notes' => 'Snapshot inicial reservado da variante antes do ledger H2.4b [action_key:reserved]',
+                'created_at' => Carbon::now(),
+                'updated_at' => Carbon::now(),
+            ])->save();
+        }
+    }
+
     /**
      * @return array{physical_stock:int,reserved_stock:int,available_stock:int}
      */
@@ -368,6 +509,59 @@ final class StockLedgerService
             'reserved_stock' => $reserved,
             'available_stock' => $physical - $reserved,
         ];
+    }
+
+    /**
+     * @return array{physical_stock:int,reserved_stock:int,available_stock:int}
+     */
+    private function calculatedVariantSnapshot(string $variantId): array
+    {
+        $physical = 0;
+        $reserved = 0;
+
+        StockMovement::query()
+            ->where('product_variant_id', $variantId)
+            ->orderBy('created_at')
+            ->orderBy('id')
+            ->get()
+            ->each(function (StockMovement $movement) use (&$physical, &$reserved): void {
+                if ($movement->movement_type === 'variant_opening_snapshot') {
+                    $physical += (int) $movement->quantity;
+
+                    return;
+                }
+
+                if ($movement->movement_type === 'variant_opening_reservation') {
+                    $reserved += (int) $movement->quantity;
+
+                    return;
+                }
+
+                $deltas = $this->semantics->deltas($movement);
+                $physical += $deltas['physical'];
+                $reserved += $deltas['reserved'];
+            });
+
+        return [
+            'physical_stock' => $physical,
+            'reserved_stock' => $reserved,
+            'available_stock' => $physical - $reserved,
+        ];
+    }
+
+    /** @param array<string,mixed> $context */
+    private function lockedVariant(Product $product, array $context): ?ProductVariant
+    {
+        $variantId = $this->sourceId($context, 'product_variant_id');
+        if ($variantId === null) {
+            return null;
+        }
+
+        return ProductVariant::query()
+            ->whereKey($variantId)
+            ->where('product_id', $product->id)
+            ->lockForUpdate()
+            ->firstOrFail();
     }
 
     /**

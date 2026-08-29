@@ -209,15 +209,13 @@ final class AuditVariantStockReadinessCommand extends Command
     private function knownDirectWriterCount(): int
     {
         $boundaries = [
-            [app_path('Services/Catalog/CanonicalProductStockService.php'), ['->decrement(', "'stock'"]],
-            [app_path('Http/Controllers/AdminLojaProdutoController.php'), ["'stock'", '$payload', "['stock_atual']"]],
+            [app_path('Services/Catalog/CanonicalProductStockService.php'), '/\$variant->decrement\s*\(\s*[\'\"]stock/'],
+            [app_path('Http/Controllers/AdminLojaProdutoController.php'), '/[\'\"]stock[\'\"]\s*=>\s*\$payload\[[\'\"]stock_atual[\'\"]\]/'],
         ];
 
         return collect($boundaries)->filter(
             static fn (array $boundary): bool => File::exists($boundary[0])
-                && collect($boundary[1])->every(
-                    static fn (string $needle): bool => str_contains(File::get($boundary[0]), $needle),
-                ),
+                && preg_match($boundary[1], File::get($boundary[0])) === 1,
         )->count();
     }
 }

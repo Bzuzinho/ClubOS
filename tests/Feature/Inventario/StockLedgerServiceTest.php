@@ -7,6 +7,7 @@ namespace Tests\Feature\Inventario;
 use App\Exceptions\Inventario\InsufficientStockException;
 use App\Exceptions\Inventario\InvalidStockMovementException;
 use App\Models\Product;
+use App\Models\ProductVariant;
 use App\Models\StockMovement;
 use App\Services\Inventario\StockLedgerService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -91,6 +92,59 @@ final class StockLedgerServiceTest extends TestCase
         $this->assertSame($first->id, $second->id);
         $this->assertSame(1, StockMovement::query()->where('article_id', $product->id)->count());
         $this->assertSame(5, (int) $product->fresh()->stock);
+    }
+
+    public function test_variant_exit_updates_product_and_variant_atomically_and_is_idempotent(): void
+    {
+        $product = $this->product(['stock' => 8]);
+        $variant = ProductVariant::query()->create([
+            'product_id' => $product->id,
+            'nome' => 'Senior',
+            'sku' => 'LEDGER-VARIANT-SR',
+            'stock' => 5,
+            'stock_reservado' => 0,
+            'ativo' => true,
+        ]);
+        $context = [
+            ...$this->context('variant-sale'),
+            'product_variant_id' => $variant->id,
+            'idempotency_key' => 'variant-sale-once',
+        ];
+
+        $first = $this->ledger->registerExit($product, 2, $context);
+        $second = $this->ledger->registerExit($product->fresh(), 2, $context);
+
+        $this->assertSame($first->id, $second->id);
+        $this->assertSame(6, (int) $product->fresh()->stock);
+        $this->assertSame(3, (int) $variant->fresh()->stock);
+        $this->assertSame($variant->id, $first->product_variant_id);
+        $this->assertSame(1, StockMovement::query()
+            ->where('product_variant_id', $variant->id)
+            ->where('movement_type', 'exit')
+            ->count());
+    }
+
+    public function test_absolute_variant_adjustment_keeps_product_aggregate_in_sync(): void
+    {
+        $product = $this->product();
+        $variant = ProductVariant::query()->create([
+            'product_id' => $product->id,
+            'nome' => 'Junior',
+            'sku' => 'LEDGER-VARIANT-JR',
+            'stock' => 0,
+            'stock_reservado' => 0,
+            'ativo' => true,
+        ]);
+
+        $this->ledger->adjustVariantToStock($product, $variant, 7, $this->context('catalog-adjustment'));
+        $this->ledger->adjustVariantToStock($product->fresh(), $variant->fresh(), 4, $this->context('catalog-adjustment-2'));
+
+        $this->assertSame(4, (int) $product->fresh()->stock);
+        $this->assertSame(4, (int) $variant->fresh()->stock);
+        $this->assertSame(2, StockMovement::query()
+            ->where('product_variant_id', $variant->id)
+            ->where('movement_type', 'adjustment')
+            ->count());
     }
 
     public function test_empty_or_invalid_uuid_source_id_is_rejected_and_rolls_back(): void

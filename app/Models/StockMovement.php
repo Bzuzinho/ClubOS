@@ -14,6 +14,7 @@ class StockMovement extends Model
 
     protected $fillable = [
         'article_id',
+        'product_variant_id',
         'movement_type',
         'quantity',
         'unit_cost',
@@ -31,6 +32,11 @@ class StockMovement extends Model
     public function article(): BelongsTo
     {
         return $this->belongsTo(Product::class, 'article_id');
+    }
+
+    public function productVariant(): BelongsTo
+    {
+        return $this->belongsTo(ProductVariant::class, 'product_variant_id');
     }
 
     public function creator(): BelongsTo
