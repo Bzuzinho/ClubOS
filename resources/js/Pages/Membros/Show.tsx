@@ -133,16 +133,16 @@ const stringifyId = (value: unknown): string | null => {
 };
 
 const normalizeMember = (member: User): User => {
-    const guardiansFromRelation = Array.isArray((member as any).encarregados) && (member as any).encarregados.length > 0
+    const guardiansFromRelation = Array.isArray((member as any).encarregados)
         ? (member as any).encarregados
             .map((g: any) => stringifyId(g.id))
             .filter((id: string | null): id is string => id !== null)
-        : (member.encarregado_educacao || []);
-    const educandosFromRelation = Array.isArray((member as any).educandos) && (member as any).educandos.length > 0
+        : [];
+    const educandosFromRelation = Array.isArray((member as any).educandos)
         ? (member as any).educandos
             .map((e: any) => stringifyId(e.id))
             .filter((id: string | null): id is string => id !== null)
-        : (member.educandos || []);
+        : [];
 
     const normalizedBirthDate = formatDateForInput(
         member.data_nascimento ?? (member as any).birth_date ?? (member as any).data_nascimento
@@ -297,20 +297,20 @@ export default function Show({ member, family_context, permissions, allUsers, in
         if (import.meta.env.DEV) {
             console.debug('[Membros/Show] loaded member props', {
                 memberId: member.id,
+                encarregados: Array.isArray((member as any).encarregados)
+                    ? (member as any).encarregados.map((entry: any) => entry?.id ?? entry)
+                    : [],
                 educandos: Array.isArray((member as any).educandos)
                     ? (member as any).educandos.map((entry: any) => entry?.id ?? entry)
-                    : member.educandos,
-                encarregado_educacao: Array.isArray((member as any).encarregado_educacao)
-                    ? (member as any).encarregado_educacao.map((entry: any) => entry?.id ?? entry)
-                    : member.encarregado_educacao,
+                    : [],
                 path: typeof window !== 'undefined' ? window.location.pathname : null,
             });
         }
     }, [
         member.id,
         member.updated_at,
-        JSON.stringify(member.educandos ?? []),
-        JSON.stringify(member.encarregado_educacao ?? []),
+        JSON.stringify((member as any).encarregados ?? []),
+        JSON.stringify((member as any).educandos ?? []),
     ]);
 
     const handleChange = (field: keyof User, value: any) => {
