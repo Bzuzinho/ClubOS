@@ -21,8 +21,8 @@ final class WebRouteTopologyAuditTest extends TestCase
         $this->assertFalse($report['summary']['fallback_registered_last']);
         $this->assertSame('public.custom-page', $report['contract']['fallback_name']);
         $this->assertMatchesRegularExpression('/^[a-f0-9]{64}$/', $report['contract']['hash']);
-        $this->assertSame(26, $report['summary']['modular_route_file_count']);
-        $this->assertSame(26, $report['summary']['loaded_modular_route_file_count']);
+        $this->assertSame(27, $report['summary']['modular_route_file_count']);
+        $this->assertSame(27, $report['summary']['loaded_modular_route_file_count']);
         $this->assertSame(23, $report['summary']['legacy_redirect_count']);
         $this->assertSame(1, $report['summary']['source_literal_duplicate_candidate_count']);
         $this->assertSame(1, $report['summary']['source_literal_duplicate_reviewed_count']);
@@ -180,6 +180,28 @@ final class WebRouteTopologyAuditTest extends TestCase
         $this->assertStringContainsString("->name('bank-reconciliation-suggestions.confirm');", $financeRoutes);
         $this->assertStringContainsString("->name('bank-aliases.destroy');", $financeRoutes);
         $this->assertStringNotContainsString('LogisticaController::class', $financeRoutes);
+    }
+
+    public function test_administrative_logistics_routes_are_loaded_from_the_dedicated_module(): void
+    {
+        $report = app(RouteTopologyAuditService::class)->report();
+        $routeFiles = collect($report['modularization']['route_files'])->keyBy('path');
+        $webRoutes = File::get(base_path('routes/web.php'));
+        $logisticsRoutes = File::get(base_path('routes/web_logistics.php'));
+
+        $this->assertTrue($routeFiles['routes/web_logistics.php']['loaded']);
+        $this->assertSame(15, $routeFiles['routes/web_logistics.php']['route_call_count']);
+        $this->assertStringContainsString("require __DIR__.'/web_logistics.php';", $webRoutes);
+        $this->assertStringNotContainsString('LogisticaController::class', $webRoutes);
+        $this->assertStringContainsString("Route::prefix('logistica')->middleware('module.access:logistica')", $logisticsRoutes);
+        $this->assertStringContainsString("->name('logistica.index');", $logisticsRoutes);
+        $this->assertStringContainsString("->name('logistica.requisicoes.approve');", $logisticsRoutes);
+        $this->assertStringContainsString("->name('logistica.requisicoes.invoice');", $logisticsRoutes);
+        $this->assertStringContainsString("->name('logistica.requisicoes.deliver');", $logisticsRoutes);
+        $this->assertStringContainsString("->name('logistica.stock.movimentos.store');", $logisticsRoutes);
+        $this->assertStringContainsString("->name('logistica.emprestimos.return');", $logisticsRoutes);
+        $this->assertStringContainsString("->name('logistica.fornecedores.compras.destroy');", $logisticsRoutes);
+        $this->assertStringNotContainsString('FinanceiroController::class', $logisticsRoutes);
     }
 
     public function test_compatibility_redirects_are_modular_and_have_no_first_party_consumers(): void
