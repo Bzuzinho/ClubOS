@@ -89,11 +89,11 @@ jobs:
             and .summary.contract_matches_baseline == true
             and .summary.fallback_route_count == 1
             and .contract.fallback_name == "public.custom-page"
-            and .summary.source_literal_duplicate_candidate_count == 1
+            and .summary.source_literal_duplicate_candidate_count == 0
             and .summary.source_literal_duplicate_unclassified_count == 0
             and .summary.legacy_redirect_consumer_count == 0
             and .summary.retired_shadowed_alias_reference_count == 0
-            and .summary.modular_route_file_count == 27
+            and .summary.modular_route_file_count == 28
             and .summary.loaded_modular_route_file_count == .summary.modular_route_file_count
             and .contract.hash == .contract.baseline_hash
             and .interpretation.no_routes_changed == true

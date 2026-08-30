@@ -5,10 +5,6 @@ use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\FinanceiroController;
 use App\Http\Controllers\TransacoesController;
 use App\Http\Controllers\CategoriasFinanceirasController;
-use App\Http\Controllers\AdminLojaController;
-use App\Http\Controllers\AdminLojaEncomendaController;
-use App\Http\Controllers\AdminLojaHeroController;
-use App\Http\Controllers\AdminLojaProdutoController;
 use App\Http\Controllers\PatrocinosController;
 use App\Http\Controllers\ComunicacaoController;
 use App\Http\Controllers\CampanhasMarketingController;
@@ -103,20 +99,9 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::post('financeiro/{financeiro}/apagar', [FinanceiroController::class, 'destroy'])
         ->middleware(['module.access:financeiro', 'permission.access:financeiro.dashboard,delete'])
         ->name('financeiro.destroy.post');
-    Route::prefix('admin/loja')->middleware('module.access:loja')->name('admin.loja.')->group(function () {
-        Route::get('/', [AdminLojaController::class, 'index'])->name('index');
 
-        Route::get('/produtos', [AdminLojaProdutoController::class, 'index'])->name('produtos.index');
-        Route::get('/produtos/criar', [AdminLojaProdutoController::class, 'create'])->name('produtos.create');
-        Route::get('/produtos/{produto}/editar', [AdminLojaProdutoController::class, 'edit'])->name('produtos.edit');
+    require __DIR__.'/web_store_admin.php';
 
-        Route::get('/encomendas', [AdminLojaEncomendaController::class, 'index'])->name('encomendas.index');
-        Route::get('/encomendas/{encomenda}', [AdminLojaEncomendaController::class, 'show'])->name('encomendas.show');
-
-        Route::get('/hero', [AdminLojaHeroController::class, 'index'])->name('hero.index');
-        Route::get('/hero/criar', [AdminLojaHeroController::class, 'create'])->name('hero.create');
-        Route::get('/hero/{item}/editar', [AdminLojaHeroController::class, 'edit'])->name('hero.edit');
-    });
     Route::prefix('patrocinios')->middleware('module.access:patrocinios')->group(function () {
         Route::get('/integracoes', [PatrocinosController::class, 'integrationsIndex'])->name('patrocinios.integrations.index');
         Route::post('/{patrocinio}/integracoes/retry', [PatrocinosController::class, 'retry'])->name('patrocinios.integrations.retry');
