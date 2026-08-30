@@ -21,8 +21,8 @@ final class WebRouteTopologyAuditTest extends TestCase
         $this->assertFalse($report['summary']['fallback_registered_last']);
         $this->assertSame('public.custom-page', $report['contract']['fallback_name']);
         $this->assertMatchesRegularExpression('/^[a-f0-9]{64}$/', $report['contract']['hash']);
-        $this->assertSame(25, $report['summary']['modular_route_file_count']);
-        $this->assertSame(25, $report['summary']['loaded_modular_route_file_count']);
+        $this->assertSame(26, $report['summary']['modular_route_file_count']);
+        $this->assertSame(26, $report['summary']['loaded_modular_route_file_count']);
         $this->assertSame(23, $report['summary']['legacy_redirect_count']);
         $this->assertSame(1, $report['summary']['source_literal_duplicate_candidate_count']);
         $this->assertSame(1, $report['summary']['source_literal_duplicate_reviewed_count']);
@@ -153,6 +153,33 @@ final class WebRouteTopologyAuditTest extends TestCase
         $this->assertStringContainsString("->name('desportivo.presencas.clear-all');", $sportsRoutes);
         $this->assertStringContainsString("->name('desportivo.cais.metrics.store');", $sportsRoutes);
         $this->assertStringNotContainsString('FinanceiroController::class', $sportsRoutes);
+    }
+
+    public function test_core_administrative_finance_routes_are_loaded_from_the_dedicated_module(): void
+    {
+        $report = app(RouteTopologyAuditService::class)->report();
+        $routeFiles = collect($report['modularization']['route_files'])->keyBy('path');
+        $webRoutes = File::get(base_path('routes/web.php'));
+        $financeRoutes = File::get(base_path('routes/web_finance.php'));
+
+        $this->assertTrue($routeFiles['routes/web_finance.php']['loaded']);
+        $this->assertSame(30, $routeFiles['routes/web_finance.php']['route_call_count']);
+        $this->assertStringContainsString("require __DIR__.'/web_finance.php';", $webRoutes);
+        $this->assertStringNotContainsString('RelatoriosFinanceirosController::class', $webRoutes);
+        $this->assertStringNotContainsString('ReceiptImportController::class', $webRoutes);
+        $this->assertStringNotContainsString('BankReconciliationSuggestionController::class', $webRoutes);
+        $this->assertStringNotContainsString('BankReconciliationAliasController::class', $webRoutes);
+        $this->assertStringNotContainsString('BankReconciliationAuditController::class', $webRoutes);
+        $this->assertStringContainsString('FinanceiroController::class', $webRoutes);
+        $this->assertStringContainsString("->name('relatorios-financeiros.index');", $financeRoutes);
+        $this->assertStringContainsString("->name('financeiro.receipt-imports.items.update');", $financeRoutes);
+        $this->assertStringContainsString("->name('financeiro.bank-aliases.index');", $financeRoutes);
+        $this->assertStringContainsString("Route::resource('financeiro', FinanceiroController::class)", $financeRoutes);
+        $this->assertStringContainsString("->name('monthly-fees.generate');", $financeRoutes);
+        $this->assertStringContainsString("->name('bank-reconciliation-audit.export-summary');", $financeRoutes);
+        $this->assertStringContainsString("->name('bank-reconciliation-suggestions.confirm');", $financeRoutes);
+        $this->assertStringContainsString("->name('bank-aliases.destroy');", $financeRoutes);
+        $this->assertStringNotContainsString('LogisticaController::class', $financeRoutes);
     }
 
     public function test_compatibility_redirects_are_modular_and_have_no_first_party_consumers(): void
