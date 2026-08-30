@@ -21,8 +21,8 @@ final class WebRouteTopologyAuditTest extends TestCase
         $this->assertFalse($report['summary']['fallback_registered_last']);
         $this->assertSame('public.custom-page', $report['contract']['fallback_name']);
         $this->assertMatchesRegularExpression('/^[a-f0-9]{64}$/', $report['contract']['hash']);
-        $this->assertSame(28, $report['summary']['modular_route_file_count']);
-        $this->assertSame(28, $report['summary']['loaded_modular_route_file_count']);
+        $this->assertSame(29, $report['summary']['modular_route_file_count']);
+        $this->assertSame(29, $report['summary']['loaded_modular_route_file_count']);
         $this->assertSame(23, $report['summary']['legacy_redirect_count']);
         $this->assertSame(0, $report['summary']['source_literal_duplicate_candidate_count']);
         $this->assertSame(0, $report['summary']['source_literal_duplicate_reviewed_count']);
@@ -225,6 +225,26 @@ final class WebRouteTopologyAuditTest extends TestCase
         $this->assertStringContainsString("->name('encomendas.show');", $storeRoutes);
         $this->assertStringContainsString("->name('hero.edit');", $storeRoutes);
         $this->assertStringNotContainsString('PatrocinosController::class', $storeRoutes);
+    }
+
+    public function test_administrative_sponsorship_routes_are_loaded_from_the_dedicated_module(): void
+    {
+        $report = app(RouteTopologyAuditService::class)->report();
+        $routeFiles = collect($report['modularization']['route_files'])->keyBy('path');
+        $webRoutes = File::get(base_path('routes/web.php'));
+        $sponsorshipRoutes = File::get(base_path('routes/web_sponsorships.php'));
+
+        $this->assertTrue($routeFiles['routes/web_sponsorships.php']['loaded']);
+        $this->assertSame(5, $routeFiles['routes/web_sponsorships.php']['route_call_count']);
+        $this->assertStringContainsString("require __DIR__.'/web_sponsorships.php';", $webRoutes);
+        $this->assertStringNotContainsString('PatrocinosController::class', $webRoutes);
+        $this->assertStringContainsString("Route::prefix('patrocinios')->middleware('module.access:patrocinios')", $sponsorshipRoutes);
+        $this->assertStringContainsString("->name('patrocinios.integrations.index');", $sponsorshipRoutes);
+        $this->assertStringContainsString("->name('patrocinios.integrations.retry');", $sponsorshipRoutes);
+        $this->assertStringContainsString("->name('patrocinios.close');", $sponsorshipRoutes);
+        $this->assertStringContainsString("->name('patrocinios.cancel');", $sponsorshipRoutes);
+        $this->assertStringContainsString("Route::resource('patrocinios', PatrocinosController::class)->middleware('module.access:patrocinios');", $sponsorshipRoutes);
+        $this->assertStringNotContainsString('ComunicacaoController::class', $sponsorshipRoutes);
     }
 
     public function test_compatibility_redirects_are_modular_and_have_no_first_party_consumers(): void
