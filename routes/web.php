@@ -5,7 +5,6 @@ use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\FinanceiroController;
 use App\Http\Controllers\TransacoesController;
 use App\Http\Controllers\CategoriasFinanceirasController;
-use App\Http\Controllers\PatrocinosController;
 use App\Http\Controllers\ComunicacaoController;
 use App\Http\Controllers\CampanhasMarketingController;
 use App\Http\Controllers\Communication\CommunicationAlertController;
@@ -102,13 +101,8 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
     require __DIR__.'/web_store_admin.php';
 
-    Route::prefix('patrocinios')->middleware('module.access:patrocinios')->group(function () {
-        Route::get('/integracoes', [PatrocinosController::class, 'integrationsIndex'])->name('patrocinios.integrations.index');
-        Route::post('/{patrocinio}/integracoes/retry', [PatrocinosController::class, 'retry'])->name('patrocinios.integrations.retry');
-        Route::post('/{patrocinio}/fechar', [PatrocinosController::class, 'close'])->name('patrocinios.close');
-        Route::post('/{patrocinio}/cancelar', [PatrocinosController::class, 'cancel'])->name('patrocinios.cancel');
-    });
-    Route::resource('patrocinios', PatrocinosController::class)->middleware('module.access:patrocinios');
+    require __DIR__.'/web_sponsorships.php';
+
     Route::get('/comunicacao', [ComunicacaoController::class, 'index'])->middleware('module.access:comunicacao')->name('comunicacao.index');
 
     Route::post('/comunicacao/campaigns', [CommunicationCampaignController::class, 'store'])->middleware('module.access:comunicacao')->name('comunicacao.campaigns.store');
