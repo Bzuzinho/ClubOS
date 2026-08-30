@@ -785,6 +785,18 @@ O décimo primeiro lote controlado:
 
 PR #265 merged em `d295f5d24b248881a84cbcd63081afb73cf8640e`; CI #996 totalmente verde na PR e CI #997 totalmente verde em `main`, incluindo PostgreSQL, browser QA, deploy para a Oracle VM e audits produtivos pós-deploy. O artifact `web-route-topology-d295f5d24b248881a84cbcd63081afb73cf8640e` confirmou: hash H2.5a inalterado, `517` rotas, `491` nomes, `29/29` ficheiros modulares carregados, `23` redirects preservados, `0` referências aos aliases retirados e `0` candidatos literais. O bloco extraído é textualmente equivalente após normalização da indentação e `routes/web.php` desceu para `223` linhas, `80` declarações diretas e `19` imports de controllers sem alterar comportamento runtime.
 
+### H2.5m — Comunicação administrativa modular — em validação
+
+O décimo segundo lote controlado:
+
+- extrai as 25 rotas administrativas de Comunicação, cobrindo entrada, campanhas, entregas, templates, segmentos e alertas, para `routes/web_communication.php`;
+- mantém o gate `module.access:comunicacao` em cada declaração e o carregamento na posição original dentro de `auth` + `verified`;
+- conserva separados Patrocínios antes, o resource de Marketing depois, Configurações e os resources administrativos posteriores;
+- reforça a CI para exigir `30/30` ficheiros modulares carregados e testa a origem dedicada da fronteira administrativa de Comunicação;
+- mantém como condição de aceitação o hash H2.5a, as 517 rotas, os 491 nomes, os 23 redirects, ordem, middleware, constraints, fallback, zero referências aos aliases retirados e zero candidatos literais.
+
+O bloco extraído é textualmente equivalente após normalização da indentação e `routes/web.php` desceu para `188` linhas, `55` declarações diretas e `13` imports de controllers sem alterar comportamento runtime. Aguarda a validação integral da CI, merge, deploy e artifact produtivo antes de fechar o lote.
+
 ---
 
 ## 7. Dívida estrutural prioritária
@@ -811,7 +823,7 @@ PR #265 merged em `d295f5d24b248881a84cbcd63081afb73cf8640e`; CI #996 totalmente
 | 7 | H8 | Reporting consolidado. |
 | 8 | H9 | Website: header/footer, notícias e polish final. |
 
-Próximo passo ativo: H2.5m — preparar o décimo segundo lote modular, privilegiando a fronteira administrativa contígua de Comunicação (index, campanhas, entregas, templates, segmentos e alertas; 25 declarações). Patrocínios fica separado antes e o resource de Marketing depois; o POST financeiro de compatibilidade, os resources financeiros posteriores e redirects externos permanecem fora deste lote para preservar a ordem exata. O contract H2.5a, middleware, constraints, nomes efetivos, fallback, zero candidatos literais e os 23 redirects externos continuam obrigatórios. Stock por variante e Família/EE estão estruturalmente fechados. A ação operacional Cloudflare R2 permanece pendência externa separada. A matriz H1.17/H1.18 deve ser expandida dentro de cada workstream funcional.
+Próximo passo ativo após validar H2.5m: H2.5n — preparar o décimo terceiro lote modular, isolando o resource administrativo de Marketing na posição atual entre Comunicação e Configurações. Os resources desportivos posteriores, o POST financeiro de compatibilidade, os resources financeiros posteriores e redirects externos permanecem fora deste lote para preservar fronteiras e ordem exata. O contract H2.5a, middleware, constraints, nomes efetivos, fallback, zero candidatos literais e os 23 redirects externos continuam obrigatórios. Stock por variante e Família/EE estão estruturalmente fechados. A ação operacional Cloudflare R2 permanece pendência externa separada. A matriz H1.17/H1.18 deve ser expandida dentro de cada workstream funcional.
 
 ---
 
@@ -819,6 +831,7 @@ Próximo passo ativo: H2.5m — preparar o décimo segundo lote modular, privile
 
 | Data | Módulo | Desenvolvimento / análise | Evidência | Estado / pendências |
 |---|---|---|---|---|
+| 2026-08-30 | Rotas / Comunicação | H2.5m extrai as 25 rotas administrativas de Comunicação para um décimo segundo módulo controlado, preservando os gates de módulo e adicionando gate explícito para 30 módulos carregados. | `routes/web_communication.php`; `WebRouteTopologyAuditTest`; `WebRouteTopologyWorkflowContractTest`; workflow CI | Em validação; bloco textualmente equivalente, `routes/web.php` com 188 linhas, 55 declarações diretas e 13 imports. Contrato esperado: hash preservado, 517 rotas, 491 nomes, 30/30 módulos, 23 redirects, 0 referências aos aliases retirados e 0 candidatos literais. H2.5n prepara Marketing. |
 | 2026-08-30 | Rotas / Patrocínios | H2.5l extraiu as 5 declarações administrativas de Patrocínios para um décimo primeiro módulo controlado, preservando os gates de módulo e adicionando gate explícito para 29 módulos carregados. | PR #265; CI #996/#997; merge `d295f5d24b248881a84cbcd63081afb73cf8640e`; artifact `web-route-topology-d295f5d24b248881a84cbcd63081afb73cf8640e` | Integrado e deployado; hash preservado, 517 rotas, 491 nomes, 29/29 módulos, 23 redirects, 0 referências aos aliases retirados e 0 candidatos literais. H2.5m avança para Comunicação. |
 | 2026-08-30 | Rotas / Loja | H2.5k extraiu as 9 rotas administrativas de leitura da Loja para um décimo módulo controlado, preservando gate e prefixo nominal, adicionando gate explícito para 28 módulos carregados e fechando o último candidato literal `GET /` do monólito. | PR #263; CI diagnóstica #990; CI #992/#993; merge `d4a825ca26e1323aade7d30e497f2c08c49b394f`; artifact `web-route-topology-d4a825ca26e1323aade7d30e497f2c08c49b394f` | Integrado e deployado; hash preservado, 517 rotas, 491 nomes, 28/28 módulos, 23 redirects, 0 referências aos aliases retirados e 0 candidatos literais. H2.5l avança para Patrocínios. |
 | 2026-08-30 | Rotas / Logística | H2.5j extraiu as 15 rotas administrativas contíguas de Logística para um nono módulo controlado, preservando o gate de módulo e adicionando gate explícito para 27 módulos carregados. | PR #261; CI #986/#987; merge `a729ea5ec9a7dd38cbac10faa8e4a7174524e146`; artifact `web-route-topology-a729ea5ec9a7dd38cbac10faa8e4a7174524e146` | Integrado e deployado; hash preservado, 517 rotas, 491 nomes, 27/27 módulos, 23 redirects, 0 referências aos aliases retirados e 1/1 candidato classificado. H2.5k avança para Loja administrativa. |

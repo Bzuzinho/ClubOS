@@ -21,8 +21,8 @@ final class WebRouteTopologyAuditTest extends TestCase
         $this->assertFalse($report['summary']['fallback_registered_last']);
         $this->assertSame('public.custom-page', $report['contract']['fallback_name']);
         $this->assertMatchesRegularExpression('/^[a-f0-9]{64}$/', $report['contract']['hash']);
-        $this->assertSame(29, $report['summary']['modular_route_file_count']);
-        $this->assertSame(29, $report['summary']['loaded_modular_route_file_count']);
+        $this->assertSame(30, $report['summary']['modular_route_file_count']);
+        $this->assertSame(30, $report['summary']['loaded_modular_route_file_count']);
         $this->assertSame(23, $report['summary']['legacy_redirect_count']);
         $this->assertSame(0, $report['summary']['source_literal_duplicate_candidate_count']);
         $this->assertSame(0, $report['summary']['source_literal_duplicate_reviewed_count']);
@@ -245,6 +245,32 @@ final class WebRouteTopologyAuditTest extends TestCase
         $this->assertStringContainsString("->name('patrocinios.cancel');", $sponsorshipRoutes);
         $this->assertStringContainsString("Route::resource('patrocinios', PatrocinosController::class)->middleware('module.access:patrocinios');", $sponsorshipRoutes);
         $this->assertStringNotContainsString('ComunicacaoController::class', $sponsorshipRoutes);
+    }
+
+    public function test_administrative_communication_routes_are_loaded_from_the_dedicated_module(): void
+    {
+        $report = app(RouteTopologyAuditService::class)->report();
+        $routeFiles = collect($report['modularization']['route_files'])->keyBy('path');
+        $webRoutes = File::get(base_path('routes/web.php'));
+        $communicationRoutes = File::get(base_path('routes/web_communication.php'));
+
+        $this->assertTrue($routeFiles['routes/web_communication.php']['loaded']);
+        $this->assertSame(25, $routeFiles['routes/web_communication.php']['route_call_count']);
+        $this->assertStringContainsString("require __DIR__.'/web_communication.php';", $webRoutes);
+        $this->assertStringNotContainsString('ComunicacaoController::class', $webRoutes);
+        $this->assertStringNotContainsString('CommunicationCampaignController::class', $webRoutes);
+        $this->assertStringNotContainsString('CommunicationDeliveryController::class', $webRoutes);
+        $this->assertStringNotContainsString('CommunicationTemplateController::class', $webRoutes);
+        $this->assertStringNotContainsString('CommunicationSegmentController::class', $webRoutes);
+        $this->assertStringNotContainsString('CommunicationAlertController::class', $webRoutes);
+        $this->assertStringContainsString("->name('comunicacao.index');", $communicationRoutes);
+        $this->assertStringContainsString("->name('comunicacao.campaigns.sendIndividual');", $communicationRoutes);
+        $this->assertStringContainsString("->name('comunicacao.deliveries.index');", $communicationRoutes);
+        $this->assertStringContainsString("->name('comunicacao.templates.toggle');", $communicationRoutes);
+        $this->assertStringContainsString("->name('comunicacao.segments.destroy');", $communicationRoutes);
+        $this->assertStringContainsString("->name('comunicacao.alerts.destroy');", $communicationRoutes);
+        $this->assertStringNotContainsString('CampanhasMarketingController::class', $communicationRoutes);
+        $this->assertStringContainsString("Route::resource('campanhas-marketing', CampanhasMarketingController::class)", $webRoutes);
     }
 
     public function test_compatibility_redirects_are_modular_and_have_no_first_party_consumers(): void
