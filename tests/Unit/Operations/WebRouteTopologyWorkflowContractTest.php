@@ -18,7 +18,7 @@ final class WebRouteTopologyWorkflowContractTest extends TestCase
         self::assertStringContainsString('.summary.contract_matches_baseline == true', $workflow);
         self::assertStringContainsString('.summary.fallback_route_count == 1', $workflow);
         self::assertStringContainsString('.contract.fallback_name == "public.custom-page"', $workflow);
-        self::assertStringContainsString('.summary.source_literal_duplicate_candidate_count == 1', $workflow);
+        self::assertStringContainsString('.summary.source_literal_duplicate_candidate_count == 0', $workflow);
         self::assertStringContainsString('.summary.source_literal_duplicate_unclassified_count == 0', $workflow);
         self::assertStringContainsString('.summary.legacy_redirect_consumer_count == 0', $workflow);
         self::assertStringContainsString('.summary.retired_shadowed_alias_reference_count == 0', $workflow);
