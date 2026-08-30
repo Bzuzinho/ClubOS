@@ -700,6 +700,18 @@ O quarto lote controlado:
 
 PR #251 merged em `eeb1f4c5e183fdf139dde3d571b114fba1034c87`; CI #966 totalmente verde na PR e CI #967 totalmente verde em `main`, incluindo PostgreSQL, browser QA, deploy para a Oracle VM e audits produtivos pós-deploy. O artifact `web-route-topology-eeb1f4c5e183fdf139dde3d571b114fba1034c87` confirmou: hash H2.5a inalterado, `517` rotas, `491` nomes, `22/22` ficheiros modulares carregados, `23` redirects preservados, `0` referências aos aliases retirados e `1/1` candidato literal classificado. `routes/web.php` desceu para `492` linhas, `186` declarações diretas e `36` imports de controllers sem alterar comportamento runtime.
 
+### H2.5f — Membros administrativos modulares — em curso
+
+O quinto lote controlado:
+
+- extrai o resource administrativo de Membros, a importação e as operações de relações familiares, documentos e envio de acesso para `routes/web_members.php`;
+- mantém os gates `module.access:membros`, as permissões granulares e o carregamento na posição original dentro de `auth` + `verified`;
+- conserva separados o Portal, `member_documents.php` e a fronteira de Eventos imediatamente seguinte;
+- reforça a CI para exigir `23/23` ficheiros modulares carregados e testa a origem dedicada da fronteira administrativa;
+- mantém como condição de aceitação o hash H2.5a, as 517 rotas, os 491 nomes, os 23 redirects, ordem, middleware, constraints e fallback.
+
+Em validação, `routes/web.php` desce para `439` linhas, `173` declarações diretas e `32` imports de controllers. O fecho exige CI integral, merge, deploy de `main` e artifact topológico sem drift.
+
 ---
 
 ## 7. Dívida estrutural prioritária
@@ -726,7 +738,7 @@ PR #251 merged em `eeb1f4c5e183fdf139dde3d571b114fba1034c87`; CI #966 totalmente
 | 7 | H8 | Reporting consolidado. |
 | 8 | H9 | Website: header/footer, notícias e polish final. |
 
-Próximo passo ativo: H2.5f — preparar o quinto lote modular, privilegiando a fronteira administrativa de Membros (`membros`, importação, relações familiares, documentos e envio de acesso) e preservando o contract H2.5a, ordem, middleware, constraints, nomes efetivos e fallback. O Portal, o módulo técnico `member_documents.php`, as rotas públicas do site e a segunda fronteira financeira permanecem fora deste lote; os 23 redirects externos continuam ativos e a sua remoção exige evidência externa própria. Stock por variante e Família/EE estão estruturalmente fechados. A ação operacional Cloudflare R2 permanece pendência externa separada. A matriz H1.17/H1.18 deve ser expandida dentro de cada workstream funcional.
+Próximo passo ativo: H2.5f — validar em CI a extração modular de Membros administrativos, confirmar o contract H2.5a e verificar o deploy de `main`. O Portal, `member_documents.php`, Eventos, as rotas públicas do site e a segunda fronteira financeira permanecem fora deste lote; os 23 redirects externos continuam ativos e a sua remoção exige evidência externa própria. Stock por variante e Família/EE estão estruturalmente fechados. A ação operacional Cloudflare R2 permanece pendência externa separada. A matriz H1.17/H1.18 deve ser expandida dentro de cada workstream funcional.
 
 ---
 
@@ -734,6 +746,7 @@ Próximo passo ativo: H2.5f — preparar o quinto lote modular, privilegiando a 
 
 | Data | Módulo | Desenvolvimento / análise | Evidência | Estado / pendências |
 |---|---|---|---|---|
+| 2026-08-30 | Rotas / Membros | H2.5f extraiu o resource administrativo, importação, relações familiares, documentos e envio de acesso para um quinto módulo, preservando permissões e adicionando gate explícito para 23 módulos carregados. | `routes/web_members.php`; `WebRouteTopologyAuditTest`; contract H2.5a | Em validação; exige CI integral, merge, deploy de `main` e artifact topológico sem drift. |
 | 2026-08-29 | Rotas / Website | H2.5e extraiu as 16 rotas administrativas de Website e o redirect autenticado `website-redes` para um quarto módulo, preservando permissões e adicionando gate explícito para 22 módulos carregados. | PR #251; CI #966/#967; merge `eeb1f4c5e183fdf139dde3d571b114fba1034c87`; artifact `web-route-topology-eeb1f4c5e183fdf139dde3d571b114fba1034c87` | Integrado e deployado; hash preservado, 517 rotas, 491 nomes, 22/22 módulos, 23 redirects, 0 referências aos aliases retirados e 1/1 candidato classificado. H2.5f avança para Membros administrativos. |
 | 2026-08-29 | Rotas / Configurações | H2.5d extraiu as 68 rotas de Configurações para um terceiro módulo, preservando o grupo de acesso e adicionando gate explícito para 21 módulos carregados. | PR #249; CI #962/#963; merge `5eb015e7e87e61819d7db5917c858aa840176a19`; artifact `web-route-topology-5eb015e7e87e61819d7db5917c858aa840176a19` | Integrado e deployado; hash preservado, 517 rotas, 491 nomes, 21/21 módulos, 23 redirects, 0 referências aos aliases retirados e 1/1 candidato classificado. H2.5e avança para Website administrativo. |
 | 2026-08-29 | Rotas / Portal | H2.5c confirmou zero consumidores dos dois aliases shadowed, retirou as declarações mortas e extraiu Portal/Loja/Família para um segundo módulo, com gate permanente contra reintrodução. | PR #247; CI #958/#959; merge `3536f70d31d27f0d512d5293f03b7c33e5f575e4`; artifact `web-route-topology-3536f70d31d27f0d512d5293f03b7c33e5f575e4` | Integrado e deployado; hash preservado, 517 rotas, 491 nomes, 20/20 módulos, 23 redirects, 0 referências aos aliases retirados e 1/1 candidato classificado. H2.5d avança para Configurações. |
