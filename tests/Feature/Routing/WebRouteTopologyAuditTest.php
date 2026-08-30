@@ -21,8 +21,8 @@ final class WebRouteTopologyAuditTest extends TestCase
         $this->assertFalse($report['summary']['fallback_registered_last']);
         $this->assertSame('public.custom-page', $report['contract']['fallback_name']);
         $this->assertMatchesRegularExpression('/^[a-f0-9]{64}$/', $report['contract']['hash']);
-        $this->assertSame(23, $report['summary']['modular_route_file_count']);
-        $this->assertSame(23, $report['summary']['loaded_modular_route_file_count']);
+        $this->assertSame(24, $report['summary']['modular_route_file_count']);
+        $this->assertSame(24, $report['summary']['loaded_modular_route_file_count']);
         $this->assertSame(23, $report['summary']['legacy_redirect_count']);
         $this->assertSame(1, $report['summary']['source_literal_duplicate_candidate_count']);
         $this->assertSame(1, $report['summary']['source_literal_duplicate_reviewed_count']);
@@ -112,6 +112,25 @@ final class WebRouteTopologyAuditTest extends TestCase
         $this->assertStringContainsString("->name('membros.documentos.store');", $memberRoutes);
         $this->assertStringContainsString("->name('membros.send-access-email');", $memberRoutes);
         $this->assertStringNotContainsString('EventosController::class', $memberRoutes);
+    }
+
+    public function test_administrative_event_routes_are_loaded_from_the_dedicated_module(): void
+    {
+        $report = app(RouteTopologyAuditService::class)->report();
+        $routeFiles = collect($report['modularization']['route_files'])->keyBy('path');
+        $webRoutes = File::get(base_path('routes/web.php'));
+        $eventRoutes = File::get(base_path('routes/web_events.php'));
+
+        $this->assertTrue($routeFiles['routes/web_events.php']['loaded']);
+        $this->assertSame(5, $routeFiles['routes/web_events.php']['route_call_count']);
+        $this->assertStringContainsString("require __DIR__.'/web_events.php';", $webRoutes);
+        $this->assertStringNotContainsString('EventosController::class', $webRoutes);
+        $this->assertStringContainsString("Route::resource('eventos', EventosController::class)", $eventRoutes);
+        $this->assertStringContainsString("->name('eventos.participantes.add');", $eventRoutes);
+        $this->assertStringContainsString("->name('eventos.participantes.remove');", $eventRoutes);
+        $this->assertStringContainsString("->name('eventos.participantes.update');", $eventRoutes);
+        $this->assertStringContainsString("->name('eventos.stats');", $eventRoutes);
+        $this->assertStringNotContainsString('DesportivoController::class', $eventRoutes);
     }
 
     public function test_compatibility_redirects_are_modular_and_have_no_first_party_consumers(): void
