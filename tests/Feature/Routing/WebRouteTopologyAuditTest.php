@@ -21,8 +21,8 @@ final class WebRouteTopologyAuditTest extends TestCase
         $this->assertFalse($report['summary']['fallback_registered_last']);
         $this->assertSame('public.custom-page', $report['contract']['fallback_name']);
         $this->assertMatchesRegularExpression('/^[a-f0-9]{64}$/', $report['contract']['hash']);
-        $this->assertSame(27, $report['summary']['modular_route_file_count']);
-        $this->assertSame(27, $report['summary']['loaded_modular_route_file_count']);
+        $this->assertSame(28, $report['summary']['modular_route_file_count']);
+        $this->assertSame(28, $report['summary']['loaded_modular_route_file_count']);
         $this->assertSame(23, $report['summary']['legacy_redirect_count']);
         $this->assertSame(1, $report['summary']['source_literal_duplicate_candidate_count']);
         $this->assertSame(1, $report['summary']['source_literal_duplicate_reviewed_count']);
@@ -202,6 +202,30 @@ final class WebRouteTopologyAuditTest extends TestCase
         $this->assertStringContainsString("->name('logistica.emprestimos.return');", $logisticsRoutes);
         $this->assertStringContainsString("->name('logistica.fornecedores.compras.destroy');", $logisticsRoutes);
         $this->assertStringNotContainsString('FinanceiroController::class', $logisticsRoutes);
+    }
+
+    public function test_administrative_store_routes_are_loaded_from_the_dedicated_module(): void
+    {
+        $report = app(RouteTopologyAuditService::class)->report();
+        $routeFiles = collect($report['modularization']['route_files'])->keyBy('path');
+        $webRoutes = File::get(base_path('routes/web.php'));
+        $storeRoutes = File::get(base_path('routes/web_store_admin.php'));
+
+        $this->assertTrue($routeFiles['routes/web_store_admin.php']['loaded']);
+        $this->assertSame(9, $routeFiles['routes/web_store_admin.php']['route_call_count']);
+        $this->assertStringContainsString("require __DIR__.'/web_store_admin.php';", $webRoutes);
+        $this->assertStringNotContainsString('AdminLojaController::class', $webRoutes);
+        $this->assertStringNotContainsString('AdminLojaProdutoController::class', $webRoutes);
+        $this->assertStringNotContainsString('AdminLojaEncomendaController::class', $webRoutes);
+        $this->assertStringNotContainsString('AdminLojaHeroController::class', $webRoutes);
+        $this->assertStringContainsString("Route::prefix('admin/loja')->middleware('module.access:loja')->name('admin.loja.')", $storeRoutes);
+        $this->assertStringContainsString("->name('index');", $storeRoutes);
+        $this->assertStringContainsString("->name('produtos.index');", $storeRoutes);
+        $this->assertStringContainsString("->name('produtos.create');", $storeRoutes);
+        $this->assertStringContainsString("->name('produtos.edit');", $storeRoutes);
+        $this->assertStringContainsString("->name('encomendas.show');", $storeRoutes);
+        $this->assertStringContainsString("->name('hero.edit');", $storeRoutes);
+        $this->assertStringNotContainsString('PatrocinosController::class', $storeRoutes);
     }
 
     public function test_compatibility_redirects_are_modular_and_have_no_first_party_consumers(): void
