@@ -724,6 +724,18 @@ O sexto lote controlado:
 
 PR #255 merged em `f0677dae409acef611d6a76dbe7c96b1e87d6fd8`; CI #974 totalmente verde na PR e CI #975 totalmente verde em `main`, incluindo PostgreSQL, browser QA, deploy para a Oracle VM e audits produtivos pós-deploy. O artifact `web-route-topology-f0677dae409acef611d6a76dbe7c96b1e87d6fd8` confirmou: hash H2.5a inalterado, `517` rotas, `491` nomes, `24/24` ficheiros modulares carregados, `23` redirects preservados, `0` referências aos aliases retirados e `1/1` candidato literal classificado. `routes/web.php` desceu para `419` linhas, `168` declarações diretas e `31` imports de controllers sem alterar comportamento runtime.
 
+### H2.5h — Desportivo administrativo geral modular — em validação
+
+O sétimo lote controlado:
+
+- extrai as 29 rotas administrativas gerais sob o prefixo `desportivo`, incluindo tabs, épocas, ciclos, treinos, presenças e métricas de Cais, para `routes/web_sports.php`;
+- mantém o gate `module.access:desportivo`, as permissões granulares e o carregamento na posição original dentro de `auth` + `verified`;
+- conserva separados os resources desportivos adicionais, os módulos `desportivo_*` existentes, o Portal, `member_documents.php` e as fronteiras financeiras;
+- reforça a CI para exigir `25/25` ficheiros modulares carregados e testa a origem dedicada da fronteira administrativa geral;
+- mantém como condição de aceitação o hash H2.5a, as 517 rotas, os 491 nomes, os 23 redirects, ordem, middleware, constraints e fallback.
+
+A implementação está pronta para validação na matriz canónica de CI antes de merge e deploy.
+
 ---
 
 ## 7. Dívida estrutural prioritária
@@ -750,7 +762,7 @@ PR #255 merged em `f0677dae409acef611d6a76dbe7c96b1e87d6fd8`; CI #974 totalmente
 | 7 | H8 | Reporting consolidado. |
 | 8 | H9 | Website: header/footer, notícias e polish final. |
 
-Próximo passo ativo: H2.5h — preparar o sétimo lote modular, privilegiando a fronteira administrativa geral de Desportivo sob o prefixo `desportivo` (tabs, épocas, ciclos, treinos, presenças e métricas) e preservando o contract H2.5a, ordem, middleware, constraints, nomes efetivos e fallback. Os resources desportivos adicionais, o Portal, `member_documents.php`, as rotas públicas do site e a segunda fronteira financeira permanecem fora deste lote; os 23 redirects externos continuam ativos e a sua remoção exige evidência externa própria. Stock por variante e Família/EE estão estruturalmente fechados. A ação operacional Cloudflare R2 permanece pendência externa separada. A matriz H1.17/H1.18 deve ser expandida dentro de cada workstream funcional.
+Próximo passo ativo: H2.5h — validar, integrar e deployar o sétimo lote modular da fronteira administrativa geral de Desportivo, preservando o contract H2.5a, ordem, middleware, constraints, nomes efetivos e fallback. Os resources desportivos adicionais, os módulos `desportivo_*` existentes, o Portal, `member_documents.php`, as rotas públicas do site e as fronteiras financeiras permanecem fora deste lote; os 23 redirects externos continuam ativos e a sua remoção exige evidência externa própria. Stock por variante e Família/EE estão estruturalmente fechados. A ação operacional Cloudflare R2 permanece pendência externa separada. A matriz H1.17/H1.18 deve ser expandida dentro de cada workstream funcional.
 
 ---
 
@@ -758,6 +770,7 @@ Próximo passo ativo: H2.5h — preparar o sétimo lote modular, privilegiando a
 
 | Data | Módulo | Desenvolvimento / análise | Evidência | Estado / pendências |
 |---|---|---|---|---|
+| 2026-08-30 | Rotas / Desportivo | H2.5h extrai as 29 rotas administrativas gerais de Desportivo para um sétimo módulo controlado, preservando permissões e adicionando gate explícito para 25 módulos carregados. | `routes/web_sports.php`; testes de topologia e contract CI | Implementado; aguarda validação canónica, merge e deploy com o hash H2.5a preservado. |
 | 2026-08-30 | Rotas / Eventos | H2.5g extraiu o resource administrativo, participantes e estatísticas para um sexto módulo, preservando permissões e adicionando gate explícito para 24 módulos carregados. | PR #255; CI #974/#975; merge `f0677dae409acef611d6a76dbe7c96b1e87d6fd8`; artifact `web-route-topology-f0677dae409acef611d6a76dbe7c96b1e87d6fd8` | Integrado e deployado; hash preservado, 517 rotas, 491 nomes, 24/24 módulos, 23 redirects, 0 referências aos aliases retirados e 1/1 candidato classificado. H2.5h avança para a fronteira administrativa geral de Desportivo. |
 | 2026-08-30 | Rotas / Membros | H2.5f extraiu o resource administrativo, importação, relações familiares, documentos e envio de acesso para um quinto módulo, preservando permissões e adicionando gate explícito para 23 módulos carregados. | PR #253; CI #970/#971; merge `82e78ed0a49af8fd5c5efee52890ce95458cf6f1`; artifact `web-route-topology-82e78ed0a49af8fd5c5efee52890ce95458cf6f1` | Integrado e deployado; hash preservado, 517 rotas, 491 nomes, 23/23 módulos, 23 redirects, 0 referências aos aliases retirados e 1/1 candidato classificado. H2.5g avança para Eventos administrativos. |
 | 2026-08-29 | Rotas / Website | H2.5e extraiu as 16 rotas administrativas de Website e o redirect autenticado `website-redes` para um quarto módulo, preservando permissões e adicionando gate explícito para 22 módulos carregados. | PR #251; CI #966/#967; merge `eeb1f4c5e183fdf139dde3d571b114fba1034c87`; artifact `web-route-topology-eeb1f4c5e183fdf139dde3d571b114fba1034c87` | Integrado e deployado; hash preservado, 517 rotas, 491 nomes, 22/22 módulos, 23 redirects, 0 referências aos aliases retirados e 1/1 candidato classificado. H2.5f avança para Membros administrativos. |
