@@ -22,7 +22,7 @@ final class WebRouteTopologyWorkflowContractTest extends TestCase
         self::assertStringContainsString('.summary.source_literal_duplicate_unclassified_count == 0', $workflow);
         self::assertStringContainsString('.summary.legacy_redirect_consumer_count == 0', $workflow);
         self::assertStringContainsString('.summary.retired_shadowed_alias_reference_count == 0', $workflow);
-        self::assertStringContainsString('.summary.modular_route_file_count == 25', $workflow);
+        self::assertStringContainsString('.summary.modular_route_file_count == 26', $workflow);
         self::assertStringContainsString('.contract.hash == .contract.baseline_hash', $workflow);
         self::assertStringContainsString('name: web-route-topology-${{ github.sha }}', $workflow);
     }
