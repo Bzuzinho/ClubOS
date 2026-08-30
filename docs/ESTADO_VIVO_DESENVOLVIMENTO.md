@@ -736,6 +736,18 @@ O sétimo lote controlado:
 
 PR #257 merged em `7757284cf574e085d821d82902c2286f9a199e4b`; CI #978 totalmente verde na PR e CI #979 totalmente verde em `main`, incluindo PostgreSQL, browser QA, deploy para a Oracle VM e audits produtivos pós-deploy. O artifact `web-route-topology-7757284cf574e085d821d82902c2286f9a199e4b` confirmou: hash H2.5a inalterado, `517` rotas, `491` nomes, `25/25` ficheiros modulares carregados, `23` redirects preservados, `0` referências aos aliases retirados e `1/1` candidato literal classificado. `routes/web.php` desceu para `379` linhas, `139` declarações diretas e `30` imports de controllers sem alterar comportamento runtime.
 
+### H2.5i — Núcleo financeiro administrativo modular — em validação
+
+O oitavo lote controlado:
+
+- extrai as 30 rotas contíguas de relatórios, importação de recibos, sugestões/aliases de conciliação, resource principal e operações agrupadas sob `financeiro` para `routes/web_finance.php`;
+- mantém os gates `module.access:financeiro`, as permissões granulares, constraints UUID e o carregamento na posição original dentro de `auth` + `verified`;
+- conserva separados o pedido fiscal anterior, o POST de compatibilidade para apagar, os resources financeiros posteriores e Logística;
+- reforça a CI para exigir `26/26` ficheiros modulares carregados e testa a origem dedicada do núcleo financeiro;
+- mantém como condição de aceitação o hash H2.5a, as 517 rotas, os 491 nomes, os 23 redirects, ordem, middleware, constraints e fallback.
+
+A implementação está pronta para validação na matriz canónica de CI antes de merge e deploy.
+
 ---
 
 ## 7. Dívida estrutural prioritária
@@ -762,7 +774,7 @@ PR #257 merged em `7757284cf574e085d821d82902c2286f9a199e4b`; CI #978 totalmente
 | 7 | H8 | Reporting consolidado. |
 | 8 | H9 | Website: header/footer, notícias e polish final. |
 
-Próximo passo ativo: H2.5i — preparar o oitavo lote modular, privilegiando o núcleo financeiro administrativo contíguo entre relatórios, importação de recibos, sugestões/aliases de conciliação, resource principal e operações agrupadas sob `financeiro`. O pedido fiscal anterior, o POST de compatibilidade para apagar, os resources financeiros posteriores e Logística permanecem fora deste lote para preservar a ordem exata; o contract H2.5a, middleware, constraints, nomes efetivos, fallback e os 23 redirects externos continuam obrigatórios. Stock por variante e Família/EE estão estruturalmente fechados. A ação operacional Cloudflare R2 permanece pendência externa separada. A matriz H1.17/H1.18 deve ser expandida dentro de cada workstream funcional.
+Próximo passo ativo: H2.5i — validar, integrar e deployar o oitavo lote modular do núcleo financeiro administrativo, preservando o contract H2.5a, ordem, middleware, constraints, nomes efetivos e fallback. O pedido fiscal anterior, o POST de compatibilidade para apagar, os resources financeiros posteriores e Logística permanecem fora deste lote; os 23 redirects externos continuam ativos e a sua remoção exige evidência externa própria. Stock por variante e Família/EE estão estruturalmente fechados. A ação operacional Cloudflare R2 permanece pendência externa separada. A matriz H1.17/H1.18 deve ser expandida dentro de cada workstream funcional.
 
 ---
 
@@ -770,6 +782,7 @@ Próximo passo ativo: H2.5i — preparar o oitavo lote modular, privilegiando o 
 
 | Data | Módulo | Desenvolvimento / análise | Evidência | Estado / pendências |
 |---|---|---|---|---|
+| 2026-08-30 | Rotas / Financeiro | H2.5i extrai as 30 rotas contíguas do núcleo financeiro administrativo para um oitavo módulo controlado, preservando gates, permissões e constraints e adicionando gate explícito para 26 módulos carregados. | `routes/web_finance.php`; testes de topologia e contract CI | Implementado; aguarda validação canónica, merge e deploy com o hash H2.5a preservado. |
 | 2026-08-30 | Rotas / Desportivo | H2.5h extraiu as 29 rotas administrativas gerais de Desportivo para um sétimo módulo controlado, preservando permissões e adicionando gate explícito para 25 módulos carregados. | PR #257; CI #978/#979; merge `7757284cf574e085d821d82902c2286f9a199e4b`; artifact `web-route-topology-7757284cf574e085d821d82902c2286f9a199e4b` | Integrado e deployado; hash preservado, 517 rotas, 491 nomes, 25/25 módulos, 23 redirects, 0 referências aos aliases retirados e 1/1 candidato classificado. H2.5i avança para o núcleo financeiro administrativo contíguo. |
 | 2026-08-30 | Rotas / Eventos | H2.5g extraiu o resource administrativo, participantes e estatísticas para um sexto módulo, preservando permissões e adicionando gate explícito para 24 módulos carregados. | PR #255; CI #974/#975; merge `f0677dae409acef611d6a76dbe7c96b1e87d6fd8`; artifact `web-route-topology-f0677dae409acef611d6a76dbe7c96b1e87d6fd8` | Integrado e deployado; hash preservado, 517 rotas, 491 nomes, 24/24 módulos, 23 redirects, 0 referências aos aliases retirados e 1/1 candidato classificado. H2.5h avança para a fronteira administrativa geral de Desportivo. |
 | 2026-08-30 | Rotas / Membros | H2.5f extraiu o resource administrativo, importação, relações familiares, documentos e envio de acesso para um quinto módulo, preservando permissões e adicionando gate explícito para 23 módulos carregados. | PR #253; CI #970/#971; merge `82e78ed0a49af8fd5c5efee52890ce95458cf6f1`; artifact `web-route-topology-82e78ed0a49af8fd5c5efee52890ce95458cf6f1` | Integrado e deployado; hash preservado, 517 rotas, 491 nomes, 23/23 módulos, 23 redirects, 0 referências aos aliases retirados e 1/1 candidato classificado. H2.5g avança para Eventos administrativos. |
