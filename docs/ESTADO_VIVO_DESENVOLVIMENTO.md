@@ -748,7 +748,7 @@ O oitavo lote controlado:
 
 PR #259 merged em `007e6f575ba3ca67a21c7e85f9b75f3e91d474bc`; CI #982 totalmente verde na PR e CI #983 totalmente verde em `main`, incluindo PostgreSQL, browser QA, deploy para a Oracle VM e audits produtivos pós-deploy. O artifact `web-route-topology-007e6f575ba3ca67a21c7e85f9b75f3e91d474bc` confirmou: hash H2.5a inalterado, `517` rotas, `491` nomes, `26/26` ficheiros modulares carregados, `23` redirects preservados, `0` referências aos aliases retirados e `1/1` candidato literal classificado. `routes/web.php` desceu para `263` linhas, `109` declarações diretas e `25` imports de controllers sem alterar comportamento runtime.
 
-### H2.5j — Logística administrativa modular — em validação
+### H2.5j — Logística administrativa modular — concluída
 
 O nono lote controlado:
 
@@ -758,7 +758,7 @@ O nono lote controlado:
 - reforça a CI para exigir `27/27` ficheiros modulares carregados e testa a origem dedicada da fronteira administrativa de Logística;
 - mantém como condição de aceitação o hash H2.5a, as 517 rotas, os 491 nomes, os 23 redirects, ordem, middleware, constraints e fallback.
 
-O bloco extraído é textualmente equivalente após normalização da indentação. `routes/web.php` desce para `244` linhas, `94` declarações diretas e `24` imports de controllers. O fecho depende da CI integral, merge, deploy e artifact produtivo.
+PR #261 merged em `a729ea5ec9a7dd38cbac10faa8e4a7174524e146`; CI #986 totalmente verde na PR e CI #987 totalmente verde em `main`, incluindo PostgreSQL, browser QA, deploy para a Oracle VM e audits produtivos pós-deploy. O artifact `web-route-topology-a729ea5ec9a7dd38cbac10faa8e4a7174524e146` confirmou: hash H2.5a inalterado, `517` rotas, `491` nomes, `27/27` ficheiros modulares carregados, `23` redirects preservados, `0` referências aos aliases retirados e `1/1` candidato literal classificado. O bloco extraído é textualmente equivalente após normalização da indentação e `routes/web.php` desceu para `244` linhas, `94` declarações diretas e `24` imports de controllers sem alterar comportamento runtime.
 
 ---
 
@@ -786,7 +786,7 @@ O bloco extraído é textualmente equivalente após normalização da indentaç�
 | 7 | H8 | Reporting consolidado. |
 | 8 | H9 | Website: header/footer, notícias e polish final. |
 
-Próximo passo ativo após validar H2.5j: H2.5k — preparar o décimo lote modular, privilegiando a fronteira administrativa contígua da Loja sob o prefixo `admin/loja` (dashboard, produtos, encomendas e hero). O POST financeiro de compatibilidade anterior, os resources financeiros posteriores, Patrocínios, Comunicação e redirects externos permanecem fora deste lote para preservar a ordem exata; o contract H2.5a, middleware, constraints, nomes efetivos, fallback e os 23 redirects externos continuam obrigatórios. Stock por variante e Família/EE estão estruturalmente fechados. A ação operacional Cloudflare R2 permanece pendência externa separada. A matriz H1.17/H1.18 deve ser expandida dentro de cada workstream funcional.
+Próximo passo ativo: H2.5k — preparar o décimo lote modular, privilegiando a fronteira administrativa contígua da Loja sob o prefixo `admin/loja` (dashboard, produtos, encomendas e hero). O POST financeiro de compatibilidade anterior, os resources financeiros posteriores, Patrocínios, Comunicação e redirects externos permanecem fora deste lote para preservar a ordem exata; o contract H2.5a, middleware, constraints, nomes efetivos, fallback e os 23 redirects externos continuam obrigatórios. Stock por variante e Família/EE estão estruturalmente fechados. A ação operacional Cloudflare R2 permanece pendência externa separada. A matriz H1.17/H1.18 deve ser expandida dentro de cada workstream funcional.
 
 ---
 
@@ -794,7 +794,7 @@ Próximo passo ativo após validar H2.5j: H2.5k — preparar o décimo lote modu
 
 | Data | Módulo | Desenvolvimento / análise | Evidência | Estado / pendências |
 |---|---|---|---|---|
-| 2026-08-30 | Rotas / Logística | H2.5j extrai as 15 rotas administrativas contíguas de Logística para um nono módulo controlado, preservando o gate de módulo e adicionando gate explícito para 27 módulos carregados. | `routes/web_logistics.php`; `WebRouteTopologyAuditTest`; `WebRouteTopologyWorkflowContractTest`; `.github/workflows/ci.yml` | Em validação; equivalência textual confirmada e `routes/web.php` reduzido para 244 linhas, 94 declarações diretas e 24 imports. Aguarda CI, merge, deploy e artifact; H2.5k fica reservado para Loja administrativa. |
+| 2026-08-30 | Rotas / Logística | H2.5j extraiu as 15 rotas administrativas contíguas de Logística para um nono módulo controlado, preservando o gate de módulo e adicionando gate explícito para 27 módulos carregados. | PR #261; CI #986/#987; merge `a729ea5ec9a7dd38cbac10faa8e4a7174524e146`; artifact `web-route-topology-a729ea5ec9a7dd38cbac10faa8e4a7174524e146` | Integrado e deployado; hash preservado, 517 rotas, 491 nomes, 27/27 módulos, 23 redirects, 0 referências aos aliases retirados e 1/1 candidato classificado. H2.5k avança para Loja administrativa. |
 | 2026-08-30 | Rotas / Financeiro | H2.5i extraiu as 30 rotas contíguas do núcleo financeiro administrativo para um oitavo módulo controlado, preservando gates, permissões e constraints e adicionando gate explícito para 26 módulos carregados. | PR #259; CI #982/#983; merge `007e6f575ba3ca67a21c7e85f9b75f3e91d474bc`; artifact `web-route-topology-007e6f575ba3ca67a21c7e85f9b75f3e91d474bc` | Integrado e deployado; hash preservado, 517 rotas, 491 nomes, 26/26 módulos, 23 redirects, 0 referências aos aliases retirados e 1/1 candidato classificado. H2.5j avança para a fronteira administrativa de Logística. |
 | 2026-08-30 | Rotas / Desportivo | H2.5h extraiu as 29 rotas administrativas gerais de Desportivo para um sétimo módulo controlado, preservando permissões e adicionando gate explícito para 25 módulos carregados. | PR #257; CI #978/#979; merge `7757284cf574e085d821d82902c2286f9a199e4b`; artifact `web-route-topology-7757284cf574e085d821d82902c2286f9a199e4b` | Integrado e deployado; hash preservado, 517 rotas, 491 nomes, 25/25 módulos, 23 redirects, 0 referências aos aliases retirados e 1/1 candidato classificado. H2.5i avança para o núcleo financeiro administrativo contíguo. |
 | 2026-08-30 | Rotas / Eventos | H2.5g extraiu o resource administrativo, participantes e estatísticas para um sexto módulo, preservando permissões e adicionando gate explícito para 24 módulos carregados. | PR #255; CI #974/#975; merge `f0677dae409acef611d6a76dbe7c96b1e87d6fd8`; artifact `web-route-topology-f0677dae409acef611d6a76dbe7c96b1e87d6fd8` | Integrado e deployado; hash preservado, 517 rotas, 491 nomes, 24/24 módulos, 23 redirects, 0 referências aos aliases retirados e 1/1 candidato classificado. H2.5h avança para a fronteira administrativa geral de Desportivo. |
