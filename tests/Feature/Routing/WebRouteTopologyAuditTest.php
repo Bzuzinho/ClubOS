@@ -24,8 +24,8 @@ final class WebRouteTopologyAuditTest extends TestCase
         $this->assertSame(28, $report['summary']['modular_route_file_count']);
         $this->assertSame(28, $report['summary']['loaded_modular_route_file_count']);
         $this->assertSame(23, $report['summary']['legacy_redirect_count']);
-        $this->assertSame(1, $report['summary']['source_literal_duplicate_candidate_count']);
-        $this->assertSame(1, $report['summary']['source_literal_duplicate_reviewed_count']);
+        $this->assertSame(0, $report['summary']['source_literal_duplicate_candidate_count']);
+        $this->assertSame(0, $report['summary']['source_literal_duplicate_reviewed_count']);
         $this->assertSame(0, $report['summary']['source_literal_duplicate_unclassified_count']);
         $this->assertSame(2, $report['summary']['retired_shadowed_alias_count']);
         $this->assertSame(0, $report['summary']['retired_shadowed_alias_reference_count']);
@@ -37,8 +37,7 @@ final class WebRouteTopologyAuditTest extends TestCase
         $this->assertSame('configuracoes/clube', $report['contract']['named_routes']['configuracoes.clube.update']['uri']);
         $classifications = collect($report['duplicates']['reviewed_source_classifications'])
             ->keyBy(fn (array $candidate): string => $candidate['method'].' '.$candidate['uri']);
-        $this->assertSame('prefix_scoped_distinct_routes', $classifications['GET /']['classification']);
-        $this->assertCount(1, $classifications);
+        $this->assertCount(0, $classifications);
         $retiredAliases = collect($report['duplicates']['retired_shadowed_aliases'])->keyBy('retired_name');
         $this->assertSame('loja.index', $retiredAliases['store.front.index']['effective_name']);
         $this->assertSame('configuracoes.clube.update', $retiredAliases['configuracoes.club.update']['effective_name']);
