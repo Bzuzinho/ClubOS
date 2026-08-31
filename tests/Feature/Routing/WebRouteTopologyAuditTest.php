@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature\Routing;
 
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\Financeiro\FiscalDocumentRequestController;
 use App\Services\Routing\RouteTopologyAuditService;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Route;
@@ -23,8 +24,8 @@ final class WebRouteTopologyAuditTest extends TestCase
         $this->assertFalse($report['summary']['fallback_registered_last']);
         $this->assertSame('public.custom-page', $report['contract']['fallback_name']);
         $this->assertMatchesRegularExpression('/^[a-f0-9]{64}$/', $report['contract']['hash']);
-        $this->assertSame(35, $report['summary']['modular_route_file_count']);
-        $this->assertSame(35, $report['summary']['loaded_modular_route_file_count']);
+        $this->assertSame(36, $report['summary']['modular_route_file_count']);
+        $this->assertSame(36, $report['summary']['loaded_modular_route_file_count']);
         $this->assertSame(23, $report['summary']['legacy_redirect_count']);
         $this->assertSame(0, $report['summary']['source_literal_duplicate_candidate_count']);
         $this->assertSame(0, $report['summary']['source_literal_duplicate_reviewed_count']);
@@ -72,6 +73,32 @@ final class WebRouteTopologyAuditTest extends TestCase
         $this->assertContains('auth', $route->gatherMiddleware());
         $this->assertContains('verified', $route->gatherMiddleware());
         $this->assertNotContains('module.access:inicio', $route->gatherMiddleware());
+    }
+
+    public function test_fiscal_document_request_index_route_is_loaded_from_the_dedicated_module_without_access_drift(): void
+    {
+        $report = app(RouteTopologyAuditService::class)->report();
+        $routeFiles = collect($report['modularization']['route_files'])->keyBy('path');
+        $webRoutes = File::get(base_path('routes/web.php'));
+        $fiscalRequestRoutes = File::get(base_path('routes/web_finance_fiscal_request_index.php'));
+        $route = Route::getRoutes()->getByName('financeiro.fiscal-document-requests.index');
+
+        $this->assertTrue($routeFiles['routes/web_finance_fiscal_request_index.php']['loaded']);
+        $this->assertSame(1, $routeFiles['routes/web_finance_fiscal_request_index.php']['route_call_count']);
+        $this->assertStringContainsString("require __DIR__.'/web_finance_fiscal_request_index.php';", $webRoutes);
+        $this->assertStringNotContainsString('FiscalDocumentRequestController::class', $webRoutes);
+        $this->assertStringContainsString("Route::get('financeiro/fiscal-document-requests', [FiscalDocumentRequestController::class, 'index'])", $fiscalRequestRoutes);
+        $this->assertStringContainsString("->middleware(['module.access:financeiro', 'permission.access:financeiro.dashboard,view'])", $fiscalRequestRoutes);
+        $this->assertStringContainsString("->name('financeiro.fiscal-document-requests.index');", $fiscalRequestRoutes);
+
+        $this->assertNotNull($route);
+        $this->assertSame('financeiro/fiscal-document-requests', $route->uri());
+        $this->assertContains('GET', $route->methods());
+        $this->assertSame(FiscalDocumentRequestController::class.'@index', $route->getActionName());
+        $this->assertContains('auth', $route->gatherMiddleware());
+        $this->assertContains('verified', $route->gatherMiddleware());
+        $this->assertContains('module.access:financeiro', $route->gatherMiddleware());
+        $this->assertContains('permission.access:financeiro.dashboard,view', $route->gatherMiddleware());
     }
 
     public function test_public_pwa_website_and_form_routes_are_loaded_from_the_dedicated_module(): void
@@ -378,7 +405,8 @@ final class WebRouteTopologyAuditTest extends TestCase
         $this->assertStringNotContainsString('TransacoesController::class', $webRoutes);
         $this->assertStringNotContainsString('CategoriasFinanceirasController::class', $webRoutes);
         $this->assertStringContainsString('FinanceiroController::class', $webRoutes);
-        $this->assertStringContainsString('FiscalDocumentRequestController::class', $webRoutes);
+        $this->assertStringNotContainsString('FiscalDocumentRequestController::class', $webRoutes);
+        $this->assertStringContainsString('FiscalDocumentRequestController::class', $financeRoutes);
         $this->assertStringContainsString("Route::prefix('financeiro')->middleware('module.access:financeiro')", $financeRoutes);
         $this->assertStringContainsString("->name('transacoes.index');", $financeRoutes);
         $this->assertStringContainsString("->name('categorias-financeiras.destroy');", $financeRoutes);

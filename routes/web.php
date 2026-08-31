@@ -1,7 +1,6 @@
 <?php
 
 use App\Http\Controllers\FinanceiroController;
-use App\Http\Controllers\Financeiro\FiscalDocumentRequestController;
 use App\Http\Controllers\PublicSiteController;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Route;
@@ -16,9 +15,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
     require __DIR__.'/web_portal.php';
 
-    Route::get('financeiro/fiscal-document-requests', [FiscalDocumentRequestController::class, 'index'])
-        ->middleware(['module.access:financeiro', 'permission.access:financeiro.dashboard,view'])
-        ->name('financeiro.fiscal-document-requests.index');
+    require __DIR__.'/web_finance_fiscal_request_index.php';
 
     require __DIR__.'/web_members.php';
 
