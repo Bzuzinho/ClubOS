@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\FinanceiroController;
 use App\Http\Controllers\PublicSiteController;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Route;
@@ -26,7 +27,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
     require __DIR__.'/web_logistics.php';
 
-    require __DIR__.'/web_finance_delete_compat.php';
+    require __DIR__.'/compat/web_finance_delete.php';
 
     require __DIR__.'/web_store_admin.php';
 
