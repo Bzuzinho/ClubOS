@@ -21,8 +21,8 @@ final class WebRouteTopologyAuditTest extends TestCase
         $this->assertFalse($report['summary']['fallback_registered_last']);
         $this->assertSame('public.custom-page', $report['contract']['fallback_name']);
         $this->assertMatchesRegularExpression('/^[a-f0-9]{64}$/', $report['contract']['hash']);
-        $this->assertSame(33, $report['summary']['modular_route_file_count']);
-        $this->assertSame(33, $report['summary']['loaded_modular_route_file_count']);
+        $this->assertSame(34, $report['summary']['modular_route_file_count']);
+        $this->assertSame(34, $report['summary']['loaded_modular_route_file_count']);
         $this->assertSame(23, $report['summary']['legacy_redirect_count']);
         $this->assertSame(0, $report['summary']['source_literal_duplicate_candidate_count']);
         $this->assertSame(0, $report['summary']['source_literal_duplicate_reviewed_count']);
@@ -46,6 +46,31 @@ final class WebRouteTopologyAuditTest extends TestCase
         $this->assertTrue($report['interpretation']['no_routes_changed']);
         $this->assertTrue($report['interpretation']['all_source_literal_duplicate_candidates_reviewed']);
         $this->assertTrue($report['interpretation']['retired_shadowed_aliases_have_zero_first_party_references']);
+    }
+
+    public function test_public_pwa_website_and_form_routes_are_loaded_from_the_dedicated_module(): void
+    {
+        $report = app(RouteTopologyAuditService::class)->report();
+        $routeFiles = collect($report['modularization']['route_files'])->keyBy('path');
+        $webRoutes = File::get(base_path('routes/web.php'));
+        $publicRoutes = File::get(base_path('routes/web_public.php'));
+
+        $this->assertTrue($routeFiles['routes/web_public.php']['loaded']);
+        $this->assertSame(7, $routeFiles['routes/web_public.php']['route_call_count']);
+        $this->assertStringContainsString("require __DIR__.'/web_public.php';", $webRoutes);
+        $this->assertStringNotContainsString('PublicFormSubmissionController::class', $webRoutes);
+        $this->assertStringNotContainsString('File::exists', $webRoutes);
+        $this->assertStringContainsString('PublicSiteController::class', $webRoutes);
+        $this->assertStringContainsString("->name('pwa.manifest');", $publicRoutes);
+        $this->assertStringContainsString("->name('pwa.favicon');", $publicRoutes);
+        $this->assertStringContainsString("->where('asset', '[A-Za-z0-9._-]+')->name('pwa.icon');", $publicRoutes);
+        $this->assertStringContainsString("->name('public.home');", $publicRoutes);
+        $this->assertStringContainsString("->name('public.page');", $publicRoutes);
+        $this->assertStringContainsString("->name('public.contact.store');", $publicRoutes);
+        $this->assertStringContainsString("->name('public.registration.store');", $publicRoutes);
+        $this->assertSame(2, substr_count($publicRoutes, "->middleware('throttle:5,1')"));
+        $this->assertStringContainsString("Route::middleware(['auth', 'verified'])", $webRoutes);
+        $this->assertStringContainsString("Route::fallback([PublicSiteController::class, 'custom'])", $webRoutes);
     }
 
     public function test_settings_routes_are_loaded_from_the_dedicated_module(): void
@@ -80,7 +105,7 @@ final class WebRouteTopologyAuditTest extends TestCase
         $this->assertStringNotContainsString('WebsitePageController::class', $webRoutes);
         $this->assertStringNotContainsString('WebsiteMediaController::class', $webRoutes);
         $this->assertStringContainsString('PublicSiteController::class', $webRoutes);
-        $this->assertStringContainsString('PublicFormSubmissionController::class', $webRoutes);
+        $this->assertStringNotContainsString('PublicFormSubmissionController::class', $webRoutes);
         $this->assertStringNotContainsString('PublicSiteController::class', $websiteRoutes);
         $this->assertStringNotContainsString('PublicFormSubmissionController::class', $websiteRoutes);
         $this->assertStringContainsString("Route::prefix('website')", $websiteRoutes);
