@@ -17,41 +17,48 @@ use Tests\TestCase;
 
 final class SportsEndToEndCanonicalContractTest extends TestCase
 {
-    /** @return array<string, array{uri:string,action:string,permission:string}> */
+    /** @return array<string, array{name:string,uri:string,action:string,permission:string}> */
     public static function workspaceRoutes(): array
     {
         return [
             'dashboard' => [
+                'name' => 'desportivo.index',
                 'uri' => 'desportivo',
                 'action' => SportsDashboardWorkspaceController::class.'@index',
                 'permission' => 'permission.access:desportivo.dashboard,view',
             ],
             'planning' => [
+                'name' => 'desportivo.planeamento',
                 'uri' => 'desportivo/planeamento',
                 'action' => SportsPlanningWorkspaceController::class.'@index',
                 'permission' => 'permission.access:desportivo.planeamento,view',
             ],
             'cais' => [
+                'name' => 'desportivo.cais',
                 'uri' => 'desportivo/cais',
                 'action' => SportsCaisWorkspaceController::class.'@index',
                 'permission' => 'permission.access:desportivo.treinos.cais,view',
             ],
             'live' => [
+                'name' => 'desportivo.live',
                 'uri' => 'desportivo/live',
                 'action' => SportsLiveWorkspaceController::class.'@index',
                 'permission' => 'permission.access:desportivo.treinos.cais,view',
             ],
             'competitions' => [
+                'name' => 'desportivo.competicoes',
                 'uri' => 'desportivo/competicoes',
                 'action' => SportsCompetitionWorkspaceController::class.'@index',
                 'permission' => 'permission.access:desportivo.competicoes,view',
             ],
             'results' => [
+                'name' => 'desportivo.resultados',
                 'uri' => 'desportivo/resultados',
                 'action' => SportsResultsWorkspaceController::class.'@index',
                 'permission' => 'permission.access:desportivo.resultados,view',
             ],
             'analysis' => [
+                'name' => 'desportivo.relatorios',
                 'uri' => 'desportivo/relatorios',
                 'action' => SportsAnalysisWorkspaceController::class.'@index',
                 'permission' => 'permission.access:desportivo.treinos.cais,view',
@@ -60,12 +67,13 @@ final class SportsEndToEndCanonicalContractTest extends TestCase
     }
 
     /** @dataProvider workspaceRoutes */
-    public function test_canonical_sports_workspaces_keep_their_route_and_access_contract(string $uri, string $action, string $permission): void
+    public function test_canonical_sports_workspaces_keep_their_route_and_access_contract(string $name, string $uri, string $action, string $permission): void
     {
-        $route = collect(Route::getRoutes()->getRoutes())
-            ->first(fn ($candidate): bool => $candidate->uri() === $uri && in_array('GET', $candidate->methods(), true));
+        $route = Route::getRoutes()->getByName($name);
 
-        $this->assertNotNull($route, "Missing canonical sports workspace route: {$uri}");
+        $this->assertNotNull($route, "Missing canonical sports workspace route: {$name}");
+        $this->assertSame($uri, $route->uri());
+        $this->assertContains('GET', $route->methods());
         $this->assertSame($action, $route->getActionName());
         $this->assertContains('auth', $route->gatherMiddleware());
         $this->assertContains('verified', $route->gatherMiddleware());
