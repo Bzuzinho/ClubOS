@@ -5,7 +5,6 @@ use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\FinanceiroController;
 use App\Http\Controllers\TransacoesController;
 use App\Http\Controllers\CategoriasFinanceirasController;
-use App\Http\Controllers\CampanhasMarketingController;
 use App\Http\Controllers\EquipasController;
 use App\Http\Controllers\Financeiro\FiscalDocumentRequestController;
 use App\Http\Controllers\PublicFormSubmissionController;
@@ -99,7 +98,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
     require __DIR__.'/web_communication.php';
 
-    Route::resource('campanhas-marketing', CampanhasMarketingController::class)->middleware('module.access:marketing');
+    require __DIR__.'/web_marketing.php';
     
     require __DIR__.'/web_settings.php';
 
