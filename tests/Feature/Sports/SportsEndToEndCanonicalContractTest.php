@@ -13,6 +13,7 @@ use App\Http\Controllers\Desportivo\SportsPlanningWorkspaceController;
 use App\Http\Controllers\Desportivo\SportsResultsWorkspaceController;
 use App\Support\LegacySportsGuard;
 use Illuminate\Support\Facades\Route;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 
 final class SportsEndToEndCanonicalContractTest extends TestCase
@@ -66,7 +67,7 @@ final class SportsEndToEndCanonicalContractTest extends TestCase
         ];
     }
 
-    /** @dataProvider workspaceRoutes */
+    #[DataProvider('workspaceRoutes')]
     public function test_canonical_sports_workspaces_keep_their_route_and_access_contract(string $name, string $uri, string $action, string $permission): void
     {
         $route = Route::getRoutes()->getByName($name);
