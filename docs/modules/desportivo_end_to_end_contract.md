@@ -1,7 +1,7 @@
 # Desportivo — Contract ponta a ponta H3
 
 Data: 2026-08-31
-Status: H3b — Planeamento → sessão de treino em validação
+Status: H3c — Treino → Cais → Presenças em validação
 
 ## Objetivo
 
@@ -9,7 +9,7 @@ Fechar o módulo Desportivo como um único fluxo operacional coerente, sem regre
 
 `Planeamento → Treino → Cais → Live → Presenças → Competições → Resultados → Portal → Análise/Reporting`
 
-A H3a estabeleceu o baseline canónico. A H3b prova o primeiro elo funcional real: uma sessão criada no Planeamento a partir de uma versão de plano materializa um snapshot operacional em `trainings` + `training_series`, e revisões posteriores do plano não reescrevem a sessão já criada.
+A H3a estabeleceu o baseline canónico. A H3b provou Planeamento → Treino com snapshot imutável de uma versão de plano. A H3c fixa agora `training_athletes` como a única espinha operacional entre a preparação da sessão, o Cais e o estado de presença.
 
 ## Workspaces canónicas
 
@@ -52,7 +52,14 @@ Ao criar uma sessão no Planeamento com `training_plan_version_id`:
 5. uma nova revisão do plano não altera retroativamente a sessão nem as suas séries;
 6. uma atualização para outra versão exige uma operação explícita sobre sessões futuras selecionadas.
 
-A regressão H3b cobre este comportamento pela entrada canónica `SportsPlanningWorkspaceService::createSession()`.
+## H3c — contrato Treino → Cais → Presenças
+
+1. preparar/selecionar um atleta para uma sessão cria ou reutiliza exatamente um registo em `training_athletes`;
+2. o Cais lê esse mesmo registo e expõe o respetivo `training_athlete_id`;
+3. alterações de presença no Cais atualizam o mesmo registo, sem criar uma segunda fonte de attendance;
+4. `atrasado` continua semanticamente presente (`presente=true`), preservando o estado detalhado em `estado`;
+5. métricas logísticas/técnicas continuam em `training_metrics`, ligadas ao mesmo `treino_id` + `user_id`;
+6. a tabela legacy `presences` permanece proibida como fonte de verdade ativa.
 
 ## Fontes proibidas no negócio Desportivo ativo
 
@@ -64,7 +71,7 @@ Continuam proibidas como fontes de verdade ativas:
 
 A existência física de tabelas legacy não autoriza novos consumidores. O `LegacySportsGuard` permanece o guard rail.
 
-## Regra para H3b+
+## Regra para H3+
 
 Cada lote funcional deve:
 1. preservar o data spine canónico;
@@ -75,8 +82,8 @@ Cada lote funcional deve:
 
 ## Ordem recomendada
 
-- H3b: Planeamento → sessão de treino — em validação nesta PR.
-- H3c: Treino → Cais → Presenças — consolidar seleção, atletas, métricas e attendance no mesmo `training_athletes`.
+- H3b: Planeamento → sessão de treino — concluído e integrado.
+- H3c: Treino → Cais → Presenças — em validação nesta PR.
 - H3d: Live → métricas/splits — validar contagens concorrentes e progressão das séries.
 - H3e: Competições → Resultados — fechar inscrições, provas e resultados canónicos.
 - H3f: Portal — projetar agenda, presenças e resultados sem novas fontes de verdade.
