@@ -1,7 +1,5 @@
 <?php
 
-use App\Http\Controllers\FinanceiroController;
-use App\Http\Controllers\PublicSiteController;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
@@ -48,7 +46,4 @@ require __DIR__.'/web_compatibility.php';
 
 require __DIR__.'/auth.php';
 
-// Custom public pages are a true fallback so named application routes always win,
-// including when Laravel compiles and caches the route collection.
-Route::fallback([PublicSiteController::class, 'custom'])
-    ->name('public.custom-page');
+require __DIR__.'/web_public_fallback.php';
