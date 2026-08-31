@@ -27,9 +27,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
     require __DIR__.'/web_logistics.php';
 
-    Route::post('financeiro/{financeiro}/apagar', [FinanceiroController::class, 'destroy'])
-        ->middleware(['module.access:financeiro', 'permission.access:financeiro.dashboard,delete'])
-        ->name('financeiro.destroy.post');
+    require __DIR__.'/compat/web_finance_delete.php';
 
     require __DIR__.'/web_store_admin.php';
 

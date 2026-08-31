@@ -247,7 +247,7 @@ final class WebRouteTopologyAuditTest extends TestCase
         $this->assertStringNotContainsString('BankReconciliationSuggestionController::class', $webRoutes);
         $this->assertStringNotContainsString('BankReconciliationAliasController::class', $webRoutes);
         $this->assertStringNotContainsString('BankReconciliationAuditController::class', $webRoutes);
-        $this->assertStringContainsString('FinanceiroController::class', $webRoutes);
+        $this->assertStringNotContainsString('FinanceiroController::class', $webRoutes);
         $this->assertStringContainsString("->name('relatorios-financeiros.index');", $financeRoutes);
         $this->assertStringContainsString("->name('financeiro.receipt-imports.items.update');", $financeRoutes);
         $this->assertStringContainsString("->name('financeiro.bank-aliases.index');", $financeRoutes);
@@ -404,7 +404,7 @@ final class WebRouteTopologyAuditTest extends TestCase
         $this->assertStringContainsString("require __DIR__.'/web_finance_complementary.php';", $webRoutes);
         $this->assertStringNotContainsString('TransacoesController::class', $webRoutes);
         $this->assertStringNotContainsString('CategoriasFinanceirasController::class', $webRoutes);
-        $this->assertStringContainsString('FinanceiroController::class', $webRoutes);
+        $this->assertStringNotContainsString('FinanceiroController::class', $webRoutes);
         $this->assertStringNotContainsString('FiscalDocumentRequestController::class', $webRoutes);
         $this->assertStringContainsString('FiscalDocumentRequestController::class', $financeRoutes);
         $this->assertStringContainsString("Route::prefix('financeiro')->middleware('module.access:financeiro')", $financeRoutes);
