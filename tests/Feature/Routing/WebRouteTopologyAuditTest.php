@@ -21,8 +21,8 @@ final class WebRouteTopologyAuditTest extends TestCase
         $this->assertFalse($report['summary']['fallback_registered_last']);
         $this->assertSame('public.custom-page', $report['contract']['fallback_name']);
         $this->assertMatchesRegularExpression('/^[a-f0-9]{64}$/', $report['contract']['hash']);
-        $this->assertSame(31, $report['summary']['modular_route_file_count']);
-        $this->assertSame(31, $report['summary']['loaded_modular_route_file_count']);
+        $this->assertSame(32, $report['summary']['modular_route_file_count']);
+        $this->assertSame(32, $report['summary']['loaded_modular_route_file_count']);
         $this->assertSame(23, $report['summary']['legacy_redirect_count']);
         $this->assertSame(0, $report['summary']['source_literal_duplicate_candidate_count']);
         $this->assertSame(0, $report['summary']['source_literal_duplicate_reviewed_count']);
@@ -290,6 +290,28 @@ final class WebRouteTopologyAuditTest extends TestCase
         $this->assertStringContainsString("->middleware('module.access:marketing');", $marketingRoutes);
         $this->assertStringNotContainsString('EquipasController::class', $marketingRoutes);
         $this->assertStringContainsString("require __DIR__.'/web_settings.php';", $webRoutes);
+    }
+
+    public function test_additional_administrative_sports_resources_are_loaded_from_the_dedicated_module(): void
+    {
+        $report = app(RouteTopologyAuditService::class)->report();
+        $routeFiles = collect($report['modularization']['route_files'])->keyBy('path');
+        $webRoutes = File::get(base_path('routes/web.php'));
+        $sportsResourceRoutes = File::get(base_path('routes/web_sports_resources.php'));
+
+        $this->assertTrue($routeFiles['routes/web_sports_resources.php']['loaded']);
+        $this->assertSame(4, $routeFiles['routes/web_sports_resources.php']['route_call_count']);
+        $this->assertStringContainsString("require __DIR__.'/web_sports_resources.php';", $webRoutes);
+        $this->assertStringNotContainsString('EquipasController::class', $webRoutes);
+        $this->assertStringNotContainsString('MembrosEquipaController::class', $webRoutes);
+        $this->assertStringNotContainsString('SessoesFormacaoController::class', $webRoutes);
+        $this->assertStringNotContainsString('ConvocatoriasController::class', $webRoutes);
+        $this->assertStringContainsString("Route::resource('equipas', EquipasController::class);", $sportsResourceRoutes);
+        $this->assertStringContainsString("Route::resource('membros-equipa', MembrosEquipaController::class)->except(['index', 'create', 'show', 'edit']);", $sportsResourceRoutes);
+        $this->assertStringContainsString("Route::resource('sessoes-formacao', SessoesFormacaoController::class);", $sportsResourceRoutes);
+        $this->assertStringContainsString("Route::resource('convocatorias', ConvocatoriasController::class);", $sportsResourceRoutes);
+        $this->assertStringNotContainsString('FinanceiroController::class', $sportsResourceRoutes);
+        $this->assertStringContainsString("Route::prefix('financeiro')->middleware('module.access:financeiro')", $webRoutes);
     }
 
     public function test_compatibility_redirects_are_modular_and_have_no_first_party_consumers(): void

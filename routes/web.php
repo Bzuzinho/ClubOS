@@ -5,13 +5,9 @@ use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\FinanceiroController;
 use App\Http\Controllers\TransacoesController;
 use App\Http\Controllers\CategoriasFinanceirasController;
-use App\Http\Controllers\EquipasController;
 use App\Http\Controllers\Financeiro\FiscalDocumentRequestController;
 use App\Http\Controllers\PublicFormSubmissionController;
 use App\Http\Controllers\PublicSiteController;
-use App\Http\Controllers\MembrosEquipaController;
-use App\Http\Controllers\SessoesFormacaoController;
-use App\Http\Controllers\ConvocatoriasController;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Route;
@@ -102,11 +98,8 @@ Route::middleware(['auth', 'verified'])->group(function () {
     
     require __DIR__.'/web_settings.php';
 
-    // Sports module routes
-    Route::resource('equipas', EquipasController::class);
-    Route::resource('membros-equipa', MembrosEquipaController::class)->except(['index', 'create', 'show', 'edit']);
-    Route::resource('sessoes-formacao', SessoesFormacaoController::class);
-    Route::resource('convocatorias', ConvocatoriasController::class);
+    require __DIR__.'/web_sports_resources.php';
+
     // Financial module routes
     Route::prefix('financeiro')->middleware('module.access:financeiro')->group(function () {
         // Transactions

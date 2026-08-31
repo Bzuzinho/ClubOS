@@ -809,6 +809,18 @@ O décimo terceiro lote controlado:
 
 PR #269 merged em `7059250383007c8451a59d056f959fee67ecb7ab`; CI #1004 totalmente verde na PR e CI #1005 totalmente verde em `main`, incluindo PostgreSQL, browser QA, deploy para a Oracle VM e audits produtivos pós-deploy. O artifact `web-route-topology-7059250383007c8451a59d056f959fee67ecb7ab` confirmou: hash H2.5a inalterado, `517` rotas, `491` nomes, `31/31` ficheiros modulares carregados, `23` redirects preservados, `0` referências aos aliases retirados e `0` candidatos literais. A declaração extraída é textualmente equivalente após normalização da indentação e `routes/web.php` desceu para `187` linhas, `54` declarações diretas e `12` imports de controllers sem alterar comportamento runtime.
 
+### H2.5o — Resources desportivos adicionais modulares — em validação
+
+O décimo quarto lote controlado:
+
+- extrai os quatro resources administrativos adicionais de Desportivo (`equipas`, `membros-equipa`, `sessoes-formacao` e `convocatorias`) para `routes/web_sports_resources.php`;
+- preserva integralmente o resource parcial de `membros-equipa` e o carregamento na posição original dentro de `auth` + `verified`;
+- conserva separados Configurações antes, o bloco financeiro complementar depois e os restantes módulos desportivos já existentes;
+- reforça a CI para exigir `32/32` ficheiros modulares carregados e testa a origem dedicada desta fronteira administrativa desportiva;
+- mantém como condição de aceitação o hash H2.5a, as 517 rotas, os 491 nomes, os 23 redirects, ordem, middleware, constraints, fallback, zero referências aos aliases retirados e zero candidatos literais.
+
+O bloco extraído é textualmente equivalente após normalização da indentação e `routes/web.php` desceu para `180` linhas, `50` declarações diretas e `8` imports de controllers sem alterar comportamento runtime. Aguarda a validação integral da CI, merge, deploy e artifact produtivo antes de fechar o lote.
+
 ---
 
 ## 7. Dívida estrutural prioritária
@@ -835,7 +847,7 @@ PR #269 merged em `7059250383007c8451a59d056f959fee67ecb7ab`; CI #1004 totalment
 | 7 | H8 | Reporting consolidado. |
 | 8 | H9 | Website: header/footer, notícias e polish final. |
 
-Próximo passo ativo: H2.5o — preparar o décimo quarto lote modular, isolando os quatro resources administrativos desportivos adicionais (`equipas`, `membros-equipa`, `sessoes-formacao` e `convocatorias`) na posição atual depois de Configurações e antes do bloco financeiro. O POST financeiro de compatibilidade, os resources financeiros posteriores e redirects externos permanecem fora deste lote para preservar fronteiras e ordem exata. O contract H2.5a, middleware, constraints, nomes efetivos, fallback, zero candidatos literais e os 23 redirects externos continuam obrigatórios. Stock por variante e Família/EE estão estruturalmente fechados. A ação operacional Cloudflare R2 permanece pendência externa separada. A matriz H1.17/H1.18 deve ser expandida dentro de cada workstream funcional.
+Próximo passo ativo após validar H2.5o: H2.5p — preparar o décimo quinto lote modular, isolando o bloco financeiro administrativo complementar contíguo de transações, categorias, movimentos, extratos e pedidos fiscais (36 declarações). O índice fiscal anterior, o POST financeiro de compatibilidade, o núcleo financeiro já modular e redirects externos permanecem fora deste lote para preservar fronteiras e ordem exata. O contract H2.5a, middleware, constraints, nomes efetivos, fallback, zero candidatos literais e os 23 redirects externos continuam obrigatórios. Stock por variante e Família/EE estão estruturalmente fechados. A ação operacional Cloudflare R2 permanece pendência externa separada. A matriz H1.17/H1.18 deve ser expandida dentro de cada workstream funcional.
 
 ---
 
@@ -843,6 +855,7 @@ Próximo passo ativo: H2.5o — preparar o décimo quarto lote modular, isolando
 
 | Data | Módulo | Desenvolvimento / análise | Evidência | Estado / pendências |
 |---|---|---|---|---|
+| 2026-08-31 | Rotas / Desportivo | H2.5o extrai os quatro resources administrativos desportivos adicionais para um décimo quarto módulo controlado, preservando o resource parcial de membros-equipa e adicionando gate explícito para 32 módulos carregados. | `routes/web_sports_resources.php`; `WebRouteTopologyAuditTest`; `WebRouteTopologyWorkflowContractTest`; workflow CI | Em validação; bloco textualmente equivalente, `routes/web.php` com 180 linhas, 50 declarações diretas e 8 imports. Contrato esperado: hash preservado, 517 rotas, 491 nomes, 32/32 módulos, 23 redirects, 0 referências aos aliases retirados e 0 candidatos literais. H2.5p prepara o bloco financeiro complementar. |
 | 2026-08-31 | Rotas / Marketing | H2.5n extraiu a declaração source do resource CRUD administrativo de Marketing para um décimo terceiro módulo controlado, preservando o gate de módulo e adicionando gate explícito para 31 módulos carregados. | PR #269; CI #1004/#1005; merge `7059250383007c8451a59d056f959fee67ecb7ab`; artifact `web-route-topology-7059250383007c8451a59d056f959fee67ecb7ab` | Integrado e deployado; hash preservado, 517 rotas, 491 nomes, 31/31 módulos, 23 redirects, 0 referências aos aliases retirados e 0 candidatos literais. H2.5o avança para os resources desportivos adicionais. |
 | 2026-08-30 | Rotas / Comunicação | H2.5m extraiu as 25 rotas administrativas de Comunicação para um décimo segundo módulo controlado, preservando os gates de módulo e adicionando gate explícito para 30 módulos carregados. | PR #267; CI #1000/#1001; merge `de8256287046bc8db1de2005ff712b47a5426fbd`; artifact `web-route-topology-de8256287046bc8db1de2005ff712b47a5426fbd` | Integrado e deployado; hash preservado, 517 rotas, 491 nomes, 30/30 módulos, 23 redirects, 0 referências aos aliases retirados e 0 candidatos literais. H2.5n avança para Marketing. |
 | 2026-08-30 | Rotas / Patrocínios | H2.5l extraiu as 5 declarações administrativas de Patrocínios para um décimo primeiro módulo controlado, preservando os gates de módulo e adicionando gate explícito para 29 módulos carregados. | PR #265; CI #996/#997; merge `d295f5d24b248881a84cbcd63081afb73cf8640e`; artifact `web-route-topology-d295f5d24b248881a84cbcd63081afb73cf8640e` | Integrado e deployado; hash preservado, 517 rotas, 491 nomes, 29/29 módulos, 23 redirects, 0 referências aos aliases retirados e 0 candidatos literais. H2.5m avança para Comunicação. |
