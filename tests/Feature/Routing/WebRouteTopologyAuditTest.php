@@ -21,8 +21,8 @@ final class WebRouteTopologyAuditTest extends TestCase
         $this->assertFalse($report['summary']['fallback_registered_last']);
         $this->assertSame('public.custom-page', $report['contract']['fallback_name']);
         $this->assertMatchesRegularExpression('/^[a-f0-9]{64}$/', $report['contract']['hash']);
-        $this->assertSame(30, $report['summary']['modular_route_file_count']);
-        $this->assertSame(30, $report['summary']['loaded_modular_route_file_count']);
+        $this->assertSame(31, $report['summary']['modular_route_file_count']);
+        $this->assertSame(31, $report['summary']['loaded_modular_route_file_count']);
         $this->assertSame(23, $report['summary']['legacy_redirect_count']);
         $this->assertSame(0, $report['summary']['source_literal_duplicate_candidate_count']);
         $this->assertSame(0, $report['summary']['source_literal_duplicate_reviewed_count']);
@@ -270,7 +270,26 @@ final class WebRouteTopologyAuditTest extends TestCase
         $this->assertStringContainsString("->name('comunicacao.segments.destroy');", $communicationRoutes);
         $this->assertStringContainsString("->name('comunicacao.alerts.destroy');", $communicationRoutes);
         $this->assertStringNotContainsString('CampanhasMarketingController::class', $communicationRoutes);
-        $this->assertStringContainsString("Route::resource('campanhas-marketing', CampanhasMarketingController::class)", $webRoutes);
+        $this->assertStringContainsString("require __DIR__.'/web_marketing.php';", $webRoutes);
+    }
+
+    public function test_administrative_marketing_routes_are_loaded_from_the_dedicated_module(): void
+    {
+        $report = app(RouteTopologyAuditService::class)->report();
+        $routeFiles = collect($report['modularization']['route_files'])->keyBy('path');
+        $webRoutes = File::get(base_path('routes/web.php'));
+        $communicationRoutes = File::get(base_path('routes/web_communication.php'));
+        $marketingRoutes = File::get(base_path('routes/web_marketing.php'));
+
+        $this->assertTrue($routeFiles['routes/web_marketing.php']['loaded']);
+        $this->assertSame(1, $routeFiles['routes/web_marketing.php']['route_call_count']);
+        $this->assertStringContainsString("require __DIR__.'/web_marketing.php';", $webRoutes);
+        $this->assertStringNotContainsString('CampanhasMarketingController::class', $webRoutes);
+        $this->assertStringNotContainsString('CampanhasMarketingController::class', $communicationRoutes);
+        $this->assertStringContainsString("Route::resource('campanhas-marketing', CampanhasMarketingController::class)", $marketingRoutes);
+        $this->assertStringContainsString("->middleware('module.access:marketing');", $marketingRoutes);
+        $this->assertStringNotContainsString('EquipasController::class', $marketingRoutes);
+        $this->assertStringContainsString("require __DIR__.'/web_settings.php';", $webRoutes);
     }
 
     public function test_compatibility_redirects_are_modular_and_have_no_first_party_consumers(): void
