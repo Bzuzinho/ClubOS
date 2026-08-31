@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Routing;
 
+use App\Http\Controllers\DashboardController;
 use App\Services\Routing\RouteTopologyAuditService;
 use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\Route;
 use Tests\TestCase;
 
 final class WebRouteTopologyAuditTest extends TestCase
@@ -21,8 +23,8 @@ final class WebRouteTopologyAuditTest extends TestCase
         $this->assertFalse($report['summary']['fallback_registered_last']);
         $this->assertSame('public.custom-page', $report['contract']['fallback_name']);
         $this->assertMatchesRegularExpression('/^[a-f0-9]{64}$/', $report['contract']['hash']);
-        $this->assertSame(34, $report['summary']['modular_route_file_count']);
-        $this->assertSame(34, $report['summary']['loaded_modular_route_file_count']);
+        $this->assertSame(35, $report['summary']['modular_route_file_count']);
+        $this->assertSame(35, $report['summary']['loaded_modular_route_file_count']);
         $this->assertSame(23, $report['summary']['legacy_redirect_count']);
         $this->assertSame(0, $report['summary']['source_literal_duplicate_candidate_count']);
         $this->assertSame(0, $report['summary']['source_literal_duplicate_reviewed_count']);
@@ -46,6 +48,30 @@ final class WebRouteTopologyAuditTest extends TestCase
         $this->assertTrue($report['interpretation']['no_routes_changed']);
         $this->assertTrue($report['interpretation']['all_source_literal_duplicate_candidates_reviewed']);
         $this->assertTrue($report['interpretation']['retired_shadowed_aliases_have_zero_first_party_references']);
+    }
+
+    public function test_authenticated_dashboard_route_is_loaded_from_the_dedicated_module_without_access_drift(): void
+    {
+        $report = app(RouteTopologyAuditService::class)->report();
+        $routeFiles = collect($report['modularization']['route_files'])->keyBy('path');
+        $webRoutes = File::get(base_path('routes/web.php'));
+        $dashboardRoutes = File::get(base_path('routes/web_dashboard.php'));
+        $route = Route::getRoutes()->getByName('dashboard');
+
+        $this->assertTrue($routeFiles['routes/web_dashboard.php']['loaded']);
+        $this->assertSame(1, $routeFiles['routes/web_dashboard.php']['route_call_count']);
+        $this->assertStringContainsString("require __DIR__.'/web_dashboard.php';", $webRoutes);
+        $this->assertStringNotContainsString('DashboardController::class', $webRoutes);
+        $this->assertStringContainsString("Route::get('/dashboard', [DashboardController::class, 'index'])", $dashboardRoutes);
+        $this->assertStringNotContainsString("->middleware('module.access:inicio')", $dashboardRoutes);
+
+        $this->assertNotNull($route);
+        $this->assertSame('dashboard', $route->uri());
+        $this->assertContains('GET', $route->methods());
+        $this->assertSame(DashboardController::class.'@index', $route->getActionName());
+        $this->assertContains('auth', $route->gatherMiddleware());
+        $this->assertContains('verified', $route->gatherMiddleware());
+        $this->assertNotContains('module.access:inicio', $route->gatherMiddleware());
     }
 
     public function test_public_pwa_website_and_form_routes_are_loaded_from_the_dedicated_module(): void

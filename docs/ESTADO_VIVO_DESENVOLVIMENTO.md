@@ -857,6 +857,19 @@ O décimo sétimo lote controlado:
 
 PR #277 merged em `47eb0f44255ddcff4e803134cb7dbc0f9b698139`; CI #1020 totalmente verde na PR e CI #1021 totalmente verde em `main`, incluindo PostgreSQL, browser QA, deploy para a Oracle VM e audits produtivos pós-deploy. O artifact `web-route-topology-47eb0f44255ddcff4e803134cb7dbc0f9b698139` confirmou: hash H2.5a inalterado, `517` rotas, `491` nomes, `34/34` ficheiros modulares carregados, `23` redirects preservados, `0` referências aos aliases retirados e `0` candidatos literais. `routes/web.php` desceu para `64` linhas, `4` declarações diretas e `4` imports de controllers sem alterar comportamento runtime.
 
+### H2.5s — Dashboard autenticado modular — em validação
+
+O décimo oitavo lote controlado:
+
+- extrai a declaração `GET /dashboard` para `routes/web_dashboard.php`, carregado exatamente no início do grupo `auth` + `verified` onde a rota já estava registada;
+- mantém o despacho atleta/encarregado versus administração dentro de `DashboardController`, sem introduzir o gate incompatível `module.access:inicio`;
+- retira `DashboardController` do monólito e adiciona regressão source/runtime para URI, método, action e middleware `auth` + `verified`;
+- reforça a CI para exigir `35/35` ficheiros modulares carregados;
+- mantém o índice fiscal anterior, o POST financeiro de compatibilidade e o fallback público final em `routes/web.php` para lotes separados;
+- mantém como condição de aceitação o hash H2.5a, as 517 rotas, os 491 nomes, os 23 redirects, ordem, middleware, constraints, fallback, zero referências aos aliases retirados e zero candidatos literais.
+
+O bloco extraído preserva a posição runtime e `routes/web.php` desce para `59` linhas, `3` declarações diretas e `3` imports de controllers sem alterar comportamento. Aguarda a validação integral da CI, merge, deploy e artifact produtivo antes de fechar o lote.
+
 ---
 
 ## 7. Dívida estrutural prioritária
@@ -883,7 +896,7 @@ PR #277 merged em `47eb0f44255ddcff4e803134cb7dbc0f9b698139`; CI #1020 totalment
 | 7 | H8 | Reporting consolidado. |
 | 8 | H9 | Website: header/footer, notícias e polish final. |
 
-Próximo passo ativo: H2.5s — preparar o décimo oitavo lote modular, isolando o dashboard autenticado numa fronteira própria, sem introduzir `module.access:inicio` nem alterar o despacho interno entre atleta/encarregado e administração. O índice fiscal anterior, o POST financeiro de compatibilidade, o fallback público final e os redirects externos permanecem fora deste lote para preservar fronteiras e ordem exata. O contract H2.5a, middleware, constraints, nomes efetivos, fallback, zero candidatos literais e os 23 redirects externos continuam obrigatórios. Stock por variante e Família/EE estão estruturalmente fechados. A ação operacional Cloudflare R2 permanece pendência externa separada. A matriz H1.17/H1.18 deve ser expandida dentro de cada workstream funcional.
+Próximo passo ativo após validar H2.5s: H2.5t — preparar o décimo nono lote modular, isolando o índice anterior de pedidos fiscais sem aproximar artificialmente a sua posição do módulo financeiro já extraído. O POST financeiro de compatibilidade, o fallback público final e os redirects externos permanecem fora deste lote para preservar fronteiras e ordem exata. O contract H2.5a, middleware, constraints, nomes efetivos, fallback, zero candidatos literais e os 23 redirects externos continuam obrigatórios. Stock por variante e Família/EE estão estruturalmente fechados. A ação operacional Cloudflare R2 permanece pendência externa separada. A matriz H1.17/H1.18 deve ser expandida dentro de cada workstream funcional.
 
 ---
 
@@ -891,6 +904,7 @@ Próximo passo ativo: H2.5s — preparar o décimo oitavo lote modular, isolando
 
 | Data | Módulo | Desenvolvimento / análise | Evidência | Estado / pendências |
 |---|---|---|---|---|
+| 2026-08-31 | Rotas / Dashboard | H2.5s extrai a rota autenticada de Dashboard para um módulo próprio, preservando o despacho por perfil e mantendo deliberadamente ausente `module.access:inicio`. | `routes/web_dashboard.php`; `WebRouteTopologyAuditTest`; `WebRouteTopologyWorkflowContractTest`; workflow CI | Em validação; `routes/web.php` com 59 linhas, 3 declarações diretas e 3 imports. Contrato esperado: hash preservado, 517 rotas, 491 nomes, 35/35 módulos, 23 redirects, 0 referências aos aliases retirados e 0 candidatos literais. H2.5t prepara o índice fiscal anterior. |
 | 2026-08-31 | Rotas / Perfil | H2.5r moveu as três rotas autenticadas de perfil para a fronteira existente `routes/auth.php`, preservando a posição de carregamento e adicionando regressão explícita de URI, método, action e middleware. | PR #277; CI #1020/#1021; merge `47eb0f44255ddcff4e803134cb7dbc0f9b698139`; artifact `web-route-topology-47eb0f44255ddcff4e803134cb7dbc0f9b698139` | Integrado e deployado; hash preservado, 517 rotas, 491 nomes, 34/34 módulos, 23 redirects, 0 referências aos aliases retirados e 0 candidatos literais. `routes/web.php` ficou com 64 linhas, 4 declarações diretas e 4 imports. H2.5s avança para o dashboard autenticado. |
 | 2026-08-31 | Rotas / Website e PWA | H2.5q extraiu as sete declarações públicas iniciais de PWA, website e formulários para um décimo sexto módulo controlado, preservando allowlist, constraints e throttles e adicionando gate explícito para 34 módulos carregados. | PR #275; CI #1016/#1017; merge `36f120df03c2b79f547e3e9432b52d959f625347`; artifact `web-route-topology-36f120df03c2b79f547e3e9432b52d959f625347` | Integrado e deployado; hash preservado, 517 rotas, 491 nomes, 34/34 módulos, 23 redirects, 0 referências aos aliases retirados e 0 candidatos literais. `routes/web.php` ficou com 71 linhas, 7 declarações diretas e 5 imports. H2.5r avança para o perfil autenticado. |
 | 2026-08-31 | Rotas / Financeiro | H2.5p extraiu as 36 declarações administrativas complementares de transações, categorias, movimentos, extratos e pedidos fiscais para um décimo quinto módulo controlado, preservando gates e permissões e adicionando gate explícito para 33 módulos carregados. | PR #273; CI #1012/#1013; merge `87736de584459ef0875d0a7029ffed1097a6ab4b`; artifact `web-route-topology-87736de584459ef0875d0a7029ffed1097a6ab4b` | Integrado e deployado; hash preservado, 517 rotas, 491 nomes, 33/33 módulos, 23 redirects, 0 referências aos aliases retirados e 0 candidatos literais. `routes/web.php` ficou com 117 linhas, 14 declarações diretas e 6 imports. H2.5q avança para a fronteira pública/PWA inicial. |

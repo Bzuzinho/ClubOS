@@ -1,6 +1,5 @@
 <?php
 
-use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\FinanceiroController;
 use App\Http\Controllers\Financeiro\FiscalDocumentRequestController;
 use App\Http\Controllers\PublicSiteController;
@@ -11,11 +10,7 @@ use Inertia\Inertia;
 require __DIR__.'/web_public.php';
 
 Route::middleware(['auth', 'verified'])->group(function () {
-    // Dashboard — gate handled inside DashboardController (athlete vs admin dispatch).
-    // Do not add module.access:inicio here, otherwise athlete/encarregado get 403
-    // before the controller can render the personal dashboard.
-    Route::get('/dashboard', [DashboardController::class, 'index'])
-        ->name('dashboard');
+    require __DIR__.'/web_dashboard.php';
 
     require __DIR__.'/web_website.php';
 
