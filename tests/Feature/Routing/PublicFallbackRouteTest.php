@@ -18,7 +18,7 @@ final class PublicFallbackRouteTest extends TestCase
         $route = Route::getRoutes()->getByName('public.custom-page');
 
         $this->assertStringContainsString("require __DIR__.'/web_public_fallback.php';", $webRoutes);
-        $this->assertStringNotContainsString("Route::fallback([PublicSiteController::class, 'custom'])", $webRoutes);
+        $this->assertStringNotContainsString('use App\\Http\\Controllers\\PublicSiteController;', $webRoutes);
         $this->assertStringContainsString("Route::fallback([PublicSiteController::class, 'custom'])", $fallbackRoutes);
         $this->assertStringContainsString("->name('public.custom-page');", $fallbackRoutes);
 
