@@ -21,8 +21,8 @@ final class WebRouteTopologyAuditTest extends TestCase
         $this->assertFalse($report['summary']['fallback_registered_last']);
         $this->assertSame('public.custom-page', $report['contract']['fallback_name']);
         $this->assertMatchesRegularExpression('/^[a-f0-9]{64}$/', $report['contract']['hash']);
-        $this->assertSame(32, $report['summary']['modular_route_file_count']);
-        $this->assertSame(32, $report['summary']['loaded_modular_route_file_count']);
+        $this->assertSame(33, $report['summary']['modular_route_file_count']);
+        $this->assertSame(33, $report['summary']['loaded_modular_route_file_count']);
         $this->assertSame(23, $report['summary']['legacy_redirect_count']);
         $this->assertSame(0, $report['summary']['source_literal_duplicate_candidate_count']);
         $this->assertSame(0, $report['summary']['source_literal_duplicate_reviewed_count']);
@@ -311,7 +311,33 @@ final class WebRouteTopologyAuditTest extends TestCase
         $this->assertStringContainsString("Route::resource('sessoes-formacao', SessoesFormacaoController::class);", $sportsResourceRoutes);
         $this->assertStringContainsString("Route::resource('convocatorias', ConvocatoriasController::class);", $sportsResourceRoutes);
         $this->assertStringNotContainsString('FinanceiroController::class', $sportsResourceRoutes);
-        $this->assertStringContainsString("Route::prefix('financeiro')->middleware('module.access:financeiro')", $webRoutes);
+        $this->assertStringContainsString("require __DIR__.'/web_finance_complementary.php';", $webRoutes);
+    }
+
+    public function test_complementary_administrative_finance_routes_are_loaded_from_the_dedicated_module(): void
+    {
+        $report = app(RouteTopologyAuditService::class)->report();
+        $routeFiles = collect($report['modularization']['route_files'])->keyBy('path');
+        $webRoutes = File::get(base_path('routes/web.php'));
+        $financeRoutes = File::get(base_path('routes/web_finance_complementary.php'));
+
+        $this->assertTrue($routeFiles['routes/web_finance_complementary.php']['loaded']);
+        $this->assertSame(36, $routeFiles['routes/web_finance_complementary.php']['route_call_count']);
+        $this->assertStringContainsString("require __DIR__.'/web_finance_complementary.php';", $webRoutes);
+        $this->assertStringNotContainsString('TransacoesController::class', $webRoutes);
+        $this->assertStringNotContainsString('CategoriasFinanceirasController::class', $webRoutes);
+        $this->assertStringContainsString('FinanceiroController::class', $webRoutes);
+        $this->assertStringContainsString('FiscalDocumentRequestController::class', $webRoutes);
+        $this->assertStringContainsString("Route::prefix('financeiro')->middleware('module.access:financeiro')", $financeRoutes);
+        $this->assertStringContainsString("->name('transacoes.index');", $financeRoutes);
+        $this->assertStringContainsString("->name('categorias-financeiras.destroy');", $financeRoutes);
+        $this->assertStringContainsString("->name('financeiro.movimentos.documents.validate');", $financeRoutes);
+        $this->assertStringContainsString("->name('financeiro.movimentos.notes.update');", $financeRoutes);
+        $this->assertStringContainsString("->name('financeiro.extratos.criar-despesa');", $financeRoutes);
+        $this->assertStringContainsString("->name('financeiro.invoices.fiscal-document-request.store');", $financeRoutes);
+        $this->assertStringContainsString("->name('financeiro.fiscal-document-requests.destroy');", $financeRoutes);
+        $this->assertStringNotContainsString('PublicSiteController::class', $financeRoutes);
+        $this->assertStringContainsString("require __DIR__.'/web_compatibility.php';", $webRoutes);
     }
 
     public function test_compatibility_redirects_are_modular_and_have_no_first_party_consumers(): void
