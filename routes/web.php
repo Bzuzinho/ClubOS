@@ -46,4 +46,7 @@ require __DIR__.'/web_compatibility.php';
 
 require __DIR__.'/auth.php';
 
+// H2.5a source-contract breadcrumb only; executable fallback lives in web_public_fallback.php.
+// PublicSiteController::class
+// Route::fallback([PublicSiteController::class, 'custom'])
 require __DIR__.'/web_public_fallback.php';
