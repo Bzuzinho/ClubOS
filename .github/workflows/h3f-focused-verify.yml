@@ -1,0 +1,44 @@
+name: Verify H3f Portal Projection
+
+on:
+  push:
+    branches:
+      - feat/h3f-portal-canonical-projections
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: feat/h3f-portal-canonical-projections
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, xml, curl, zip, intl, bcmath, pdo, sqlite3, pdo_sqlite
+          coverage: none
+      - run: composer install --no-interaction --prefer-dist
+      - name: Format affected PHP
+        run: vendor/bin/pint app/Services/Desportivo/SportsPortalProjectionService.php app/Http/Controllers/PortalTrainingController.php app/Http/Controllers/DashboardController.php app/Http/Controllers/PortalPageController.php tests/Feature/Portal/PortalCanonicalSportsProjectionTest.php
+      - name: Prepare environment
+        run: |
+          cp .env.example .env
+          php artisan key:generate --force
+      - name: Run focused Portal tests
+        run: php artisan test tests/Feature/Portal/PortalCanonicalSportsProjectionTest.php tests/Feature/Portal/PortalTrainingsTest.php tests/Feature/Portal/PortalResultsTest.php
+      - name: Commit formatting
+        if: success()
+        run: |
+          if git diff --quiet; then
+            echo "No formatting changes"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/Services/Desportivo/SportsPortalProjectionService.php app/Http/Controllers/PortalTrainingController.php app/Http/Controllers/DashboardController.php app/Http/Controllers/PortalPageController.php tests/Feature/Portal/PortalCanonicalSportsProjectionTest.php
+          git commit -m "style(portal): format H3f canonical projection changes"
+          git push origin HEAD:feat/h3f-portal-canonical-projections
