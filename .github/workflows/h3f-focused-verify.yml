@@ -22,23 +22,58 @@ jobs:
           extensions: mbstring, xml, curl, zip, intl, bcmath, pdo, sqlite3, pdo_sqlite
           coverage: none
       - run: composer install --no-interaction --prefer-dist
+      - name: Align canonical fixture and living state
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          test = Path('tests/Feature/Portal/PortalResultsTest.php')
+          text = test.read_text()
+          if "config()->set('sports.club_id', 'bscn');" not in text:
+              text = text.replace(
+                  "        parent::setUp();\n\n        Carbon::setTestNow",
+                  "        parent::setUp();\n        config()->set('sports.club_id', 'bscn');\n\n        Carbon::setTestNow",
+                  1,
+              )
+          marker = "            'id' => $id,\n            'nome' => 'Competição Portal',"
+          replacement = "            'id' => $id,\n            'club_id' => 'bscn',\n            'nome' => 'Competição Portal',"
+          if marker in text:
+              text = text.replace(marker, replacement, 1)
+          test.write_text(text)
+
+          state = Path('docs/ESTADO_VIVO_DESENVOLVIMENTO.md')
+          text = state.read_text()
+          replacements = {
+              "| Portal atleta / família | 64% | Estrutura funcional. H2.1–H2.3d fecharam a base relacional Família/EE e removeram as estruturas legacy; falta fecho mobile/PWA, UX e validação sistemática do Portal. |":
+              "| Portal atleta / família | 68% | Estrutura funcional. H2.1–H2.3d fecharam a base relacional Família/EE. H3f está em validação para transformar Treinos, presença e resultados em projeções canónicas `club-scoped`, sem criar `training_athletes` durante GET; falta fecho mobile/PWA, UX e validação sistemática do Portal. |",
+              "| Desportivo global | 72% | Análise transversal read-only consolidada sobre Treino/Cais/Live/Avaliações/Resultados, com proveniência, splits e export CSV; endpoints legacy Performance retirados do routing runtime. H3a fixou o contract canónico ponta a ponta, H3b provou Planeamento → Treino, H3c fechou Treino → Cais → Presenças e H3d colocou em produção a progressão Live concorrente. Permanecem Competições/Resultados, Portal, reporting e cleanup legacy. |":
+              "| Desportivo global | 78% | H3a–H3d fecharam o fluxo canónico até Live. H3e foi integrado com `Competition → Prova → Registration → Result`, idempotência e isolamento por clube. H3f está em validação para projetar agenda, presença e resultados no Portal/Dashboard sem writes implícitos. Permanecem H3g reporting/análise final e cleanup legacy. |",
+              "| Competições / resultados | 63% | Estrutura funcional; falta integração final, reporting e remoção legacy. |":
+              "| Competições / resultados | 72% | H3e integrado: inscrições e resultados reutilizam `prova_id + user_id`, writes são idempotentes e APIs de inscrições/resultados individuais/equipa estão isoladas por `SportsClubContext`. Falta reporting final e remoção legacy H3g. |",
+          }
+          for old, new in replacements.items():
+              if old not in text:
+                  raise SystemExit(f'living state row not found: {old[:60]}')
+              text = text.replace(old, new, 1)
+          state.write_text(text)
+          PY
       - name: Format affected PHP
-        run: vendor/bin/pint app/Services/Desportivo/SportsPortalProjectionService.php app/Http/Controllers/PortalTrainingController.php app/Http/Controllers/DashboardController.php app/Http/Controllers/PortalPageController.php tests/Feature/Portal/PortalCanonicalSportsProjectionTest.php
+        run: vendor/bin/pint app/Services/Desportivo/SportsPortalProjectionService.php app/Http/Controllers/PortalTrainingController.php app/Http/Controllers/DashboardController.php app/Http/Controllers/PortalPageController.php tests/Feature/Portal/PortalCanonicalSportsProjectionTest.php tests/Feature/Portal/PortalResultsTest.php
       - name: Prepare environment
         run: |
           cp .env.example .env
           php artisan key:generate --force
       - name: Run focused Portal tests
         run: php artisan test tests/Feature/Portal/PortalCanonicalSportsProjectionTest.php tests/Feature/Portal/PortalTrainingsTest.php tests/Feature/Portal/PortalResultsTest.php
-      - name: Commit formatting
+      - name: Commit verified refactor
         if: success()
         run: |
           if git diff --quiet; then
-            echo "No formatting changes"
+            echo "No source changes"
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add app/Services/Desportivo/SportsPortalProjectionService.php app/Http/Controllers/PortalTrainingController.php app/Http/Controllers/DashboardController.php app/Http/Controllers/PortalPageController.php tests/Feature/Portal/PortalCanonicalSportsProjectionTest.php
-          git commit -m "style(portal): format H3f canonical projection changes"
+          git add app/Services/Desportivo/SportsPortalProjectionService.php app/Http/Controllers/PortalTrainingController.php app/Http/Controllers/DashboardController.php app/Http/Controllers/PortalPageController.php tests/Feature/Portal/PortalCanonicalSportsProjectionTest.php tests/Feature/Portal/PortalResultsTest.php docs/ESTADO_VIVO_DESENVOLVIMENTO.md
+          git commit -m "test(portal): align H3f canonical projections"
           git push origin HEAD:feat/h3f-portal-canonical-projections
