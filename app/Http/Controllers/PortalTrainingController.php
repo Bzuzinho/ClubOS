@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\TrainingAthlete;
 use App\Models\User;
 use App\Services\AccessControl\UserTypeAccessControlService;
+use App\Services\Desportivo\SportsPortalProjectionService;
 use App\Services\Desportivo\UpdateTrainingAthleteAction;
 use App\Services\Family\FamilyService;
 use App\Services\Members\MemberIdentityDisplayResolver;
@@ -63,15 +64,15 @@ class PortalTrainingController extends Controller
     }
 
     public function update(
-    Request $request,
-    string $trainingReference,
-    UpdateTrainingAthleteAction $updateTrainingAthlete,
-): RedirectResponse {
-    /** @var User $user */
-    $user = $request->user();
-    $action = $request->string('action')->trim()->value();
-    $trainingAthlete = app(\App\Services\Desportivo\SportsPortalProjectionService::class)
-        ->trainingAthleteForAction($user, $trainingReference, $action);
+        Request $request,
+        string $trainingReference,
+        UpdateTrainingAthleteAction $updateTrainingAthlete,
+    ): RedirectResponse {
+        /** @var User $user */
+        $user = $request->user();
+        $action = $request->string('action')->trim()->value();
+        $trainingAthlete = app(SportsPortalProjectionService::class)
+            ->trainingAthleteForAction($user, $trainingReference, $action);
 
         $payload = match ($action) {
             'confirm_presence' => $this->confirmPresencePayload($trainingAthlete),
@@ -88,13 +89,13 @@ class PortalTrainingController extends Controller
     }
 
     /**
- * @return Collection<int, TrainingAthlete>
- */
-private function trainingRecordsForUser(User $user): Collection
-{
-    return app(\App\Services\Desportivo\SportsPortalProjectionService::class)
-        ->trainingRecordsForUser($user);
-}
+     * @return Collection<int, TrainingAthlete>
+     */
+    private function trainingRecordsForUser(User $user): Collection
+    {
+        return app(SportsPortalProjectionService::class)
+            ->trainingRecordsForUser($user);
+    }
 
     private function buildSummary(Collection $records): array
     {
@@ -209,12 +210,12 @@ private function trainingRecordsForUser(User $user): Collection
                 'label' => 'Concluído',
                 'tone' => 'success',
             ],
-            in_array($status, ['presente', 'limitado'], true) || ($record->presente && !$isPastOrToday) => [
+            in_array($status, ['presente', 'limitado'], true) || ($record->presente && ! $isPastOrToday) => [
                 'key' => 'confirmed',
                 'label' => 'Confirmado',
                 'tone' => 'info',
             ],
-            $isPastOrToday && !$record->presente && in_array($status, ['ausente', 'doente', 'dispensado', 'lesionado'], true) => [
+            $isPastOrToday && ! $record->presente && in_array($status, ['ausente', 'doente', 'dispensado', 'lesionado'], true) => [
                 'key' => 'absent',
                 'label' => 'Ausente',
                 'tone' => 'danger',
@@ -235,7 +236,7 @@ private function trainingRecordsForUser(User $user): Collection
             return false;
         }
 
-        return !in_array($this->displayStatus($record)['key'], ['confirmed', 'completed', 'incomplete', 'not_completed'], true);
+        return ! in_array($this->displayStatus($record)['key'], ['confirmed', 'completed', 'incomplete', 'not_completed'], true);
     }
 
     private function canJustifyAbsence(TrainingAthlete $record): bool
@@ -324,7 +325,7 @@ private function trainingRecordsForUser(User $user): Collection
             return 'Sem registo';
         }
 
-        return number_format($meters, 0, ',', ' ') . ' m';
+        return number_format($meters, 0, ',', ' ').' m';
     }
 
     private function displayName(User $user): string

@@ -11,9 +11,7 @@ use Illuminate\Support\Collection;
 
 final class SportsPortalProjectionService
 {
-    public function __construct(private readonly SportsClubContext $clubContext)
-    {
-    }
+    public function __construct(private readonly SportsClubContext $clubContext) {}
 
     /**
      * Portal/dashboard projection over the canonical training spine.
@@ -47,7 +45,7 @@ final class SportsPortalProjectionService
             ->with($this->trainingOnlyRelations())
             ->get()
             ->map(function (Training $training) use ($user): TrainingAthlete {
-                $projection = new TrainingAthlete();
+                $projection = new TrainingAthlete;
                 $projection->forceFill([
                     'id' => (string) $training->id,
                     'treino_id' => (string) $training->id,
@@ -174,7 +172,7 @@ final class SportsPortalProjectionService
     }
 
     /**
-     * @param Collection<int, TrainingAthlete> $records
+     * @param  Collection<int, TrainingAthlete>  $records
      * @return Collection<int, TrainingAthlete>
      */
     private function sortTrainingRecords(Collection $records): Collection

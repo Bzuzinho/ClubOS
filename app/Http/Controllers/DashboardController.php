@@ -2,29 +2,26 @@
 
 namespace App\Http\Controllers;
 
-use Inertia\Inertia;
-use Inertia\Response;
-use App\Models\User;
-use App\Models\UserType;
 use App\Models\AgeGroup;
 use App\Models\Event;
 use App\Models\EventConvocation;
 use App\Models\Invoice;
-use App\Models\Movement;
 use App\Models\Result;
-use App\Models\Presence;
-use App\Models\Training;
 use App\Models\TrainingAthlete;
+use App\Models\User;
+use App\Models\UserType;
+use App\Services\AccessControl\UserTypeAccessControlService;
+use App\Services\Desportivo\SportsPortalProjectionService;
+use App\Services\Family\FamilyService;
 use App\Services\Financeiro\CurrentAccountService;
 use App\Services\Members\MemberIdentityDisplayResolver;
 use App\Services\Members\MinorWithoutGuardianService;
 use App\Services\Performance\AuthenticatedModuleWarmupService;
-use App\Services\AccessControl\UserTypeAccessControlService;
-use App\Services\Family\FamilyService;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Inertia\Inertia;
+use Inertia\Response;
 
 class DashboardController extends Controller
 {
@@ -102,24 +99,20 @@ class DashboardController extends Controller
             ];
         });
 
-        $recentEvents = Cache::remember('dashboard:recent_events', 60, fn () =>
-            Event::with(['creator:id,name'])
-                ->select('id', 'titulo', 'data_inicio', 'estado', 'created_at', 'criado_por')
-                ->latest()
-                ->take(5)
-                ->get()
+        $recentEvents = Cache::remember('dashboard:recent_events', 60, fn () => Event::with(['creator:id,name'])
+            ->select('id', 'titulo', 'data_inicio', 'estado', 'created_at', 'criado_por')
+            ->latest()
+            ->take(5)
+            ->get()
         );
 
-        $recentActivity = Cache::remember('dashboard:recent_activity', 60, fn () =>
-            $this->getRecentActivity()
+        $recentActivity = Cache::remember('dashboard:recent_activity', 60, fn () => $this->getRecentActivity()
         );
 
-        $userTypes = Cache::remember('dashboard:user_types', 300, fn () =>
-            UserType::where('ativo', true)->get()
+        $userTypes = Cache::remember('dashboard:user_types', 300, fn () => UserType::where('ativo', true)->get()
         );
 
-        $ageGroups = Cache::remember('dashboard:age_groups', 300, fn () =>
-            AgeGroup::all()
+        $ageGroups = Cache::remember('dashboard:age_groups', 300, fn () => AgeGroup::all()
         );
 
         return Inertia::render('Dashboard', [
@@ -157,7 +150,7 @@ class DashboardController extends Controller
         }
 
         // Sort by date and limit
-        usort($activities, fn($a, $b) => $b['created_at'] <=> $a['created_at']);
+        usort($activities, fn ($a, $b) => $b['created_at'] <=> $a['created_at']);
 
         return array_slice($activities, 0, 10);
     }
@@ -288,13 +281,13 @@ class DashboardController extends Controller
 
     private function renderBasePortal(User $user, array $accessControl): Response
     {
-            $familyService = app(FamilyService::class);
+        $familyService = app(FamilyService::class);
 
         return Inertia::render('Portal/Base', [
             'user' => $this->portalUserPayload($user),
             'perfil_tipos' => $this->resolveProfileTypes($user, $accessControl),
             'is_also_admin' => $this->userHasAdministratorProfile($user),
-                'has_family' => $familyService->userHasFamily($user),
+            'has_family' => $familyService->userHasFamily($user),
             'modulos_visiveis' => $accessControl['visibleMenuModules'] ?? [],
         ]);
     }
@@ -302,16 +295,17 @@ class DashboardController extends Controller
     private function formatSwimTime(float $centiseconds): string
     {
         $total = (int) round($centiseconds);
-        $cs    = $total % 100;
+        $cs = $total % 100;
         $total = intdiv($total, 100);
-        $s     = $total % 60;
+        $s = $total % 60;
         $total = intdiv($total, 60);
-        $m     = $total % 60;
-        $h     = intdiv($total, 60);
+        $m = $total % 60;
+        $h = intdiv($total, 60);
 
         if ($h > 0) {
             return sprintf('%d:%02d:%02d.%02d', $h, $m, $s, $cs);
         }
+
         return sprintf('%d:%02d.%02d', $m, $s, $cs);
     }
 
@@ -386,23 +380,24 @@ class DashboardController extends Controller
         });
 
         $ultimos_resultados = Cache::remember("athlete_dashboard:{$uid}:results", 120, function () use ($user) {
-            return app(\App\Services\Desportivo\SportsPortalProjectionService::class)
+            return app(SportsPortalProjectionService::class)
                 ->resultsForUser($user)
                 ->sortByDesc(fn (Result $result) => $result->created_at?->getTimestamp() ?? 0)
                 ->take(5)
                 ->map(function (Result $r) {
                     $prova = $r->prova;
-                    $comp  = $prova?->competition;
+                    $comp = $prova?->competition;
+
                     return [
-                        'id'              => $r->id,
-                        'competicao'      => $comp?->nome,
-                        'data'            => $comp?->data_inicio?->toDateString(),
-                        'estilo'          => $prova?->estilo,
-                        'distancia_m'     => $prova?->distancia_m,
+                        'id' => $r->id,
+                        'competicao' => $comp?->nome,
+                        'data' => $comp?->data_inicio?->toDateString(),
+                        'estilo' => $prova?->estilo,
+                        'distancia_m' => $prova?->distancia_m,
                         'tempo_formatado' => $r->tempo_oficial !== null
                             ? $this->formatSwimTime((float) $r->tempo_oficial)
                             : null,
-                        'posicao'         => $r->posicao,
+                        'posicao' => $r->posicao,
                         'desclassificado' => $r->desclassificado,
                     ];
                 })
@@ -444,9 +439,9 @@ class DashboardController extends Controller
                 ->take(6)
                 ->get()
                 ->map(fn (Invoice $inv) => [
-                    'id'     => $inv->id,
-                    'mes'    => $inv->mes,
-                    'valor'  => $inv->valor_total,
+                    'id' => $inv->id,
+                    'mes' => $inv->mes,
+                    'valor' => $inv->valor_total,
                     'estado' => $inv->estado_pagamento,
                 ])
                 ->values()
@@ -460,11 +455,11 @@ class DashboardController extends Controller
             : null;
 
         $athlete = [
-            'name'          => $this->displayName($user),
-            'escalao'       => $escalao,
-            'numero_socio'  => $user->numero_socio,
-            'foto_perfil'   => $user->foto_perfil,
-            'estado'        => $user->estado,
+            'name' => $this->displayName($user),
+            'escalao' => $escalao,
+            'numero_socio' => $user->numero_socio,
+            'foto_perfil' => $user->foto_perfil,
+            'estado' => $user->estado,
             'conta_corrente' => $contaCorrente,
         ];
 
@@ -474,15 +469,15 @@ class DashboardController extends Controller
         $hasFamily = $familyService->userHasFamily($user);
 
         return Inertia::render('Dashboard/Atleta', [
-            'user'               => $this->portalUserPayload($user),
-            'athlete'            => $athlete,
-            'proximo_treino'     => $proximo_treino,
-            'proximos_eventos'   => $proximos_eventos,
+            'user' => $this->portalUserPayload($user),
+            'athlete' => $athlete,
+            'proximo_treino' => $proximo_treino,
+            'proximos_eventos' => $proximos_eventos,
             'ultimos_resultados' => $ultimos_resultados,
-            'treinos_mes'        => $treinos_mes,
-            'mensalidades'       => $mensalidades,
+            'treinos_mes' => $treinos_mes,
+            'mensalidades' => $mensalidades,
             'proxima_mensalidade_pendente' => $proxima_mensalidade_pendente,
-            'resumo'             => [
+            'resumo' => [
                 'treinos_mes' => $treinos_mes,
                 'eventos_proximos' => count($proximos_eventos),
                 'conta_corrente' => $athlete['conta_corrente'],
@@ -491,13 +486,13 @@ class DashboardController extends Controller
                 'assiduidade_percent' => $attendanceSummary['percentage'],
                 'treinos_agendados_mes' => $attendanceSummary['scheduled'],
             ],
-            'modulos_visiveis'   => $accessControl['visibleMenuModules'] ?? [],
-            'is_also_admin'      => $isAlsoAdmin,
-            'is_atleta'          => $isAtleta,
-            'has_family'         => $hasFamily,
-            'family_summary'     => $hasFamily ? $familyService->familySummary($user) : null,
-            'family_portal_url'  => $hasFamily ? route('portal.family') : null,
-            'perfil_tipos'       => $this->resolveProfileTypes($user, $accessControl),
+            'modulos_visiveis' => $accessControl['visibleMenuModules'] ?? [],
+            'is_also_admin' => $isAlsoAdmin,
+            'is_atleta' => $isAtleta,
+            'has_family' => $hasFamily,
+            'family_summary' => $hasFamily ? $familyService->familySummary($user) : null,
+            'family_portal_url' => $hasFamily ? route('portal.family') : null,
+            'perfil_tipos' => $this->resolveProfileTypes($user, $accessControl),
             'portal_context_label' => $portalContextLabel,
         ]);
     }
@@ -508,13 +503,13 @@ class DashboardController extends Controller
     }
 
     /**
- * @return Collection<int, TrainingAthlete>
- */
-private function dashboardTrainingRecordsForUser(User $user): Collection
-{
-    return app(\App\Services\Desportivo\SportsPortalProjectionService::class)
-        ->trainingRecordsForUser($user);
-}
+     * @return Collection<int, TrainingAthlete>
+     */
+    private function dashboardTrainingRecordsForUser(User $user): Collection
+    {
+        return app(SportsPortalProjectionService::class)
+            ->trainingRecordsForUser($user);
+    }
 
     /**
      * @return Collection<int, array<string, mixed>>
@@ -560,7 +555,7 @@ private function dashboardTrainingRecordsForUser(User $user): Collection
 
         return collect($convocations
             ->map(fn (EventConvocation $convocation) => [
-                'id' => 'event-' . $convocation->event->id,
+                'id' => 'event-'.$convocation->event->id,
                 'titulo' => $convocation->event->titulo,
                 'data_inicio' => $convocation->event->data_inicio?->toDateString(),
                 'hora_inicio' => $convocation->event->hora_inicio,
@@ -570,7 +565,7 @@ private function dashboardTrainingRecordsForUser(User $user): Collection
             ])
             ->all())
             ->merge($informativeEvents->map(fn (Event $event) => [
-                'id' => 'informative-event-' . $event->id,
+                'id' => 'informative-event-'.$event->id,
                 'titulo' => $event->titulo,
                 'data_inicio' => $event->data_inicio?->toDateString(),
                 'hora_inicio' => $event->hora_inicio,

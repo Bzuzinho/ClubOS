@@ -7,12 +7,14 @@ use App\Models\InternalMessage;
 use App\Models\InternalMessageRecipient;
 use App\Models\Invoice;
 use App\Models\LogisticsRequest;
+use App\Models\MonthlyFee;
 use App\Models\Movement;
 use App\Models\Product;
 use App\Models\Result;
 use App\Models\User;
 use App\Services\Communication\InAppAlertService;
 use App\Services\Communication\InternalCommunicationService;
+use App\Services\Desportivo\SportsPortalProjectionService;
 use App\Services\Family\FamilyService;
 use App\Services\Financeiro\CurrentAccountService;
 use App\Services\Financeiro\MemberMonthlyFeeResolver;
@@ -71,8 +73,7 @@ class PortalPageController extends Controller
         Request $request,
         FamilyService $familyService,
         InternalCommunicationService $internalCommunicationService,
-    ): Response
-    {
+    ): Response {
         /** @var User $user */
         $user = $request->user();
 
@@ -474,7 +475,7 @@ class PortalPageController extends Controller
         $planId = app(MemberMonthlyFeeResolver::class)->resolveForUser($user);
         $plan = $user->dadosFinanceiros?->mensalidade?->designacao
             ?: ($planId !== null
-                ? \App\Models\MonthlyFee::query()->whereKey($planId)->value('designacao')
+                ? MonthlyFee::query()->whereKey($planId)->value('designacao')
                 : null)
             ?: collect($accountSummary['breakdown']['invoices'] ?? [])->pluck('tipo')->filter()->first()
             ?: 'Sem plano definido';
@@ -597,7 +598,7 @@ class PortalPageController extends Controller
     {
         $legacyDescription = $visibleMovement
             ? ($visibleMovement->referencia_pagamento
-                ? 'Loja - ' . $visibleMovement->referencia_pagamento
+                ? 'Loja - '.$visibleMovement->referencia_pagamento
                 : 'Movimento material')
             : null;
 
@@ -642,7 +643,7 @@ class PortalPageController extends Controller
     {
         return [
             'id' => $movement->id,
-            'description' => $movement->referencia_pagamento ? 'Loja - ' . $movement->referencia_pagamento : 'Movimento material',
+            'description' => $movement->referencia_pagamento ? 'Loja - '.$movement->referencia_pagamento : 'Movimento material',
             'date' => optional($movement->data_emissao)->toDateString(),
             'due_date' => optional($movement->data_vencimento)->toDateString(),
             'amount' => round((float) $movement->valor_total, 2),
@@ -950,7 +951,7 @@ class PortalPageController extends Controller
             return $basePayload;
         }
 
-        $results = app(\App\Services\Desportivo\SportsPortalProjectionService::class)
+        $results = app(SportsPortalProjectionService::class)
             ->resultsForUser($user)
             ->filter(fn (Result $result) => $result->prova !== null && $result->prova->competition !== null)
             ->sortByDesc(fn (Result $result) => $this->resolveResultSortKey($result))
@@ -1065,14 +1066,14 @@ class PortalPageController extends Controller
         return [
             'id' => $result->id,
             'prova' => $this->resolveProvaLabel($result),
-            'distance' => $result->prova?->distancia_m ? $result->prova->distancia_m . ' m' : 'Distância por definir',
+            'distance' => $result->prova?->distancia_m ? $result->prova->distancia_m.' m' : 'Distância por definir',
             'style' => $result->prova?->estilo ?: 'Estilo por definir',
             'time' => $this->formatRaceTime((float) $result->tempo_oficial),
             'event' => $result->prova?->competition?->nome ?: 'Evento sem nome',
             'location' => $result->prova?->competition?->local ?: 'Local por definir',
             'date' => optional($this->resolveCompetitionDate($result))->toDateString(),
             'date_label' => $this->formatDateLabel($this->resolveCompetitionDate($result)),
-            'ranking' => $result->posicao !== null ? '#' . (int) $result->posicao : 'Sem classificação',
+            'ranking' => $result->posicao !== null ? '#'.(int) $result->posicao : 'Sem classificação',
             'evolution_label' => $this->formatEvolutionLabel($deltaSeconds),
             'evolution_seconds' => $deltaSeconds,
             'badges' => $badges,
@@ -1119,10 +1120,10 @@ class PortalPageController extends Controller
             'prova' => $this->resolveProvaLabel($latest),
             'improvement_seconds' => $improvement,
             'improvement_label' => $improvement > 0
-                ? 'Melhorou ' . number_format($improvement, 2, '.', '') . ' segundos desde o início da época.'
+                ? 'Melhorou '.number_format($improvement, 2, '.', '').' segundos desde o início da época.'
                 : 'Sem melhoria desde o início da época.',
             'summary' => $improvement > 0
-                ? '-' . number_format($improvement, 2, '.', '') . 's'
+                ? '-'.number_format($improvement, 2, '.', '').'s'
                 : 'Sem melhoria',
             'entries' => $timeline
                 ->map(function (Result $result) use ($fastestSeconds) {
@@ -1191,7 +1192,7 @@ class PortalPageController extends Controller
 
     private function resolveProvaLabel(Result $result): string
     {
-        $distance = $result->prova?->distancia_m ? $result->prova->distancia_m . 'm' : null;
+        $distance = $result->prova?->distancia_m ? $result->prova->distancia_m.'m' : null;
         $style = $result->prova?->estilo;
 
         return trim(implode(' ', array_filter([$distance, $style]))) ?: 'Prova sem identificação';
@@ -1216,7 +1217,7 @@ class PortalPageController extends Controller
         $competitionDate = $this->resolveCompetitionDate($result)?->format('Y-m-d') ?: '0000-00-00';
         $createdAt = $result->created_at?->format('Y-m-d H:i:s.u') ?: '0000-00-00 00:00:00.000000';
 
-        return $competitionDate . '|' . $createdAt;
+        return $competitionDate.'|'.$createdAt;
     }
 
     private function formatRaceTime(float $seconds): string
@@ -1242,7 +1243,7 @@ class PortalPageController extends Controller
         }
 
         if ($deltaSeconds > 0) {
-            return 'Melhorou ' . number_format($deltaSeconds, 2, '.', '') . 's face ao anterior';
+            return 'Melhorou '.number_format($deltaSeconds, 2, '.', '').'s face ao anterior';
         }
 
         return 'Sem melhoria face ao anterior';
