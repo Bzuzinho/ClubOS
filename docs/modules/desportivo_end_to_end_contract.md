@@ -1,7 +1,7 @@
 # Desportivo — Contract ponta a ponta H3
 
 Data: 2026-09-01
-Status: H3e — Competições → Resultados em validação
+Status: H3f — Portal canónico em validação
 
 ## Objetivo
 
@@ -9,7 +9,7 @@ Fechar o módulo Desportivo como um único fluxo operacional coerente, sem regre
 
 `Planeamento → Treino → Cais → Live → Presenças → Competições → Resultados → Portal → Análise/Reporting`
 
-A H3a estabeleceu o baseline canónico. A H3b provou Planeamento → Treino com snapshot imutável de uma versão de plano. A H3c fixou `training_athletes` como a única espinha operacional entre preparação, Cais e presença. A H3d fechou a execução Live com métricas/splits concorrentes, distância unitária e progressão automática. A H3e fecha agora a continuidade entre competição, programa, inscrição e resultado sem criar fontes paralelas.
+A H3a estabeleceu o baseline canónico. A H3b provou Planeamento → Treino com snapshot imutável de uma versão de plano. A H3c fixou `training_athletes` como a única espinha operacional entre preparação, Cais e presença. A H3d fechou a execução Live com métricas/splits concorrentes, distância unitária e progressão automática. A H3e fechou a continuidade entre competição, programa, inscrição e resultado com isolamento explícito por clube. A H3f fecha agora o Portal como projeção read-only das mesmas fontes canónicas, materializando estado apenas perante uma ação explícita do atleta.
 
 ## Workspaces canónicas
 
@@ -80,6 +80,16 @@ Ao criar uma sessão no Planeamento com `training_plan_version_id`:
 6. leituras, criação, atualização e eliminação nas APIs de inscrições/resultados são sempre restringidas ao `SportsClubContext`, incluindo model bindings recebidos por ID;
 7. provas/resultados de outro clube não podem ser usados como atalho para atravessar o boundary de tenancy.
 
+## H3f — contrato Portal
+
+1. abrir o Portal de Treinos ou o Dashboard do atleta não pode criar nem alterar `training_athletes`;
+2. treinos futuros elegíveis podem ser projetados em memória a partir de `trainings` + `training_age_group`, sem persistir uma ausência fictícia;
+3. um `training_athletes` só pode ser materializado pelo Portal perante uma ação explícita do atleta, como confirmar presença ou justificar ausência;
+4. depois de materializado, o Portal reutiliza exatamente esse registo canónico e o `UpdateTrainingAthleteAction`; não existe fonte de presença paralela;
+5. agenda, presença e resultados do Portal/Dashboard são sempre restringidos ao `SportsClubContext` atual;
+6. resultados são projeções de `results → provas → competitions`; resultados de outro clube, ainda que pertençam ao mesmo `user_id`, não podem aparecer no Portal;
+7. o Dashboard do atleta e as páginas de Portal partilham a mesma camada de projeção para impedir divergências funcionais.
+
 ## Fontes proibidas no negócio Desportivo ativo
 
 Continuam proibidas como fontes de verdade ativas:
@@ -104,6 +114,6 @@ Cada lote funcional deve:
 - H3b: Planeamento → sessão de treino — concluído e integrado.
 - H3c: Treino → Cais → Presenças — concluído e integrado.
 - H3d: Live → métricas/splits — concluído e integrado, com contagens concorrentes, distância unitária e progressão automática das séries validadas.
-- H3e: Competições → Resultados — em validação; fechar inscrições, provas, resultados e isolamento por clube.
-- H3f: Portal — projetar agenda, presenças e resultados sem novas fontes de verdade.
+- H3e: Competições → Resultados — concluído e integrado, com inscrições/resultados canónicos e isolamento por clube.
+- H3f: Portal — em validação; projetar agenda, presenças e resultados sem writes implícitos nem novas fontes de verdade.
 - H3g: Análise/reporting + cleanup legacy final.
