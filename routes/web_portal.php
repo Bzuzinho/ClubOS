@@ -20,7 +20,7 @@ Route::patch('/portal/perfil', [PortalProfileController::class, 'update'])
     ->name('portal.profile.update');
 Route::get('/portal/treinos', [PortalTrainingController::class, 'index'])
     ->name('portal.trainings');
-Route::patch('/portal/treinos/{trainingAthlete}', [PortalTrainingController::class, 'update'])
+Route::patch('/portal/treinos/{trainingReference}', [PortalTrainingController::class, 'update'])
     ->name('portal.trainings.update');
 Route::get('/portal/eventos', [PortalEventController::class, 'index'])
     ->name('portal.events');
