@@ -950,9 +950,8 @@ class PortalPageController extends Controller
             return $basePayload;
         }
 
-        $results = $user->results()
-            ->with(['prova.competition'])
-            ->get()
+        $results = app(\App\Services\Desportivo\SportsPortalProjectionService::class)
+            ->resultsForUser($user)
             ->filter(fn (Result $result) => $result->prova !== null && $result->prova->competition !== null)
             ->sortByDesc(fn (Result $result) => $this->resolveResultSortKey($result))
             ->values();

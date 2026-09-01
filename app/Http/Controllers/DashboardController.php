@@ -386,11 +386,10 @@ class DashboardController extends Controller
         });
 
         $ultimos_resultados = Cache::remember("athlete_dashboard:{$uid}:results", 120, function () use ($user) {
-            return Result::where('user_id', $user->id)
-                ->with(['prova.competition'])
-                ->latest()
+            return app(\App\Services\Desportivo\SportsPortalProjectionService::class)
+                ->resultsForUser($user)
+                ->sortByDesc(fn (Result $result) => $result->created_at?->getTimestamp() ?? 0)
                 ->take(5)
-                ->get()
                 ->map(function (Result $r) {
                     $prova = $r->prova;
                     $comp  = $prova?->competition;
@@ -509,69 +508,13 @@ class DashboardController extends Controller
     }
 
     /**
-     * @return Collection<int, TrainingAthlete>
-     */
-    private function dashboardTrainingRecordsForUser(User $user): Collection
-    {
-        $this->ensureDashboardTrainingRecordsForUser($user);
-
-        return TrainingAthlete::query()
-            ->with([
-                'training:id,numero_treino,data,hora_inicio,hora_fim,local,tipo_treino,descricao_treino,escaloes',
-                'training.ageGroups:id,nome',
-            ])
-            ->where('user_id', $user->id)
-            ->get()
-            ->filter(fn (TrainingAthlete $record) => $record->training !== null)
-            ->sortBy(fn (TrainingAthlete $record) => sprintf(
-                '%s %s',
-                $record->training?->data?->toDateString() ?? '9999-12-31',
-                $record->training?->hora_inicio ?? '23:59'
-            ))
-            ->values();
-    }
-
-    private function ensureDashboardTrainingRecordsForUser(User $user): void
-    {
-        $ageGroupIds = collect(is_array($user->escalao) ? $user->escalao : [$user->escalao])
-            ->push($user->athleteSportsData?->escalao_id)
-            ->filter(fn ($value) => filled($value))
-            ->map(fn ($value) => (string) $value)
-            ->unique()
-            ->values();
-
-        if ($ageGroupIds->isEmpty()) {
-            return;
-        }
-
-        $eligibleTrainings = Training::query()
-            ->select('id', 'criado_por')
-            ->whereHas('ageGroups', fn ($query) => $query->whereIn('age_groups.id', $ageGroupIds))
-            ->whereDoesntHave('athleteRecords', fn ($query) => $query->where('user_id', $user->id))
-            ->get();
-
-        if ($eligibleTrainings->isEmpty()) {
-            return;
-        }
-
-        foreach ($eligibleTrainings as $training) {
-            TrainingAthlete::query()->firstOrCreate(
-                [
-                    'treino_id' => $training->id,
-                    'user_id' => $user->id,
-                ],
-                [
-                    'presente' => false,
-                    'estado' => 'ausente',
-                    'volume_real_m' => null,
-                    'rpe' => null,
-                    'observacoes_tecnicas' => null,
-                    'registado_por' => $training->criado_por,
-                    'registado_em' => now(),
-                ],
-            );
-        }
-    }
+ * @return Collection<int, TrainingAthlete>
+ */
+private function dashboardTrainingRecordsForUser(User $user): Collection
+{
+    return app(\App\Services\Desportivo\SportsPortalProjectionService::class)
+        ->trainingRecordsForUser($user);
+}
 
     /**
      * @return Collection<int, array<string, mixed>>
