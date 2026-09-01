@@ -48,9 +48,9 @@ Stack produtiva: Laravel 13, PHP 8.3, React 19 + TypeScript, Inertia 2, Vite, Po
 | Portal atleta / família | 64% | Estrutura funcional. H2.1–H2.3d fecharam a base relacional Família/EE e removeram as estruturas legacy; falta fecho mobile/PWA, UX e validação sistemática do Portal. |
 | Membros / Pessoas | 91% | Normalização avançada. Família/EE está consolidada em `user_guardian` + `familias/familia_user`; H2.3d removeu fisicamente mirrors JSON, `user_relationships`, casts, rotas e classes legacy e deixou um gate produtivo permanente de schema final. |
 | Família / EE / educandos | 95% | Estruturalmente fechada: `familias/familia_user` é o agregado familiar canónico e `user_guardian` a relação explícita EE↔educando. Produção confirma as 3 estruturas canónicas presentes, zero estruturas legacy e `ready=true`. Permanecem apenas melhorias funcionais de UX/Portal, não dívida de fonte de verdade. |
-| Desportivo global | 70% | Análise transversal read-only consolidada sobre Treino/Cais/Live/Avaliações/Resultados, com proveniência, splits e export CSV; endpoints legacy Performance retirados do routing runtime. H3a fixou o contract canónico ponta a ponta, H3b provou Planeamento → Treino e H3c está em validação para Treino → Cais → Presenças. Permanecem Live, Competições/Resultados, Portal, reporting e cleanup legacy. |
+| Desportivo global | 70% | Análise transversal read-only consolidada sobre Treino/Cais/Live/Avaliações/Resultados, com proveniência, splits e export CSV; endpoints legacy Performance retirados do routing runtime. H3a fixou o contract canónico ponta a ponta, H3b provou Planeamento → Treino e H3c fechou Treino → Cais → Presenças. Permanecem Live, Competições/Resultados, Portal, reporting e cleanup legacy. |
 | Planeamento desportivo | 65% | H3b prova o snapshot imutável da versão do plano na sessão e nas séries. Falta fechar UX, integrações e reporting. |
-| Treinos / presenças / Cais | 70% | H3c valida `training_athletes` como espinha única entre preparação, Cais e presença, sem dual write. Falta concluir a validação CI/deploy e avançar para Live e QA operacional. |
+| Treinos / presenças / Cais | 70% | H3c validou e colocou em produção `training_athletes` como espinha única entre preparação, Cais e presença, sem dual write. Falta avançar para Live e ampliar QA operacional. |
 | Competições / resultados | 63% | Estrutura funcional; falta integração final, reporting e remoção legacy. |
 | Eventos | 75% | Lifecycle, recorrência, convocatórias e integrações corrigidos. H1.18 garante entrada pelo menu em desktop/mobile; falta remover estruturas antigas, criar contract tests Eventos ↔ Desportivo e E2E das operações críticas. |
 | Financeiro geral | 89% | Maduro; CRUDs legacy de transações/categorias aposentados e antigo `Financeiro/Edit` converge para o fluxo canónico. H1.18 garante entrada pelo menu em desktop/mobile; prioridade: preservar invariantes, evitar novas fontes de verdade e acrescentar E2E financeiro crítico. |
@@ -912,9 +912,11 @@ O contract test prova que uma sessão criada a partir de uma versão de plano co
 
 PR #286 merged em `f038b07446495e37ae2bc032ef8cd29097d7e7c7`; CI #1044 verde na PR e CI #1045 verde em `main`, com deploy produtivo concluído.
 
-### H3c — Treino → Cais → Presenças — em validação
+### H3c — Treino → Cais → Presenças — concluído
 
-O novo contract test prova que a preparação da sessão, a leitura no Cais e a alteração de presença reutilizam exatamente o mesmo registo `training_athletes`; `atrasado` mantém `presente=true` e não é criada uma segunda fonte de attendance. A PR #287 encontra-se em validação; os três failures da primeira CI #1046 eram testes antigos dependentes da data civil na viragem de mês/época, agora tornados determinísticos sem alteração de produção.
+O novo contract test prova que a preparação da sessão, a leitura no Cais e a alteração de presença reutilizam exatamente o mesmo registo `training_athletes`; `atrasado` mantém `presente=true` e não é criada uma segunda fonte de attendance. Os três failures da primeira CI #1046 eram testes antigos dependentes da data civil na viragem de mês/época e foram tornados determinísticos sem alteração de produção.
+
+PR #287 merged em `5549b05765d193e34a9401ae88eac17ea8a050b3`; CI #1047 totalmente verde na PR e CI #1048 totalmente verde em `main`, incluindo PostgreSQL, browser QA, deploy para a Oracle VM e audits produtivos pós-deploy.
 
 Depois de H3c, a sequência ativa é H3d Live → métricas/splits, H3e Competições → Resultados, H3f Portal e H3g Análise/reporting + cleanup legacy.
 
@@ -943,7 +945,7 @@ Depois de H3c, a sequência ativa é H3d Live → métricas/splits, H3e Competi�
 | 6 | H8 | Reporting consolidado. |
 | 7 | H9 | Website: header/footer, notícias e polish final. |
 
-Próximo passo ativo: concluir H3c na PR #287 com CI verde e deploy; avançar depois para H3d, validando Live → métricas/splits, contagens concorrentes e progressão das séries sobre o data spine canónico. H2.5, stock por variante e Família/EE estão estruturalmente fechados. A ação operacional Cloudflare R2 permanece pendência externa separada. A matriz H1.17/H1.18 deve ser expandida dentro de cada workstream funcional.
+Próximo passo ativo: H3d — validar Live → métricas/splits, contagens concorrentes e progressão das séries sobre o data spine canónico. H2.5, stock por variante e Família/EE estão estruturalmente fechados. A ação operacional Cloudflare R2 permanece pendência externa separada. A matriz H1.17/H1.18 deve ser expandida dentro de cada workstream funcional.
 
 ---
 
@@ -951,7 +953,7 @@ Próximo passo ativo: concluir H3c na PR #287 com CI verde e deploy; avançar de
 
 | Data | Módulo | Desenvolvimento / análise | Evidência | Estado / pendências |
 |---|---|---|---|---|
-| 2026-09-01 | Desportivo / Treino e Cais | H3c prova que preparação, leitura no Cais e atualização de presença partilham o mesmo `training_athletes`, incluindo a semântica `atrasado` + presente e unicidade por atleta/sessão. | PR #287; `TrainingToCaisAttendanceContractTest`; CI inicial #1046 | Em validação. O contract H3c passou; três testes antigos sensíveis à viragem de mês/época foram tornados determinísticos. Próximo gate: CI verde, merge e deploy; depois H3d Live. |
+| 2026-09-01 | Desportivo / Treino e Cais | H3c prova que preparação, leitura no Cais e atualização de presença partilham o mesmo `training_athletes`, incluindo a semântica `atrasado` + presente e unicidade por atleta/sessão. | PR #287; CI #1047/#1048; merge `5549b05765d193e34a9401ae88eac17ea8a050b3`; `TrainingToCaisAttendanceContractTest` | Integrado e deployado. Os testes sensíveis à viragem de mês/época ficaram determinísticos; H3d avança para Live → métricas/splits. |
 | 2026-09-01 | Desportivo / Planeamento | H3b prova o snapshot imutável de uma versão de plano na sessão e nas séries, sem dual writes. | PR #286; CI #1044/#1045; merge `f038b07446495e37ae2bc032ef8cd29097d7e7c7` | Integrado e deployado; H3c avança para Treino → Cais → Presenças. |
 | 2026-09-01 | Desportivo / Contract | H3a fixou workspaces, data spine, fontes legacy proibidas e gates ponta a ponta no contract canónico. | PR #285; CI #1042/#1043; merge `f06b53922905bea4234b28c89a02a59caca3ff49` | Integrado e deployado; H3b avançou para Planeamento → Treino. |
 | 2026-09-01 | Rotas / Fallback público | H2.5v isolou o fallback final em `routes/public/web_fallback.php`, preservando posição, action, nome e route cache. | PR #284; CI #1039/#1040; merge `48382ba0b715e908834897966e71872f2e3f9b61` | Integrado e deployado; H2.5 fechado com 52 linhas no compositor, zero imports de controllers e topologia sem drift. |

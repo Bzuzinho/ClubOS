@@ -1,7 +1,7 @@
 # Desportivo — Contract ponta a ponta H3
 
 Data: 2026-09-01
-Status: H3c — Treino → Cais → Presenças em validação
+Status: H3c — Treino → Cais → Presenças concluído e deployado
 
 ## Objetivo
 
@@ -83,7 +83,7 @@ Cada lote funcional deve:
 ## Ordem recomendada
 
 - H3b: Planeamento → sessão de treino — concluído e integrado.
-- H3c: Treino → Cais → Presenças — em validação nesta PR.
+- H3c: Treino → Cais → Presenças — concluído e integrado.
 - H3d: Live → métricas/splits — validar contagens concorrentes e progressão das séries.
 - H3e: Competições → Resultados — fechar inscrições, provas e resultados canónicos.
 - H3f: Portal — projetar agenda, presenças e resultados sem novas fontes de verdade.
