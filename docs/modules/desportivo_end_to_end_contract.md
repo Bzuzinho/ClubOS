@@ -1,6 +1,6 @@
 # Desportivo — Contract ponta a ponta H3
 
-Data: 2026-08-31
+Data: 2026-09-01
 Status: H3c — Treino → Cais → Presenças em validação
 
 ## Objetivo

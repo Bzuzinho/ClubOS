@@ -2,7 +2,7 @@
 
 > Fonte de verdade funcional e técnica do projeto ClubOS.
 >
-> Estado consolidado em 2026-08-29.
+> Estado consolidado em 2026-09-01.
 >
 > O histórico detalhado anterior à consolidação está preservado em `docs/history/ESTADO_VIVO_DESENVOLVIMENTO_ATE_2026-08-20.md`.
 
@@ -41,16 +41,16 @@ Stack produtiva: Laravel 13, PHP 8.3, React 19 + TypeScript, Inertia 2, Vite, Po
 
 | Módulo / Área | Estado estimado | Estado atual / pendências principais |
 |---|---:|---|
-| Base técnica / arquitetura | 94% | H0.1a/H0.1b/H0.2 concluídos em produção. H1.1 e H1.4–H1.15 fecharam Composer/npm/TypeScript em zero; H1.16 colocou em produção os guard rails de least privilege/verification do R2; H1.17 tornou lint, unit/component, multi-browser/mobile E2E e acessibilidade gates canónicos de CI; H1.18 acrescentou autenticação real e navegação core nos cinco perfis Playwright. A PR #233 tornou o Composer security gate resiliente a falhas transitórias de rede sem enfraquecer o fail-closed. Resta a ação operacional externa de rotação/locks R2 e expansão progressiva da cobertura profunda por fluxo. |
+| Base técnica / arquitetura | 94% | H0.1a/H0.1b/H0.2 concluídos em produção. H1.1 e H1.4–H1.15 fecharam Composer/npm/TypeScript em zero; H1.16 colocou em produção os guard rails de least privilege/verification do R2; H1.17 tornou lint, unit/component, multi-browser/mobile E2E e acessibilidade gates canónicos de CI; H1.18 acrescentou autenticação real e navegação core nos cinco perfis Playwright. H2.5 fechou a modularização controlada de `routes/web.php`: 517 rotas, 491 nomes, 36/36 módulos, 23 redirects e fallback público isolado, sem alterar a topologia. Resta a ação operacional externa de rotação/locks R2 e expansão progressiva da cobertura profunda por fluxo. |
 | Website público / construtor | 86% | Renderer, snapshots, publicação e dados dinâmicos avançados. Faltam header/footer globais, notícias completas e validação runtime multi-viewport. |
 | Autenticação / Access Control | 78% | Auditoria e gates produtivos ativos. Zero findings críticos e zero rotas mutáveis sem `module.access`. H1.18 cobre rota protegida, intended redirect, login válido/inválido, logout e recuperação de password em Chromium/Firefox/WebKit desktop e Pixel/iPhone. Permanecem 83 warnings de capability granular e falta matriz por perfis não-admin. |
 | Dashboard / entrada por perfil | 70% | Funcional, com leituras canónicas financeiras. H1.18 valida Dashboard autenticado admin, overflow e WCAG A/AA; o gate foi estabilizado para auditar o estado final após desaparecer o progress transitório Inertia/NProgress, mantendo todas as regras axe. Falta QA final por restantes perfis e operações específicas. |
 | Portal atleta / família | 64% | Estrutura funcional. H2.1–H2.3d fecharam a base relacional Família/EE e removeram as estruturas legacy; falta fecho mobile/PWA, UX e validação sistemática do Portal. |
 | Membros / Pessoas | 91% | Normalização avançada. Família/EE está consolidada em `user_guardian` + `familias/familia_user`; H2.3d removeu fisicamente mirrors JSON, `user_relationships`, casts, rotas e classes legacy e deixou um gate produtivo permanente de schema final. |
 | Família / EE / educandos | 95% | Estruturalmente fechada: `familias/familia_user` é o agregado familiar canónico e `user_guardian` a relação explícita EE↔educando. Produção confirma as 3 estruturas canónicas presentes, zero estruturas legacy e `ready=true`. Permanecem apenas melhorias funcionais de UX/Portal, não dívida de fonte de verdade. |
-| Desportivo global | 70% | Análise transversal read-only consolidada sobre Treino/Cais/Live/Avaliações/Resultados, com proveniência, splits e export CSV; endpoints legacy Performance já retirados do routing runtime na PR #227. Principal frente por fechar: fluxo ponta a ponta, Portal, reporting consolidado e legacy cleanup. |
-| Planeamento desportivo | 65% | Base sólida; falta fechar UX, integrações e reporting. |
-| Treinos / presenças / Cais | 70% | Núcleo funcional forte; falta consolidar fluxo ponta a ponta e QA operacional. |
+| Desportivo global | 70% | Análise transversal read-only consolidada sobre Treino/Cais/Live/Avaliações/Resultados, com proveniência, splits e export CSV; endpoints legacy Performance retirados do routing runtime. H3a fixou o contract canónico ponta a ponta, H3b provou Planeamento → Treino e H3c está em validação para Treino → Cais → Presenças. Permanecem Live, Competições/Resultados, Portal, reporting e cleanup legacy. |
+| Planeamento desportivo | 65% | H3b prova o snapshot imutável da versão do plano na sessão e nas séries. Falta fechar UX, integrações e reporting. |
+| Treinos / presenças / Cais | 70% | H3c valida `training_athletes` como espinha única entre preparação, Cais e presença, sem dual write. Falta concluir a validação CI/deploy e avançar para Live e QA operacional. |
 | Competições / resultados | 63% | Estrutura funcional; falta integração final, reporting e remoção legacy. |
 | Eventos | 75% | Lifecycle, recorrência, convocatórias e integrações corrigidos. H1.18 garante entrada pelo menu em desktop/mobile; falta remover estruturas antigas, criar contract tests Eventos ↔ Desportivo e E2E das operações críticas. |
 | Financeiro geral | 89% | Maduro; CRUDs legacy de transações/categorias aposentados e antigo `Financeiro/Edit` converge para o fluxo canónico. H1.18 garante entrada pelo menu em desktop/mobile; prioridade: preservar invariantes, evitar novas fontes de verdade e acrescentar E2E financeiro crítico. |
@@ -884,40 +884,78 @@ O décimo nono lote controlado:
 
 PR #281 merged em `f4da7ca5f82d66ee622e97a88a0a03225fd7d734`; CI #1028 totalmente verde na PR e CI #1029 totalmente verde em `main`, incluindo PostgreSQL, browser QA, deploy para a Oracle VM e audits produtivos pós-deploy. O artifact `web-route-topology-f4da7ca5f82d66ee622e97a88a0a03225fd7d734` confirmou: hash H2.5a inalterado, `517` rotas, `491` nomes, `36/36` ficheiros modulares carregados, `23` redirects preservados, `0` referências aos aliases retirados e `0` candidatos literais. O bloco extraído preserva a posição runtime e `routes/web.php` desceu para `56` linhas, `2` declarações diretas e `2` imports de controllers sem alterar comportamento.
 
+### H2.5u — POST financeiro de compatibilidade modular — concluído
+
+O vigésimo lote controlado isolou `POST financeiro/{financeiro}/apagar` em `routes/compat/web_finance_delete.php`, mantendo-o na posição runtime original dentro de `auth` + `verified`. O método, action, nome `financeiro.destroy.post`, gates de módulo/permissão e precedência foram preservados. `FinanceiroController` deixou de ser importado pelo compositor principal e o contract topológico continuou a exigir 517 rotas, 491 nomes, 36/36 módulos, 23 redirects, zero consumidores legacy e zero drift.
+
+PR #283 merged em `0c55aa2425ac5b7f103b4d221bd78f0e34016560`; CI #1033 totalmente verde na PR e CI #1034 totalmente verde em `main`, incluindo PostgreSQL, browser QA, deploy e audits produtivos. `routes/web.php` desceu para `54` linhas, `1` declaração `Route` executável e `0` imports de controllers.
+
+### H2.5v — Fallback público isolado e fecho da modularização — concluído
+
+O último lote moveu o fallback executável para `routes/public/web_fallback.php`, continuando a carregá-lo depois dos redirects de compatibilidade e de `auth.php`. O breadcrumb source-only H2.5a permanece em `routes/web.php` para o contract estático, mas não cria uma segunda declaração runtime. A topologia, o nome `public.custom-page`, a action, a ordem e o comportamento de route cache foram preservados.
+
+PR #284 merged em `48382ba0b715e908834897966e71872f2e3f9b61`; CI #1039 totalmente verde na PR e CI #1040 totalmente verde em `main`, incluindo PostgreSQL, browser QA, deploy e audits produtivos. H2.5 ficou fechado com `routes/web.php` em `52` linhas, `0` imports de controllers, apenas o grupo `Route::middleware` no compositor, 517 rotas, 491 nomes, 36/36 módulos, 23 redirects e zero drift.
+
 ---
 
-## 7. Dívida estrutural prioritária
+## 7. H3 — Fecho Desportivo ponta a ponta
+
+### H3a — Contract e data spine canónicos — concluído
+
+O contract `docs/modules/desportivo_end_to_end_contract.md` fixou as workspaces, a cadeia `Planeamento → Treino → Cais → Live → Presenças → Competições → Resultados → Portal → Análise/Reporting`, as tabelas canónicas e as fontes legacy proibidas. Os testes prendem o contract às rotas e actions reais, protegidas por autenticação, verificação, módulo e permissões.
+
+PR #285 merged em `f06b53922905bea4234b28c89a02a59caca3ff49`; CI #1042 verde na PR e CI #1043 verde em `main`, com deploy produtivo concluído.
+
+### H3b — Planeamento → Treino — concluído
+
+O contract test prova que uma sessão criada a partir de uma versão de plano copia as séries para `training_series`, regista a versão aplicada e mantém o snapshot imutável quando o plano recebe nova revisão. Não foram introduzidas migrations, novas fontes de verdade ou dual writes.
+
+PR #286 merged em `f038b07446495e37ae2bc032ef8cd29097d7e7c7`; CI #1044 verde na PR e CI #1045 verde em `main`, com deploy produtivo concluído.
+
+### H3c — Treino → Cais → Presenças — em validação
+
+O novo contract test prova que a preparação da sessão, a leitura no Cais e a alteração de presença reutilizam exatamente o mesmo registo `training_athletes`; `atrasado` mantém `presente=true` e não é criada uma segunda fonte de attendance. A PR #287 encontra-se em validação; os três failures da primeira CI #1046 eram testes antigos dependentes da data civil na viragem de mês/época, agora tornados determinísticos sem alteração de produção.
+
+Depois de H3c, a sequência ativa é H3d Live → métricas/splits, H3e Competições → Resultados, H3f Portal e H3g Análise/reporting + cleanup legacy.
+
+---
+
+## 8. Dívida estrutural prioritária
 
 - Desportivo: fechar fluxo Planeamento → Treino → Cais → Live → Presenças → Competições → Resultados → Portal → reporting → legacy cleanup.
 - Eventos: remover estruturas de compatibilidade sem consumo e criar contract tests com Desportivo.
-- Rotas: modularizar `routes/web.php` sem alterar URLs.
+- Rotas: modularização H2.5 fechada; manter o contract topológico e retirar redirects apenas com telemetria/prova de zero consumidores externos.
 - Fiscal: implementar provider real ou formalizar definitivamente o workflow manual como modelo produtivo.
 - Frontend QA: baseline automático H1.17/H1.18 ativo com autenticação e navegação core; expandir workspaces, operações críticas, perfis não-admin, tablet e Portal sem enfraquecer os gates.
 - Access Control: resolver os 83 warnings de capability granular sem reabrir bypasses de módulo.
 
 ---
 
-## 8. Prioridades recomendadas
+## 9. Prioridades recomendadas
 
 | Ordem | Sprint | Objetivo |
 |---:|---|---|
-| 1 | H2 | Avançar para legacy transversal e rotas modulares, preservando URLs, nomes e middleware. |
-| 2 | H3 | Fecho Desportivo ponta a ponta. |
-| 3 | H4 | Decisão e fecho Fiscal. |
-| 4 | H5 | Loja + Logística lifecycle completo. |
-| 5 | H6 | Comunicação assíncrona e futura integração Redes. |
-| 6 | H7 | Portal/PWA/mobile. |
-| 7 | H8 | Reporting consolidado. |
-| 8 | H9 | Website: header/footer, notícias e polish final. |
+| 1 | H3 | Fecho Desportivo ponta a ponta. |
+| 2 | H4 | Decisão e fecho Fiscal. |
+| 3 | H5 | Loja + Logística lifecycle completo. |
+| 4 | H6 | Comunicação assíncrona e futura integração Redes. |
+| 5 | H7 | Portal/PWA/mobile. |
+| 6 | H8 | Reporting consolidado. |
+| 7 | H9 | Website: header/footer, notícias e polish final. |
 
-Próximo passo ativo: H2.5u — preparar o vigésimo lote modular, isolando o POST financeiro de compatibilidade numa fronteira própria sem o aproximar artificialmente do núcleo financeiro nem o confundir com os redirects externos. O fallback público final e os redirects externos permanecem fora deste lote para preservar fronteiras e ordem exata. O contract H2.5a, middleware, constraints, nomes efetivos, fallback, zero candidatos literais e os 23 redirects externos continuam obrigatórios. Stock por variante e Família/EE estão estruturalmente fechados. A ação operacional Cloudflare R2 permanece pendência externa separada. A matriz H1.17/H1.18 deve ser expandida dentro de cada workstream funcional.
+Próximo passo ativo: concluir H3c na PR #287 com CI verde e deploy; avançar depois para H3d, validando Live → métricas/splits, contagens concorrentes e progressão das séries sobre o data spine canónico. H2.5, stock por variante e Família/EE estão estruturalmente fechados. A ação operacional Cloudflare R2 permanece pendência externa separada. A matriz H1.17/H1.18 deve ser expandida dentro de cada workstream funcional.
 
 ---
 
-## 9. Histórico vivo recente
+## 10. Histórico vivo recente
 
 | Data | Módulo | Desenvolvimento / análise | Evidência | Estado / pendências |
 |---|---|---|---|---|
+| 2026-09-01 | Desportivo / Treino e Cais | H3c prova que preparação, leitura no Cais e atualização de presença partilham o mesmo `training_athletes`, incluindo a semântica `atrasado` + presente e unicidade por atleta/sessão. | PR #287; `TrainingToCaisAttendanceContractTest`; CI inicial #1046 | Em validação. O contract H3c passou; três testes antigos sensíveis à viragem de mês/época foram tornados determinísticos. Próximo gate: CI verde, merge e deploy; depois H3d Live. |
+| 2026-09-01 | Desportivo / Planeamento | H3b prova o snapshot imutável de uma versão de plano na sessão e nas séries, sem dual writes. | PR #286; CI #1044/#1045; merge `f038b07446495e37ae2bc032ef8cd29097d7e7c7` | Integrado e deployado; H3c avança para Treino → Cais → Presenças. |
+| 2026-09-01 | Desportivo / Contract | H3a fixou workspaces, data spine, fontes legacy proibidas e gates ponta a ponta no contract canónico. | PR #285; CI #1042/#1043; merge `f06b53922905bea4234b28c89a02a59caca3ff49` | Integrado e deployado; H3b avançou para Planeamento → Treino. |
+| 2026-09-01 | Rotas / Fallback público | H2.5v isolou o fallback final em `routes/public/web_fallback.php`, preservando posição, action, nome e route cache. | PR #284; CI #1039/#1040; merge `48382ba0b715e908834897966e71872f2e3f9b61` | Integrado e deployado; H2.5 fechado com 52 linhas no compositor, zero imports de controllers e topologia sem drift. |
+| 2026-09-01 | Rotas / Financeiro compat | H2.5u isolou o POST financeiro de eliminação compatível em `routes/compat/web_finance_delete.php`, na posição e com os gates originais. | PR #283; CI #1033/#1034; merge `0c55aa2425ac5b7f103b4d221bd78f0e34016560` | Integrado e deployado; 517 rotas, 491 nomes, 36/36 módulos e 23 redirects preservados. H2.5v avançou para o fallback. |
 | 2026-08-31 | Rotas / Financeiro fiscal | H2.5t extraiu o índice anterior de pedidos fiscais para um módulo próprio na posição original entre Portal e Membros, preservando os dois gates financeiros. | PR #281; CI #1028/#1029; merge `f4da7ca5f82d66ee622e97a88a0a03225fd7d734`; artifact `web-route-topology-f4da7ca5f82d66ee622e97a88a0a03225fd7d734` | Integrado e deployado; hash preservado, 517 rotas, 491 nomes, 36/36 módulos, 23 redirects, 0 referências aos aliases retirados e 0 candidatos literais. `routes/web.php` ficou com 56 linhas, 2 declarações diretas e 2 imports. H2.5u avança para o POST financeiro de compatibilidade. |
 | 2026-08-31 | Rotas / Dashboard | H2.5s extraiu a rota autenticada de Dashboard para um módulo próprio, preservando o despacho por perfil e mantendo deliberadamente ausente `module.access:inicio`. | PR #279; CI #1024/#1025; merge `1e4403f9b146f5f44744d70633bb7a3b17238312`; artifact `web-route-topology-1e4403f9b146f5f44744d70633bb7a3b17238312` | Integrado e deployado; hash preservado, 517 rotas, 491 nomes, 35/35 módulos, 23 redirects, 0 referências aos aliases retirados e 0 candidatos literais. `routes/web.php` ficou com 59 linhas, 3 declarações diretas e 3 imports. H2.5t avança para o índice fiscal anterior. |
 | 2026-08-31 | Rotas / Perfil | H2.5r moveu as três rotas autenticadas de perfil para a fronteira existente `routes/auth.php`, preservando a posição de carregamento e adicionando regressão explícita de URI, método, action e middleware. | PR #277; CI #1020/#1021; merge `47eb0f44255ddcff4e803134cb7dbc0f9b698139`; artifact `web-route-topology-47eb0f44255ddcff4e803134cb7dbc0f9b698139` | Integrado e deployado; hash preservado, 517 rotas, 491 nomes, 34/34 módulos, 23 redirects, 0 referências aos aliases retirados e 0 candidatos literais. `routes/web.php` ficou com 64 linhas, 4 declarações diretas e 4 imports. H2.5s avança para o dashboard autenticado. |
