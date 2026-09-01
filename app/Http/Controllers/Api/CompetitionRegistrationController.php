@@ -8,6 +8,7 @@ use App\Models\CompetitionFinancialObligation;
 use App\Models\CompetitionRegistration;
 use App\Services\Desportivo\CreateCompetitionRegistrationAction;
 use App\Services\Desportivo\DeleteCompetitionRegistrationAction;
+use App\Services\Desportivo\SportsClubContext;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Collection;
 
@@ -16,12 +17,14 @@ class CompetitionRegistrationController extends Controller
     public function __construct(
         private CreateCompetitionRegistrationAction $createCompetitionRegistrationAction,
         private DeleteCompetitionRegistrationAction $deleteCompetitionRegistrationAction,
+        private readonly SportsClubContext $clubContext,
     ) {
     }
 
     public function index(): JsonResponse
     {
         $rows = CompetitionRegistration::with(['prova.competition', 'athlete'])
+            ->whereHas('prova.competition', fn ($query) => $query->forClub($this->clubContext->id()))
             ->orderByDesc('created_at')
             ->limit(500)
             ->get();
@@ -69,6 +72,7 @@ class CompetitionRegistrationController extends Controller
 
         $obligations = CompetitionFinancialObligation::query()
             ->with('invoice.items')
+            ->where('club_id', $this->clubContext->id())
             ->whereIn('competition_id', $competitionIds->all())
             ->whereIn('user_id', $userIds->all())
             ->get()
