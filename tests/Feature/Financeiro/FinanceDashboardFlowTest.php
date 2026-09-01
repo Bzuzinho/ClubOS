@@ -12,6 +12,7 @@ use App\Models\PaymentMethod;
 use App\Models\User;
 use App\Services\Financeiro\FinanceDashboardService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Tests\TestCase;
 
@@ -23,7 +24,16 @@ class FinanceDashboardFlowTest extends TestCase
     {
         parent::setUp();
 
+        Carbon::setTestNow(Carbon::parse('2026-07-20 12:00:00'));
+
         $this->seed(\Database\Seeders\DatabaseSeeder::class);
+    }
+
+    protected function tearDown(): void
+    {
+        Carbon::setTestNow();
+
+        parent::tearDown();
     }
 
     public function test_dashboard_ignores_hidden_and_future_monthly_invoices(): void
