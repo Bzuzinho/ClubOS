@@ -11,6 +11,7 @@ class DeleteCompetitionRegistrationAction
     public function __construct(
         private readonly CompetitionFinanceContextService $financeContext,
         private readonly CompetitionFinanceGateway $financeGateway,
+        private readonly SportsClubContext $clubContext,
     ) {
     }
 
@@ -19,6 +20,7 @@ class DeleteCompetitionRegistrationAction
         DB::transaction(function () use ($competitionRegistration): void {
             $registration = CompetitionRegistration::query()
                 ->whereKey($competitionRegistration->id)
+                ->whereHas('prova.competition', fn ($query) => $query->forClub($this->clubContext->id()))
                 ->lockForUpdate()
                 ->with('prova.competition')
                 ->firstOrFail();
