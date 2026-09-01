@@ -84,7 +84,7 @@ Cada lote funcional deve:
 
 - H3b: Planeamento → sessão de treino — concluído e integrado.
 - H3c: Treino → Cais → Presenças — concluído e integrado.
-- H3d: Live → métricas/splits — implementado; validação CI/deploy em curso para contagens concorrentes, distância unitária e progressão automática das séries.
+- H3d: Live → métricas/splits — concluído e integrado, com contagens concorrentes, distância unitária e progressão automática das séries validadas.
 - H3e: Competições → Resultados — fechar inscrições, provas e resultados canónicos.
 - H3f: Portal — projetar agenda, presenças e resultados sem novas fontes de verdade.
 - H3g: Análise/reporting + cleanup legacy final.
