@@ -84,6 +84,13 @@ final class SportsPortalProjectionService
             return $existing;
         }
 
+        $belongsToAnotherAthleteInClub = TrainingAthlete::query()
+            ->whereKey($reference)
+            ->where('user_id', '!=', $user->id)
+            ->whereHas('training', fn (Builder $query) => $query->where('club_id', $this->clubContext->id()))
+            ->exists();
+
+        abort_if($belongsToAnotherAthleteInClub, 403);
         abort_unless(in_array($action, ['confirm_presence', 'justify_absence'], true), 404);
 
         $training = $this->eligibleTrainingQuery($user)
