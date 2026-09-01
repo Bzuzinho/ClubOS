@@ -21,27 +21,13 @@ jobs:
         run: |
           python3 <<'PY'
           from pathlib import Path
-          import re
 
-          # Portal training: GET is projection-only; explicit PATCH may materialize a row.
           path = Path('app/Http/Controllers/PortalTrainingController.php')
           text = path.read_text()
-          old_update = '''    public function update(
-              Request $request,
-              TrainingAthlete $trainingAthlete,
-              UpdateTrainingAthleteAction $updateTrainingAthlete,
-          ): RedirectResponse {
-              /** @var User $user */
-              $user = $request->user();
-
-              abort_unless($trainingAthlete->user_id === $user->id, 403);
-
-              $trainingAthlete->loadMissing('training:id,data,hora_inicio,hora_fim,volume_planeado_m');
-
-              $action = $request->string('action')->trim()->value();
-              $payload = match ($action) {
-          '''
-          new_update = '''    public function update(
+          start = text.index('    public function update(')
+          marker = '        $payload = match ($action) {'
+          end = text.index(marker, start)
+          prefix = '''    public function update(
               Request $request,
               string $trainingReference,
               UpdateTrainingAthleteAction $updateTrainingAthlete,
@@ -52,77 +38,60 @@ jobs:
               $trainingAthlete = app(\\App\\Services\\Desportivo\\SportsPortalProjectionService::class)
                   ->trainingAthleteForAction($user, $trainingReference, $action);
 
-              $payload = match ($action) {
           '''
-          if old_update not in text:
-              raise SystemExit('PortalTrainingController update block not found')
-          text = text.replace(old_update, new_update, 1)
-
-          pattern = re.compile(r'''    /\*\*\n     \* @return Collection<int, TrainingAthlete>\n     \*/\n    private function trainingRecordsForUser\(User \$user\): Collection\n    \{.*?\n    \}\n\n    private function ensureTrainingRecordsForUser\(User \$user\): void\n    \{.*?\n    \}\n\n    private function buildSummary''', re.S)
+          text = text[:start] + prefix + text[end:]
+          start = text.index('    /**\n     * @return Collection<int, TrainingAthlete>\n     */\n    private function trainingRecordsForUser')
+          end = text.index('    private function buildSummary', start)
           replacement = '''    /**
-               * @return Collection<int, TrainingAthlete>
-               */
-              private function trainingRecordsForUser(User $user): Collection
-              {
-                  return app(\\App\\Services\\Desportivo\\SportsPortalProjectionService::class)
-                      ->trainingRecordsForUser($user);
-              }
+           * @return Collection<int, TrainingAthlete>
+           */
+          private function trainingRecordsForUser(User $user): Collection
+          {
+              return app(\\App\\Services\\Desportivo\\SportsPortalProjectionService::class)
+                  ->trainingRecordsForUser($user);
+          }
 
-              private function buildSummary'''
-          text, count = pattern.subn(replacement, text, count=1)
-          if count != 1:
-              raise SystemExit(f'PortalTrainingController projection block replacement count={count}')
+          '''
+          text = text[:start] + replacement + text[end:]
           text = text.replace('use App\\Models\\Training;\n', '')
           path.write_text(text)
 
-          # Athlete dashboard uses the same read-only projection and club-scoped results.
           path = Path('app/Http/Controllers/DashboardController.php')
           text = path.read_text()
-          pattern = re.compile(r'''    /\*\*\n     \* @return Collection<int, TrainingAthlete>\n     \*/\n    private function dashboardTrainingRecordsForUser\(User \$user\): Collection\n    \{.*?\n    \}\n\n    private function ensureDashboardTrainingRecordsForUser\(User \$user\): void\n    \{.*?\n    \}\n\n    /\*\*\n     \* @return Collection<int, array<string, mixed>>''', re.S)
+          start = text.index('    /**\n     * @return Collection<int, TrainingAthlete>\n     */\n    private function dashboardTrainingRecordsForUser')
+          end = text.index('    /**\n     * @return Collection<int, array<string, mixed>>', start)
           replacement = '''    /**
-               * @return Collection<int, TrainingAthlete>
-               */
-              private function dashboardTrainingRecordsForUser(User $user): Collection
-              {
-                  return app(\\App\\Services\\Desportivo\\SportsPortalProjectionService::class)
-                      ->trainingRecordsForUser($user);
-              }
+           * @return Collection<int, TrainingAthlete>
+           */
+          private function dashboardTrainingRecordsForUser(User $user): Collection
+          {
+              return app(\\App\\Services\\Desportivo\\SportsPortalProjectionService::class)
+                  ->trainingRecordsForUser($user);
+          }
 
-              /**
-               * @return Collection<int, array<string, mixed>>'''
-          text, count = pattern.subn(replacement, text, count=1)
-          if count != 1:
-              raise SystemExit(f'Dashboard training projection replacement count={count}')
-
-          old_results = '''            return Result::where('user_id', $user->id)
+          '''
+          text = text[:start] + replacement + text[end:]
+          old = '''            return Result::where('user_id', $user->id)
                           ->with(['prova.competition'])
                           ->latest()
                           ->take(5)
                           ->get()
                           ->map(function (Result $r) {'''
-          new_results = '''            return app(\\App\\Services\\Desportivo\\SportsPortalProjectionService::class)
-                          ->resultsForUser($user)
-                          ->sortByDesc(fn (Result $result) => $result->created_at?->getTimestamp() ?? 0)
-                          ->take(5)
-                          ->map(function (Result $r) {'''
-          if old_results not in text:
+          if old not in text:
+              old = """            return Result::where('user_id', $user->id)\n                ->with(['prova.competition'])\n                ->latest()\n                ->take(5)\n                ->get()\n                ->map(function (Result $r) {"""
+          new = """            return app(\\App\\Services\\Desportivo\\SportsPortalProjectionService::class)\n                ->resultsForUser($user)\n                ->sortByDesc(fn (Result $result) => $result->created_at?->getTimestamp() ?? 0)\n                ->take(5)\n                ->map(function (Result $r) {"""
+          if old not in text:
               raise SystemExit('Dashboard results query not found')
-          text = text.replace(old_results, new_results, 1)
+          text = text.replace(old, new, 1)
           path.write_text(text)
 
-          # Portal results reuse the exact same club-scoped canonical Result projection.
           path = Path('app/Http/Controllers/PortalPageController.php')
           text = path.read_text()
-          old_results = '''        $results = $user->results()
-                      ->with(['prova.competition'])
-                      ->get()
-                      ->filter(fn (Result $result) => $result->prova !== null && $result->prova->competition !== null)'''
-          new_results = '''        $results = app(\\App\\Services\\Desportivo\\SportsPortalProjectionService::class)
-                      ->resultsForUser($user)
-                      ->filter(fn (Result $result) => $result->prova !== null && $result->prova->competition !== null)'''
-          if old_results not in text:
-              raise SystemExit('PortalPageController results query not found')
-          text = text.replace(old_results, new_results, 1)
+          old = """        $results = $user->results()\n            ->with(['prova.competition'])\n            ->get()\n            ->filter(fn (Result $result) => $result->prova !== null && $result->prova->competition !== null)"""
+          new = """        $results = app(\\App\\Services\\Desportivo\\SportsPortalProjectionService::class)\n            ->resultsForUser($user)\n            ->filter(fn (Result $result) => $result->prova !== null && $result->prova->competition !== null)"""
+          if old not in text:
+              raise SystemExit('Portal results query not found')
+          text = text.replace(old, new, 1)
           path.write_text(text)
           PY
       - name: Commit source refactor
