@@ -86,15 +86,75 @@ class SportsLiveWorkspaceFunctionalTest extends TestCase
         $this->assertSame(4,$classification['segment_count']); $this->assertSame(25.0,$classification['segment_distance_m']);
     }
 
-    public function test_next_starts_a_new_measurement_for_next_repetition(): void
+    public function test_stop_automatically_starts_next_repetition_with_unit_distance(): void
     {
         [$actor,$athlete,$training,$record,$series]=$this->fixture(true); $service=app(SportsLiveWorkspaceService::class);
         $monitor=$service->startPlanned($training,$series,[(string)$record->id],$actor,'m1');
         $measurement=\App\Models\SportsLiveMeasurement::query()->findOrFail(data_get($monitor,'measurement.id'));
-        $service->stop($measurement,$athlete,30000,now()->toIso8601String(),'s1',$actor);
-        $monitoring=SportsLiveMonitoring::query()->findOrFail($monitor['id']);
-        $next=$service->next($monitoring,$actor,'m2');
+        $next=$service->stop($measurement,$athlete,30000,now()->toIso8601String(),'s1',$actor);
         $this->assertSame(2,$next['current_repetition']); $this->assertNotSame($measurement->id,data_get($next,'measurement.id'));
+        $this->assertSame('running',data_get($next,'measurement.state'));
+        $this->assertSame(100,data_get($next,'measurement.distance_m'));
+        $this->assertSame(100,data_get($next,'completed_measurements.0.distance_m'));
+        $this->assertSame(30000,data_get($next,'completed_measurements.0.athletes.0.duration_ms'));
+        $replayed=$service->stop($measurement,$athlete,30000,now()->toIso8601String(),'s1',$actor);
+        $this->assertSame(data_get($next,'measurement.id'),data_get($replayed,'measurement.id'));
+        $this->assertSame(2,$replayed['current_repetition']);
+    }
+
+    public function test_planned_progression_moves_to_next_timed_line_and_completes_automatically(): void
+    {
+        [$actor,$athlete,$training,$record,$series]=$this->fixture(true); $service=app(SportsLiveWorkspaceService::class);
+        $series->forceFill(['repeticoes'=>2,'distancia_total_m'=>200])->save();
+        $nextSeries=TrainingSeries::query()->create(['treino_id'=>$training->id,'ordem'=>2,'descricao_texto'=>'Costas técnico','distancia_total_m'=>100,'estilo'=>'Costas','repeticoes'=>2,'distancia_m'=>50,'block_name'=>'Principal','block_order'=>1,'block_rounds'=>1,'timing_mode'=>'each_rep']);
+
+        $monitor=$service->startPlanned($training,$series,[(string)$record->id],$actor,'line-m1');
+        $first=\App\Models\SportsLiveMeasurement::query()->findOrFail(data_get($monitor,'measurement.id'));
+        $repTwo=$service->stop($first,$athlete,30000,now()->toIso8601String(),'line-s1',$actor);
+        $second=\App\Models\SportsLiveMeasurement::query()->findOrFail(data_get($repTwo,'measurement.id'));
+        $nextLine=$service->stop($second,$athlete,29500,now()->toIso8601String(),'line-s2',$actor);
+
+        $this->assertSame((string)$nextSeries->id,$nextLine['training_series_id']);
+        $this->assertSame(1,$nextLine['current_repetition']);
+        $this->assertSame(50,data_get($nextLine,'measurement.distance_m'));
+
+        $third=\App\Models\SportsLiveMeasurement::query()->findOrFail(data_get($nextLine,'measurement.id'));
+        $lastRep=$service->stop($third,$athlete,18000,now()->toIso8601String(),'line-s3',$actor);
+        $fourth=\App\Models\SportsLiveMeasurement::query()->findOrFail(data_get($lastRep,'measurement.id'));
+        $completed=$service->stop($fourth,$athlete,17500,now()->toIso8601String(),'line-s4',$actor);
+
+        $this->assertSame('completed',$completed['state']);
+        $this->assertCount(4,$completed['completed_measurements']);
+        $this->assertDatabaseHas('sports_live_monitoring_athletes',['monitoring_id'=>$monitor['id'],'user_id'=>$athlete->id,'active'=>false]);
+    }
+
+    public function test_parallel_monitorings_progress_independently(): void
+    {
+        [$actor,$a1,$training,$r1,$series]=$this->fixture(true);
+        $a2=User::factory()->create(['estado'=>'ativo','tipo_membro'=>['atleta'],'ativo_desportivo'=>true]);
+        $r2=TrainingAthlete::query()->create(['treino_id'=>$training->id,'user_id'=>$a2->id,'presente'=>true,'estado'=>'presente','registado_por'=>$actor->id,'registado_em'=>now()]);
+        $service=app(SportsLiveWorkspaceService::class);
+        $m1=$service->startPlanned($training,$series,[(string)$r1->id],$actor,'parallel-m1');
+        $m2=$service->startPlanned($training,$series,[(string)$r2->id],$actor,'parallel-m2');
+
+        $first=\App\Models\SportsLiveMeasurement::query()->findOrFail(data_get($m1,'measurement.id'));
+        $advanced=$service->stop($first,$a1,31000,now()->toIso8601String(),'parallel-s1',$actor);
+        $untouched=SportsLiveMonitoring::query()->findOrFail($m2['id']);
+
+        $this->assertSame(2,$advanced['current_repetition']);
+        $this->assertSame(1,$untouched->current_repetition);
+        $this->assertDatabaseHas('sports_live_measurements',['id'=>data_get($m2,'measurement.id'),'state'=>'running']);
+    }
+
+    public function test_split_and_stop_reject_elapsed_time_before_previous_split(): void
+    {
+        [$actor,$athlete,$training,$record,$series]=$this->fixture(true); $service=app(SportsLiveWorkspaceService::class);
+        $monitor=$service->startPlanned($training,$series,[(string)$record->id],$actor,'ordered-m1');
+        $measurement=\App\Models\SportsLiveMeasurement::query()->findOrFail(data_get($monitor,'measurement.id'));
+        $service->split($measurement,$athlete,15000,now()->toIso8601String(),'ordered-split',$actor);
+
+        $this->expectException(ValidationException::class);
+        $service->stop($measurement,$athlete,14000,now()->toIso8601String(),'ordered-stop',$actor);
     }
 
     private function fixture(bool $withSeries=false): array
