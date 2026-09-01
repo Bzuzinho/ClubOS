@@ -1,7 +1,7 @@
 # Desportivo — Contract ponta a ponta H3
 
 Data: 2026-09-01
-Status: H3c — Treino → Cais → Presenças concluído e deployado
+Status: H3e — Competições → Resultados em validação
 
 ## Objetivo
 
@@ -9,7 +9,7 @@ Fechar o módulo Desportivo como um único fluxo operacional coerente, sem regre
 
 `Planeamento → Treino → Cais → Live → Presenças → Competições → Resultados → Portal → Análise/Reporting`
 
-A H3a estabeleceu o baseline canónico. A H3b provou Planeamento → Treino com snapshot imutável de uma versão de plano. A H3c fixa agora `training_athletes` como a única espinha operacional entre a preparação da sessão, o Cais e o estado de presença.
+A H3a estabeleceu o baseline canónico. A H3b provou Planeamento → Treino com snapshot imutável de uma versão de plano. A H3c fixou `training_athletes` como a única espinha operacional entre preparação, Cais e presença. A H3d fechou a execução Live com métricas/splits concorrentes, distância unitária e progressão automática. A H3e fecha agora a continuidade entre competição, programa, inscrição e resultado sem criar fontes paralelas.
 
 ## Workspaces canónicas
 
@@ -61,6 +61,25 @@ Ao criar uma sessão no Planeamento com `training_plan_version_id`:
 5. métricas logísticas/técnicas continuam em `training_metrics`, ligadas ao mesmo `treino_id` + `user_id`;
 6. a tabela legacy `presences` permanece proibida como fonte de verdade ativa.
 
+## H3d — contrato Live → métricas/splits
+
+1. a execução Live reutiliza a identidade canónica da sessão e dos atletas preparados;
+2. a seleção operacional segue atleta(s) → linha de treino → cronómetro;
+3. cada repetição `each_rep` regista a distância unitária da linha, sem multiplicar pela quantidade total de repetições;
+4. completar as repetições de uma linha progride automaticamente para a linha seguinte;
+5. grupos/atletas distintos podem manter cronómetros concorrentes independentes;
+6. STOP/progressão é serializado e os splits rejeitam regressões temporais.
+
+## H3e — contrato Competições → Resultados
+
+1. `competitions` é a raiz da competição e `provas.competicao_id` define o programa canónico;
+2. uma inscrição é exatamente o par `competition_registrations.prova_id + user_id` para uma prova já existente;
+3. um resultado individual reutiliza exatamente o mesmo par `results.prova_id + user_id`; uma nova gravação atualiza o resultado existente em vez de criar um segundo facto competitivo;
+4. o workspace de Resultados só aceita resultados para atletas previamente inscritos nessa prova;
+5. `team_results.competicao_id` permanece ligado diretamente à competição canónica;
+6. leituras, criação, atualização e eliminação nas APIs de inscrições/resultados são sempre restringidas ao `SportsClubContext`, incluindo model bindings recebidos por ID;
+7. provas/resultados de outro clube não podem ser usados como atalho para atravessar o boundary de tenancy.
+
 ## Fontes proibidas no negócio Desportivo ativo
 
 Continuam proibidas como fontes de verdade ativas:
@@ -85,6 +104,6 @@ Cada lote funcional deve:
 - H3b: Planeamento → sessão de treino — concluído e integrado.
 - H3c: Treino → Cais → Presenças — concluído e integrado.
 - H3d: Live → métricas/splits — concluído e integrado, com contagens concorrentes, distância unitária e progressão automática das séries validadas.
-- H3e: Competições → Resultados — fechar inscrições, provas e resultados canónicos.
+- H3e: Competições → Resultados — em validação; fechar inscrições, provas, resultados e isolamento por clube.
 - H3f: Portal — projetar agenda, presenças e resultados sem novas fontes de verdade.
 - H3g: Análise/reporting + cleanup legacy final.

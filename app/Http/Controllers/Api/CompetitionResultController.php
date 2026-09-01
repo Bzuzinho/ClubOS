@@ -6,17 +6,23 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Sports\StoreResultRequest;
 use App\Models\CompetitionRegistration;
 use App\Models\Result;
+use App\Services\Desportivo\SportsClubContext;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
 
 class CompetitionResultController extends Controller
 {
+    public function __construct(private readonly SportsClubContext $clubContext)
+    {
+    }
+
     public function index(Request $request): JsonResponse
     {
         $competitionId = $request->query('competition_id');
 
         $results = Result::with(['athlete', 'prova.competition', 'splits'])
+            ->whereHas('prova.competition', fn ($query) => $query->forClub($this->clubContext->id()))
             ->when($competitionId, fn ($query) => $query->whereHas('prova', fn ($provaQuery) => $provaQuery->where('competicao_id', $competitionId)))
             ->orderBy('created_at', 'desc')
             ->limit(500)
@@ -28,7 +34,7 @@ class CompetitionResultController extends Controller
 
     public function show(Result $competitionResult): JsonResponse
     {
-        return response()->json($this->payload($competitionResult->load(['athlete', 'prova.competition', 'splits'])));
+        return response()->json($this->payload($this->ownedResult($competitionResult)));
     }
 
     public function store(StoreResultRequest $request): JsonResponse
@@ -42,7 +48,13 @@ class CompetitionResultController extends Controller
             ]);
         }
 
-        if (! CompetitionRegistration::query()->where('prova_id', $provaId)->where('user_id', $validated['user_id'])->exists()) {
+        $registered = CompetitionRegistration::query()
+            ->where('prova_id', $provaId)
+            ->where('user_id', $validated['user_id'])
+            ->whereHas('prova.competition', fn ($query) => $query->forClub($this->clubContext->id()))
+            ->exists();
+
+        if (! $registered) {
             throw ValidationException::withMessages([
                 'user_id' => 'O atleta não está inscrito nesta prova.',
             ]);
@@ -80,6 +92,7 @@ class CompetitionResultController extends Controller
             $validated['status'] = $validated['desclassificado'] ? 'dsq' : 'ok';
         }
 
+        $competitionResult = $this->ownedResult($competitionResult);
         $competitionResult->update($validated);
 
         return response()->json($this->payload($competitionResult->fresh(['athlete', 'prova.competition', 'splits'])));
@@ -87,9 +100,18 @@ class CompetitionResultController extends Controller
 
     public function destroy(Result $competitionResult): JsonResponse
     {
-        $competitionResult->delete();
+        $this->ownedResult($competitionResult)->delete();
 
         return response()->json(['message' => 'Resultado eliminado']);
+    }
+
+    private function ownedResult(Result $result): Result
+    {
+        return Result::query()
+            ->whereKey($result->id)
+            ->whereHas('prova.competition', fn ($query) => $query->forClub($this->clubContext->id()))
+            ->with(['athlete', 'prova.competition', 'splits'])
+            ->firstOrFail();
     }
 
     private function payload(Result $result): array

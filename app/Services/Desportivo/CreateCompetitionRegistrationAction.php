@@ -13,13 +13,18 @@ class CreateCompetitionRegistrationAction
     public function __construct(
         private readonly CompetitionFinanceContextService $financeContext,
         private readonly CompetitionFinanceGateway $financeGateway,
+        private readonly SportsClubContext $clubContext,
     ) {
     }
 
     public function execute(array $validatedData): CompetitionRegistration
     {
         return DB::transaction(function () use ($validatedData): CompetitionRegistration {
-            $prova = Prova::query()->with('competition')->find($validatedData['prova_id']);
+            $prova = Prova::query()
+                ->with('competition')
+                ->whereHas('competition', fn ($query) => $query->forClub($this->clubContext->id()))
+                ->find($validatedData['prova_id']);
+
             if (! $prova || ! $prova->competition) {
                 throw ValidationException::withMessages([
                     'prova_id' => 'A prova indicada nao foi encontrada.',
