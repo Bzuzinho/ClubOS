@@ -1,3 +1,6 @@
+Warning: truncated output (original token count: 30388)
+Total output lines: 1074
+
 # Estado Vivo de Desenvolvimento — ClubOS
 
 > Fonte de verdade funcional e técnica do projeto ClubOS.
@@ -767,14 +770,7 @@ PR #261 merged em `a729ea5ec9a7dd38cbac10faa8e4a7174524e146`; CI #986 totalmente
 
 O décimo lote controlado:
 
-- extrai as 9 rotas administrativas de leitura sob o prefixo `admin/loja`, cobrindo dashboard, produtos, encomendas e hero, para `routes/web_store_admin.php`;
-- mantém o gate `module.access:loja`, o prefixo nominal `admin.loja.` e o carregamento na posição original dentro de `auth` + `verified`;
-- conserva separados o POST financeiro de compatibilidade anterior, Patrocínios, Comunicação e os resources financeiros posteriores;
-- reforça a CI para exigir `28/28` ficheiros modulares carregados e testa a origem dedicada da fronteira administrativa da Loja;
-- elimina do monólito o último candidato literal `GET /` prefix-scoped, fazendo o ratchet convergir de `1/1` candidato classificado para `0` candidatos sem alterar o router efetivo;
-- mantém como condição de aceitação o hash H2.5a, as 517 rotas, os 491 nomes, os 23 redirects, ordem, middleware, constraints e fallback.
-
-A CI inicial #990 bloqueou corretamente no gate topológico porque o ratchet ainda exigia o candidato literal `GET /` que esta extração removeu do monólito. O follow-up atualizou explicitamente o esperado de `1` para `0`, sem alterar o baseline runtime. PR #263 merged em `d4a825ca26e1323aade7d30e497f2c08c49b394f`; CI #992 totalmente verde na PR e CI #993 totalmente verde em `main`, incluindo PostgreSQL, browser QA, deploy para a Oracle VM e audits produtivos pós-deploy. O artifact `web-route-topology-d4a825ca26e1323aade7d30e497f2c08c49b394f` confirmou: hash H2.5a inalterado, `517` rotas, `491` nomes, `28/28` ficheiros modulares carregados, `23` redirects preservados, `0` referências aos aliases retirados e `0` candidatos literais. O bloco extraído é textualmente equivalente após normalização da indentação e `routes/web.php` desceu para `229` linhas, `85` declarações diretas e `20` imports de controllers sem alterar comportamento runtime.
+- extrai as 9 rotas administrativas de leitura sob o prefixo `admin/loja`, cobrindo dashboa…388 tokens truncated…bloco extraído é textualmente equivalente após normalização da indentação e `routes/web.php` desceu para `229` linhas, `85` declarações diretas e `20` imports de controllers sem alterar comportamento runtime.
 
 ### H2.5l — Patrocínios administrativos modulares — concluída
 
@@ -957,13 +953,15 @@ O novo `finance:audit-fiscal-operational-readiness` é read-only e agregado: con
 
 PR #297 merged em `45bba97e96e99db5ca2c5ef8e512c7e3f2d1a8b7`; CI #1073 totalmente verde na PR e CI #1074 totalmente verde em `main`, incluindo Laravel, PostgreSQL concorrente, browser QA multi-browser/mobile, deploy e cinco auditorias produtivas. O artifact fiscal confirmou `manual_wintouch/wintouch`, zero adapters automáticos, schema e 7/7 rotas presentes, `critical_count=0` e `ready=true`. Foram medidos 132 pedidos: 125 pendentes, 108 já prontos para emissão externa, zero emitidos registados e 126 warnings operacionais. Não existe migration nem alteração de dados neste lote.
 
-### H5a — Cancelamento de Loja e reposição de stock — implementado
+### H5a — Cancelamento de Loja e reposição de stock — concluído em produção
 
 O checkout continua a registar uma única saída física por `store_order_item` através do `StockLedgerService`. Ao cancelar antes da entrega, `CancelStoreOrderStockAction` reconcilia essa saída, cria uma reposição idempotente com a mesma origem e atualiza produto+variante na mesma transação antes de tornar a encomenda `cancelado`. Repetir o cancelamento é neutro; cancelado e entregue ficam terminais até existir o fluxo explícito de devolução. Histórico duplicado, desalinhado, sobrecompensado ou já ligado a `fatura_id` bloqueia a mudança de estado para exigir revisão explícita e preservar os efeitos financeiros/fiscais.
 
 O audit `inventory:audit-store-logistics-stock` passa para `h5a-store-logistics-stock-audit-v2`, reconhece cancelamentos equilibrados e separa dívida não reposta/sobreposta. O pós-deploy recolhe apenas schema e contagens agregadas como artifact, sem IDs de encomendas, produtos ou utilizadores e sem mutar produção. O contrato e as lacunas remanescentes ficam registados em `docs/modules/store_logistics_end_to_end_contract.md`.
 
 Não existe migration, backfill, alteração de rotas nem correção automática de dados neste lote. H5b deve substituir o placeholder financeiro da Loja por uma `Invoice` canónica ligada à encomenda, sem duplicar a saída já registada no checkout.
+
+PR #299 merged em `7e43de1370b787965be6ce1a5714c9976a35b983`; após corrigir uma advisory moderada nova de `qs` para `6.16.0`, a CI #1079 ficou totalmente verde na PR e a CI #1080 repetiu todos os gates em `main`, fez deploy na Oracle VM e recolheu seis auditorias produtivas. O artifact `store-logistics-lifecycle-readiness-7e43de1370b787965be6ce1a5714c9976a35b983` (`sha256:d9022386f874bd4781a30569fb5aa80e5b5e0106d45fdd303dc3b203a040b881`) confirmou schema completo, uma encomenda/um item, histórico já corrigido pelo audit B1.4, zero cancelamentos desequilibrados, zero saídas ausentes/duplicadas, zero findings críticos/warnings e zero ações pendentes. O audit permaneceu read-only e não alterou dados.
 
 ---
 
@@ -996,7 +994,7 @@ Próximo passo ativo: H5b — ligar idempotentemente a encomenda da Loja a `Invo
 
 | Data | Módulo | Desenvolvimento / análise | Evidência | Estado / pendências |
 |---|---|---|---|---|
-| 2026-09-02 | Loja / Inventário / Logística | H5a introduz cancelamento pré-entrega com reposição atómica/idempotente de produto+variante, estado cancelado terminal, audit v2 e recolha produtiva agregada. | `CancelStoreOrderStockAction`; `StorefrontCartOrderCanonicalTest`; `StoreLogisticsStockAuditCommandTest`; artifact `store-logistics-lifecycle-readiness-*`; `docs/modules/store_logistics_end_to_end_contract.md` | Sem migration/backfill/rotas/dados mutados; H5b fica responsável por `Invoice` + `PaymentAllocationService` + fiscal manual. |
+| 2026-09-02 | Loja / Inventário / Logística | H5a fecha cancelamento pré-entrega com reposição atómica/idempotente de produto+variante, estados cancelado/entregue terminais, audit v2 e recolha produtiva agregada. | PR #299; CI #1079/#1080; merge `7e43de1370b787965be6ce1a5714c9976a35b983`; `CancelStoreOrderStockAction`; artifact `store-logistics-lifecycle-readiness-7e43de1370b787965be6ce1a5714c9976a35b983` | Integrado e deployado sem migration/backfill/mutação; 1 encomenda/1 item, 0 cancelamentos desequilibrados, 0 saídas ausentes/duplicadas, 0 críticos/warnings/ações. H5b avança para `Invoice` + `PaymentAllocationService` + fiscal manual. |
 | 2026-09-02 | Fiscal / Wintouch | H4 fixa `manual_wintouch` como modo produtivo, bloqueia emissão automática fora de `provider_api`, remove a abstração provider duplicada e acrescenta audit agregado de prontidão ao pós-deploy. | PR #297; CI #1073/#1074; merge `45bba97e96e99db5ca2c5ef8e512c7e3f2d1a8b7`; `FiscalOperationalReadinessCommandTest`; artifact produtivo fiscal | Integrado e deployado, sem migration/mutação; `ready=true`, zero críticos, zero adapters, 7/7 rotas, 132 pedidos medidos, 125 pendentes, 108 prontos, zero emitidos registados e 126 warnings operacionais. |
 | 2026-09-02 | Desportivo / Análise e legacy | H3g fecha reporting read-only sobre fontes canónicas, remove a cadeia Performance/KeyValue órfã e torna `cleanup_closed=true` um gate produtivo obrigatório, preservando tabelas/dados owned por Eventos. | PR #295; CI #1069/#1070; merge `a971df9e189be56f6e59f526764611511f743868`; `SportsAnalysisWorkspaceFunctionalTest`; artifact produtivo Desportivo | Integrado e deployado; H3 fechado, 3/3 candidatos removidos, zero bloqueios/reconciliação pendente e estruturas Eventos preservadas. |
 | 2026-09-02 | Desportivo / Portal | H3f fixa agenda, `training_athletes` e resultados como projeções do atleta/clube autorizados, remove writes implícitos em GET e conserva `competition_id` nos eventos projetados. | PR #292; CI #1063/#1064; merge `48afd2173d41996ae7bf95ddc8ae3ad831ef448c`; `PortalSportsProjectionContractTest` | Integrado e deployado através da recuperação de infraestrutura #293/#1066; H3g avança para reporting + cleanup legacy. |
