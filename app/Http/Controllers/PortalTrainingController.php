@@ -4,11 +4,12 @@ namespace App\Http\Controllers;
 
 use App\Models\TrainingAthlete;
 use App\Models\User;
-use App\Models\Training;
 use App\Services\AccessControl\UserTypeAccessControlService;
+use App\Services\Desportivo\SportsClubContext;
 use App\Services\Desportivo\UpdateTrainingAthleteAction;
 use App\Services\Family\FamilyService;
 use App\Services\Members\MemberIdentityDisplayResolver;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -21,11 +22,12 @@ class PortalTrainingController extends Controller
         Request $request,
         FamilyService $familyService,
         UserTypeAccessControlService $accessControlService,
+        SportsClubContext $clubContext,
     ): Response {
         /** @var User $user */
         $user = $request->user();
         $accessControl = $accessControlService->getCurrentUserAccess($user);
-        $records = $this->trainingRecordsForUser($user);
+        $records = $this->trainingRecordsForUser($user, $clubContext->id());
 
         $upcoming = $records
             ->filter(fn (TrainingAthlete $record) => $record->training?->data?->isToday() || $record->training?->data?->isFuture())
@@ -67,13 +69,16 @@ class PortalTrainingController extends Controller
         Request $request,
         TrainingAthlete $trainingAthlete,
         UpdateTrainingAthleteAction $updateTrainingAthlete,
+        SportsClubContext $clubContext,
     ): RedirectResponse {
         /** @var User $user */
         $user = $request->user();
 
         abort_unless($trainingAthlete->user_id === $user->id, 403);
 
-        $trainingAthlete->loadMissing('training:id,data,hora_inicio,hora_fim,volume_planeado_m');
+        $trainingAthlete->loadMissing('training:id,club_id,data,hora_inicio,hora_fim,volume_planeado_m');
+        abort_if($trainingAthlete->training === null, 404);
+        abort_if($trainingAthlete->training->club_id !== $clubContext->id(), 404);
 
         $action = $request->string('action')->trim()->value();
         $payload = match ($action) {
@@ -93,63 +98,20 @@ class PortalTrainingController extends Controller
     /**
      * @return Collection<int, TrainingAthlete>
      */
-    private function trainingRecordsForUser(User $user): Collection
+    private function trainingRecordsForUser(User $user, string $clubId): Collection
     {
-        $this->ensureTrainingRecordsForUser($user);
-
         return TrainingAthlete::query()
             ->with([
-                'training:id,numero_treino,data,hora_inicio,hora_fim,local,tipo_treino,volume_planeado_m,descricao_treino,notas_gerais,escaloes',
+                'training:id,club_id,numero_treino,data,hora_inicio,hora_fim,local,tipo_treino,volume_planeado_m,descricao_treino,notas_gerais,escaloes',
                 'training.ageGroups:id,nome',
                 'training.series:id,treino_id,ordem,descricao_texto,distancia_total_m,zona_intensidade,estilo,repeticoes,intervalo,observacoes',
             ])
             ->where('user_id', $user->id)
+            ->whereHas('training', fn (Builder $query) => $query->where('club_id', $clubId))
             ->get()
             ->filter(fn (TrainingAthlete $record) => $record->training !== null)
             ->sortBy(fn (TrainingAthlete $record) => $this->trainingSortKey($record))
             ->values();
-    }
-
-    private function ensureTrainingRecordsForUser(User $user): void
-    {
-        $ageGroupIds = collect(is_array($user->escalao) ? $user->escalao : [$user->escalao])
-            ->push($user->athleteSportsData?->escalao_id)
-            ->filter(fn ($value) => filled($value))
-            ->map(fn ($value) => (string) $value)
-            ->unique()
-            ->values();
-
-        if ($ageGroupIds->isEmpty()) {
-            return;
-        }
-
-        $eligibleTrainings = Training::query()
-            ->select('id', 'criado_por')
-            ->whereHas('ageGroups', fn ($query) => $query->whereIn('age_groups.id', $ageGroupIds))
-            ->whereDoesntHave('athleteRecords', fn ($query) => $query->where('user_id', $user->id))
-            ->get();
-
-        if ($eligibleTrainings->isEmpty()) {
-            return;
-        }
-
-        foreach ($eligibleTrainings as $training) {
-            TrainingAthlete::query()->firstOrCreate(
-                [
-                    'treino_id' => $training->id,
-                    'user_id' => $user->id,
-                ],
-                [
-                    'presente' => false,
-                    'estado' => 'ausente',
-                    'volume_real_m' => null,
-                    'rpe' => null,
-                    'observacoes_tecnicas' => null,
-                    'registado_por' => $training->criado_por,
-                    'registado_em' => now(),
-                ],
-            );
-        }
     }
 
     private function buildSummary(Collection $records): array

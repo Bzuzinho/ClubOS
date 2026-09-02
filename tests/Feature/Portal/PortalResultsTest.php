@@ -18,6 +18,7 @@ class PortalResultsTest extends TestCase
     {
         parent::setUp();
 
+        config()->set('sports.club_id', 'bscn');
         Carbon::setTestNow(Carbon::parse('2026-07-20 12:00:00'));
     }
 
@@ -153,6 +154,7 @@ class PortalResultsTest extends TestCase
 
         DB::table('competitions')->insert(array_merge([
             'id' => $id,
+            'club_id' => 'bscn',
             'nome' => 'Competição Portal',
             'local' => 'Piscina Municipal',
             'data_inicio' => now()->toDateString(),
