@@ -125,4 +125,4 @@ Cada lote funcional deve:
 - H3d: Live → métricas/splits — concluído e integrado, com contagens concorrentes, distância unitária e progressão automática das séries validadas.
 - H3e: Competições → Resultados — concluído e integrado, com inscrições, provas, resultados e isolamento por clube validados.
 - H3f: Portal — concluído e integrado; agenda, presenças e resultados são projetados sem novas fontes de verdade.
-- H3g: Análise/reporting + cleanup legacy final — fechado; reporting canónico, artefactos Performance órfãos retirados e gate produtivo `cleanup_closed=true`.
+- H3g: Análise/reporting + cleanup legacy final — concluído e integrado na PR #295/CI #1070; reporting canónico, artefactos Performance órfãos retirados e gate produtivo `cleanup_closed=true`.

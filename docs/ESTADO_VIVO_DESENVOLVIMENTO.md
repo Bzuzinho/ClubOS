@@ -945,6 +945,8 @@ A workspace de Análise permanece estritamente read-only e deriva treino/presen�
 
 O audit produtivo anterior confirmou `presences`, `training_sessions` e `call_ups` fisicamente ausentes, zero referências runtime e zero reconciliação pendente. H3g transforma esse estado num gate permanente `--require-closed`/`cleanup_closed=true`. `event_results` e os 123 registos de `event_attendances` continuam preservados por ownership de Eventos. Não existe migration nem alteração de dados neste lote; rollback por reversão do commit.
 
+PR #295 merged em `a971df9e189be56f6e59f526764611511f743868`; CI #1069 totalmente verde na PR e CI #1070 totalmente verde em `main`, incluindo PostgreSQL concorrente, browser QA multi-browser/mobile, deploy para a Oracle VM e quatro auditorias pós-deploy. O artifact produtivo confirmou `cleanup_closed=true`, 3/3 candidatos removidos, zero bloqueios, zero linhas a rever e zero reconciliação pendente.
+
 ---
 
 ## 8. Dívida estrutural prioritária
@@ -977,7 +979,7 @@ Próximo passo ativo: H4 — decidir e fechar o fluxo Fiscal produtivo. H3 Despo
 
 | Data | Módulo | Desenvolvimento / análise | Evidência | Estado / pendências |
 |---|---|---|---|---|
-| 2026-09-02 | Desportivo / Análise e legacy | H3g fecha reporting read-only sobre fontes canónicas, remove a cadeia Performance/KeyValue órfã e torna `cleanup_closed=true` um gate produtivo obrigatório, preservando tabelas/dados owned por Eventos. | `SportsAnalysisWorkspaceFunctionalTest`; `SportsLegacySchemaDataReadinessAuditTest`; `SportsLegacySchemaDataReadinessAuditor`; `.github/workflows/ci.yml`; audit produtivo #1068 | Sem migration nem mutação de dados; H3 fechado, pendente validação CI/deploy deste gate final. |
+| 2026-09-02 | Desportivo / Análise e legacy | H3g fecha reporting read-only sobre fontes canónicas, remove a cadeia Performance/KeyValue órfã e torna `cleanup_closed=true` um gate produtivo obrigatório, preservando tabelas/dados owned por Eventos. | PR #295; CI #1069/#1070; merge `a971df9e189be56f6e59f526764611511f743868`; `SportsAnalysisWorkspaceFunctionalTest`; artifact produtivo Desportivo | Integrado e deployado; H3 fechado, 3/3 candidatos removidos, zero bloqueios/reconciliação pendente e estruturas Eventos preservadas. |
 | 2026-09-02 | Desportivo / Portal | H3f fixa agenda, `training_athletes` e resultados como projeções do atleta/clube autorizados, remove writes implícitos em GET e conserva `competition_id` nos eventos projetados. | PR #292; CI #1063/#1064; merge `48afd2173d41996ae7bf95ddc8ae3ad831ef448c`; `PortalSportsProjectionContractTest` | Integrado e deployado através da recuperação de infraestrutura #293/#1066; H3g avança para reporting + cleanup legacy. |
 | 2026-09-02 | Infraestrutura / Deploy | O runner passou a entregar o commit privado à VM por Git bundle completo e verificado, eliminando credenciais GitHub persistentes na VM sem alterar releases atómicas, healthchecks ou rollback. | PR #293; CI #1065/#1066; merge `4f6425e77a10b3d63abfd719ef92db66a4b623dd`; deploy e quatro auditorias produtivas verdes | Incidente de autenticação do CI #1064 resolvido; produção atualizada e transporte privado endurecido. |
 | 2026-09-02 | Desportivo / Competições e Resultados | H3e prova a continuidade `competition → prova → inscrição → resultado`, gravação idempotente pelo par prova/atleta e isolamento das APIs por clube. | PR #291; CI #1060/#1061; merge `be1d246701435429814572ca343f7de443aa79ea`; `CompetitionToResultsContractTest` | Integrado e deployado; H3f avança para o Portal operacional. |
