@@ -55,3 +55,18 @@ Warnings e pedidos pendentes representam trabalho operacional da fila; findings 
 ## Rollback
 
 Este lote não cria migration nem altera dados. O rollback é a reversão do commit. Pedidos e documentos existentes permanecem intactos.
+
+## Evidência produtiva inicial
+
+PR #297 foi integrada no merge `45bba97e96e99db5ca2c5ef8e512c7e3f2d1a8b7`. A CI #1074 concluiu o deploy e publicou o primeiro artifact bloqueante `fiscal-production-operational-readiness-45bba97e96e99db5ca2c5ef8e512c7e3f2d1a8b7`:
+
+- `operation_mode=manual_wintouch` e `provider=wintouch`;
+- zero adapters automáticos e emissão automática desativada;
+- schema requerido presente e 7/7 rotas operacionais presentes;
+- 132 pedidos fiscais lidos, sem escrita;
+- 125 pedidos pendentes, dos quais 108 prontos para emissão externa;
+- zero documentos emitidos registados no ClubOS;
+- 126 warnings operacionais e zero findings críticos;
+- `summary.ready=true`.
+
+Os pendentes e warnings são backlog operacional explícito e não uma segunda fonte de verdade. Devem ser tratados na fila manual; qualquer finding crítico futuro volta a bloquear o deploy.
