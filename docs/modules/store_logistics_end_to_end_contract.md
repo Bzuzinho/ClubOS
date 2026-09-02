@@ -124,8 +124,20 @@ O artifact produtivo `store-logistics-lifecycle-readiness-854624bc2f91829555f70c
 
 O valor `canonical_invoice_linked_count=0` é esperado nesta fotografia: não foi criada uma encomenda real em produção apenas para testar o lote. A criação, repetição idempotente, compra familiar com centro de custo, cancelamento virgem, bloqueio com rasto financeiro, liquidação pelo `PaymentAllocationService` e ausência de `Movement`/segunda saída estão cobertos na suite bloqueante.
 
-## 10. Evidência H5c
+## 10. Evidência produtiva H5c
 
 `StoreOrderPaymentFiscalProjectionTest` cobre o percurso completo sobre uma encomenda real de teste: checkout, projeção pendente, pagamento parcial, liquidação total por duas alocações confirmadas, criação de um único pedido Wintouch, registo manual do documento externo e leitura atualizada nas APIs Loja/Admin. O mesmo teste prova que o estado logístico não muda, existe uma única saída `store_order_item` e não nasce qualquer `Movement`.
 
-O audit `h5c-store-payment-fiscal-audit-v4` será recolhido de forma agregada no primeiro deploy de `main` que contenha H5c; SHA, CI e métricas produtivas serão anexados no fecho operacional.
+PR #303 foi integrada no merge `e7ddd8884d095bda5adf521444f0af2bbb487031`. CI #1088 validou a PR e CI #1089 repetiu os gates de `main`, fez deploy na Oracle VM e recolheu o audit `h5c-store-payment-fiscal-audit-v4`.
+
+O artifact `store-logistics-lifecycle-readiness-e7ddd8884d095bda5adf521444f0af2bbb487031` (ID `9865860191`, digest `sha256:db2bb47cd045a85716fdbcabab389f6f979a6de30176c74c789810d2606b8649`) confirmou:
+
+- uma encomenda e um item históricos, sem backfill;
+- zero ligações de fatura inválidas ou contratos divergentes;
+- zero projeções de pagamento incoerentes;
+- zero pedidos fiscais de Loja pagos em falta, prematuros ou com contrato divergente;
+- zero saídas físicas ausentes ou duplicadas;
+- zero findings críticos, warnings ou ações pendentes;
+- `store_financial_state_is_derived_from_invoice=true`, `paid_store_invoice_requires_manual_wintouch_request=true`, `read_only=true` e `no_data_changed=true`.
+
+Os contadores `payment_projection_clean_count` e `paid_fiscal_request_created_count` ficam a zero nesta fotografia porque a única encomenda produtiva é anterior a H5b. Não foi criada uma encomenda sintética em produção; o percurso canónico completo é provado pela suite bloqueante.
