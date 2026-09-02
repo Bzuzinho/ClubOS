@@ -6,9 +6,11 @@ use App\Models\ConvocationGroup;
 use App\Models\Event;
 use App\Models\EventConvocation;
 use App\Models\User;
+use App\Services\Desportivo\SportsClubContext;
 use App\Services\Family\FamilyService;
 use App\Services\Loja\StoreProfileResolver;
 use App\Services\Members\MemberIdentityDisplayResolver;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -20,6 +22,7 @@ class PortalEventController extends Controller
 {
     public function __construct(
         private readonly MemberIdentityDisplayResolver $memberIdentityDisplayResolver,
+        private readonly SportsClubContext $clubContext,
     ) {
     }
 
@@ -131,8 +134,13 @@ class PortalEventController extends Controller
 
         abort_unless($allowedProfiles->has($eventConvocation->user_id), 403);
 
-        $eventConvocation->loadMissing('event:id,data_inicio,data_fim,estado');
+        $eventConvocation->loadMissing('event.competitionProjection');
         abort_if($eventConvocation->event === null, 404);
+        abort_if(
+            $eventConvocation->event->competitionProjection !== null
+                && $eventConvocation->event->competitionProjection->club_id !== $this->clubContext->id(),
+            404,
+        );
         abort_if($eventConvocation->event->estado === 'cancelado', 422, 'O evento foi cancelado.');
 
         $eventEndDate = $eventConvocation->event->data_fim ?? $eventConvocation->event->data_inicio;
@@ -186,9 +194,10 @@ class PortalEventController extends Controller
             ->with([
                 'event:id,titulo,data_inicio,data_fim,hora_inicio,hora_fim,local,tipo,estado,transporte_necessario,transporte_detalhes,hora_partida,local_partida,observacoes,convocatoria_ficheiro,regulamento_ficheiro',
                 'event.ageGroups:id,nome',
+                'event.competitionProjection:id,event_id,competition_id,club_id,status',
             ])
             ->where('user_id', $member->id)
-            ->whereHas('event', fn ($query) => $query->where('estado', '!=', 'cancelado'))
+            ->whereHas('event', fn ($query) => $this->scopeVisibleEvent($query)->where('estado', '!=', 'cancelado'))
             ->get()
             ->filter(fn (EventConvocation $convocation) => $convocation->event !== null)
             ->values();
@@ -204,7 +213,8 @@ class PortalEventController extends Controller
             ->all();
 
         $informativeEvents = Event::query()
-            ->with(['ageGroups:id,nome'])
+            ->with(['ageGroups:id,nome', 'competitionProjection:id,event_id,competition_id,club_id,status'])
+            ->where(fn ($query) => $this->scopeVisibleEvent($query))
             ->where('estado', '!=', 'cancelado')
             ->whereIn('visibilidade', ['publico', 'restrito'])
             ->whereNotIn('id', $convocationEventIds)
@@ -331,6 +341,7 @@ class PortalEventController extends Controller
             'id' => $id,
             'convocation_id' => $convocationId,
             'event_id' => $event->id,
+            'competition_id' => $event->competitionProjection?->competition_id,
             'title' => $event->titulo ?: 'Evento sem título',
             'subtitle' => $this->memberIdentityDisplayResolver->displayName($member),
             'source' => $source,
@@ -381,6 +392,19 @@ class PortalEventController extends Controller
             'justification' => $justification,
             'response_date' => $responseDate instanceof Carbon ? $responseDate->toIso8601String() : null,
         ];
+    }
+
+    private function scopeVisibleEvent(Builder $query): Builder
+    {
+        return $query->where(function ($scope): void {
+            $scope->whereDoesntHave('competitionProjection')
+                ->orWhereHas(
+                    'competitionProjection',
+                    fn ($projection) => $projection
+                        ->where('club_id', $this->clubContext->id())
+                        ->where('status', 'linked'),
+                );
+        });
     }
 
     /**

@@ -13,6 +13,12 @@ class PortalTrainingsTest extends TestCase
 {
     use RefreshDatabase;
 
+    protected function setUp(): void
+    {
+        parent::setUp();
+        config()->set('sports.club_id', 'bscn');
+    }
+
     public function test_athlete_can_view_own_trainings_in_portal(): void
     {
         $athlete = User::factory()->athlete()->create([
@@ -170,6 +176,7 @@ class PortalTrainingsTest extends TestCase
 
         DB::table('trainings')->insert(array_merge([
             'id' => $id,
+            'club_id' => 'bscn',
             'numero_treino' => 'TR-' . Str::upper(Str::random(6)),
             'data' => now()->toDateString(),
             'hora_inicio' => '18:00:00',

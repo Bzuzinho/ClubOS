@@ -2,7 +2,7 @@
 
 > Fonte de verdade funcional e técnica do projeto ClubOS.
 >
-> Estado consolidado em 2026-09-01.
+> Estado consolidado em 2026-09-02.
 >
 > O histórico detalhado anterior à consolidação está preservado em `docs/history/ESTADO_VIVO_DESENVOLVIMENTO_ATE_2026-08-20.md`.
 
@@ -45,13 +45,13 @@ Stack produtiva: Laravel 13, PHP 8.3, React 19 + TypeScript, Inertia 2, Vite, Po
 | Website público / construtor | 86% | Renderer, snapshots, publicação e dados dinâmicos avançados. Faltam header/footer globais, notícias completas e validação runtime multi-viewport. |
 | Autenticação / Access Control | 78% | Auditoria e gates produtivos ativos. Zero findings críticos e zero rotas mutáveis sem `module.access`. H1.18 cobre rota protegida, intended redirect, login válido/inválido, logout e recuperação de password em Chromium/Firefox/WebKit desktop e Pixel/iPhone. Permanecem 83 warnings de capability granular e falta matriz por perfis não-admin. |
 | Dashboard / entrada por perfil | 70% | Funcional, com leituras canónicas financeiras. H1.18 valida Dashboard autenticado admin, overflow e WCAG A/AA; o gate foi estabilizado para auditar o estado final após desaparecer o progress transitório Inertia/NProgress, mantendo todas as regras axe. Falta QA final por restantes perfis e operações específicas. |
-| Portal atleta / família | 64% | Estrutura funcional. H2.1–H2.3d fecharam a base relacional Família/EE e removeram as estruturas legacy; falta fecho mobile/PWA, UX e validação sistemática do Portal. |
+| Portal atleta / família | 67% | Estrutura funcional. H2.1–H2.3d fecharam a base relacional Família/EE; H3f está a fixar agenda, treinos/presenças e resultados como projeções canónicas, sem writes em GET nem leakage entre clubes. Falta fecho mobile/PWA, UX e validação sistemática do Portal. |
 | Membros / Pessoas | 91% | Normalização avançada. Família/EE está consolidada em `user_guardian` + `familias/familia_user`; H2.3d removeu fisicamente mirrors JSON, `user_relationships`, casts, rotas e classes legacy e deixou um gate produtivo permanente de schema final. |
 | Família / EE / educandos | 95% | Estruturalmente fechada: `familias/familia_user` é o agregado familiar canónico e `user_guardian` a relação explícita EE↔educando. Produção confirma as 3 estruturas canónicas presentes, zero estruturas legacy e `ready=true`. Permanecem apenas melhorias funcionais de UX/Portal, não dívida de fonte de verdade. |
-| Desportivo global | 72% | Análise transversal read-only consolidada sobre Treino/Cais/Live/Avaliações/Resultados, com proveniência, splits e export CSV; endpoints legacy Performance retirados do routing runtime. H3a fixou o contract canónico ponta a ponta, H3b provou Planeamento → Treino, H3c fechou Treino → Cais → Presenças e H3d colocou em produção a progressão Live concorrente. Permanecem Competições/Resultados, Portal, reporting e cleanup legacy. |
+| Desportivo global | 75% | Análise transversal read-only consolidada sobre Treino/Cais/Live/Avaliações/Resultados, com proveniência, splits e export CSV; endpoints legacy Performance retirados do routing runtime. H3a–H3d fecharam o fluxo até Live e H3e colocou em produção Competições → Resultados com identidade canónica e isolamento por clube. H3f Portal está em validação; permanecem reporting e cleanup legacy. |
 | Planeamento desportivo | 65% | H3b prova o snapshot imutável da versão do plano na sessão e nas séries. Falta fechar UX, integrações e reporting. |
 | Treinos / presenças / Cais / Live | 74% | H3c colocou `training_athletes` como espinha única entre preparação, Cais e presença. H3d reutiliza essa identidade no Live e colocou em produção cronómetros paralelos, tempos por distância unitária e progressão automática. |
-| Competições / resultados | 63% | Estrutura funcional; falta integração final, reporting e remoção legacy. |
+| Competições / resultados | 70% | H3e integrou programa, inscrições e resultados sobre `competition → prova → atleta`, com gravação idempotente e isolamento integral por clube. Permanecem reporting avançado e remoção legacy final. |
 | Eventos | 75% | Lifecycle, recorrência, convocatórias e integrações corrigidos. H1.18 garante entrada pelo menu em desktop/mobile; falta remover estruturas antigas, criar contract tests Eventos ↔ Desportivo e E2E das operações críticas. |
 | Financeiro geral | 89% | Maduro; CRUDs legacy de transações/categorias aposentados e antigo `Financeiro/Edit` converge para o fluxo canónico. H1.18 garante entrada pelo menu em desktop/mobile; prioridade: preservar invariantes, evitar novas fontes de verdade e acrescentar E2E financeiro crítico. |
 | Fiscal | 65% | Workflow manual/controlado existe; falta decidir provider real ou formalizar definitivamente o modelo manual produtivo. |
@@ -924,7 +924,17 @@ O Live passa a impor o fluxo atleta(s) → linha → START, manter uma faixa fix
 
 Cobertura acrescentada em `SportsLiveWorkspaceFunctionalTest` para progressão automática, transição entre linhas, conclusão, distância unitária, monitorizações paralelas e ordenação temporal de splits. A primeira CI detetou uma advisory `low` nova em `postcss-selector-parser`; o lockfile foi atualizado de `6.1.2` para `6.1.4`, mantendo o baseline npm em zero. PR #289 merged em `34215d02e0feacc3a81108d1d1e8cfe7c65e6b2b`; CI #1053 totalmente verde na PR e CI #1054 totalmente verde em `main`, incluindo Laravel, PostgreSQL concorrente, browser QA multi-browser/mobile, deploy para a Oracle VM e auditorias pós-deploy.
 
-Depois de H3d, a sequência ativa é H3e Competições → Resultados, H3f Portal e H3g Análise/reporting + cleanup legacy.
+### H3e — Competições → Resultados — concluído
+
+O programa competitivo permanece preso a `competitions → provas`; inscrições e resultados individuais reutilizam o mesmo par `prova_id + user_id`, resultados em massa só aceitam atletas inscritos e regravações atualizam o facto existente. As APIs de inscrições, resultados individuais e resultados coletivos ficaram restringidas ao `SportsClubContext`, incluindo writes e model bindings por ID.
+
+PR #291 merged em `be1d246701435429814572ca343f7de443aa79ea`; CI #1060 verde na PR e CI #1061 totalmente verde em `main`, incluindo Laravel, PostgreSQL concorrente, browser QA multi-browser/mobile, deploy para a Oracle VM e auditorias pós-deploy.
+
+### H3f — Portal operacional — em validação
+
+O Portal passa a tratar os GETs de agenda, treinos/presenças e resultados como projeções puras: deixa de criar `training_athletes` ao abrir Treinos, restringe Resultados ao atleta autenticado e ao clube ativo, e conserva o `competition_id` canónico nos cartões de agenda projetados por Eventos. Confirmações/justificações continuam writes locais explícitos e autorizados; projeções de competição de outro clube são recusadas.
+
+Depois de H3e, a sequência ativa é H3f Portal e H3g Análise/reporting + cleanup legacy.
 
 ---
 
@@ -951,7 +961,7 @@ Depois de H3d, a sequência ativa é H3e Competições → Resultados, H3f Porta
 | 6 | H8 | Reporting consolidado. |
 | 7 | H9 | Website: header/footer, notícias e polish final. |
 
-Próximo passo ativo: H3e — fechar Competições → Resultados sobre as inscrições, provas e resultados canónicos. H2.5, stock por variante e Família/EE estão estruturalmente fechados. A ação operacional Cloudflare R2 permanece pendência externa separada. A matriz H1.17/H1.18 deve ser expandida dentro de cada workstream funcional.
+Próximo passo ativo: H3f — validar o Portal operacional como projeção canónica de agenda, presenças e resultados, sem novas fontes de verdade; depois segue H3g Análise/reporting + cleanup legacy. H2.5, stock por variante e Família/EE estão estruturalmente fechados. A ação operacional Cloudflare R2 permanece pendência externa separada. A matriz H1.17/H1.18 deve ser expandida dentro de cada workstream funcional.
 
 ---
 
@@ -959,6 +969,7 @@ Próximo passo ativo: H3e — fechar Competições → Resultados sobre as inscr
 
 | Data | Módulo | Desenvolvimento / análise | Evidência | Estado / pendências |
 |---|---|---|---|---|
+| 2026-09-02 | Desportivo / Competições e Resultados | H3e prova a continuidade `competition → prova → inscrição → resultado`, gravação idempotente pelo par prova/atleta e isolamento das APIs por clube. | PR #291; CI #1060/#1061; merge `be1d246701435429814572ca343f7de443aa79ea`; `CompetitionToResultsContractTest` | Integrado e deployado; H3f avança para o Portal operacional. |
 | 2026-09-01 | Desportivo / Live | H3d implementa atleta(s) → linha, cronómetros paralelos com faixa fixa, persistência de tempos por distância unitária, histórico visível, validação temporal e progressão automática serializada por repetição/linha. | PR #289; CI #1053/#1054; merge `34215d02e0feacc3a81108d1d1e8cfe7c65e6b2b`; `SportsLiveWorkspaceFunctionalTest`; npm audit 0 | Integrado e deployado. A advisory transitiva que bloqueou as primeiras execuções foi corrigida no lockfile; H3e avança para Competições → Resultados. |
 | 2026-09-01 | Desportivo / Treino e Cais | H3c prova que preparação, leitura no Cais e atualização de presença partilham o mesmo `training_athletes`, incluindo a semântica `atrasado` + presente e unicidade por atleta/sessão. | PR #287; CI #1047/#1048; merge `5549b05765d193e34a9401ae88eac17ea8a050b3`; `TrainingToCaisAttendanceContractTest` | Integrado e deployado. Os testes sensíveis à viragem de mês/época ficaram determinísticos; H3d avança para Live → métricas/splits. |
 | 2026-09-01 | Desportivo / Planeamento | H3b prova o snapshot imutável de uma versão de plano na sessão e nas séries, sem dual writes. | PR #286; CI #1044/#1045; merge `f038b07446495e37ae2bc032ef8cd29097d7e7c7` | Integrado e deployado; H3c avança para Treino → Cais → Presenças. |

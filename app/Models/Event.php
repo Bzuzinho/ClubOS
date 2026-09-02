@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Support\Carbon;
 use App\Services\Members\MemberTypeResolver;
 
@@ -132,6 +133,11 @@ class Event extends Model
     public function competition(): HasMany
     {
         return $this->hasMany(Competition::class, 'evento_id');
+    }
+
+    public function competitionProjection(): HasOne
+    {
+        return $this->hasOne(CompetitionEventProjection::class, 'event_id');
     }
 
     public function convocationGroups(): HasMany

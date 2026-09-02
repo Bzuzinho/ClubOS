@@ -1,7 +1,7 @@
 # Desportivo — Contract ponta a ponta H3
 
-Data: 2026-09-01
-Status: H3e — Competições → Resultados em validação
+Data: 2026-09-02
+Status: H3f — Portal operacional em validação
 
 ## Objetivo
 
@@ -9,7 +9,7 @@ Fechar o módulo Desportivo como um único fluxo operacional coerente, sem regre
 
 `Planeamento → Treino → Cais → Live → Presenças → Competições → Resultados → Portal → Análise/Reporting`
 
-A H3a estabeleceu o baseline canónico. A H3b provou Planeamento → Treino com snapshot imutável de uma versão de plano. A H3c fixou `training_athletes` como a única espinha operacional entre preparação, Cais e presença. A H3d fechou a execução Live com métricas/splits concorrentes, distância unitária e progressão automática. A H3e fecha agora a continuidade entre competição, programa, inscrição e resultado sem criar fontes paralelas.
+A H3a estabeleceu o baseline canónico. A H3b provou Planeamento → Treino com snapshot imutável de uma versão de plano. A H3c fixou `training_athletes` como a única espinha operacional entre preparação, Cais e presença. A H3d fechou a execução Live com métricas/splits concorrentes, distância unitária e progressão automática. A H3e fechou a continuidade entre competição, programa, inscrição e resultado sem criar fontes paralelas. A H3f projeta agora agenda, presença e resultados no Portal autenticado sem materializar novos factos durante a leitura.
 
 ## Workspaces canónicas
 
@@ -80,6 +80,15 @@ Ao criar uma sessão no Planeamento com `training_plan_version_id`:
 6. leituras, criação, atualização e eliminação nas APIs de inscrições/resultados são sempre restringidas ao `SportsClubContext`, incluindo model bindings recebidos por ID;
 7. provas/resultados de outro clube não podem ser usados como atalho para atravessar o boundary de tenancy.
 
+## H3f — contrato Portal operacional
+
+1. as páginas GET do Portal são projeções de leitura e não criam registos operacionais;
+2. a área de Treinos lê apenas `training_athletes` já preparados pelo fluxo Desportivo e pertencentes ao clube ativo; confirmações e justificações continuam writes explícitos sobre esse mesmo registo;
+3. a agenda lê Eventos como projeção de calendário e transporta `competition_event_projections.competition_id` quando o item nasceu de uma competição;
+4. uma projeção de competição pertencente a outro `SportsClubContext` não é exposta nem pode ser respondida no Portal;
+5. Resultados lê apenas `results → prova → competition` do atleta autenticado e do clube ativo, sem recorrer a `event_results`, títulos ou datas para reconstruir relações;
+6. o Portal pessoal não expõe resultados de outros atletas; a consulta de educandos permanece separada no módulo Família e não transforma resultados privados em publicação pública.
+
 ## Fontes proibidas no negócio Desportivo ativo
 
 Continuam proibidas como fontes de verdade ativas:
@@ -104,6 +113,6 @@ Cada lote funcional deve:
 - H3b: Planeamento → sessão de treino — concluído e integrado.
 - H3c: Treino → Cais → Presenças — concluído e integrado.
 - H3d: Live → métricas/splits — concluído e integrado, com contagens concorrentes, distância unitária e progressão automática das séries validadas.
-- H3e: Competições → Resultados — em validação; fechar inscrições, provas, resultados e isolamento por clube.
-- H3f: Portal — projetar agenda, presenças e resultados sem novas fontes de verdade.
+- H3e: Competições → Resultados — concluído e integrado, com inscrições, provas, resultados e isolamento por clube validados.
+- H3f: Portal — em validação; projetar agenda, presenças e resultados sem novas fontes de verdade.
 - H3g: Análise/reporting + cleanup legacy final.

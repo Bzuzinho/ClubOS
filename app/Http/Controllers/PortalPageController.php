@@ -13,6 +13,7 @@ use App\Models\Result;
 use App\Models\User;
 use App\Services\Communication\InAppAlertService;
 use App\Services\Communication\InternalCommunicationService;
+use App\Services\Desportivo\SportsClubContext;
 use App\Services\Family\FamilyService;
 use App\Services\Financeiro\CurrentAccountService;
 use App\Services\Financeiro\MemberMonthlyFeeResolver;
@@ -48,13 +49,17 @@ class PortalPageController extends Controller
         ));
     }
 
-    public function results(Request $request, FamilyService $familyService): Response
+    public function results(
+        Request $request,
+        FamilyService $familyService,
+        SportsClubContext $clubContext,
+    ): Response
     {
         /** @var User $user */
         $user = $request->user();
 
         return Inertia::render('Portal/Results', array_merge(
-            $this->buildResultsPayload($user),
+            $this->buildResultsPayload($user, $clubContext->id()),
             [
                 'is_also_admin' => $familyService->userHasAdministratorProfile($user),
                 'has_family' => $familyService->userHasFamily($user),
@@ -910,7 +915,7 @@ class PortalPageController extends Controller
     /**
      * @return array<string, mixed>
      */
-    private function buildResultsPayload(User $user): array
+    private function buildResultsPayload(User $user, string $clubId): array
     {
         $profileTypes = $this->resolveProfileLabels($user);
         $isAthlete = $this->hasMemberType($user, 'atleta');
@@ -951,6 +956,7 @@ class PortalPageController extends Controller
         }
 
         $results = $user->results()
+            ->whereHas('prova.competition', fn (Builder $query) => $query->where('club_id', $clubId))
             ->with(['prova.competition'])
             ->get()
             ->filter(fn (Result $result) => $result->prova !== null && $result->prova->competition !== null)
