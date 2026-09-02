@@ -1,7 +1,7 @@
 # Desportivo — Contract ponta a ponta H3
 
 Data: 2026-09-02
-Status: H3f — Portal operacional em validação
+Status: H3f — Portal operacional concluído e integrado
 
 ## Objetivo
 
@@ -9,7 +9,7 @@ Fechar o módulo Desportivo como um único fluxo operacional coerente, sem regre
 
 `Planeamento → Treino → Cais → Live → Presenças → Competições → Resultados → Portal → Análise/Reporting`
 
-A H3a estabeleceu o baseline canónico. A H3b provou Planeamento → Treino com snapshot imutável de uma versão de plano. A H3c fixou `training_athletes` como a única espinha operacional entre preparação, Cais e presença. A H3d fechou a execução Live com métricas/splits concorrentes, distância unitária e progressão automática. A H3e fechou a continuidade entre competição, programa, inscrição e resultado sem criar fontes paralelas. A H3f projeta agora agenda, presença e resultados no Portal autenticado sem materializar novos factos durante a leitura.
+A H3a estabeleceu o baseline canónico. A H3b provou Planeamento → Treino com snapshot imutável de uma versão de plano. A H3c fixou `training_athletes` como a única espinha operacional entre preparação, Cais e presença. A H3d fechou a execução Live com métricas/splits concorrentes, distância unitária e progressão automática. A H3e fechou a continuidade entre competição, programa, inscrição e resultado sem criar fontes paralelas. A H3f fechou agenda, presença e resultados no Portal autenticado como projeções canónicas, sem materializar novos factos durante a leitura.
 
 ## Workspaces canónicas
 
@@ -114,5 +114,5 @@ Cada lote funcional deve:
 - H3c: Treino → Cais → Presenças — concluído e integrado.
 - H3d: Live → métricas/splits — concluído e integrado, com contagens concorrentes, distância unitária e progressão automática das séries validadas.
 - H3e: Competições → Resultados — concluído e integrado, com inscrições, provas, resultados e isolamento por clube validados.
-- H3f: Portal — em validação; projetar agenda, presenças e resultados sem novas fontes de verdade.
-- H3g: Análise/reporting + cleanup legacy final.
+- H3f: Portal — concluído e integrado; agenda, presenças e resultados são projetados sem novas fontes de verdade.
+- H3g: Análise/reporting + cleanup legacy final — próximo passo ativo.
