@@ -500,7 +500,7 @@ export function FiscalDocumentsTab({ fiscalRequests }: FiscalDocumentsTabProps) 
           <div>
             <h2 className="text-sm font-semibold text-foreground">Emissao Fiscal</h2>
             <p className="mt-1 text-xs text-muted-foreground">
-              Esta area mostra pagamentos liquidados que ainda precisam de recibo/documento fiscal no software certificado externo. Quando emitir o documento no provider fiscal, use 'Tratar manualmente' para registar o numero.
+              O modo produtivo atual e manual no Wintouch. Emita o documento no Wintouch e use 'Tratar manualmente' apenas para registar no ClubOS o numero e a data do documento externo; pagamento e emissao fiscal continuam operacoes separadas.
             </p>
           </div>
 

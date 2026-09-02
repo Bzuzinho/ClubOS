@@ -73,6 +73,7 @@ return Application::configure(basePath: dirname(__DIR__))
         \App\Console\Commands\Financeiro\FinancialTimelineAuditCommand::class,
         \App\Console\Commands\Financeiro\FiscalDocumentAuditCommand::class,
         \App\Console\Commands\Financeiro\FiscalDocumentIssuePreflightCommand::class,
+        \App\Console\Commands\Financeiro\FiscalOperationalReadinessCommand::class,
         \App\Console\Commands\Financeiro\FiscalDocumentRequestProcessingCommand::class,
         \App\Console\Commands\Financeiro\FiscalRequestAnomalyInspectionCommand::class,
         \App\Console\Commands\Financeiro\InvoiceObligationAuditCommand::class,

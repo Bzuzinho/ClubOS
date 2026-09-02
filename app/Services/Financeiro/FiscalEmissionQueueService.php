@@ -72,7 +72,7 @@ class FiscalEmissionQueueService
             'bank_statement_id' => $options['bank_statement_id'] ?? $financialEntry->bank_statement_id,
             'mapa_conciliacao_id' => $options['mapa_conciliacao_id'] ?? null,
             'financial_entry_id' => $financialEntry->id,
-            'provider' => $options['provider'] ?? FiscalDocumentRequest::PROVIDER_WINTOUCH,
+            'provider' => $options['provider'] ?? config('fiscal.provider', FiscalDocumentRequest::PROVIDER_WINTOUCH),
             'document_type' => $options['document_type'] ?? FiscalDocumentRequest::DOCUMENT_TYPE_RECEIPT,
             'status' => $this->resolveInitialStatus($financialEntry, $fiscalData),
             'priority' => $options['priority'] ?? FiscalDocumentRequest::PRIORITY_NORMAL,
