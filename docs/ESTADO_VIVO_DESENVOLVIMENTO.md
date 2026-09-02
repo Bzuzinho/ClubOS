@@ -125,6 +125,7 @@ Garantias validadas:
 
 - release construída fora do path servido;
 - SHA promovido tem de coincidir com `origin/main`;
+- o runner empacota o SHA validado num Git bundle verificado e envia-o pelo SSH fixado, sem guardar credenciais GitHub na VM;
 - `public/build` produzido no runner;
 - `.env` e `storage` partilhados;
 - migrations têm `migrate --pretend` antes de `migrate --force`;
@@ -137,6 +138,8 @@ Garantias validadas:
 - Nginx → TLS → PHP-FPM → Laravel `/up` validado com HTTP 200.
 
 A primeira tentativa de cutover abortou de forma segura antes da troca do path por incompatibilidade do healthcheck PHP isolado. O hotfix H0.1b.1 adicionou o front controller de compatibilidade e regression smoke test; a tentativa seguinte concluiu o cutover.
+
+Em 2026-09-02, o transporte do código foi endurecido para repositórios privados: o mirror produtivo deixou de fazer `git fetch` ao GitHub e passou a receber do runner um bundle completo, verificado e preso ao SHA esperado. A alteração elimina a necessidade de tokens GitHub persistentes na VM e preserva o mesmo processo de release, healthcheck, cutover e rollback.
 
 ### H0.2 — Disaster Recovery — concluída e validada em produção
 

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-if [[ "$#" -ne 7 ]]; then
-  printf '[deploy] ERROR: uso: %s <app-dir> <deploy-user> <runtime-user> <runtime-group> <expected-sha> <frontend-build-dir> <repo-url>\n' "$0" >&2
+if [[ "$#" -ne 8 ]]; then
+  printf '[deploy] ERROR: uso: %s <app-dir> <deploy-user> <runtime-user> <runtime-group> <expected-sha> <frontend-build-dir> <repo-url> <repository-bundle>\n' "$0" >&2
   exit 1
 fi
 
@@ -13,6 +13,7 @@ RUNTIME_GROUP="$4"
 EXPECTED_SHA="$5"
 FRONTEND_BUILD_DIR="$6"
 REPO_URL="$7"
+REPOSITORY_BUNDLE="$8"
 
 DEPLOY_ROOT="${APP_DIR}.deploy"
 REPOSITORY_DIR="${DEPLOY_ROOT}/repository.git"
@@ -50,6 +51,8 @@ fail() { printf '[deploy] ERROR: %s\n' "$*" >&2; exit 1; }
 [[ "${EXPECTED_SHA}" =~ ^[0-9a-fA-F]{40}$ ]] || fail 'expected-sha tem de ser um SHA Git de 40 caracteres'
 [[ -n "${REPO_URL}" ]] || fail 'repo-url vazio'
 [[ "${FRONTEND_BUILD_DIR}" == /* ]] || fail 'frontend-build-dir tem de ser absoluto'
+[[ "${REPOSITORY_BUNDLE}" == /* ]] || fail 'repository-bundle tem de ser absoluto'
+[[ -f "${REPOSITORY_BUNDLE}" ]] || fail "repository-bundle inexistente: ${REPOSITORY_BUNDLE}"
 [[ -f "${FRONTEND_BUILD_DIR}/manifest.json" ]] || fail "frontend build sem manifest.json: ${FRONTEND_BUILD_DIR}"
 [[ "${RELEASE_RETENTION}" =~ ^[1-9][0-9]*$ ]] || fail 'RELEASE_RETENTION tem de ser inteiro positivo'
 
@@ -300,16 +303,17 @@ install -d -o "${RUNTIME_USER}" -g "${RUNTIME_GROUP}" -m 2775 \
 
 if [[ ! -d "${REPOSITORY_DIR}/objects" ]]; then
   log 'inicializar mirror Git de deployment'
-  if [[ "${INITIAL_LAYOUT}" == "true" ]]; then
-    run_as_deploy git clone --mirror "${APP_DIR}" "${REPOSITORY_DIR}"
-  else
-    run_as_deploy env GIT_TERMINAL_PROMPT=0 git clone --mirror "${REPO_URL}" "${REPOSITORY_DIR}"
-  fi
+  run_as_deploy git init --bare "${REPOSITORY_DIR}"
 fi
 chown -R "${DEPLOY_USER}:${DEPLOY_GROUP}" "${REPOSITORY_DIR}"
-run_as_deploy git --git-dir="${REPOSITORY_DIR}" remote set-url origin "${REPO_URL}"
-run_as_deploy env GIT_TERMINAL_PROMPT=0 git --git-dir="${REPOSITORY_DIR}" fetch --prune origin \
-  '+refs/heads/main:refs/remotes/origin/main'
+if run_as_deploy git --git-dir="${REPOSITORY_DIR}" remote get-url origin >/dev/null 2>&1; then
+  run_as_deploy git --git-dir="${REPOSITORY_DIR}" remote set-url origin "${REPO_URL}"
+else
+  run_as_deploy git --git-dir="${REPOSITORY_DIR}" remote add origin "${REPO_URL}"
+fi
+run_as_deploy git --git-dir="${REPOSITORY_DIR}" bundle verify "${REPOSITORY_BUNDLE}"
+run_as_deploy git --git-dir="${REPOSITORY_DIR}" fetch --force "${REPOSITORY_BUNDLE}" \
+  'HEAD:refs/remotes/origin/main'
 REMOTE_HEAD="$(run_as_deploy git --git-dir="${REPOSITORY_DIR}" rev-parse refs/remotes/origin/main)"
 [[ "${REMOTE_HEAD}" == "${EXPECTED_SHA}" ]] || fail "origin/main=${REMOTE_HEAD}, esperado=${EXPECTED_SHA}"
 run_as_deploy git --git-dir="${REPOSITORY_DIR}" cat-file -e "${EXPECTED_SHA}^{commit}"
