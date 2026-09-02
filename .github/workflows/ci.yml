@@ -334,10 +334,10 @@ jobs:
             -o StrictHostKeyChecking=yes \
             -o UserKnownHostsFile="${HOME}/.ssh/known_hosts" \
             "${VM_USER}@${VM_HOST}" \
-            "cd '${VM_APP_DIR}' && php artisan desportivo:audit-legacy-schema-data --json='${remote_report}' >/dev/null && cat '${remote_report}' && rm -f '${remote_report}'" \
+            "cd '${VM_APP_DIR}' && php artisan desportivo:audit-legacy-schema-data --require-closed --json='${remote_report}' >/dev/null && cat '${remote_report}' && rm -f '${remote_report}'" \
             > "${local_report}"
 
-          jq -e '.read_only == true and .version == "sports-legacy-schema-data-readiness-v1"' "${local_report}" >/dev/null
+          jq -e '.read_only == true and .version == "sports-legacy-schema-data-readiness-v1" and .summary.cleanup_closed == true' "${local_report}" >/dev/null
           cp "${local_report}" "${GITHUB_WORKSPACE}/desportivo-legacy-schema-data-readiness.json"
 
           {
@@ -353,6 +353,7 @@ jobs:
             echo "- Candidate rows requiring review: \`$(jq -r '.summary.candidate_rows_requiring_review' "${local_report}")\`"
             echo "- Unreconciled legacy presences: \`$(jq -r '.summary.presence_unreconciled_count' "${local_report}")\`"
             echo "- Legacy alias columns still present: \`$(jq -r '.summary.legacy_alias_columns_present' "${local_report}")\`"
+            echo "- Sports cleanup closed: \`$(jq -r '.summary.cleanup_closed' "${local_report}")\`"
           } >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Upload Desportivo production legacy readiness audit

@@ -1,7 +1,7 @@
 # Desportivo — Contract ponta a ponta H3
 
 Data: 2026-09-02
-Status: H3f — Portal operacional concluído e integrado
+Status: H3g — Análise/reporting e cleanup legacy final fechados
 
 ## Objetivo
 
@@ -9,7 +9,7 @@ Fechar o módulo Desportivo como um único fluxo operacional coerente, sem regre
 
 `Planeamento → Treino → Cais → Live → Presenças → Competições → Resultados → Portal → Análise/Reporting`
 
-A H3a estabeleceu o baseline canónico. A H3b provou Planeamento → Treino com snapshot imutável de uma versão de plano. A H3c fixou `training_athletes` como a única espinha operacional entre preparação, Cais e presença. A H3d fechou a execução Live com métricas/splits concorrentes, distância unitária e progressão automática. A H3e fechou a continuidade entre competição, programa, inscrição e resultado sem criar fontes paralelas. A H3f fechou agenda, presença e resultados no Portal autenticado como projeções canónicas, sem materializar novos factos durante a leitura.
+A H3a estabeleceu o baseline canónico. A H3b provou Planeamento → Treino com snapshot imutável de uma versão de plano. A H3c fixou `training_athletes` como a única espinha operacional entre preparação, Cais e presença. A H3d fechou a execução Live com métricas/splits concorrentes, distância unitária e progressão automática. A H3e fechou a continuidade entre competição, programa, inscrição e resultado sem criar fontes paralelas. A H3f fechou agenda, presença e resultados no Portal autenticado como projeções canónicas, sem materializar novos factos durante a leitura. A H3g fecha a cadeia com reporting read-only e um gate produtivo permanente para o estado final do legacy Desportivo.
 
 ## Workspaces canónicas
 
@@ -89,6 +89,16 @@ Ao criar uma sessão no Planeamento com `training_plan_version_id`:
 5. Resultados lê apenas `results → prova → competition` do atleta autenticado e do clube ativo, sem recorrer a `event_results`, títulos ou datas para reconstruir relações;
 6. o Portal pessoal não expõe resultados de outros atletas; a consulta de educandos permanece separada no módulo Família e não transforma resultados privados em publicação pública.
 
+## H3g — contrato Análise/reporting e cleanup legacy
+
+1. Análise interpreta exclusivamente factos canónicos de treino, Cais, Live, avaliações e resultados, sob `SportsClubContext`, sem criar métricas, faturação ou dual writes;
+2. a exportação CSV reutiliza o mesmo read model da workspace e não recalcula indicadores por uma via paralela;
+3. os antigos endpoints Performance e a respetiva cadeia órfã — controller placeholder, componente KeyValue/ACWR, hook, service e mocks — deixam de existir no runtime e fisicamente no código;
+4. `presences`, `training_sessions` e `call_ups` só contam como retiradas quando estão fisicamente ausentes, sem consumidores runtime e sem reconciliação pendente;
+5. a auditoria produtiva `desportivo:audit-legacy-schema-data --require-closed` falha se qualquer candidato Desportivo regressar ao estado `ready` ou `blocked`;
+6. `event_results`, `event_attendances`, `teams` e `team_members` ficam explicitamente fora deste cleanup por terem ownership noutros módulos; em particular, os dados existentes de Eventos não são apagados;
+7. não existe migration H3g nem mutação automática de dados. O rollback do lote é a reversão do commit; o rollback da remoção física anterior continua definido no `down()` da migration guardada.
+
 ## Fontes proibidas no negócio Desportivo ativo
 
 Continuam proibidas como fontes de verdade ativas:
@@ -115,4 +125,4 @@ Cada lote funcional deve:
 - H3d: Live → métricas/splits — concluído e integrado, com contagens concorrentes, distância unitária e progressão automática das séries validadas.
 - H3e: Competições → Resultados — concluído e integrado, com inscrições, provas, resultados e isolamento por clube validados.
 - H3f: Portal — concluído e integrado; agenda, presenças e resultados são projetados sem novas fontes de verdade.
-- H3g: Análise/reporting + cleanup legacy final — próximo passo ativo.
+- H3g: Análise/reporting + cleanup legacy final — fechado; reporting canónico, artefactos Performance órfãos retirados e gate produtivo `cleanup_closed=true`.

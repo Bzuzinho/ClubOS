@@ -143,18 +143,6 @@ export interface TeamResult extends BasicItem {
   pontos?: number | null;
 }
 
-export interface PerformanceMetric extends BasicItem {
-  athlete_id: string;
-  data: string;
-  carga_aguda: number;
-  carga_cronica: number;
-  acwr: number;
-  rpe: number;
-  volume_semanal_m: number;
-  prontidao: number;
-  observacoes?: string;
-}
-
 export interface TrainingMetric extends BasicItem {
   training_id: string;
   athlete_id: string;

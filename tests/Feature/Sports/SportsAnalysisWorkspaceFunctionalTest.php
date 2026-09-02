@@ -15,7 +15,10 @@ use App\Models\TrainingGroup;
 use App\Models\TrainingGroupMembership;
 use App\Models\User;
 use App\Services\Desportivo\SportsAnalysisWorkspaceService;
+use App\Support\LegacySportsGuard;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
 use Tests\TestCase;
 
@@ -99,8 +102,16 @@ final class SportsAnalysisWorkspaceFunctionalTest extends TestCase
             'tempo_parcial' => 29.72,
         ]);
 
+        $writeQueries = [];
+        DB::listen(function (QueryExecuted $query) use (&$writeQueries): void {
+            if (preg_match('/^\s*(insert|update|delete|replace|alter|create|drop|truncate)\b/i', $query->sql) === 1) {
+                $writeQueries[] = $query->sql;
+            }
+        });
+
         $payload = app(SportsAnalysisWorkspaceService::class)->athlete($athlete, 12);
 
+        $this->assertSame([], $writeQueries, 'Analysis must not write while building its reporting read model.');
         $this->assertSame(100.0, $payload['kpis']['attendance_rate']);
         $this->assertSame(2800, $payload['kpis']['volume_m']);
         $this->assertSame(7.0, $payload['kpis']['avg_rpe']);
@@ -234,5 +245,11 @@ final class SportsAnalysisWorkspaceFunctionalTest extends TestCase
         $this->assertTrue(Route::has('desportivo.analise.athlete.export'));
         $this->assertNotContains('api/desportivo/performance', $routeUris);
         $this->assertNotContains('api/desportivo/performance-metrics', $routeUris);
+        app(LegacySportsGuard::class)->assertServiceSourceIsLegacyFree(SportsAnalysisWorkspaceService::class);
+        $this->assertFileDoesNotExist(app_path('Http/Controllers/Api/PerformanceController.php'));
+        $this->assertFileDoesNotExist(resource_path('js/Components/Desportivo/DesportivoPerformanceTab.tsx'));
+        $this->assertFileDoesNotExist(resource_path('js/hooks/sports/usePerformance.ts'));
+        $this->assertFileDoesNotExist(resource_path('js/services/sports/performanceService.ts'));
+        $this->assertFileDoesNotExist(resource_path('js/data/sportsMock.ts'));
     }
 }

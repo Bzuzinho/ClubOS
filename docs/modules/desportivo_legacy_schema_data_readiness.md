@@ -1,7 +1,7 @@
 # Desportivo — Legacy Schema/Data Readiness
 
-Date: 2026-08-18
-Status: production readiness confirmed; guarded physical cleanup completed for three Desportivo-owned legacy tables
+Date: 2026-09-02
+Status: cleanup closed in production; permanent regression gate active
 
 ## Goal
 
@@ -15,6 +15,10 @@ Optional CI/operational gate:
 
 `php artisan desportivo:audit-legacy-schema-data --fail-on-unreconciled`
 
+Final-state gate:
+
+`php artisan desportivo:audit-legacy-schema-data --require-closed`
+
 ## Production readiness evidence
 
 The production audit collected by CI workflow #574 confirmed the three Desportivo-owned removal candidates as ready for physical retirement:
@@ -24,6 +28,8 @@ The production audit collected by CI workflow #574 confirmed the three Desportiv
 - `call_ups`: 0 rows, 0 operational runtime references;
 - `candidate_rows_requiring_review`: 0;
 - `presence_unreconciled_count`: 0.
+
+The post-deploy audit from workflow #1068 reconfirmed the final state on commit `3768bdb7895c5a6f4d4b6c8fc667cac64ac55996`: all three candidates are `removed`, `removal_blocked_count=0`, `candidate_rows_requiring_review=0` and `presence_unreconciled_count=0`. `event_results` remains empty and `event_attendances` retains its 123 Eventos-owned rows; neither is a Sports removal candidate.
 
 The physical cleanup is implemented by `2026_08_17_141500_drop_retired_desportivo_legacy_tables.php` and remains fail-closed: before any schema mutation it verifies that all three targets and the preserved `training_session_attendance` / `training_session_metrics` dependents are empty. If any row is present, the migration aborts without dropping a table.
 
@@ -65,8 +71,11 @@ The summary separates the lifecycle explicitly:
 - `removal_complete_count`: candidates already physically absent with zero runtime references;
 - `removal_ready_count`: candidates still present but safe to retire;
 - `removal_blocked_count`: candidates that still fail a safety precondition.
+- `cleanup_closed`: true only when every authorized candidate is physically absent, no candidate is ready/blocked and reconciliation has no pending rows.
 
 This preserves the existing `sports-legacy-schema-data-readiness-v1` JSON version while extending it backwards-compatibly. Post-cleanup production audits should therefore report the three retired Sports candidates as `removed`, rather than incorrectly making the zero `removal_ready_count` look like a readiness regression.
+
+The deploy workflow now invokes `--require-closed` and validates `cleanup_closed=true`, so a reintroduced table, runtime consumer or reconciliation gap fails the production audit instead of being reported only as informational.
 
 ## Safety rule
 

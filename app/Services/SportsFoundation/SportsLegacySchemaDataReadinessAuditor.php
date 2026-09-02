@@ -119,6 +119,12 @@ final class SportsLegacySchemaDataReadinessAuditor
         $manualReviewRows = collect($tables)
             ->filter(fn (array $row): bool => $row['removal_candidate'] && $row['row_count'] > 0)
             ->sum(fn (array $row): int => $row['row_count']);
+        $cleanupClosed = $removalCandidates > 0
+            && $removalComplete === $removalCandidates
+            && $removalReady === 0
+            && $removalBlocked === 0
+            && $manualReviewRows === 0
+            && $presenceReconciliation['unreconciled_count'] === 0;
 
         return [
             'version' => 'sports-legacy-schema-data-readiness-v1',
@@ -132,11 +138,12 @@ final class SportsLegacySchemaDataReadinessAuditor
                 'candidate_rows_requiring_review' => $manualReviewRows,
                 'presence_unreconciled_count' => $presenceReconciliation['unreconciled_count'],
                 'legacy_alias_columns_present' => collect($aliases)->where('present', true)->count(),
+                'cleanup_closed' => $cleanupClosed,
             ],
             'tables' => $tables,
             'presence_reconciliation' => $presenceReconciliation,
             'legacy_alias_columns' => $aliases,
-            'decision_rule' => 'A removal candidate is complete when the table is absent and runtime references are zero; a still-present candidate may only be removed after row counts and runtime references are zero or explicitly reconciled/classified.',
+            'decision_rule' => 'Cleanup is closed only when every authorized Sports removal candidate is physically absent, runtime references and blocked candidates are zero, and reconciliation has no pending rows. Cross-module tables remain outside this decision.',
         ];
     }
 
