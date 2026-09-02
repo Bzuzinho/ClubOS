@@ -106,6 +106,8 @@ Exemplos:
 
 Não é necessária migration nesta fase. A workspace deriva exclusivamente de dados canónicos existentes e não introduz tabelas de “performance” paralelas.
 
+Na H3g foi removida fisicamente a cadeia Performance órfã: controller placeholder, componente KeyValue/ACWR, hook, service e mocks sem consumidores, juntamente com os respetivos exports/tipo exclusivos. Esta remoção não altera dados: o rollback é a reversão do commit.
+
 ## QA funcional
 
 `SportsAnalysisWorkspaceFunctionalTest` cobre, entre outros:
@@ -117,4 +119,5 @@ Não é necessária migration nesta fase. A workspace deriva exclusivamente de d
 - agregação por grupo;
 - declaração read-only;
 - rota de exportação;
-- guard rail que impede o regresso dos endpoints legacy Performance ao routing ativo.
+- guard rail que impede o regresso dos endpoints legacy Performance ao routing ativo;
+- ausência física dos artefactos KeyValue retirados e ausência de fontes proibidas no serviço de reporting.

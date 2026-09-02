@@ -7,4 +7,3 @@ export { DesportivoPresencasTab }   from './DesportivoPresencasTab';
 export { DesportivoPlaneamentoTab } from './DesportivoPlaneamentoTab';
 export { DesportivoCompeticoesTab } from './DesportivoCompeticoesTab';
 export { DesportivoResultadosTab }  from './DesportivoResultadosTab';
-export { DesportivoPerformanceTab } from './DesportivoPerformanceTab';

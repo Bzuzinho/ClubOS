@@ -60,6 +60,7 @@ final class SportsLegacySchemaDataReadinessAuditTest extends TestCase
         $this->assertSame(3, $report['summary']['removal_complete_count']);
         $this->assertSame(0, $report['summary']['removal_ready_count']);
         $this->assertSame(0, $report['summary']['removal_blocked_count']);
+        $this->assertTrue($report['summary']['cleanup_closed']);
     }
 
     public function test_presence_reconciliation_never_guesses_missing_links(): void
@@ -104,6 +105,10 @@ PHP);
             );
             $this->assertFalse($report['tables']['presences']['removal_complete']);
             $this->assertSame('blocked', $report['tables']['presences']['retirement_state']);
+            $this->assertFalse($report['summary']['cleanup_closed']);
+
+            $this->artisan('desportivo:audit-legacy-schema-data', ['--require-closed' => true])
+                ->assertFailed();
         } finally {
             File::delete($fixture);
         }
@@ -123,6 +128,10 @@ PHP);
         $this->assertSame('sports-legacy-schema-data-readiness-v1', $payload['version']);
         $this->assertArrayHasKey('removal_complete_count', $payload['summary']);
         $this->assertArrayHasKey('removal_blocked_count', $payload['summary']);
+        $this->assertTrue($payload['summary']['cleanup_closed']);
+
+        $this->artisan('desportivo:audit-legacy-schema-data', ['--require-closed' => true])
+            ->assertSuccessful();
 
         @unlink($path);
     }

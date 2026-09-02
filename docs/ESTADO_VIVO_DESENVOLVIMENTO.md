@@ -48,10 +48,10 @@ Stack produtiva: Laravel 13, PHP 8.3, React 19 + TypeScript, Inertia 2, Vite, Po
 | Portal atleta / família | 70% | H2.1–H2.3d fecharam a base relacional Família/EE e H3f colocou em produção agenda, treinos/presenças e resultados como projeções canónicas, sem writes em GET nem leakage entre clubes. Falta fecho mobile/PWA, UX e expansão sistemática do E2E do Portal. |
 | Membros / Pessoas | 91% | Normalização avançada. Família/EE está consolidada em `user_guardian` + `familias/familia_user`; H2.3d removeu fisicamente mirrors JSON, `user_relationships`, casts, rotas e classes legacy e deixou um gate produtivo permanente de schema final. |
 | Família / EE / educandos | 95% | Estruturalmente fechada: `familias/familia_user` é o agregado familiar canónico e `user_guardian` a relação explícita EE↔educando. Produção confirma as 3 estruturas canónicas presentes, zero estruturas legacy e `ready=true`. Permanecem apenas melhorias funcionais de UX/Portal, não dívida de fonte de verdade. |
-| Desportivo global | 78% | H3a–H3d fecharam o fluxo até Live, H3e colocou em produção Competições → Resultados com identidade canónica e isolamento por clube e H3f fechou a projeção operacional no Portal. A análise transversal read-only já consolida proveniência, splits e export CSV; permanece H3g reporting + cleanup legacy final. |
+| Desportivo global | 82% | H3a–H3g fecharam a cadeia ponta a ponta até reporting read-only. O cleanup legacy Desportivo fica preso a um gate produtivo: 3/3 candidatos fisicamente retirados, zero consumidores e zero reconciliação pendente; estruturas de Eventos são preservadas pelo respetivo ownership. Permanecem melhorias de UX, E2E profundo e reporting transversal futuro. |
 | Planeamento desportivo | 65% | H3b prova o snapshot imutável da versão do plano na sessão e nas séries. Falta fechar UX, integrações e reporting. |
 | Treinos / presenças / Cais / Live | 74% | H3c colocou `training_athletes` como espinha única entre preparação, Cais e presença. H3d reutiliza essa identidade no Live e colocou em produção cronómetros paralelos, tempos por distância unitária e progressão automática. |
-| Competições / resultados | 70% | H3e integrou programa, inscrições e resultados sobre `competition → prova → atleta`, com gravação idempotente e isolamento integral por clube. Permanecem reporting avançado e remoção legacy final. |
+| Competições / resultados | 74% | H3e integrou programa, inscrições e resultados sobre `competition → prova → atleta`, com gravação idempotente e isolamento integral por clube; H3g fecha a sua projeção read-only em Análise. Permanecem reporting avançado transversal e refinamentos de UX. |
 | Eventos | 75% | Lifecycle, recorrência, convocatórias e integrações corrigidos. H1.18 garante entrada pelo menu em desktop/mobile; falta remover estruturas antigas, criar contract tests Eventos ↔ Desportivo e E2E das operações críticas. |
 | Financeiro geral | 89% | Maduro; CRUDs legacy de transações/categorias aposentados e antigo `Financeiro/Edit` converge para o fluxo canónico. H1.18 garante entrada pelo menu em desktop/mobile; prioridade: preservar invariantes, evitar novas fontes de verdade e acrescentar E2E financeiro crítico. |
 | Fiscal | 65% | Workflow manual/controlado existe; falta decidir provider real ou formalizar definitivamente o modelo manual produtivo. |
@@ -939,13 +939,17 @@ O Portal passa a tratar os GETs de agenda, treinos/presenças e resultados como 
 
 Cobertura acrescentada em `PortalSportsProjectionContractTest`. PR #292 merged em `48afd2173d41996ae7bf95ddc8ae3ad831ef448c`; CI #1063 totalmente verde na PR. O CI #1064 validou novamente todos os gates de `main`, mas o deploy abortou antes do cutover por falta de credenciais HTTPS da VM para o repositório privado. A recuperação segura seguiu na PR #293: transporte do SHA por Git bundle verificado, CI #1065 verde, merge `4f6425e77a10b3d63abfd719ef92db66a4b623dd` e CI #1066 totalmente verde, com deploy e auditorias produtivas concluídos.
 
-Depois de H3f, a sequência ativa é H3g Análise/reporting + cleanup legacy.
+### H3g — Análise/reporting + cleanup legacy final — concluído
+
+A workspace de Análise permanece estritamente read-only e deriva treino/presença, Cais, Live, avaliações, resultados e splits das fontes canónicas sob `SportsClubContext`; a exportação CSV reutiliza o mesmo read model. Foi retirada apenas a cadeia Performance órfã — controller placeholder, componente KeyValue/ACWR, hook, service e mocks — com zero rotas/imports consumidores.
+
+O audit produtivo anterior confirmou `presences`, `training_sessions` e `call_ups` fisicamente ausentes, zero referências runtime e zero reconciliação pendente. H3g transforma esse estado num gate permanente `--require-closed`/`cleanup_closed=true`. `event_results` e os 123 registos de `event_attendances` continuam preservados por ownership de Eventos. Não existe migration nem alteração de dados neste lote; rollback por reversão do commit.
 
 ---
 
 ## 8. Dívida estrutural prioritária
 
-- Desportivo: fechar fluxo Planeamento → Treino → Cais → Live → Presenças → Competições → Resultados → Portal → reporting → legacy cleanup.
+- Desportivo: H3 fechado ponta a ponta; preservar os contracts e expandir UX/E2E sem reabrir fontes legacy.
 - Eventos: remover estruturas de compatibilidade sem consumo e criar contract tests com Desportivo.
 - Rotas: modularização H2.5 fechada; manter o contract topológico e retirar redirects apenas com telemetria/prova de zero consumidores externos.
 - Fiscal: implementar provider real ou formalizar definitivamente o workflow manual como modelo produtivo.
@@ -958,15 +962,14 @@ Depois de H3f, a sequência ativa é H3g Análise/reporting + cleanup legacy.
 
 | Ordem | Sprint | Objetivo |
 |---:|---|---|
-| 1 | H3 | Fecho Desportivo ponta a ponta. |
-| 2 | H4 | Decisão e fecho Fiscal. |
-| 3 | H5 | Loja + Logística lifecycle completo. |
-| 4 | H6 | Comunicação assíncrona e futura integração Redes. |
-| 5 | H7 | Portal/PWA/mobile. |
-| 6 | H8 | Reporting consolidado. |
-| 7 | H9 | Website: header/footer, notícias e polish final. |
+| 1 | H4 | Decisão e fecho Fiscal. |
+| 2 | H5 | Loja + Logística lifecycle completo. |
+| 3 | H6 | Comunicação assíncrona e futura integração Redes. |
+| 4 | H7 | Portal/PWA/mobile. |
+| 5 | H8 | Reporting consolidado transversal. |
+| 6 | H9 | Website: header/footer, notícias e polish final. |
 
-Próximo passo ativo: H3g — consolidar Análise/reporting e executar o cleanup legacy final do Desportivo com evidência de zero consumidores e rollback explícito. H2.5, stock por variante e Família/EE estão estruturalmente fechados. A ação operacional Cloudflare R2 permanece pendência externa separada. A matriz H1.17/H1.18 deve ser expandida dentro de cada workstream funcional.
+Próximo passo ativo: H4 — decidir e fechar o fluxo Fiscal produtivo. H3 Desportivo, H2.5, stock por variante e Família/EE estão estruturalmente fechados. A ação operacional Cloudflare R2 permanece pendência externa separada. A matriz H1.17/H1.18 deve ser expandida dentro de cada workstream funcional.
 
 ---
 
@@ -974,6 +977,7 @@ Próximo passo ativo: H3g — consolidar Análise/reporting e executar o cleanup
 
 | Data | Módulo | Desenvolvimento / análise | Evidência | Estado / pendências |
 |---|---|---|---|---|
+| 2026-09-02 | Desportivo / Análise e legacy | H3g fecha reporting read-only sobre fontes canónicas, remove a cadeia Performance/KeyValue órfã e torna `cleanup_closed=true` um gate produtivo obrigatório, preservando tabelas/dados owned por Eventos. | `SportsAnalysisWorkspaceFunctionalTest`; `SportsLegacySchemaDataReadinessAuditTest`; `SportsLegacySchemaDataReadinessAuditor`; `.github/workflows/ci.yml`; audit produtivo #1068 | Sem migration nem mutação de dados; H3 fechado, pendente validação CI/deploy deste gate final. |
 | 2026-09-02 | Desportivo / Portal | H3f fixa agenda, `training_athletes` e resultados como projeções do atleta/clube autorizados, remove writes implícitos em GET e conserva `competition_id` nos eventos projetados. | PR #292; CI #1063/#1064; merge `48afd2173d41996ae7bf95ddc8ae3ad831ef448c`; `PortalSportsProjectionContractTest` | Integrado e deployado através da recuperação de infraestrutura #293/#1066; H3g avança para reporting + cleanup legacy. |
 | 2026-09-02 | Infraestrutura / Deploy | O runner passou a entregar o commit privado à VM por Git bundle completo e verificado, eliminando credenciais GitHub persistentes na VM sem alterar releases atómicas, healthchecks ou rollback. | PR #293; CI #1065/#1066; merge `4f6425e77a10b3d63abfd719ef92db66a4b623dd`; deploy e quatro auditorias produtivas verdes | Incidente de autenticação do CI #1064 resolvido; produção atualizada e transporte privado endurecido. |
 | 2026-09-02 | Desportivo / Competições e Resultados | H3e prova a continuidade `competition → prova → inscrição → resultado`, gravação idempotente pelo par prova/atleta e isolamento das APIs por clube. | PR #291; CI #1060/#1061; merge `be1d246701435429814572ca343f7de443aa79ea`; `CompetitionToResultsContractTest` | Integrado e deployado; H3f avança para o Portal operacional. |

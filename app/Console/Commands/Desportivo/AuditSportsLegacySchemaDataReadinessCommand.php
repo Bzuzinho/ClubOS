@@ -11,9 +11,10 @@ final class AuditSportsLegacySchemaDataReadinessCommand extends Command
 {
     protected $signature = 'desportivo:audit-legacy-schema-data
         {--json= : Caminho para exportar o relatório JSON}
-        {--fail-on-unreconciled : Devolve exit code 1 se existirem dados candidatos ainda por reconciliar}';
+        {--fail-on-unreconciled : Devolve exit code 1 se existirem dados candidatos ainda por reconciliar}
+        {--require-closed : Devolve exit code 1 se o cleanup Desportivo deixar de estar integralmente fechado}';
 
-    protected $description = 'Audita em modo read-only a prontidão para futura limpeza física de schema/dados legacy do Desportivo.';
+    protected $description = 'Audita em modo read-only o estado final do schema/dados legacy do Desportivo.';
 
     public function handle(SportsLegacySchemaDataReadinessAuditor $auditor): int
     {
@@ -32,6 +33,12 @@ final class AuditSportsLegacySchemaDataReadinessCommand extends Command
         $hasUnreconciled = (int) ($summary['candidate_rows_requiring_review'] ?? 0) > 0
             || (int) ($summary['presence_unreconciled_count'] ?? 0) > 0;
 
-        return $this->option('fail-on-unreconciled') && $hasUnreconciled ? self::FAILURE : self::SUCCESS;
+        if ($this->option('fail-on-unreconciled') && $hasUnreconciled) {
+            return self::FAILURE;
+        }
+
+        return $this->option('require-closed') && ! ($summary['cleanup_closed'] ?? false)
+            ? self::FAILURE
+            : self::SUCCESS;
     }
 }
