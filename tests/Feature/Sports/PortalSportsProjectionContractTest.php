@@ -67,8 +67,8 @@ final class PortalSportsProjectionContractTest extends TestCase
         $localRace = $this->race($localCompetition);
         $foreignRace = $this->race($foreignCompetition);
 
-        $this->result($localRace, $athlete, 61.25);
-        $this->result($foreignRace, $athlete, 59.90);
+        $this->createResult($localRace, $athlete, 61.25);
+        $this->createResult($foreignRace, $athlete, 59.90);
 
         $this->inertiaGetAs($athlete, route('portal.results'))
             ->assertOk()
@@ -162,7 +162,7 @@ final class PortalSportsProjectionContractTest extends TestCase
         ]);
     }
 
-    private function result(Prova $race, User $athlete, float $time): Result
+    private function createResult(Prova $race, User $athlete, float $time): Result
     {
         return Result::query()->create([
             'prova_id' => $race->id,
