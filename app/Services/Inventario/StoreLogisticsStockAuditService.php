@@ -13,7 +13,7 @@ use Illuminate\Support\Str;
 
 final class StoreLogisticsStockAuditService
 {
-    private const VERSION = 'b6-store-logistics-stock-audit-v1';
+    private const VERSION = 'h5a-store-logistics-stock-audit-v2';
 
     private const STORE_SOURCES = ['store_order_item', 'loja_encomenda_item'];
     private const INVOICE_SOURCES = ['invoice_item', 'manual_invoice_item', 'manual_invoice_create', 'manual_invoice_update_exit'];
@@ -23,7 +23,7 @@ final class StoreLogisticsStockAuditService
     private const B1_4_CORRECTION_NOTE = 'Baixa de stock por venda/encomenda entregue registada retroativamente';
 
     private const STOCK_EXIT_TYPES = ['exit', 'sale', 'venda'];
-    private const ACTIVE_STORE_STATUSES = ['preparado', 'entregue', 'pago', 'concluido', 'concluído', 'completed', 'delivered', 'paid'];
+    private const ACTIVE_STORE_STATUSES = ['pendente', 'aprovado', 'preparado', 'entregue', 'pending', 'approved', 'pago', 'concluido', 'concluído', 'completed', 'delivered', 'paid'];
     private const CANCELLED_STORE_STATUSES = ['cancelado', 'cancelled', 'canceled', 'anulado', 'voided'];
 
     public function __construct(
@@ -65,10 +65,15 @@ final class StoreLogisticsStockAuditService
 
         return [
             'version' => self::VERSION,
+            'read_only' => true,
             'generated_at' => Carbon::now()->toIso8601String(),
             'filters' => $filters,
             'schema_detected' => $schema,
             'summary' => $this->summary($storeItems, $invoiceItems, $logisticsItems, $movements, $findings),
+            'interpretation' => [
+                'cancelled_order_is_balanced_when_exit_and_return_match' => true,
+                'no_data_changed' => true,
+            ],
             'findings' => $findings,
         ];
     }
@@ -353,8 +358,19 @@ final class StoreLogisticsStockAuditService
             }
 
             if (in_array($status, self::CANCELLED_STORE_STATUSES, true)) {
-                if ($metrics['exit_qty'] > 0) {
-                    $findings[] = $this->finding('warning', 'store_order_cancelled_with_physical_exit', 'store_order_item', true, 'inspect_duplicate_store_stock_exit', $product, $quantity, $metrics, ['order_id' => (string) ($item->order_id ?? ''), 'store_order_item_id' => (string) $item->id, 'status' => $item->status ?? null]);
+                $extra = ['order_id' => (string) ($item->order_id ?? ''), 'store_order_item_id' => (string) $item->id, 'status' => $item->status ?? null];
+
+                if ($metrics['exit_qty'] === 0 && $metrics['return_qty'] === 0) {
+                    $findings[] = $this->finding('info', 'store_order_cancelled_without_stock_impact', 'store_order_item', false, 'no_action_needed_store_stock_clean', $product, $quantity, $metrics, $extra);
+                } elseif ($metrics['exit_count'] === 1
+                    && $metrics['exit_qty'] === $quantity
+                    && $metrics['return_qty'] === $metrics['exit_qty']
+                    && $metrics['physical_net'] === 0) {
+                    $findings[] = $this->finding('info', 'store_order_cancelled_stock_restored', 'store_order_item', false, 'no_action_needed_store_stock_clean', $product, $quantity, $metrics, $extra);
+                } elseif ($metrics['return_qty'] > $metrics['exit_qty']) {
+                    $findings[] = $this->finding('critical', 'store_order_cancelled_stock_over_restored', 'store_order_item', true, 'inspect_store_quantity_mismatch', $product, $quantity, $metrics, $extra);
+                } else {
+                    $findings[] = $this->finding('warning', 'store_order_cancelled_stock_not_restored', 'store_order_item', true, 'restore_cancelled_store_order_stock', $product, $quantity, $metrics, $extra);
                 }
                 continue;
             }
@@ -580,7 +596,9 @@ final class StoreLogisticsStockAuditService
             'total_related_stock_movements' => $movements->count(),
             'missing_physical_exit_count' => $findingsCollection->whereIn('code', ['store_order_missing_physical_exit', 'invoice_item_missing_physical_exit'])->count(),
             'duplicate_physical_exit_count' => $findingsCollection->whereIn('code', ['store_order_duplicate_physical_exit', 'invoice_item_duplicate_physical_exit'])->count(),
-            'cancelled_with_physical_exit_count' => $findingsCollection->where('code', 'store_order_cancelled_with_physical_exit')->count(),
+            'cancelled_stock_restored_count' => $findingsCollection->where('code', 'store_order_cancelled_stock_restored')->count(),
+            'cancelled_without_stock_impact_count' => $findingsCollection->where('code', 'store_order_cancelled_without_stock_impact')->count(),
+            'cancelled_stock_unbalanced_count' => $findingsCollection->whereIn('code', ['store_order_cancelled_stock_not_restored', 'store_order_cancelled_stock_over_restored'])->count(),
             'invoice_store_duplicate_exit_count' => $findingsCollection->where('code', 'invoice_store_duplicate_stock_exit')->count(),
             'logistics_store_duplicate_exit_count' => $findingsCollection->where('code', 'logistics_store_duplicate_stock_exit')->count(),
             'quantity_mismatch_count' => $findingsCollection->whereIn('code', ['store_order_quantity_mismatch', 'invoice_item_quantity_mismatch'])->count(),
@@ -588,7 +606,7 @@ final class StoreLogisticsStockAuditService
             'invalid_quantity_count' => $findingsCollection->where('code', 'store_stock_invalid_quantity')->count(),
             'invalid_source_reference_count' => $findingsCollection->where('code', 'store_stock_invalid_source_reference')->count(),
             'legacy_corrected_by_audit_count' => $findingsCollection->where('code', 'store_stock_legacy_corrected_by_audit')->count(),
-            'clean_count' => $findingsCollection->whereIn('code', ['store_order_stock_clean', 'invoice_item_stock_clean', 'store_stock_legacy_corrected_by_audit', 'store_logistics_stock_clean'])->count(),
+            'clean_count' => $findingsCollection->whereIn('code', ['store_order_stock_clean', 'store_order_cancelled_stock_restored', 'store_order_cancelled_without_stock_impact', 'invoice_item_stock_clean', 'store_stock_legacy_corrected_by_audit', 'store_logistics_stock_clean'])->count(),
             'total_findings' => $findingsCollection->count(),
             'critical_count' => $findingsCollection->where('severity', 'critical')->count(),
             'warning_count' => $findingsCollection->where('severity', 'warning')->count(),

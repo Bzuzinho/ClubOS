@@ -72,6 +72,23 @@ class StoreOrderRevenueMovementTest extends TestCase
             'produto_id' => $product->id,
         ]);
 
+        $this->actingAs($admin)
+            ->patchJson('/api/admin/loja/encomendas/' . $orderId . '/estado', [
+                'estado' => 'cancelado',
+            ])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('estado');
+
+        $this->assertDatabaseHas('loja_encomendas', [
+            'id' => $orderId,
+            'estado' => 'entregue',
+        ]);
+        $this->assertDatabaseCount('movements', 1);
+        $this->assertDatabaseMissing('stock_movements', [
+            'movement_type' => 'return',
+            'reference_type' => 'store_order_item',
+        ]);
+
         $financeResponse = $this->inertiaGetAs($admin, route('financeiro.index'));
         $financeResponse->assertOk();
         $financeResponse->assertJsonPath('component', 'Financeiro/Index');
