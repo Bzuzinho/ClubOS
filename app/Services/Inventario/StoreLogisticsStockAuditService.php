@@ -13,7 +13,7 @@ use Illuminate\Support\Str;
 
 final class StoreLogisticsStockAuditService
 {
-    private const VERSION = 'h5a-store-logistics-stock-audit-v2';
+    private const VERSION = 'h5b-store-logistics-financial-audit-v3';
 
     private const STORE_SOURCES = ['store_order_item', 'loja_encomenda_item'];
     private const INVOICE_SOURCES = ['invoice_item', 'manual_invoice_item', 'manual_invoice_create', 'manual_invoice_update_exit'];
@@ -40,6 +40,7 @@ final class StoreLogisticsStockAuditService
         $filters = $this->filters($options);
         $schema = $this->schemaDetected();
 
+        $storeOrders = $this->storeOrders($filters);
         $storeItems = $this->storeOrderItems($filters);
         $invoiceItems = $this->invoiceItems($filters);
         $logisticsItems = $this->logisticsItems($filters);
@@ -47,6 +48,7 @@ final class StoreLogisticsStockAuditService
         $movements = $this->stockMovements($filters, $storeItems, $invoiceItems, $logisticsItems);
 
         $findings = [
+            ...$this->storeInvoiceLinkFindings($storeOrders, $storeItems, $invoiceItems),
             ...$this->storeFindings($storeItems, $products, $movements),
             ...$this->invoiceFindings($invoiceItems, $products, $movements, $storeItems),
             ...$this->crossDuplicateFindings($storeItems, $invoiceItems, $logisticsItems, $products, $movements),
@@ -69,13 +71,143 @@ final class StoreLogisticsStockAuditService
             'generated_at' => Carbon::now()->toIso8601String(),
             'filters' => $filters,
             'schema_detected' => $schema,
-            'summary' => $this->summary($storeItems, $invoiceItems, $logisticsItems, $movements, $findings),
+            'summary' => $this->summary($storeOrders, $storeItems, $invoiceItems, $logisticsItems, $movements, $findings),
             'interpretation' => [
                 'cancelled_order_is_balanced_when_exit_and_return_match' => true,
+                'canonical_store_invoice_contract_active' => true,
+                'legacy_orders_without_invoice_are_reported_without_backfill' => true,
                 'no_data_changed' => true,
             ],
             'findings' => $findings,
         ];
+    }
+
+    /**
+     * @param array<string,mixed> $filters
+     * @return Collection<int,object>
+     */
+    private function storeOrders(array $filters): Collection
+    {
+        if (! Schema::hasTable('loja_encomendas')) {
+            return collect();
+        }
+
+        $query = DB::table('loja_encomendas')
+            ->select([
+                'id',
+                'numero',
+                'user_id',
+                'target_user_id',
+                'estado as status',
+                'total',
+                'fatura_id as invoice_id',
+                'created_at',
+            ])
+            ->orderBy('created_at')
+            ->orderBy('id');
+
+        if ($filters['order'] !== null) {
+            $query->where('id', $filters['order']);
+        }
+
+        if ($filters['invoice'] !== null) {
+            $query->where('fatura_id', $filters['invoice']);
+        }
+
+        if ($filters['material'] !== null && Schema::hasTable('loja_encomenda_itens')) {
+            $query->whereExists(function (Builder $items) use ($filters): void {
+                $items->selectRaw('1')
+                    ->from('loja_encomenda_itens')
+                    ->whereColumn('loja_encomenda_itens.loja_encomenda_id', 'loja_encomendas.id')
+                    ->where('loja_encomenda_itens.article_id', $filters['material']);
+            });
+        }
+
+        return $query->get();
+    }
+
+    /**
+     * @return list<array<string,mixed>>
+     */
+    private function storeInvoiceLinkFindings(Collection $storeOrders, Collection $storeItems, Collection $invoiceItems): array
+    {
+        if ($storeOrders->isEmpty() || ! Schema::hasTable('invoices')) {
+            return [];
+        }
+
+        $linkedInvoiceIds = $storeOrders->pluck('invoice_id')->filter()->map('strval')->unique()->values();
+        $originOrderIds = $storeOrders->pluck('id')->filter()->map('strval')->unique()->values();
+
+        $invoices = DB::table('invoices')
+            ->where(function (Builder $query) use ($linkedInvoiceIds, $originOrderIds): void {
+                if ($linkedInvoiceIds->isNotEmpty()) {
+                    $query->whereIn('id', $linkedInvoiceIds->all());
+                }
+
+                if ($originOrderIds->isNotEmpty()) {
+                    $method = $linkedInvoiceIds->isNotEmpty() ? 'orWhere' : 'where';
+                    $query->{$method}(function (Builder $origin) use ($originOrderIds): void {
+                        $origin->where('origem_tipo', 'store_order')->whereIn('origem_id', $originOrderIds->all());
+                    });
+                }
+            })
+            ->get()
+            ->keyBy(fn (object $invoice): string => (string) $invoice->id);
+
+        $findings = [];
+
+        foreach ($storeOrders as $order) {
+            $orderId = (string) $order->id;
+            $invoiceId = (string) ($order->invoice_id ?? '');
+            $canonicalByOrigin = $invoices->first(fn (object $invoice): bool => (string) ($invoice->origem_tipo ?? '') === 'store_order'
+                && (string) ($invoice->origem_id ?? '') === $orderId);
+
+            if ($invoiceId === '') {
+                $findings[] = $this->finding(
+                    'info',
+                    $canonicalByOrigin ? 'store_order_invoice_link_missing' : 'store_order_legacy_without_invoice',
+                    'store_order',
+                    $canonicalByOrigin !== null,
+                    $canonicalByOrigin ? 'relink_existing_store_invoice' : 'no_automatic_backfill_for_legacy_order',
+                    extra: ['order_id' => $orderId, 'invoice_id' => $canonicalByOrigin?->id],
+                );
+                continue;
+            }
+
+            $invoice = $invoices->get($invoiceId);
+            if (! $invoice) {
+                $findings[] = $this->finding('critical', 'store_order_invoice_reference_invalid', 'store_order', true, 'inspect_store_invoice_link', extra: ['order_id' => $orderId, 'invoice_id' => $invoiceId]);
+                continue;
+            }
+
+            $expectedUserId = (string) (($order->target_user_id ?? null) ?: $order->user_id);
+            $contractMatches = (string) ($invoice->origem_tipo ?? '') === 'store_order'
+                && (string) ($invoice->origem_id ?? '') === $orderId
+                && (string) ($invoice->user_id ?? '') === $expectedUserId
+                && abs((float) ($invoice->valor_total ?? 0) - (float) $order->total) <= 0.009;
+
+            if (! $contractMatches) {
+                $findings[] = $this->finding('critical', 'store_order_invoice_contract_mismatch', 'store_order', true, 'inspect_store_invoice_contract', extra: ['order_id' => $orderId, 'invoice_id' => $invoiceId]);
+                continue;
+            }
+
+            $orderLines = $storeItems->where('order_id', $orderId);
+            $invoiceLines = $invoiceItems->where('invoice_id', $invoiceId);
+            $lineContractMatches = $orderLines->count() === $invoiceLines->count()
+                && abs((float) $orderLines->sum(fn (object $item): float => (float) ($item->total_linha ?? 0))
+                    - (float) $invoiceLines->sum(fn (object $item): float => (float) ($item->total_linha ?? 0))) <= 0.009;
+
+            $findings[] = $this->finding(
+                $lineContractMatches ? 'info' : 'critical',
+                $lineContractMatches ? 'store_order_invoice_contract_clean' : 'store_order_invoice_items_mismatch',
+                'store_order',
+                ! $lineContractMatches,
+                $lineContractMatches ? 'no_action_needed_store_invoice_clean' : 'inspect_store_invoice_items',
+                extra: ['order_id' => $orderId, 'invoice_id' => $invoiceId],
+            );
+        }
+
+        return $findings;
     }
 
     /**
@@ -158,6 +290,7 @@ final class StoreLogisticsStockAuditService
                 'loja_encomendas.fatura_id as invoice_id',
                 'loja_encomenda_itens.article_id',
                 'loja_encomenda_itens.quantidade as quantity',
+                'loja_encomenda_itens.total_linha',
                 'loja_encomenda_itens.descricao as description',
                 'loja_encomenda_itens.created_at',
             ])
@@ -197,6 +330,7 @@ final class StoreLogisticsStockAuditService
                 'invoice_items.fatura_id as invoice_id',
                 'invoice_items.produto_id as article_id',
                 'invoice_items.quantidade as quantity',
+                'invoice_items.total_linha',
                 'invoice_items.descricao as description',
                 'invoice_items.created_at',
                 'invoices.tipo as invoice_type',
@@ -584,13 +718,18 @@ final class StoreLogisticsStockAuditService
     /**
      * @return array<string,int>
      */
-    private function summary(Collection $storeItems, Collection $invoiceItems, Collection $logisticsItems, Collection $movements, array $findings): array
+    private function summary(Collection $storeOrders, Collection $storeItems, Collection $invoiceItems, Collection $logisticsItems, Collection $movements, array $findings): array
     {
         $findingsCollection = collect($findings);
 
         return [
-            'total_store_orders_scanned' => $storeItems->pluck('order_id')->unique()->count(),
+            'total_store_orders_scanned' => $storeOrders->count(),
             'total_store_order_items_scanned' => $storeItems->count(),
+            'canonical_invoice_linked_count' => $findingsCollection->where('code', 'store_order_invoice_contract_clean')->count(),
+            'legacy_without_invoice_count' => $findingsCollection->where('code', 'store_order_legacy_without_invoice')->count(),
+            'missing_invoice_link_count' => $findingsCollection->where('code', 'store_order_invoice_link_missing')->count(),
+            'invalid_invoice_link_count' => $findingsCollection->where('code', 'store_order_invoice_reference_invalid')->count(),
+            'invoice_contract_mismatch_count' => $findingsCollection->whereIn('code', ['store_order_invoice_contract_mismatch', 'store_order_invoice_items_mismatch'])->count(),
             'total_invoice_items_scanned' => $invoiceItems->count(),
             'total_logistics_movements_scanned' => $logisticsItems->pluck('request_id')->unique()->count(),
             'total_related_stock_movements' => $movements->count(),

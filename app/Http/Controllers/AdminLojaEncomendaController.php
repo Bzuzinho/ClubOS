@@ -19,7 +19,7 @@ class AdminLojaEncomendaController extends Controller
     public function index(Request $request): Response|JsonResponse
     {
         $query = LojaEncomenda::query()
-            ->with(['itens.article', 'itens.productVariant', 'user:id,nome_completo', 'targetUser:id,nome_completo'])
+            ->with(['itens.article', 'itens.productVariant', 'user:id,nome_completo', 'targetUser:id,nome_completo', 'invoice:id,estado_pagamento,valor_pago,valor_em_aberto'])
             ->ordered();
 
         if ($request->filled('estado')) {
@@ -44,7 +44,7 @@ class AdminLojaEncomendaController extends Controller
 
     public function show(Request $request, LojaEncomenda $encomenda): Response|JsonResponse
     {
-        $payload = $this->serializeOrder($encomenda->load(['itens.article', 'itens.productVariant', 'user:id,nome_completo', 'targetUser:id,nome_completo']), true);
+        $payload = $this->serializeOrder($encomenda->load(['itens.article', 'itens.productVariant', 'user:id,nome_completo', 'targetUser:id,nome_completo', 'invoice:id,estado_pagamento,valor_pago,valor_em_aberto']), true);
 
         if ($request->is('api/*')) {
             return response()->json($payload);
@@ -76,6 +76,12 @@ class AdminLojaEncomendaController extends Controller
             'total' => (float) $encomenda->total,
             'observacoes' => $encomenda->observacoes,
             'created_at' => $encomenda->created_at?->toDateTimeString(),
+            'invoice' => $encomenda->invoice ? [
+                'id' => $encomenda->invoice->id,
+                'estado_pagamento' => $encomenda->invoice->estado_pagamento,
+                'valor_pago' => (float) $encomenda->invoice->valor_pago,
+                'valor_em_aberto' => (float) $encomenda->invoice->valor_em_aberto,
+            ] : null,
             'user' => $encomenda->user ? [
                 'id' => $encomenda->user->id,
                 'nome_completo' => $encomenda->user->nome_completo,

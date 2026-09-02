@@ -13,6 +13,7 @@ use App\Models\LojaEncomendaItem;
 use App\Models\Product;
 use App\Models\StockMovement;
 use App\Models\User;
+use App\Services\Loja\LojaFinanceiroService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Artisan;
@@ -46,6 +47,33 @@ final class StoreLogisticsStockAuditCommandTest extends TestCase
 
         $this->assertFinding($payload, 'store_order_stock_clean', 'info', false);
         $this->assertSame(0, $payload['summary']['actionable_count']);
+    }
+
+    public function test_canonical_store_invoice_link_is_audited_separately_from_legacy_orders(): void
+    {
+        [$order, $item, $product] = $this->storeOrder('entregue', 2);
+        app(LojaFinanceiroService::class)->prepareForOrder($order);
+        $this->movement($product, 'exit', 2, 'store_order_item', $item->id);
+
+        $payload = $this->jsonPayload(['--order' => $order->id]);
+
+        $this->assertFinding($payload, 'store_order_invoice_contract_clean', 'info', false);
+        $this->assertSame(1, $payload['summary']['canonical_invoice_linked_count']);
+        $this->assertSame(0, $payload['summary']['legacy_without_invoice_count']);
+        $this->assertSame(0, $payload['summary']['invalid_invoice_link_count']);
+        $this->assertSame(0, $payload['summary']['invoice_contract_mismatch_count']);
+    }
+
+    public function test_unlinked_pre_h5b_order_is_reported_as_legacy_without_automatic_backfill(): void
+    {
+        [$order, $item, $product] = $this->storeOrder('entregue', 1);
+        $this->movement($product, 'exit', 1, 'store_order_item', $item->id);
+
+        $payload = $this->jsonPayload(['--order' => $order->id]);
+
+        $this->assertFinding($payload, 'store_order_legacy_without_invoice', 'info', false);
+        $this->assertSame(1, $payload['summary']['legacy_without_invoice_count']);
+        $this->assertSame(0, $payload['summary']['canonical_invoice_linked_count']);
     }
 
     public function test_delivered_store_order_without_exit_generates_missing_physical_exit(): void
@@ -229,15 +257,17 @@ final class StoreLogisticsStockAuditCommandTest extends TestCase
             '--report-path' => $relativePath,
         ]);
 
-        $this->assertSame('h5a-store-logistics-stock-audit-v2', $payload['version']);
+        $this->assertSame('h5b-store-logistics-financial-audit-v3', $payload['version']);
         $this->assertTrue($payload['read_only']);
         $this->assertTrue($payload['interpretation']['cancelled_order_is_balanced_when_exit_and_return_match']);
+        $this->assertTrue($payload['interpretation']['canonical_store_invoice_contract_active']);
+        $this->assertTrue($payload['interpretation']['legacy_orders_without_invoice_are_reported_without_backfill']);
         $this->assertTrue($payload['interpretation']['no_data_changed']);
         $this->assertNotEmpty($actionablePayload['findings']);
         $this->assertSame(1, $warningExitCode);
         $this->assertSame(0, $reportExitCode);
         $this->assertFileExists($absolutePath);
-        $this->assertSame('h5a-store-logistics-stock-audit-v2', json_decode((string) file_get_contents($absolutePath), true)['version']);
+        $this->assertSame('h5b-store-logistics-financial-audit-v3', json_decode((string) file_get_contents($absolutePath), true)['version']);
         $this->assertSame($before, $this->snapshot());
         @unlink($absolutePath);
     }

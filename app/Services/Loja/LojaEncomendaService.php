@@ -157,12 +157,7 @@ class LojaEncomendaService
             }
 
             if ($estado === LojaEncomenda::ESTADO_CANCELADO) {
-                if (filled($encomenda->fatura_id)) {
-                    throw ValidationException::withMessages([
-                        'estado' => 'A encomenda tem uma fatura associada e exige reversão financeira antes do cancelamento.',
-                    ]);
-                }
-
+                $this->financeiroService->cancelPristineInvoiceForOrder($encomenda);
                 $this->cancelStockAction->execute($encomenda, $actor);
             }
 

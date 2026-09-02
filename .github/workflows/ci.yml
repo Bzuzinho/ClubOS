@@ -535,7 +535,7 @@ jobs:
           rm -f "${raw_report}"
 
           jq -e '
-            .version == "h5a-store-logistics-stock-audit-v2"
+            .version == "h5b-store-logistics-financial-audit-v3"
             and .read_only == true
             and .schema_detected.tables.loja_encomendas == true
             and .schema_detected.tables.loja_encomenda_itens == true
@@ -551,10 +551,17 @@ jobs:
             and .schema_detected.store_order_item_fields.product_column == "article_id"
             and .schema_detected.store_order_item_fields.variant_column == "product_variant_id"
             and .summary.total_store_orders_scanned >= 0
+            and .summary.canonical_invoice_linked_count >= 0
+            and .summary.legacy_without_invoice_count >= 0
+            and .summary.missing_invoice_link_count >= 0
+            and .summary.invalid_invoice_link_count >= 0
+            and .summary.invoice_contract_mismatch_count >= 0
             and .summary.cancelled_stock_unbalanced_count >= 0
             and .summary.critical_count >= 0
             and .summary.warning_count >= 0
             and .interpretation.cancelled_order_is_balanced_when_exit_and_return_match == true
+            and .interpretation.canonical_store_invoice_contract_active == true
+            and .interpretation.legacy_orders_without_invoice_are_reported_without_backfill == true
             and .interpretation.no_data_changed == true
           ' "${local_report}" >/dev/null
 
@@ -563,6 +570,8 @@ jobs:
             echo ''
             echo "- Commit: \`${GITHUB_SHA}\`"
             echo "- Store orders/items scanned: \`$(jq -r '.summary.total_store_orders_scanned' "${local_report}")/$(jq -r '.summary.total_store_order_items_scanned' "${local_report}")\`"
+            echo "- Canonical invoices / legacy without invoice: \`$(jq -r '.summary.canonical_invoice_linked_count' "${local_report}")/$(jq -r '.summary.legacy_without_invoice_count' "${local_report}")\`"
+            echo "- Missing/invalid/mismatched invoice links: \`$(jq -r '(.summary.missing_invoice_link_count|tostring) + "/" + (.summary.invalid_invoice_link_count|tostring) + "/" + (.summary.invoice_contract_mismatch_count|tostring)' "${local_report}")\`"
             echo "- Cancelled stock restored/unbalanced: \`$(jq -r '.summary.cancelled_stock_restored_count' "${local_report}")/$(jq -r '.summary.cancelled_stock_unbalanced_count' "${local_report}")\`"
             echo "- Missing/duplicate physical exits: \`$(jq -r '.summary.missing_physical_exit_count' "${local_report}")/$(jq -r '.summary.duplicate_physical_exit_count' "${local_report}")\`"
             echo "- Critical/warning findings: \`$(jq -r '.summary.critical_count' "${local_report}")/$(jq -r '.summary.warning_count' "${local_report}")\`"

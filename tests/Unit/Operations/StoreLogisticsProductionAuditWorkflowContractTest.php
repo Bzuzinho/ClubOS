@@ -16,9 +16,13 @@ final class StoreLogisticsProductionAuditWorkflowContractTest extends TestCase
             'php artisan inventory:audit-store-logistics-stock --json --report-path=',
             $workflow,
         );
-        $this->assertStringContainsString('.version == "h5a-store-logistics-stock-audit-v2"', $workflow);
+        $this->assertStringContainsString('.version == "h5b-store-logistics-financial-audit-v3"', $workflow);
         $this->assertStringContainsString('.read_only == true', $workflow);
+        $this->assertStringContainsString('.summary.canonical_invoice_linked_count >= 0', $workflow);
+        $this->assertStringContainsString('.summary.legacy_without_invoice_count >= 0', $workflow);
+        $this->assertStringContainsString('.summary.invoice_contract_mismatch_count >= 0', $workflow);
         $this->assertStringContainsString('.summary.cancelled_stock_unbalanced_count >= 0', $workflow);
+        $this->assertStringContainsString('.interpretation.canonical_store_invoice_contract_active == true', $workflow);
         $this->assertStringContainsString('.interpretation.no_data_changed == true', $workflow);
         $this->assertStringContainsString('store-logistics-lifecycle-readiness-${{ github.sha }}', $workflow);
         $this->assertStringContainsString('Artifact contains aggregate counts only; no row or user identifiers.', $workflow);
