@@ -82,6 +82,24 @@ final class ExternalFiscalReceiptRecordingCommandTest extends TestCase
         $this->assertContains('missing_receipt_number', $payload['blocked_reasons']);
     }
 
+    public function test_manual_mode_rejects_a_provider_different_from_the_productive_provider(): void
+    {
+        [, , , $request] = $this->paidPendingChain();
+        $before = $this->snapshot();
+
+        [$exitCode, $payload] = $this->callJson($request->id, [
+            '--provider' => 'unexpected_provider',
+            '--receipt-number' => 'REC-EXT-UNEXPECTED',
+            '--issued-at' => '2026-06-11',
+            '--apply' => true,
+            '--confirm-manual-receipt' => true,
+        ]);
+
+        $this->assertSame(1, $exitCode);
+        $this->assertContains('provider_not_allowed_in_manual_operation_mode', $payload['blocked_reasons']);
+        $this->assertSame($before, $this->snapshot());
+    }
+
     public function test_apply_without_issued_at_blocks(): void
     {
         [, , , $request] = $this->paidPendingChain();

@@ -247,7 +247,12 @@ class FiscalDocumentRequestController extends Controller
             'bank_statement_id' => ['nullable', 'exists:bank_statements,id'],
             'mapa_conciliacao_id' => ['nullable', 'exists:mapa_conciliacao,id'],
             'financial_entry_id' => ['nullable', 'exists:financial_entries,id'],
-            'provider' => ['required', 'string', 'max:50'],
+            'provider' => [
+                'required',
+                'string',
+                'max:50',
+                Rule::in([(string) config('fiscal.provider', FiscalDocumentRequest::PROVIDER_WINTOUCH)]),
+            ],
             'document_type' => ['required', Rule::in(FiscalDocumentRequest::DOCUMENT_TYPES)],
             'status' => ['nullable', Rule::in(FiscalDocumentRequest::STATUSES)],
             'priority' => ['nullable', Rule::in(FiscalDocumentRequest::PRIORITIES)],

@@ -29,7 +29,7 @@ class FiscalDocumentRequestService
 
         $query = FiscalDocumentRequest::query()
             ->where('invoice_id', $invoiceId)
-            ->where('provider', $provider ?? FiscalDocumentRequest::PROVIDER_WINTOUCH)
+            ->where('provider', $provider ?? config('fiscal.provider', FiscalDocumentRequest::PROVIDER_WINTOUCH))
             ->whereIn('status', [
                 FiscalDocumentRequest::STATUS_PENDING,
                 FiscalDocumentRequest::STATUS_IN_PROGRESS,
@@ -154,7 +154,7 @@ class FiscalDocumentRequestService
             ? $invoice->loadMissing(['user', 'items'])
             : Invoice::query()->with(['user', 'items'])->findOrFail($invoice);
 
-        $provider = $options['provider'] ?? FiscalDocumentRequest::PROVIDER_WINTOUCH;
+        $provider = $options['provider'] ?? config('fiscal.provider', FiscalDocumentRequest::PROVIDER_WINTOUCH);
         $documentType = $options['document_type'] ?? FiscalDocumentRequest::DOCUMENT_TYPE_RECEIPT;
 
         $existingRequest = $this->findActiveForInvoice($resolvedInvoice, $provider, $documentType);

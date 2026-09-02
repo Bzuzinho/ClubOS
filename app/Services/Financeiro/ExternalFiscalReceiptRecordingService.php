@@ -187,6 +187,11 @@ final class ExternalFiscalReceiptRecordingService
         $provider ??= $this->stringOrNull($request->provider);
         if ($provider === null) {
             $blocked[] = 'missing_provider';
+        } elseif (
+            (string) config('fiscal.operation_mode', 'manual_wintouch') === 'manual_wintouch'
+            && $provider !== (string) config('fiscal.provider', FiscalDocumentRequest::PROVIDER_WINTOUCH)
+        ) {
+            $blocked[] = 'provider_not_allowed_in_manual_operation_mode';
         }
 
         if ($receiptNumber === null) {

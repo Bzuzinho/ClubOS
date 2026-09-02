@@ -508,6 +508,60 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+      - name: Collect Fiscal production operational readiness audit
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          local_report="${GITHUB_WORKSPACE}/fiscal-operational-readiness.json"
+          remote_report="/tmp/clubos-fiscal-operational-readiness-${GITHUB_SHA}.json"
+
+          ssh \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="${HOME}/.ssh/known_hosts" \
+            "${VM_USER}@${VM_HOST}" \
+            "cd '${VM_APP_DIR}' && php artisan finance:audit-fiscal-operational-readiness --json --report-path='${remote_report}' >/dev/null && cat '${remote_report}' && rm -f '${remote_report}'" \
+            > "${local_report}"
+
+          jq -e '
+            .version == "h4-fiscal-operational-readiness-v1"
+            and .read_only == true
+            and .contract.operation_mode == "manual_wintouch"
+            and .contract.provider == "wintouch"
+            and .contract.manual_contract_configured == true
+            and .contract.automatic_provider_adapter_count == 0
+            and .contract.automatic_issue_enabled == false
+            and .schema_detected.required_schema_present == true
+            and .route_contract.all_required_routes_present == true
+            and .summary.critical_count == 0
+            and .summary.ready == true
+            and .interpretation.no_data_changed == true
+          ' "${local_report}" >/dev/null
+
+          {
+            echo '## Fiscal production operational readiness audit'
+            echo ''
+            echo "- Commit: \`${GITHUB_SHA}\`"
+            echo "- Mode/provider: \`$(jq -r '.contract.operation_mode' "${local_report}")/$(jq -r '.contract.provider' "${local_report}")\`"
+            echo "- Automatic adapters: \`$(jq -r '.contract.automatic_provider_adapter_count' "${local_report}")\`"
+            echo "- Fiscal requests scanned: \`$(jq -r '.summary.total_fiscal_requests_scanned' "${local_report}")\`"
+            echo "- Pending/issued: \`$(jq -r '.summary.pending_request_count' "${local_report}")/$(jq -r '.summary.issued_document_count' "${local_report}")\`"
+            echo "- Critical findings: \`$(jq -r '.summary.critical_count' "${local_report}")\`"
+            echo "- Warnings: \`$(jq -r '.summary.warning_count' "${local_report}")\`"
+            echo "- Ready: \`$(jq -r '.summary.ready' "${local_report}")\`"
+            echo '- Artifact contains aggregate counts only; no row or user identifiers.'
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload Fiscal production operational readiness audit
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: fiscal-production-operational-readiness-${{ github.sha }}
+          path: fiscal-operational-readiness.json
+          if-no-files-found: error
+          retention-days: 30
+
       - name: Gate Access Control critical findings
         if: steps.access_control_audit.outcome == 'success'
         shell: bash
@@ -540,5 +594,6 @@ jobs:
             echo '- Desportivo legacy readiness audit: collected read-only from production'
             echo '- Access Control readiness audit: collected, artifact preserved and critical findings gated separately'
             echo '- Family final schema audit: canonical tables present and retired legacy structures physically absent'
+            echo '- Fiscal operational readiness audit: manual Wintouch contract active, automatic provider disabled and critical findings gated'
             echo '- Result: successful'
           } >> "${GITHUB_STEP_SUMMARY}"

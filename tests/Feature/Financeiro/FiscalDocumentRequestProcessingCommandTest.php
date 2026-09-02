@@ -26,6 +26,7 @@ final class FiscalDocumentRequestProcessingCommandTest extends TestCase
     {
         parent::setUp();
 
+        config(['fiscal.operation_mode' => 'provider_api']);
         Carbon::setTestNow(Carbon::parse('2026-07-17 12:00:00'));
         FakeFiscalProviderAdapter::$result = FiscalDocumentProviderResult::success(
             externalDocumentNumber: 'WT-REC-1',
@@ -143,6 +144,28 @@ final class FiscalDocumentRequestProcessingCommandTest extends TestCase
         $this->assertSame(1, $exitCode);
         $this->assertContains('provider_adapter_not_configured', $payload['items'][0]['blocked_reasons']);
         $this->assertSame('blocked_provider_adapter_not_configured', $payload['items'][0]['action']);
+        $this->assertSame($before, $this->snapshot());
+    }
+
+    public function test_apply_is_fail_closed_in_manual_wintouch_mode_even_with_an_adapter_registered(): void
+    {
+        config(['fiscal.operation_mode' => 'manual_wintouch']);
+        $this->app->instance(FiscalDocumentProviderAdapter::class, new FakeFiscalProviderAdapter());
+        [, , , $request] = $this->paidPendingChain();
+        $before = $this->snapshot();
+
+        $exitCode = Artisan::call('finance:process-fiscal-document-requests', [
+            '--fiscal-request' => [$request->id],
+            '--apply' => true,
+            '--confirm-external-issue' => true,
+            '--json' => true,
+        ]);
+        $payload = json_decode(trim(Artisan::output()), true);
+
+        $this->assertSame(1, $exitCode);
+        $this->assertSame('manual_wintouch', $payload['operation_mode']);
+        $this->assertContains('automated_provider_mode_disabled', $payload['items'][0]['blocked_reasons']);
+        $this->assertSame('blocked_automated_provider_mode_disabled', $payload['items'][0]['action']);
         $this->assertSame($before, $this->snapshot());
     }
 

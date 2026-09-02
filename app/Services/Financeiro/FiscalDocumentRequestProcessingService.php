@@ -59,6 +59,12 @@ final class FiscalDocumentRequestProcessingService
             return $this->payload($filters, $items, dryRun: false, apply: true, confirmExternalIssue: true, exportPath: null);
         }
 
+        if (! $this->automatedProviderIssuanceEnabled()) {
+            $items = $this->blockItems($items, 'automated_provider_mode_disabled', 'blocked_automated_provider_mode_disabled');
+
+            return $this->payload($filters, $items, dryRun: false, apply: true, confirmExternalIssue: true, exportPath: null);
+        }
+
         $adapterMap = $this->providerAdapters();
         $missingProvider = $this->firstMissingProvider($items, $adapterMap);
         if ($missingProvider !== null) {
@@ -426,6 +432,7 @@ final class FiscalDocumentRequestProcessingService
         return [
             'version' => self::VERSION,
             'generated_at' => Carbon::now()->toIso8601String(),
+            'operation_mode' => (string) config('fiscal.operation_mode', 'manual_wintouch'),
             'dry_run' => $dryRun,
             'apply' => $apply,
             'confirm_external_issue' => $confirmExternalIssue,
@@ -439,6 +446,11 @@ final class FiscalDocumentRequestProcessingService
             'export_path' => $exportPath,
             'read_only_when_dry_run' => $dryRun,
         ];
+    }
+
+    private function automatedProviderIssuanceEnabled(): bool
+    {
+        return (string) config('fiscal.operation_mode', 'manual_wintouch') === 'provider_api';
     }
 
     /**

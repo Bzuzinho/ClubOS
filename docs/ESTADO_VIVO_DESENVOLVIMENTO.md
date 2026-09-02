@@ -54,7 +54,7 @@ Stack produtiva: Laravel 13, PHP 8.3, React 19 + TypeScript, Inertia 2, Vite, Po
 | Competições / resultados | 74% | H3e integrou programa, inscrições e resultados sobre `competition → prova → atleta`, com gravação idempotente e isolamento integral por clube; H3g fecha a sua projeção read-only em Análise. Permanecem reporting avançado transversal e refinamentos de UX. |
 | Eventos | 75% | Lifecycle, recorrência, convocatórias e integrações corrigidos. H1.18 garante entrada pelo menu em desktop/mobile; falta remover estruturas antigas, criar contract tests Eventos ↔ Desportivo e E2E das operações críticas. |
 | Financeiro geral | 89% | Maduro; CRUDs legacy de transações/categorias aposentados e antigo `Financeiro/Edit` converge para o fluxo canónico. H1.18 garante entrada pelo menu em desktop/mobile; prioridade: preservar invariantes, evitar novas fontes de verdade e acrescentar E2E financeiro crítico. |
-| Fiscal | 65% | Workflow manual/controlado existe; falta decidir provider real ou formalizar definitivamente o modelo manual produtivo. |
+| Fiscal | 82% | H4 formaliza `manual_wintouch` como modo produtivo: emissão externa e confirmação no ClubOS, sem chamada DLL/.NET pelo Laravel/Linux. O processamento automático fica fail-closed sem `provider_api`; audit agregado pós-deploy valida contrato, schema, rotas e integridade crítica. Falta confirmar o artifact produtivo para encerrar H4. |
 | Inventário / Logística | 70% | `stock_movements` é o ledger canónico e H2.4b integrou o stock de variantes com atualização atómica produto+variante. Falta fechar o lifecycle transversal de Logística e ampliar QA operacional. |
 | Loja | 60% | Falta lifecycle completo produto → stock → encomenda → pagamento → fiscal → cancelamento/devolução/reposição. |
 | Comunicação | 60% | Falta pipeline assíncrono persistente com attempts, retry, idempotência e provider IDs. |
@@ -947,6 +947,14 @@ O audit produtivo anterior confirmou `presences`, `training_sessions` e `call_up
 
 PR #295 merged em `a971df9e189be56f6e59f526764611511f743868`; CI #1069 totalmente verde na PR e CI #1070 totalmente verde em `main`, incluindo PostgreSQL concorrente, browser QA multi-browser/mobile, deploy para a Oracle VM e quatro auditorias pós-deploy. O artifact produtivo confirmou `cleanup_closed=true`, 3/3 candidatos removidos, zero bloqueios, zero linhas a rever e zero reconciliação pendente.
 
+### H4 — Decisão e fecho Fiscal — implementação pronta
+
+O contrato produtivo fica fixado em `manual_wintouch`: pagamento e documento fiscal são operações separadas; o pedido nasce automaticamente/idempotente quando a fatura fica paga; o operador emite no Wintouch e confirma depois no ClubOS a identidade do documento externo. A DLL/.NET não é executada pelo Laravel/Linux.
+
+`finance:process-fiscal-document-requests --apply` passa a falhar fechado no modo manual mesmo que apareça um adapter acidental. Uma futura `provider_api` exige adapter HTTP real e mudança deliberada do contract. A abstração plural `FiscalProviders` sem consumidores foi retirada, preservando apenas `FiscalProvider\FiscalDocumentProviderAdapter`, já usado e testado.
+
+O novo `finance:audit-fiscal-operational-readiness` é read-only e agregado: confirma configuração, schema, sete rotas operacionais, ausência de adapters automáticos e zero findings críticos do audit fiscal. A CI recolhe o artifact após deploy e exige `summary.ready=true`. Não existe migration nem alteração de dados; o fecho final de H4 aguarda essa evidência produtiva.
+
 ---
 
 ## 8. Dívida estrutural prioritária
@@ -954,7 +962,7 @@ PR #295 merged em `a971df9e189be56f6e59f526764611511f743868`; CI #1069 totalment
 - Desportivo: H3 fechado ponta a ponta; preservar os contracts e expandir UX/E2E sem reabrir fontes legacy.
 - Eventos: remover estruturas de compatibilidade sem consumo e criar contract tests com Desportivo.
 - Rotas: modularização H2.5 fechada; manter o contract topológico e retirar redirects apenas com telemetria/prova de zero consumidores externos.
-- Fiscal: implementar provider real ou formalizar definitivamente o workflow manual como modelo produtivo.
+- Fiscal: contrato manual Wintouch formalizado; concluir H4 com o artifact produtivo `summary.ready=true` e preservar o gate em releases futuras.
 - Frontend QA: baseline automático H1.17/H1.18 ativo com autenticação e navegação core; expandir workspaces, operações críticas, perfis não-admin, tablet e Portal sem enfraquecer os gates.
 - Access Control: resolver os 83 warnings de capability granular sem reabrir bypasses de módulo.
 
@@ -971,7 +979,7 @@ PR #295 merged em `a971df9e189be56f6e59f526764611511f743868`; CI #1069 totalment
 | 5 | H8 | Reporting consolidado transversal. |
 | 6 | H9 | Website: header/footer, notícias e polish final. |
 
-Próximo passo ativo: H4 — decidir e fechar o fluxo Fiscal produtivo. H3 Desportivo, H2.5, stock por variante e Família/EE estão estruturalmente fechados. A ação operacional Cloudflare R2 permanece pendência externa separada. A matriz H1.17/H1.18 deve ser expandida dentro de cada workstream funcional.
+Próximo passo ativo: concluir H4 com CI, deploy e evidência produtiva do contrato `manual_wintouch`. H3 Desportivo, H2.5, stock por variante e Família/EE estão estruturalmente fechados. A ação operacional Cloudflare R2 permanece pendência externa separada. A matriz H1.17/H1.18 deve ser expandida dentro de cada workstream funcional.
 
 ---
 
@@ -979,6 +987,7 @@ Próximo passo ativo: H4 — decidir e fechar o fluxo Fiscal produtivo. H3 Despo
 
 | Data | Módulo | Desenvolvimento / análise | Evidência | Estado / pendências |
 |---|---|---|---|---|
+| 2026-09-02 | Fiscal / Wintouch | H4 fixa `manual_wintouch` como modo produtivo, bloqueia emissão automática fora de `provider_api`, remove a abstração provider duplicada e acrescenta audit agregado de prontidão ao pós-deploy. | `docs/modules/fiscal_manual_operational_contract.md`; `FiscalOperationalReadinessCommandTest`; `FiscalDocumentRequestProcessingCommandTest`; artifact produtivo fiscal pendente | Implementação pronta, sem migration ou alteração de dados; aguarda CI/merge/deploy e `summary.ready=true` em produção. |
 | 2026-09-02 | Desportivo / Análise e legacy | H3g fecha reporting read-only sobre fontes canónicas, remove a cadeia Performance/KeyValue órfã e torna `cleanup_closed=true` um gate produtivo obrigatório, preservando tabelas/dados owned por Eventos. | PR #295; CI #1069/#1070; merge `a971df9e189be56f6e59f526764611511f743868`; `SportsAnalysisWorkspaceFunctionalTest`; artifact produtivo Desportivo | Integrado e deployado; H3 fechado, 3/3 candidatos removidos, zero bloqueios/reconciliação pendente e estruturas Eventos preservadas. |
 | 2026-09-02 | Desportivo / Portal | H3f fixa agenda, `training_athletes` e resultados como projeções do atleta/clube autorizados, remove writes implícitos em GET e conserva `competition_id` nos eventos projetados. | PR #292; CI #1063/#1064; merge `48afd2173d41996ae7bf95ddc8ae3ad831ef448c`; `PortalSportsProjectionContractTest` | Integrado e deployado através da recuperação de infraestrutura #293/#1066; H3g avança para reporting + cleanup legacy. |
 | 2026-09-02 | Infraestrutura / Deploy | O runner passou a entregar o commit privado à VM por Git bundle completo e verificado, eliminando credenciais GitHub persistentes na VM sem alterar releases atómicas, healthchecks ou rollback. | PR #293; CI #1065/#1066; merge `4f6425e77a10b3d63abfd719ef92db66a4b623dd`; deploy e quatro auditorias produtivas verdes | Incidente de autenticação do CI #1064 resolvido; produção atualizada e transporte privado endurecido. |
