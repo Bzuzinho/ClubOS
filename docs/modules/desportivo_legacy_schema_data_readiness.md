@@ -31,6 +31,8 @@ The production audit collected by CI workflow #574 confirmed the three Desportiv
 
 The post-deploy audit from workflow #1068 reconfirmed the final state on commit `3768bdb7895c5a6f4d4b6c8fc667cac64ac55996`: all three candidates are `removed`, `removal_blocked_count=0`, `candidate_rows_requiring_review=0` and `presence_unreconciled_count=0`. `event_results` remains empty and `event_attendances` retains its 123 Eventos-owned rows; neither is a Sports removal candidate.
 
+H3g activated the mandatory gate in PR #295. Workflow #1070 deployed merge `a971df9e189be56f6e59f526764611511f743868` and produced the first gated production artifact: `cleanup_closed=true`, 3/3 candidates `removed`, zero runtime references, zero blocked candidates, zero rows requiring review and zero unreconciled presences. The same artifact reconfirmed the preservation of all 123 Eventos-owned `event_attendances` rows.
+
 The physical cleanup is implemented by `2026_08_17_141500_drop_retired_desportivo_legacy_tables.php` and remains fail-closed: before any schema mutation it verifies that all three targets and the preserved `training_session_attendance` / `training_session_metrics` dependents are empty. If any row is present, the migration aborts without dropping a table.
 
 `training_session_attendance` and `training_session_metrics` are deliberately preserved. Their incoming foreign keys to `training_sessions` are detached only where required by the database engine; the child tables themselves are not removed.
