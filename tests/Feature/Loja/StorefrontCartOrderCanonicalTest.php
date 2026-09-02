@@ -2,12 +2,18 @@
 
 namespace Tests\Feature\Loja;
 
+use App\Models\CostCenter;
+use App\Models\Familia;
+use App\Models\Invoice;
+use App\Models\InvoiceItem;
 use App\Models\LojaEncomenda;
 use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Models\StockMovement;
 use App\Models\User;
+use App\Services\Loja\LojaFinanceiroService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Str;
 use Tests\TestCase;
 
 class StorefrontCartOrderCanonicalTest extends TestCase
@@ -92,6 +98,7 @@ class StorefrontCartOrderCanonicalTest extends TestCase
             ->assertJsonPath('message', 'Encomenda submetida com sucesso.');
 
         $order = LojaEncomenda::query()->latest()->firstOrFail();
+        $invoice = Invoice::query()->findOrFail($order->fatura_id);
 
         $this->assertDatabaseHas('loja_encomenda_itens', [
             'loja_encomenda_id' => $order->id,
@@ -109,6 +116,24 @@ class StorefrontCartOrderCanonicalTest extends TestCase
             'quantity' => 3,
             'reference_type' => 'store_order_item',
         ]);
+        $this->assertSame($user->id, $invoice->user_id);
+        $this->assertSame('store_order', $invoice->origem_tipo);
+        $this->assertSame($order->id, $invoice->origem_id);
+        $this->assertSame('material', $invoice->tipo);
+        $this->assertSame('pendente', $invoice->estado_pagamento);
+        $this->assertSame(126.0, (float) $invoice->valor_total);
+        $this->assertSame(126.0, (float) $invoice->valor_em_aberto);
+        $this->assertDatabaseHas('invoice_items', [
+            'fatura_id' => $invoice->id,
+            'descricao' => 'Casaco Clube',
+            'quantidade' => 3,
+            'total_linha' => 126,
+            'produto_id' => $product->id,
+        ]);
+        $this->assertDatabaseMissing('stock_movements', [
+            'reference_type' => 'invoice_item',
+            'article_id' => $product->id,
+        ]);
         $this->assertDatabaseHas('in_app_alerts', [
             'user_id' => $admin->id,
             'title' => 'Nova encomenda na Loja',
@@ -122,7 +147,87 @@ class StorefrontCartOrderCanonicalTest extends TestCase
             ->assertOk()
             ->assertJsonPath('items.0.produto.id', $product->id)
             ->assertJsonPath('items.0.produto.slug', 'casaco-clube')
-            ->assertJsonPath('items.0.total_linha', 126);
+            ->assertJsonPath('items.0.total_linha', 126)
+            ->assertJsonPath('invoice.id', $invoice->id)
+            ->assertJsonPath('invoice.estado_pagamento', 'pendente')
+            ->assertJsonPath('invoice.valor_em_aberto', 126);
+    }
+
+    public function test_store_invoice_uses_target_profile_cost_center_and_is_idempotent(): void
+    {
+        $buyer = User::factory()->create();
+        $target = User::factory()->create();
+        $costCenter = CostCenter::query()->create([
+            'codigo' => 'LOJA-H5B',
+            'nome' => 'Loja H5b',
+            'tipo' => 'equipa',
+            'ativo' => true,
+        ]);
+        $target->centrosCusto()->attach($costCenter->id, [
+            'id' => (string) Str::uuid(),
+            'peso' => 1,
+        ]);
+
+        $family = Familia::query()->create([
+            'nome' => 'Família Loja H5b',
+            'responsavel_user_id' => $buyer->id,
+            'ativo' => true,
+        ]);
+        $family->members()->attach($buyer->id, [
+            'id' => (string) Str::uuid(),
+            'papel_na_familia' => 'responsavel',
+            'pode_editar' => true,
+            'pode_ver_financeiro' => true,
+            'pode_ver_desportivo' => true,
+            'pode_ver_documentos' => true,
+            'pode_ver_comunicacoes' => true,
+        ]);
+        $family->members()->attach($target->id, [
+            'id' => (string) Str::uuid(),
+            'papel_na_familia' => 'educando',
+            'pode_editar' => false,
+            'pode_ver_financeiro' => true,
+            'pode_ver_desportivo' => true,
+            'pode_ver_documentos' => true,
+            'pode_ver_comunicacoes' => true,
+        ]);
+
+        $product = Product::query()->create([
+            'codigo' => 'CAN-ORDER-H5B',
+            'slug' => 'produto-h5b',
+            'nome' => 'Produto H5b',
+            'preco' => 18,
+            'preco_venda' => 20,
+            'stock' => 5,
+            'stock_reservado' => 0,
+            'ativo' => true,
+            'visible_in_store' => true,
+            'track_stock' => true,
+        ]);
+
+        $this->actingAs($buyer)->postJson('/api/loja/carrinho/itens', [
+            'article_id' => $product->id,
+            'quantidade' => 2,
+        ])->assertCreated();
+
+        $orderId = (string) $this->actingAs($buyer)
+            ->postJson('/api/loja/carrinho/submeter', ['target_user_id' => $target->id])
+            ->assertCreated()
+            ->json('encomenda_id');
+
+        $order = LojaEncomenda::query()->findOrFail($orderId);
+        $invoice = Invoice::query()->findOrFail($order->fatura_id);
+
+        $this->assertSame($target->id, $invoice->user_id);
+        $this->assertSame($costCenter->id, $invoice->centro_custo_id);
+        $this->assertSame($costCenter->id, InvoiceItem::query()->where('fatura_id', $invoice->id)->value('centro_custo_id'));
+
+        $resolvedId = app(LojaFinanceiroService::class)->prepareForOrder($order->fresh());
+
+        $this->assertSame($invoice->id, $resolvedId);
+        $this->assertSame(1, Invoice::query()->where('origem_tipo', 'store_order')->where('origem_id', $order->id)->count());
+        $this->assertSame(1, InvoiceItem::query()->where('fatura_id', $invoice->id)->count());
+        $this->assertSame(1, StockMovement::query()->where('reference_type', 'store_order_item')->count());
     }
 
     public function test_submit_order_with_variant_keeps_variant_snapshot_outside_product_ledger(): void
@@ -253,6 +358,8 @@ class StorefrontCartOrderCanonicalTest extends TestCase
             ->assertJsonValidationErrors('estado');
 
         $this->assertSame(LojaEncomenda::ESTADO_CANCELADO, $order->fresh()->estado);
+        $this->assertSame('cancelado', $order->fresh()->invoice->estado_pagamento);
+        $this->assertSame(0.0, (float) $order->fresh()->invoice->valor_em_aberto);
         $this->assertSame(10, (int) $product->fresh()->stock);
         $this->assertSame(4, (int) $variant->fresh()->stock);
     }
@@ -284,7 +391,13 @@ class StorefrontCartOrderCanonicalTest extends TestCase
             ->assertCreated()
             ->json('encomenda_id');
         $order = LojaEncomenda::query()->findOrFail($orderId);
-        $order->update(['fatura_id' => (string) str()->uuid()]);
+        $invoice = $order->invoice()->firstOrFail();
+        $invoice->forceFill([
+            'estado_pagamento' => 'pago',
+            'valor_pago' => $invoice->valor_total,
+            'valor_em_aberto' => 0,
+            'data_pagamento' => now()->toDateString(),
+        ])->saveQuietly();
 
         $this->actingAs($admin)
             ->patchJson('/api/admin/loja/encomendas/'.$orderId.'/estado', ['estado' => 'cancelado'])

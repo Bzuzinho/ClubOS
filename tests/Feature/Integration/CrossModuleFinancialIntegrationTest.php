@@ -189,32 +189,39 @@ class CrossModuleFinancialIntegrationTest extends TestCase
             ->postJson('/api/loja/carrinho/submeter', [])
             ->assertCreated()
             ->json('encomenda_id');
+        $storeInvoice = Invoice::query()
+            ->where('origem_tipo', 'store_order')
+            ->where('origem_id', $storeOrderId)
+            ->firstOrFail();
 
         $this->assertSame(0, Movement::query()->where('origem_tipo', 'stock')->where('origem_id', $storeOrderId)->count());
+        $this->assertSame($buyer->id, $storeInvoice->user_id);
+        $this->assertSame(70.0, (float) $storeInvoice->valor_total);
+        $this->assertSame(1, $storeInvoice->items()->count());
+        $this->assertSame(0, FinancialEntry::query()->where('fatura_id', $storeInvoice->id)->count());
 
         $this->actingAs($admin)
             ->patchJson('/api/admin/loja/encomendas/'.$storeOrderId.'/estado', ['estado' => 'entregue'])
             ->assertOk();
 
-        $storeMovement = Movement::query()
-            ->where('origem_tipo', 'stock')
-            ->where('origem_id', $storeOrderId)
-            ->firstOrFail();
-
-        $this->assertSame('receita', $storeMovement->classificacao);
-        $this->assertSame(70.0, (float) $storeMovement->valor_total);
+        $this->assertSame(0, Movement::query()->where('origem_tipo', 'stock')->where('origem_id', $storeOrderId)->count());
         $this->assertSame(0, Sale::query()->count());
-        $this->assertSame(0, FinancialEntry::query()->where('origem_tipo', 'stock')->where('fatura_id', '!=', null)->count());
+        $this->assertSame(0, FinancialEntry::query()->where('fatura_id', $storeInvoice->id)->count());
 
-        $storeSettlement = app(FinancialSettlementService::class)->settleMovement($storeMovement, [
+        app(FinancialSettlementService::class)->settleInvoices([
+            ['invoice_id' => $storeInvoice->id, 'amount' => 70.00],
+        ], [
+            'amount' => 70.00,
             'method' => 'dinheiro',
             'payment_date' => now()->toDateString(),
+            'user_id' => $buyer->id,
         ]);
 
-        $storeEntry = $storeSettlement['financial_entry'];
-        $this->assertSame('movement', $storeEntry->origem_tipo);
-        $this->assertSame((string) $storeMovement->id, (string) $storeEntry->origem_id);
-        $this->assertSingleMovementEntryFact($storeMovement->fresh(), $storeEntry->fresh(), 'receita', 70.00);
+        $storeInvoice->refresh();
+        $this->assertSame('pago', $storeInvoice->estado_pagamento);
+        $this->assertSame(0.0, (float) $storeInvoice->valor_em_aberto);
+        $this->assertSame(1, PaymentAllocation::query()->where('invoice_id', $storeInvoice->id)->confirmed()->count());
+        $this->assertSingleInvoiceFact($storeInvoice, 'receita', 70.00);
 
         [$logisticsAdmin, $logisticsRequest, $logisticsProduct] = $this->createInvoicedRequest();
         $logisticsInvoice = Invoice::query()->findOrFail($logisticsRequest->financial_invoice_id);
@@ -411,7 +418,7 @@ class CrossModuleFinancialIntegrationTest extends TestCase
             ['kind' => 'invoice', 'id' => (string) $monthlyInvoice->id, 'type' => 'receita', 'amount' => 40.00],
             ['kind' => 'invoice', 'id' => (string) $competitionInvoice->id, 'type' => 'receita', 'amount' => 27.50],
             ['kind' => 'invoice', 'id' => (string) $logisticsInvoice->id, 'type' => 'receita', 'amount' => 30.00],
-            ['kind' => 'financial_entry', 'id' => (string) $storeEntry->id, 'type' => 'receita', 'amount' => 70.00],
+            ['kind' => 'invoice', 'id' => (string) $storeInvoice->id, 'type' => 'receita', 'amount' => 70.00],
             ['kind' => 'financial_entry', 'id' => (string) $purchaseEntry->id, 'type' => 'despesa', 'amount' => 33.00],
             ['kind' => 'financial_entry', 'id' => (string) $convocationEntry->id, 'type' => 'despesa', 'amount' => round(abs((float) $convocationEntry->valor_pago), 2)],
             ['kind' => 'financial_entry', 'id' => (string) $sponsorshipEntry->id, 'type' => 'receita', 'amount' => 100.00],

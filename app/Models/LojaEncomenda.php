@@ -64,6 +64,11 @@ class LojaEncomenda extends Model
         return $this->belongsTo(User::class, 'updated_by');
     }
 
+    public function invoice(): BelongsTo
+    {
+        return $this->belongsTo(Invoice::class, 'fatura_id');
+    }
+
     public function itens(): HasMany
     {
         return $this->hasMany(LojaEncomendaItem::class, 'loja_encomenda_id');

@@ -364,7 +364,7 @@ class PortalPageController extends Controller
                 'categories' => $categories,
                 'notes' => [
                     'Os pedidos dependem sempre de confirmação de stock pelo clube.',
-                    'Artigos pagos podem gerar fatura quando a regra financeira estiver ativa.',
+                    'A submissão da encomenda gera a obrigação financeira correspondente.',
                     'Requisições e empréstimos podem exigir aprovação antes da entrega.',
                 ],
             ],

@@ -25,9 +25,24 @@ O cancelamento anterior à entrega passa a obedecer ao seguinte contrato:
 
 Se o histórico de stock estiver duplicado, desalinhado ou sobrecompensado, o cancelamento falha fechado e não altera nem o estado nem o stock. Encomendas sem impacto de stock — por exemplo, artigos sem tracking — podem ser canceladas sem criar movimentos artificiais.
 
-Uma encomenda que já tenha `fatura_id` também não pode atravessar este cancelamento stock-only. A reversão financeira/fiscal explícita pertence a H5d e tem de ocorrer antes da reposição.
+Uma encomenda com fatura canónica ainda virgem pode ser cancelada: a fatura fica logicamente `cancelado`, com saldo em aberto zero, e só depois o stock é reposto. Se existir pagamento, alocação, conciliação, recibo ou pedido fiscal, o fluxo falha fechado; a reversão financeira/fiscal explícita pertence a H5d.
 
-## 3. Auditoria operacional
+## 3. Estado implementado em H5b
+
+A submissão de uma encomenda com valor positivo cria, na mesma transação, uma única `Invoice` canónica:
+
+- `origem_tipo=store_order` e `origem_id=loja_encomendas.id`;
+- `loja_encomendas.fatura_id` aponta para essa fatura;
+- o titular é `target_user_id` quando a compra é para um perfil familiar e `user_id` nos restantes casos;
+- tipo `material`, saldo integralmente em aberto e vencimento a 15 dias;
+- itens copiados dos snapshots imutáveis da encomenda;
+- centro de custo do titular resolvido pelo contrato canónico, apenas quando existe um centro único ou um peso máximo sem empate.
+
+O índice parcial único sobre a origem `store_order`, em conjunto com o lock da encomenda, torna repetível a preparação financeira sem criar outra fatura ou outros itens. A fatura nasce oculta, recebe todos os itens e só depois é publicada, evitando comunicar uma obrigação incompleta.
+
+A saída física continua a existir exclusivamente em `stock_movements` com origem `store_order_item`. Entregar uma encomenda já ligada à fatura deixa de criar o `Movement` de receita legado. Esse caminho permanece apenas para encomendas históricas sem `fatura_id`, sem alterar automaticamente o passado.
+
+## 4. Auditoria operacional
 
 `inventory:audit-store-logistics-stock` é read-only e distingue:
 
@@ -37,32 +52,34 @@ Uma encomenda que já tenha `fatura_id` também não pode atravessar este cancel
 - reposição superior à saída;
 - saídas ausentes, duplicadas ou com quantidade divergente;
 - duplicação de saída entre Loja, fatura e requisição logística.
+- fatura canónica corretamente ligada à encomenda;
+- referência de fatura inexistente, origem/titular/valor divergente ou itens desalinhados;
+- encomendas anteriores à H5b ainda sem fatura, classificadas explicitamente como legado e sem backfill automático.
 
 Após cada deploy de `main`, a CI recolhe uma fotografia agregada de produção. O artifact não contém IDs de encomendas, produtos ou utilizadores. Nesta fase de readiness, dívida histórica é medida e preservada como evidência; não é corrigida nem escondida por um gate destrutivo.
 
-## 4. Lacunas deliberadamente ainda abertas
+## 5. Lacunas deliberadamente ainda abertas
 
-H5a não apresenta como concluído o que ainda é placeholder:
+H5b não apresenta como concluído o que pertence aos lotes seguintes:
 
-- `LojaFinanceiroService::prepareForOrder()` ainda não cria a fatura canónica;
-- a entrega cria atualmente um `Movement` de receita, não uma `Invoice` integrada com `PaymentAllocationService`;
 - a Loja ainda não deriva estado de pagamento das alocações confirmadas;
-- a emissão fiscal manual ainda não está ligada a uma fatura de Loja;
+- o pagamento da fatura já pode usar o `PaymentAllocationService`, mas a encomenda ainda não projeta automaticamente essa liquidação no seu próprio estado;
+- o pedido fiscal manual nasce pelo fluxo financeiro canónico quando a fatura fica paga, mas a operação Loja→pagamento→estado ainda será fechada ponta a ponta em H5c;
 - devolução posterior à entrega exige contrato financeiro/fiscal explícito antes da reposição de stock;
 - a máquina de estados completa deve separar pagamento, preparação, levantamento/entrega, cancelamento e devolução.
 
-## 5. Sequência dos próximos lotes
+## 6. Sequência dos próximos lotes
 
 | Lote | Resultado verificável |
 |---|---|
-| H5b | Encomenda ligada idempotentemente a `Invoice`, com itens e centro de custo estruturados, sem segunda saída de stock. |
+| H5b | Encomenda ligada idempotentemente a `Invoice`, com itens e centro de custo estruturados, sem segunda saída de stock. Implementado; falta evidência produtiva final. |
 | H5c | Pagamento confirmado por `PaymentAllocationService` projeta o estado da encomenda e cria o pedido fiscal manual pelo fluxo canónico. |
 | H5d | Cancelamento/devolução após efeitos financeiros usa reversão explícita e apenas depois repõe stock; sem apagar histórico. |
 | H5e | Lifecycle interno de compras, requisições, entregas e empréstimos de Logística fechado com QA operacional e contratos Desportivo↔core preservados. |
 
 Nenhum destes lotes pode introduzir custos do atleta em descrições textuais: atleta, invoice, centro de custo, evento e requisição mantêm ligações estruturadas e separadas da dívida.
 
-## 6. Evidência produtiva H5a
+## 7. Evidência produtiva H5a
 
 PR #299 foi integrada no merge `7e43de1370b787965be6ce1a5714c9976a35b983`. CI #1079 validou a PR e CI #1080 validou `main`, PostgreSQL concorrente, browser QA multi-browser/mobile/acessibilidade, deploy e auditorias pós-deploy.
 

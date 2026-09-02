@@ -3,6 +3,7 @@
 namespace Tests\Feature\Loja;
 
 use App\Http\Middleware\HandleInertiaRequests;
+use App\Models\Invoice;
 use App\Models\Movement;
 use App\Models\Product;
 use App\Models\User;
@@ -13,7 +14,7 @@ class StoreOrderRevenueMovementTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_delivered_store_order_generates_revenue_movement_visible_in_admin_finance_and_user_portal(): void
+    public function test_store_order_uses_canonical_invoice_visible_in_admin_finance_and_user_portal_without_revenue_movement(): void
     {
         $admin = User::factory()->admin()->create(['nome_completo' => 'Admin Financeiro']);
         $buyer = User::factory()->create([
@@ -47,6 +48,10 @@ class StoreOrderRevenueMovementTest extends TestCase
             ->postJson('/api/loja/carrinho/submeter', []);
 
         $orderId = (string) $response->assertCreated()->json('encomenda_id');
+        $invoice = Invoice::query()
+            ->where('origem_tipo', 'store_order')
+            ->where('origem_id', $orderId)
+            ->firstOrFail();
 
         $this->actingAs($admin)
             ->patchJson('/api/admin/loja/encomendas/' . $orderId . '/estado', [
@@ -55,22 +60,17 @@ class StoreOrderRevenueMovementTest extends TestCase
             ->assertOk()
             ->assertJsonPath('estado', 'entregue');
 
-        $movement = Movement::query()
-            ->where('origem_tipo', 'stock')
-            ->where('origem_id', $orderId)
-            ->firstOrFail();
-
-        $this->assertSame($buyer->id, $movement->user_id);
-        $this->assertSame('receita', $movement->classificacao);
-        $this->assertSame('material', $movement->tipo);
-        $this->assertSame('pendente', $movement->estado_pagamento);
-        $this->assertDatabaseHas('movement_items', [
-            'movimento_id' => $movement->id,
+        $this->assertSame($buyer->id, $invoice->user_id);
+        $this->assertSame('material', $invoice->tipo);
+        $this->assertSame('pendente', $invoice->estado_pagamento);
+        $this->assertDatabaseHas('invoice_items', [
+            'fatura_id' => $invoice->id,
             'descricao' => 'Fato de Treino',
             'quantidade' => 2,
             'total_linha' => 70,
             'produto_id' => $product->id,
         ]);
+        $this->assertSame(0, Movement::query()->where('origem_tipo', 'stock')->where('origem_id', $orderId)->count());
 
         $this->actingAs($admin)
             ->patchJson('/api/admin/loja/encomendas/' . $orderId . '/estado', [
@@ -83,7 +83,7 @@ class StoreOrderRevenueMovementTest extends TestCase
             'id' => $orderId,
             'estado' => 'entregue',
         ]);
-        $this->assertDatabaseCount('movements', 1);
+        $this->assertDatabaseCount('movements', 0);
         $this->assertDatabaseMissing('stock_movements', [
             'movement_type' => 'return',
             'reference_type' => 'store_order_item',
@@ -92,16 +92,17 @@ class StoreOrderRevenueMovementTest extends TestCase
         $financeResponse = $this->inertiaGetAs($admin, route('financeiro.index'));
         $financeResponse->assertOk();
         $financeResponse->assertJsonPath('component', 'Financeiro/Index');
-        $financeResponse->assertJsonPath('props.movimentos.0.id', $movement->id);
-        $financeResponse->assertJsonPath('props.movimentos.0.tipo', 'material');
+        $financeResponse->assertJsonPath('props.faturas.0.id', $invoice->id);
+        $financeResponse->assertJsonPath('props.faturas.0.tipo', 'material');
 
         $portalResponse = $this->inertiaGetAs($buyer, route('portal.payments'));
         $portalResponse->assertOk();
         $portalResponse->assertJsonPath('component', 'Portal/Payments');
         $portalResponse->assertJsonPath('props.hero.status', 'Pagamento pendente');
         $portalResponse->assertJsonPath('props.kpis.outstanding_value', 70);
-        $portalResponse->assertJsonPath('props.movements.0.id', $movement->id);
-        $portalResponse->assertJsonPath('props.movements.0.description', 'Loja - ' . $movement->referencia_pagamento);
+        $portalResponse->assertJsonPath('props.movements.0.id', $invoice->id);
+        $portalResponse->assertJsonPath('props.movements.0.description', 'material');
+        $portalResponse->assertJsonPath('props.movements.0.detail.kind', 'invoice');
     }
 
     private function inertiaGetAs(User $user, string $uri)
