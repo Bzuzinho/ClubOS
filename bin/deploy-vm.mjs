@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 
-import { existsSync } from 'node:fs';
+import { existsSync, rmSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 function requiredEnv(name) {
     const value = process.env[name]?.trim();
@@ -129,18 +131,30 @@ if (!existsSync(REMOTE_BACKEND_SCRIPT)) {
     process.exit(1);
 }
 
+const repositoryBundle = join(
+    process.env.RUNNER_TEMP || tmpdir(),
+    `clubos-repository-${localHead.slice(0, 12)}-${process.pid}.bundle`,
+);
+
+console.log('\n==> Empacotar commit Git validado no runner');
+run('git', ['bundle', 'create', repositoryBundle, 'HEAD']);
+run('git', ['bundle', 'verify', repositoryBundle]);
+
 const remoteTempDir = `/tmp/clubos-atomic-deploy-${localHead.slice(0, 12)}-${process.pid}`;
 const remoteBackendScript = `${remoteTempDir}/remote-deploy-backend.sh`;
 const remoteBuildDir = `${remoteTempDir}/build`;
+const remoteRepositoryBundle = `${remoteTempDir}/repository.bundle`;
 
 console.log('\n==> Preparar payload remoto da release');
 run('ssh', [...sshOptions, remote, `rm -rf ${shellQuote(remoteTempDir)} && mkdir -p ${shellQuote(remoteTempDir)} ${shellQuote(remoteBuildDir)}`]);
 run('scp', [...sshOptions, REMOTE_BACKEND_SCRIPT, `${remote}:${remoteBackendScript}`]);
+run('scp', [...sshOptions, repositoryBundle, `${remote}:${remoteRepositoryBundle}`]);
+rmSync(repositoryBundle, { force: true });
 run('scp', [...sshOptions, '-r', 'public/build/.', `${remote}:${remoteBuildDir}/`]);
 
 const executeBackend = [
     `chmod 700 ${shellQuote(remoteBackendScript)}`,
-    `sudo bash ${shellQuote(remoteBackendScript)} ${shellQuote(VM_APP_DIR)} ${shellQuote(VM_USER)} 'www-data' 'www-data' ${shellQuote(localHead)} ${shellQuote(remoteBuildDir)} ${shellQuote(repoUrl)}`,
+    `sudo bash ${shellQuote(remoteBackendScript)} ${shellQuote(VM_APP_DIR)} ${shellQuote(VM_USER)} 'www-data' 'www-data' ${shellQuote(localHead)} ${shellQuote(remoteBuildDir)} ${shellQuote(repoUrl)} ${shellQuote(remoteRepositoryBundle)}`,
 ].join(' && ');
 
 const executeAndCleanup = [

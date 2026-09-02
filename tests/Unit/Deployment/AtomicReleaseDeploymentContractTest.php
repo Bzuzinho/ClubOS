@@ -25,6 +25,8 @@ final class AtomicReleaseDeploymentContractTest extends TestCase
         self::assertStringContainsString('UserKnownHostsFile=', $orchestrator);
         self::assertStringContainsString('localHead', $orchestrator);
         self::assertStringContainsString('remoteBuildDir', $orchestrator);
+        self::assertStringContainsString("git', ['bundle', 'create'", $orchestrator);
+        self::assertStringContainsString('remoteRepositoryBundle', $orchestrator);
 
         self::assertStringContainsString('DEPLOY_ROOT="${APP_DIR}.deploy"', $remote);
         self::assertStringContainsString('RELEASES_DIR="${DEPLOY_ROOT}/releases"', $remote);
@@ -33,9 +35,13 @@ final class AtomicReleaseDeploymentContractTest extends TestCase
         self::assertStringContainsString('PREVIOUS_LINK="${DEPLOY_ROOT}/previous"', $remote);
         self::assertStringContainsString('atomic_exchange', $remote);
         self::assertStringContainsString('rollback_after_failed_switch', $remote);
+        self::assertStringContainsString('REPOSITORY_BUNDLE="$8"', $remote);
+        self::assertStringContainsString('bundle verify "${REPOSITORY_BUNDLE}"', $remote);
+        self::assertStringContainsString('fetch --force "${REPOSITORY_BUNDLE}"', $remote);
         self::assertStringContainsString('migrate --pretend --force', $remote);
         self::assertStringContainsString('migrate --force', $remote);
         self::assertStringNotContainsString('reset --hard origin/main', $remote);
+        self::assertStringNotContainsString('fetch --prune origin', $remote);
         self::assertStringNotContainsString('ssh-keyscan', $orchestrator);
     }
 
