@@ -61,3 +61,20 @@ H5a não apresenta como concluído o que ainda é placeholder:
 | H5e | Lifecycle interno de compras, requisições, entregas e empréstimos de Logística fechado com QA operacional e contratos Desportivo↔core preservados. |
 
 Nenhum destes lotes pode introduzir custos do atleta em descrições textuais: atleta, invoice, centro de custo, evento e requisição mantêm ligações estruturadas e separadas da dívida.
+
+## 6. Evidência produtiva H5a
+
+PR #299 foi integrada no merge `7e43de1370b787965be6ce1a5714c9976a35b983`. CI #1079 validou a PR e CI #1080 validou `main`, PostgreSQL concorrente, browser QA multi-browser/mobile/acessibilidade, deploy e auditorias pós-deploy.
+
+O artifact produtivo `store-logistics-lifecycle-readiness-7e43de1370b787965be6ce1a5714c9976a35b983` confirmou:
+
+- schema Loja/Financeiro/Logística/stock completo;
+- 1 encomenda e 1 item de Loja medidos;
+- 0 cancelamentos desequilibrados;
+- 0 saídas físicas ausentes ou duplicadas;
+- 0 referências, produtos ou quantidades inválidas;
+- 0 findings críticos, warnings ou ações pendentes;
+- 1 histórico já corrigido pelo audit B1.4 e reconhecido como clean;
+- `read_only=true` e `no_data_changed=true`.
+
+O artifact contém apenas schema e contagens agregadas. Não contém IDs de encomendas, produtos ou utilizadores.
