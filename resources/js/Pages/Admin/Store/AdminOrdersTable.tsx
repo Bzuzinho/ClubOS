@@ -3,7 +3,7 @@ import { Badge } from '@/Components/ui/badge';
 import { Card, CardContent, CardHeader } from '@/Components/ui/card';
 import { SectionTitle } from '@/components/sports/shared';
 import type { PageProps as SharedPageProps } from '@/types';
-import { formatStoreCurrency, formatStoreDate, storeOrderStatusClass, storeOrderStatusLabel, type StoreOrder } from '@/lib/storeApi';
+import { formatStoreCurrency, formatStoreDate, storeOrderStatusClass, storeOrderStatusLabel, storePaymentStatusClass, storePaymentStatusLabel, type StoreOrder } from '@/lib/storeApi';
 import { StoreAdminShell } from './StoreAdminShell';
 
 interface AdminOrdersTableProps {
@@ -64,6 +64,7 @@ export default function AdminOrdersTable() {
                                     <th className="px-5 py-3">Pedido</th>
                                     <th className="px-5 py-3">Utilizador</th>
                                     <th className="px-5 py-3">Estado</th>
+                                    <th className="px-5 py-3">Pagamento</th>
                                     <th className="px-5 py-3">Data</th>
                                     <th className="px-5 py-3">Total</th>
                                     <th className="px-5 py-3">Ações</th>
@@ -82,6 +83,11 @@ export default function AdminOrdersTable() {
                                                 {storeOrderStatusLabel(order.estado)}
                                             </Badge>
                                         </td>
+                                        <td className="px-5 py-4">
+                                            <Badge variant="outline" className={storePaymentStatusClass(order.financeiro.estado_pagamento)}>
+                                                {storePaymentStatusLabel(order.financeiro.estado_pagamento)}
+                                            </Badge>
+                                        </td>
                                         <td className="px-5 py-4 text-slate-600">{formatStoreDate(order.created_at)}</td>
                                         <td className="px-5 py-4 font-semibold text-blue-700">{formatStoreCurrency(order.total)}</td>
                                         <td className="px-5 py-4">
@@ -90,7 +96,7 @@ export default function AdminOrdersTable() {
                                     </tr>
                                 )) : (
                                     <tr>
-                                        <td colSpan={6} className="px-5 py-10 text-center text-sm text-slate-500">Não existem encomendas com este filtro.</td>
+                                        <td colSpan={7} className="px-5 py-10 text-center text-sm text-slate-500">Não existem encomendas com este filtro.</td>
                                     </tr>
                                 )}
                             </tbody>

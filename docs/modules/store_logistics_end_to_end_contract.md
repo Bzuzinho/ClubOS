@@ -42,7 +42,19 @@ O índice parcial único sobre a origem `store_order`, em conjunto com o lock da
 
 A saída física continua a existir exclusivamente em `stock_movements` com origem `store_order_item`. Entregar uma encomenda já ligada à fatura deixa de criar o `Movement` de receita legado. Esse caminho permanece apenas para encomendas históricas sem `fatura_id`, sem alterar automaticamente o passado.
 
-## 4. Auditoria operacional
+## 4. Estado implementado em H5c
+
+A encomenda expõe um estado composto, sem duplicar a verdade financeira em `loja_encomendas`:
+
+- `estado` continua exclusivamente logístico;
+- `financeiro.estado_pagamento`, `valor_pago` e `valor_em_aberto` são derivados da `Invoice` ligada;
+- `financeiro.estado_fiscal` é derivado do pedido fiscal dessa fatura;
+- `PaymentAllocationService` continua a ser o único boundary que transforma alocações confirmadas em saldo parcial/pago e cria o pedido fiscal na transição para pago;
+- `manual_wintouch` significa que o pedido fica para emissão externa e o ClubOS recebe depois o número/documento emitido.
+
+Uma alocação parcial não cria pedido fiscal. Ao completar o valor, nasce um único pedido `receipt` para o provider `wintouch`; repetir o serviço canónico não duplica o pedido. A emissão manual atualiza a projeção para `emitido`. Nenhuma destas operações muda implicitamente o estado logístico, cria `Movement` de receita ou volta a baixar stock.
+
+## 5. Auditoria operacional
 
 `inventory:audit-store-logistics-stock` é read-only e distingue:
 
@@ -55,31 +67,32 @@ A saída física continua a existir exclusivamente em `stock_movements` com orig
 - fatura canónica corretamente ligada à encomenda;
 - referência de fatura inexistente, origem/titular/valor divergente ou itens desalinhados;
 - encomendas anteriores à H5b ainda sem fatura, classificadas explicitamente como legado e sem backfill automático.
+- coerência entre saldo/estado da fatura e a soma das alocações confirmadas;
+- faturas de Loja pagas com pedido fiscal Wintouch criado, ausente ou contratualmente divergente;
+- pedidos fiscais criados antes da liquidação integral.
 
 Após cada deploy de `main`, a CI recolhe uma fotografia agregada de produção. O artifact não contém IDs de encomendas, produtos ou utilizadores. Nesta fase de readiness, dívida histórica é medida e preservada como evidência; não é corrigida nem escondida por um gate destrutivo.
 
-## 5. Lacunas deliberadamente ainda abertas
+## 6. Lacunas deliberadamente ainda abertas
 
-H5b não apresenta como concluído o que pertence aos lotes seguintes:
+H5c não apresenta como concluído o que pertence aos lotes seguintes:
 
-- a Loja ainda não deriva estado de pagamento das alocações confirmadas;
-- o pagamento da fatura já pode usar o `PaymentAllocationService`, mas a encomenda ainda não projeta automaticamente essa liquidação no seu próprio estado;
-- o pedido fiscal manual nasce pelo fluxo financeiro canónico quando a fatura fica paga, mas a operação Loja→pagamento→estado ainda será fechada ponta a ponta em H5c;
 - devolução posterior à entrega exige contrato financeiro/fiscal explícito antes da reposição de stock;
-- a máquina de estados completa deve separar pagamento, preparação, levantamento/entrega, cancelamento e devolução.
+- a reversão de uma encomenda paga ou com documento externo não pode apagar alocações nem identidade fiscal;
+- o lifecycle interno de compras, requisições, entregas e empréstimos de Logística permanece em H5e.
 
-## 6. Sequência dos próximos lotes
+## 7. Sequência dos próximos lotes
 
 | Lote | Resultado verificável |
 |---|---|
 | H5b | Encomenda ligada idempotentemente a `Invoice`, com itens e centro de custo estruturados, sem segunda saída de stock. Concluído em produção. |
-| H5c | Pagamento confirmado por `PaymentAllocationService` projeta o estado da encomenda e cria o pedido fiscal manual pelo fluxo canónico. |
+| H5c | Pagamento confirmado por `PaymentAllocationService` projeta o estado financeiro/fiscal da encomenda e cria o pedido fiscal manual pelo fluxo canónico. Implementado. |
 | H5d | Cancelamento/devolução após efeitos financeiros usa reversão explícita e apenas depois repõe stock; sem apagar histórico. |
 | H5e | Lifecycle interno de compras, requisições, entregas e empréstimos de Logística fechado com QA operacional e contratos Desportivo↔core preservados. |
 
 Nenhum destes lotes pode introduzir custos do atleta em descrições textuais: atleta, invoice, centro de custo, evento e requisição mantêm ligações estruturadas e separadas da dívida.
 
-## 7. Evidência produtiva H5a
+## 8. Evidência produtiva H5a
 
 PR #299 foi integrada no merge `7e43de1370b787965be6ce1a5714c9976a35b983`. CI #1079 validou a PR e CI #1080 validou `main`, PostgreSQL concorrente, browser QA multi-browser/mobile/acessibilidade, deploy e auditorias pós-deploy.
 
@@ -96,7 +109,7 @@ O artifact produtivo `store-logistics-lifecycle-readiness-7e43de1370b787965be6ce
 
 O artifact contém apenas schema e contagens agregadas. Não contém IDs de encomendas, produtos ou utilizadores.
 
-## 8. Evidência produtiva H5b
+## 9. Evidência produtiva H5b
 
 PR #301 foi integrada no merge `854624bc2f91829555f70c6dbff0a58a6f2c8067`. CI #1084 validou a PR e CI #1085 repetiu todos os gates de `main`, aplicou a migration, fez deploy na Oracle VM e recolheu a auditoria H5b.
 
@@ -110,3 +123,9 @@ O artifact produtivo `store-logistics-lifecycle-readiness-854624bc2f91829555f70c
 - `canonical_store_invoice_contract_active=true`, `read_only=true` e `no_data_changed=true`.
 
 O valor `canonical_invoice_linked_count=0` é esperado nesta fotografia: não foi criada uma encomenda real em produção apenas para testar o lote. A criação, repetição idempotente, compra familiar com centro de custo, cancelamento virgem, bloqueio com rasto financeiro, liquidação pelo `PaymentAllocationService` e ausência de `Movement`/segunda saída estão cobertos na suite bloqueante.
+
+## 10. Evidência H5c
+
+`StoreOrderPaymentFiscalProjectionTest` cobre o percurso completo sobre uma encomenda real de teste: checkout, projeção pendente, pagamento parcial, liquidação total por duas alocações confirmadas, criação de um único pedido Wintouch, registo manual do documento externo e leitura atualizada nas APIs Loja/Admin. O mesmo teste prova que o estado logístico não muda, existe uma única saída `store_order_item` e não nasce qualquer `Movement`.
+
+O audit `h5c-store-payment-fiscal-audit-v4` será recolhido de forma agregada no primeiro deploy de `main` que contenha H5c; SHA, CI e métricas produtivas serão anexados no fecho operacional.

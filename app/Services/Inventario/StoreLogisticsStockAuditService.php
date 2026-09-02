@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Inventario;
 
+use App\Models\FiscalDocumentRequest;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
@@ -13,7 +14,7 @@ use Illuminate\Support\Str;
 
 final class StoreLogisticsStockAuditService
 {
-    private const VERSION = 'h5b-store-logistics-financial-audit-v3';
+    private const VERSION = 'h5c-store-payment-fiscal-audit-v4';
 
     private const STORE_SOURCES = ['store_order_item', 'loja_encomenda_item'];
     private const INVOICE_SOURCES = ['invoice_item', 'manual_invoice_item', 'manual_invoice_create', 'manual_invoice_update_exit'];
@@ -75,6 +76,8 @@ final class StoreLogisticsStockAuditService
             'interpretation' => [
                 'cancelled_order_is_balanced_when_exit_and_return_match' => true,
                 'canonical_store_invoice_contract_active' => true,
+                'store_financial_state_is_derived_from_invoice' => true,
+                'paid_store_invoice_requires_manual_wintouch_request' => true,
                 'legacy_orders_without_invoice_are_reported_without_backfill' => true,
                 'no_data_changed' => true,
             ],
@@ -154,6 +157,30 @@ final class StoreLogisticsStockAuditService
             ->get()
             ->keyBy(fn (object $invoice): string => (string) $invoice->id);
 
+        $invoiceIds = $invoices->keys()->map('strval')->values();
+        $confirmedAllocationTotals = collect();
+        if ($invoiceIds->isNotEmpty() && Schema::hasTable('payment_allocations') && Schema::hasTable('payments')) {
+            $confirmedAllocationTotals = DB::table('payment_allocations')
+                ->join('payments', 'payments.id', '=', 'payment_allocations.payment_id')
+                ->whereIn('payment_allocations.invoice_id', $invoiceIds->all())
+                ->where('payment_allocations.status', 'confirmed')
+                ->where('payments.status', 'confirmed')
+                ->selectRaw('payment_allocations.invoice_id as invoice_id, SUM(payment_allocations.amount) as confirmed_amount')
+                ->groupBy('payment_allocations.invoice_id')
+                ->pluck('confirmed_amount', 'invoice_id');
+        }
+
+        $fiscalRequests = collect();
+        if ($invoiceIds->isNotEmpty() && Schema::hasTable('fiscal_document_requests')) {
+            $fiscalRequests = DB::table('fiscal_document_requests')
+                ->whereIn('invoice_id', $invoiceIds->all())
+                ->when(Schema::hasColumn('fiscal_document_requests', 'deleted_at'), fn (Builder $query) => $query->whereNull('deleted_at'))
+                ->orderByDesc('updated_at')
+                ->orderByDesc('created_at')
+                ->get()
+                ->groupBy(fn (object $request): string => (string) $request->invoice_id);
+        }
+
         $findings = [];
 
         foreach ($storeOrders as $order) {
@@ -205,6 +232,84 @@ final class StoreLogisticsStockAuditService
                 $lineContractMatches ? 'no_action_needed_store_invoice_clean' : 'inspect_store_invoice_items',
                 extra: ['order_id' => $orderId, 'invoice_id' => $invoiceId],
             );
+
+            array_push($findings, ...$this->storeFinancialProjectionFindings(
+                $order,
+                $invoice,
+                (float) ($confirmedAllocationTotals->get($invoiceId) ?? 0),
+                $fiscalRequests->get($invoiceId, collect()),
+            ));
+        }
+
+        return $findings;
+    }
+
+    /**
+     * @return list<array<string,mixed>>
+     */
+    private function storeFinancialProjectionFindings(object $order, object $invoice, float $confirmedAllocated, Collection $requests): array
+    {
+        $invoiceId = (string) $invoice->id;
+        $orderId = (string) $order->id;
+        $total = round((float) ($invoice->valor_total ?? 0), 2);
+        $paid = round((float) ($invoice->valor_pago ?? 0), 2);
+        $open = round((float) ($invoice->valor_em_aberto ?? 0), 2);
+        $confirmedAllocated = round($confirmedAllocated, 2);
+        $status = (string) ($invoice->estado_pagamento ?? '');
+        $expectedOpen = round(max($total - $confirmedAllocated, 0), 2);
+
+        $expectedStatusMatches = match (true) {
+            $status === 'cancelado' => $confirmedAllocated <= 0.009,
+            $expectedOpen <= 0.009 => $status === 'pago',
+            $confirmedAllocated > 0.009 => $status === 'parcial',
+            default => in_array($status, ['pendente', 'vencido'], true),
+        };
+        $projectionMatches = abs($paid - $confirmedAllocated) <= 0.009
+            && abs($open - ($status === 'cancelado' ? 0 : $expectedOpen)) <= 0.009
+            && $expectedStatusMatches;
+
+        $findings = [
+            $this->finding(
+                $projectionMatches ? 'info' : 'critical',
+                $projectionMatches ? 'store_order_payment_projection_clean' : 'store_order_payment_projection_mismatch',
+                'store_order',
+                ! $projectionMatches,
+                $projectionMatches ? 'no_action_needed_store_payment_projection_clean' : 'reconcile_store_invoice_with_confirmed_allocations',
+                extra: ['order_id' => $orderId, 'invoice_id' => $invoiceId],
+            ),
+        ];
+
+        $currentRequest = $requests
+            ->first(fn (object $request): bool => ! in_array((string) $request->status, [
+                FiscalDocumentRequest::STATUS_CANCELLED,
+                FiscalDocumentRequest::STATUS_NOT_APPLICABLE,
+            ], true));
+
+        if ($status === 'pago') {
+            if (! $currentRequest) {
+                $findings[] = $this->finding('critical', 'store_order_paid_fiscal_request_missing', 'store_order', true, 'create_missing_store_fiscal_request_via_canonical_service', extra: ['order_id' => $orderId, 'invoice_id' => $invoiceId]);
+
+                return $findings;
+            }
+
+            $fiscalContractMatches = (string) $currentRequest->provider === FiscalDocumentRequest::PROVIDER_WINTOUCH
+                && (string) $currentRequest->document_type === FiscalDocumentRequest::DOCUMENT_TYPE_RECEIPT;
+            $findings[] = $this->finding(
+                $fiscalContractMatches ? 'info' : 'critical',
+                $fiscalContractMatches ? 'store_order_paid_fiscal_request_created' : 'store_order_fiscal_request_contract_mismatch',
+                'store_order',
+                ! $fiscalContractMatches,
+                $fiscalContractMatches ? 'issue_manually_in_wintouch_and_record_external_number' : 'inspect_store_fiscal_request_contract',
+                extra: ['order_id' => $orderId, 'invoice_id' => $invoiceId],
+            );
+
+            return $findings;
+        }
+
+        if ($currentRequest) {
+            $findings[] = $this->finding('warning', 'store_order_fiscal_request_before_full_payment', 'store_order', true, 'inspect_premature_store_fiscal_request', extra: ['order_id' => $orderId, 'invoice_id' => $invoiceId]);
+        } else {
+            $findings[] = $this->finding('info', 'store_order_fiscal_projection_not_due', 'store_order', false, 'no_action_needed_until_store_invoice_is_paid', extra: ['order_id' => $orderId, 'invoice_id' => $invoiceId]);
         }
 
         return $findings;
@@ -236,6 +341,9 @@ final class StoreLogisticsStockAuditService
                 'sales' => Schema::hasTable('sales'),
                 'invoice_items' => Schema::hasTable('invoice_items'),
                 'invoices' => Schema::hasTable('invoices'),
+                'payments' => Schema::hasTable('payments'),
+                'payment_allocations' => Schema::hasTable('payment_allocations'),
+                'fiscal_document_requests' => Schema::hasTable('fiscal_document_requests'),
                 'logistics_requests' => Schema::hasTable('logistics_requests'),
                 'logistics_request_items' => Schema::hasTable('logistics_request_items'),
                 'products' => Schema::hasTable('products'),
@@ -730,6 +838,12 @@ final class StoreLogisticsStockAuditService
             'missing_invoice_link_count' => $findingsCollection->where('code', 'store_order_invoice_link_missing')->count(),
             'invalid_invoice_link_count' => $findingsCollection->where('code', 'store_order_invoice_reference_invalid')->count(),
             'invoice_contract_mismatch_count' => $findingsCollection->whereIn('code', ['store_order_invoice_contract_mismatch', 'store_order_invoice_items_mismatch'])->count(),
+            'payment_projection_clean_count' => $findingsCollection->where('code', 'store_order_payment_projection_clean')->count(),
+            'payment_projection_mismatch_count' => $findingsCollection->where('code', 'store_order_payment_projection_mismatch')->count(),
+            'paid_fiscal_request_created_count' => $findingsCollection->where('code', 'store_order_paid_fiscal_request_created')->count(),
+            'paid_fiscal_request_missing_count' => $findingsCollection->where('code', 'store_order_paid_fiscal_request_missing')->count(),
+            'premature_fiscal_request_count' => $findingsCollection->where('code', 'store_order_fiscal_request_before_full_payment')->count(),
+            'fiscal_request_contract_mismatch_count' => $findingsCollection->where('code', 'store_order_fiscal_request_contract_mismatch')->count(),
             'total_invoice_items_scanned' => $invoiceItems->count(),
             'total_logistics_movements_scanned' => $logisticsItems->pluck('request_id')->unique()->count(),
             'total_related_stock_movements' => $movements->count(),

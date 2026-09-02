@@ -6,7 +6,7 @@ import { Button } from '@/Components/ui/button';
 import { Card, CardContent, CardHeader } from '@/Components/ui/card';
 import { SectionTitle } from '@/components/sports/shared';
 import type { PageProps as SharedPageProps } from '@/types';
-import { formatStoreCurrency, formatStoreDate, storeOrderStatusClass, storeOrderStatusLabel, type StoreOrder, storeRequest } from '@/lib/storeApi';
+import { formatStoreCurrency, formatStoreDate, storeFiscalStatusLabel, storeOrderStatusClass, storeOrderStatusLabel, storePaymentStatusClass, storePaymentStatusLabel, type StoreOrder, storeRequest } from '@/lib/storeApi';
 import { StoreAdminShell } from './StoreAdminShell';
 
 interface AdminOrderDetailProps {
@@ -123,7 +123,33 @@ export default function AdminOrderDetail() {
                                     <span>Total</span>
                                     <span className="font-semibold text-blue-700">{formatStoreCurrency(order.total)}</span>
                                 </div>
+                                <div className="flex items-center justify-between gap-3 border-t border-slate-100 pt-3">
+                                    <span>Pagamento</span>
+                                    <Badge variant="outline" className={storePaymentStatusClass(order.financeiro.estado_pagamento)}>
+                                        {storePaymentStatusLabel(order.financeiro.estado_pagamento)}
+                                    </Badge>
+                                </div>
+                                <div className="flex items-center justify-between">
+                                    <span>Pago / em aberto</span>
+                                    <span className="font-semibold text-slate-900">{formatStoreCurrency(order.financeiro.valor_pago)} / {formatStoreCurrency(order.financeiro.valor_em_aberto)}</span>
+                                </div>
+                                <div className="flex items-start justify-between gap-3">
+                                    <span>Fiscal</span>
+                                    <span className="text-right font-semibold text-slate-900">{storeFiscalStatusLabel(order.financeiro.estado_fiscal)}</span>
+                                </div>
+                                {order.financeiro.numero_documento_fiscal ? (
+                                    <div className="flex items-center justify-between gap-3">
+                                        <span>Documento externo</span>
+                                        <span className="font-semibold text-slate-900">{order.financeiro.numero_documento_fiscal}</span>
+                                    </div>
+                                ) : null}
                             </div>
+
+                            {['pendente_emissao', 'em_emissao'].includes(order.financeiro.estado_fiscal) ? (
+                                <p className="mt-4 rounded-md border border-blue-100 bg-blue-50 px-3 py-2 text-xs leading-5 text-blue-800">
+                                    Emitir manualmente no Wintouch e registar depois o número externo no Financeiro.
+                                </p>
+                            ) : null}
 
                             {order.observacoes ? (
                                 <div className="mt-4 rounded-md border border-border bg-slate-50 px-4 py-3 text-sm text-slate-600">

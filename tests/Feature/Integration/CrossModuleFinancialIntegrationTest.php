@@ -9,8 +9,10 @@ use App\Models\CostCenter;
 use App\Models\DadosFinanceiros;
 use App\Models\Event;
 use App\Models\FinancialEntry;
+use App\Models\FiscalDocumentRequest;
 use App\Models\Invoice;
 use App\Models\LogisticsRequest;
+use App\Models\LojaEncomenda;
 use App\Models\Movement;
 use App\Models\MonthlyFee;
 use App\Models\PaymentAllocation;
@@ -221,6 +223,12 @@ class CrossModuleFinancialIntegrationTest extends TestCase
         $this->assertSame('pago', $storeInvoice->estado_pagamento);
         $this->assertSame(0.0, (float) $storeInvoice->valor_em_aberto);
         $this->assertSame(1, PaymentAllocation::query()->where('invoice_id', $storeInvoice->id)->confirmed()->count());
+        $this->assertSame(1, FiscalDocumentRequest::query()
+            ->where('invoice_id', $storeInvoice->id)
+            ->where('provider', FiscalDocumentRequest::PROVIDER_WINTOUCH)
+            ->where('document_type', FiscalDocumentRequest::DOCUMENT_TYPE_RECEIPT)
+            ->count());
+        $this->assertSame('entregue', LojaEncomenda::query()->findOrFail($storeOrderId)->estado);
         $this->assertSingleInvoiceFact($storeInvoice, 'receita', 70.00);
 
         [$logisticsAdmin, $logisticsRequest, $logisticsProduct] = $this->createInvoicedRequest();
