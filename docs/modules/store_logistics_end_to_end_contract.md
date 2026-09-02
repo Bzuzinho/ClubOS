@@ -51,7 +51,7 @@ A saída física continua a existir exclusivamente em `stock_movements` com orig
 - saída cancelada ainda não reposta;
 - reposição superior à saída;
 - saídas ausentes, duplicadas ou com quantidade divergente;
-- duplicação de saída entre Loja, fatura e requisição logística.
+- duplicação de saída entre Loja, fatura e requisição logística;
 - fatura canónica corretamente ligada à encomenda;
 - referência de fatura inexistente, origem/titular/valor divergente ou itens desalinhados;
 - encomendas anteriores à H5b ainda sem fatura, classificadas explicitamente como legado e sem backfill automático.
@@ -72,7 +72,7 @@ H5b não apresenta como concluído o que pertence aos lotes seguintes:
 
 | Lote | Resultado verificável |
 |---|---|
-| H5b | Encomenda ligada idempotentemente a `Invoice`, com itens e centro de custo estruturados, sem segunda saída de stock. Implementado; falta evidência produtiva final. |
+| H5b | Encomenda ligada idempotentemente a `Invoice`, com itens e centro de custo estruturados, sem segunda saída de stock. Concluído em produção. |
 | H5c | Pagamento confirmado por `PaymentAllocationService` projeta o estado da encomenda e cria o pedido fiscal manual pelo fluxo canónico. |
 | H5d | Cancelamento/devolução após efeitos financeiros usa reversão explícita e apenas depois repõe stock; sem apagar histórico. |
 | H5e | Lifecycle interno de compras, requisições, entregas e empréstimos de Logística fechado com QA operacional e contratos Desportivo↔core preservados. |
@@ -95,3 +95,18 @@ O artifact produtivo `store-logistics-lifecycle-readiness-7e43de1370b787965be6ce
 - `read_only=true` e `no_data_changed=true`.
 
 O artifact contém apenas schema e contagens agregadas. Não contém IDs de encomendas, produtos ou utilizadores.
+
+## 8. Evidência produtiva H5b
+
+PR #301 foi integrada no merge `854624bc2f91829555f70c6dbff0a58a6f2c8067`. CI #1084 validou a PR e CI #1085 repetiu todos os gates de `main`, aplicou a migration, fez deploy na Oracle VM e recolheu a auditoria H5b.
+
+O artifact produtivo `store-logistics-lifecycle-readiness-854624bc2f91829555f70c6dbff0a58a6f2c8067` (ID `9858357355`, digest `sha256:b94629d7dc35e59c5c292f95409aabbe80c2ff76d890977c15deaefcbb94395c`) confirmou:
+
+- uma encomenda e um item históricos, explicitamente classificados como legado sem backfill;
+- zero referências de fatura inválidas ou em falta perante uma origem canónica já existente;
+- zero divergências de origem, titular, valor ou itens;
+- zero saídas físicas ausentes ou duplicadas;
+- zero findings críticos, warnings ou ações pendentes;
+- `canonical_store_invoice_contract_active=true`, `read_only=true` e `no_data_changed=true`.
+
+O valor `canonical_invoice_linked_count=0` é esperado nesta fotografia: não foi criada uma encomenda real em produção apenas para testar o lote. A criação, repetição idempotente, compra familiar com centro de custo, cancelamento virgem, bloqueio com rasto financeiro, liquidação pelo `PaymentAllocationService` e ausência de `Movement`/segunda saída estão cobertos na suite bloqueante.
