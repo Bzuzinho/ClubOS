@@ -2,7 +2,7 @@ import { Head, router, usePage } from '@inertiajs/react';
 import EmptyOrdersState from '@/Components/Store/EmptyOrdersState';
 import PortalLayout from '@/Layouts/PortalLayout';
 import type { PageProps as SharedPageProps } from '@/types';
-import { formatStoreCurrency, formatStoreDate, storeOrderStatusClass, storeOrderStatusLabel, type StoreOrder } from '@/lib/storeApi';
+import { formatStoreCurrency, formatStoreDate, storeOrderStatusClass, storeOrderStatusLabel, storePaymentStatusClass, storePaymentStatusLabel, type StoreOrder } from '@/lib/storeApi';
 
 interface OrderHistoryPageProps {
     orders: StoreOrder[];
@@ -68,6 +68,9 @@ export default function OrderHistoryPage() {
                                             <h2 className="text-base font-semibold text-slate-900">{order.numero}</h2>
                                             <span className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${storeOrderStatusClass(order.estado)}`}>
                                                 {storeOrderStatusLabel(order.estado)}
+                                            </span>
+                                            <span className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${storePaymentStatusClass(order.financeiro.estado_pagamento)}`}>
+                                                {storePaymentStatusLabel(order.financeiro.estado_pagamento)}
                                             </span>
                                         </div>
                                         <p className="mt-2 text-sm text-slate-500">{formatStoreDate(order.created_at)} {order.target_user?.nome_completo ? `· Para ${order.target_user.nome_completo}` : ''}</p>

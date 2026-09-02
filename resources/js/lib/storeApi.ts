@@ -124,6 +124,24 @@ export interface StoreOrder {
     total: number;
     observacoes?: string | null;
     created_at?: string | null;
+    invoice?: {
+        id: string;
+        estado_pagamento: StorePaymentStatus;
+        valor_pago: number;
+        valor_em_aberto: number;
+    } | null;
+    financeiro: {
+        estado_pagamento: StorePaymentStatus | 'sem_fatura' | 'nao_aplicavel';
+        pagamento_confirmado: boolean;
+        valor_pago: number;
+        valor_em_aberto: number;
+        estado_fiscal: StoreFiscalStatus;
+        pedido_fiscal_id?: string | null;
+        provider_fiscal?: string | null;
+        modo_fiscal: string;
+        numero_documento_fiscal?: string | null;
+        emitido_em?: string | null;
+    };
     user?: {
         id: string;
         nome_completo: string;
@@ -134,6 +152,19 @@ export interface StoreOrder {
     } | null;
     items: StoreOrderItem[];
 }
+
+export type StorePaymentStatus = 'pendente' | 'parcial' | 'pago' | 'vencido' | 'cancelado';
+
+export type StoreFiscalStatus =
+    | 'aguarda_pagamento'
+    | 'pedido_em_falta'
+    | 'pendente_emissao'
+    | 'em_emissao'
+    | 'emitido'
+    | 'dados_em_falta'
+    | 'erro_provider'
+    | 'cancelado'
+    | 'nao_aplicavel';
 
 function getCsrfToken(): string {
     const token = document.querySelector('meta[name="csrf-token"]') as HTMLMetaElement | null;
@@ -195,6 +226,68 @@ export function storeOrderStatusClass(status: StoreOrder['estado'] | string): st
             return 'border-rose-200 bg-rose-50 text-rose-700';
         default:
             return 'border-slate-200 bg-slate-50 text-slate-700';
+    }
+}
+
+export function storePaymentStatusLabel(status: StoreOrder['financeiro']['estado_pagamento'] | string): string {
+    switch (status) {
+        case 'pendente':
+            return 'Pagamento pendente';
+        case 'parcial':
+            return 'Pagamento parcial';
+        case 'pago':
+            return 'Pago';
+        case 'vencido':
+            return 'Pagamento vencido';
+        case 'cancelado':
+            return 'Pagamento cancelado';
+        case 'sem_fatura':
+            return 'Sem fatura';
+        case 'nao_aplicavel':
+            return 'Sem pagamento';
+        default:
+            return status;
+    }
+}
+
+export function storePaymentStatusClass(status: StoreOrder['financeiro']['estado_pagamento'] | string): string {
+    switch (status) {
+        case 'pago':
+            return 'border-emerald-200 bg-emerald-50 text-emerald-700';
+        case 'parcial':
+            return 'border-sky-200 bg-sky-50 text-sky-700';
+        case 'vencido':
+        case 'cancelado':
+            return 'border-rose-200 bg-rose-50 text-rose-700';
+        case 'pendente':
+            return 'border-amber-200 bg-amber-50 text-amber-700';
+        default:
+            return 'border-slate-200 bg-slate-50 text-slate-700';
+    }
+}
+
+export function storeFiscalStatusLabel(status: StoreFiscalStatus | string): string {
+    switch (status) {
+        case 'aguarda_pagamento':
+            return 'Aguarda pagamento';
+        case 'pedido_em_falta':
+            return 'Pedido fiscal em falta';
+        case 'pendente_emissao':
+            return 'Pendente de emissão no Wintouch';
+        case 'em_emissao':
+            return 'Em emissão no Wintouch';
+        case 'emitido':
+            return 'Documento fiscal emitido';
+        case 'dados_em_falta':
+            return 'Dados fiscais em falta';
+        case 'erro_provider':
+            return 'Erro fiscal';
+        case 'cancelado':
+            return 'Documento fiscal cancelado';
+        case 'nao_aplicavel':
+            return 'Não aplicável';
+        default:
+            return status;
     }
 }
 

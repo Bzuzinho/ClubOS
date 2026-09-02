@@ -2,7 +2,7 @@ import { Head, router, usePage } from '@inertiajs/react';
 import { ArrowLeft } from 'lucide-react';
 import PortalLayout from '@/Layouts/PortalLayout';
 import type { PageProps as SharedPageProps } from '@/types';
-import { formatStoreCurrency, formatStoreDate, storeOrderStatusClass, storeOrderStatusLabel, type StoreOrder } from '@/lib/storeApi';
+import { formatStoreCurrency, formatStoreDate, storeFiscalStatusLabel, storeOrderStatusClass, storeOrderStatusLabel, storePaymentStatusClass, storePaymentStatusLabel, type StoreOrder } from '@/lib/storeApi';
 
 interface OrderDetailPageProps {
     order: StoreOrder;
@@ -74,7 +74,41 @@ export default function OrderDetailPage() {
                                     <span>Total</span>
                                     <span className="font-semibold text-blue-700">{formatStoreCurrency(order.total)}</span>
                                 </div>
+                                <div className="flex items-center justify-between gap-3 border-t border-slate-100 pt-3">
+                                    <span>Pagamento</span>
+                                    <span className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${storePaymentStatusClass(order.financeiro.estado_pagamento)}`}>
+                                        {storePaymentStatusLabel(order.financeiro.estado_pagamento)}
+                                    </span>
+                                </div>
+                                {order.financeiro.valor_pago > 0 ? (
+                                    <div className="flex items-center justify-between">
+                                        <span>Valor pago</span>
+                                        <span className="font-semibold text-emerald-700">{formatStoreCurrency(order.financeiro.valor_pago)}</span>
+                                    </div>
+                                ) : null}
+                                {order.financeiro.valor_em_aberto > 0 ? (
+                                    <div className="flex items-center justify-between">
+                                        <span>Valor em aberto</span>
+                                        <span className="font-semibold text-amber-700">{formatStoreCurrency(order.financeiro.valor_em_aberto)}</span>
+                                    </div>
+                                ) : null}
+                                <div className="flex items-start justify-between gap-3">
+                                    <span>Documento fiscal</span>
+                                    <span className="text-right font-semibold text-slate-900">{storeFiscalStatusLabel(order.financeiro.estado_fiscal)}</span>
+                                </div>
+                                {order.financeiro.numero_documento_fiscal ? (
+                                    <div className="flex items-center justify-between gap-3">
+                                        <span>Número</span>
+                                        <span className="font-semibold text-slate-900">{order.financeiro.numero_documento_fiscal}</span>
+                                    </div>
+                                ) : null}
                             </div>
+
+                            {['pendente_emissao', 'em_emissao'].includes(order.financeiro.estado_fiscal) ? (
+                                <p className="mt-4 rounded-2xl border border-blue-100 bg-blue-50 px-4 py-3 text-xs leading-5 text-blue-800">
+                                    O pagamento está confirmado. A emissão é concluída externamente no Wintouch e o número do documento será depois registado no ClubOS.
+                                </p>
+                            ) : null}
 
                             {order.observacoes ? (
                                 <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">

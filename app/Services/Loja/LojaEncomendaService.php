@@ -170,7 +170,7 @@ class LojaEncomendaService
                 $this->financeiroService->syncDeliveredRevenueMovement($encomenda);
             }
 
-            return $encomenda->fresh(['itens.article.category', 'itens.productVariant', 'user', 'targetUser']);
+            return $encomenda->fresh(['itens.article.category', 'itens.productVariant', 'user', 'targetUser', 'invoice.fiscalDocumentRequests']);
         });
     }
 

@@ -6,6 +6,7 @@ namespace Tests\Feature\Inventario;
 
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
+use App\Models\FiscalDocumentRequest;
 use App\Models\LogisticsRequest;
 use App\Models\LogisticsRequestItem;
 use App\Models\LojaEncomenda;
@@ -14,6 +15,7 @@ use App\Models\Product;
 use App\Models\StockMovement;
 use App\Models\User;
 use App\Services\Loja\LojaFinanceiroService;
+use App\Services\Financeiro\FinancialSettlementService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Artisan;
@@ -62,6 +64,61 @@ final class StoreLogisticsStockAuditCommandTest extends TestCase
         $this->assertSame(0, $payload['summary']['legacy_without_invoice_count']);
         $this->assertSame(0, $payload['summary']['invalid_invoice_link_count']);
         $this->assertSame(0, $payload['summary']['invoice_contract_mismatch_count']);
+        $this->assertFinding($payload, 'store_order_payment_projection_clean', 'info', false);
+        $this->assertFinding($payload, 'store_order_fiscal_projection_not_due', 'info', false);
+        $this->assertSame(1, $payload['summary']['payment_projection_clean_count']);
+        $this->assertSame(0, $payload['summary']['paid_fiscal_request_missing_count']);
+    }
+
+    public function test_paid_store_invoice_has_confirmed_payment_projection_and_wintouch_request(): void
+    {
+        [$order, $item, $product] = $this->storeOrder('pendente', 2);
+        app(LojaFinanceiroService::class)->prepareForOrder($order);
+        $invoice = $order->fresh()->invoice()->firstOrFail();
+        $this->movement($product, 'exit', 2, 'store_order_item', $item->id);
+
+        app(FinancialSettlementService::class)->settleInvoices([
+            ['invoice_id' => $invoice->id, 'amount' => 20],
+        ], [
+            'amount' => 20,
+            'method' => 'dinheiro',
+            'payment_date' => now()->toDateString(),
+            'user_id' => $invoice->user_id,
+        ]);
+
+        $request = FiscalDocumentRequest::query()->where('invoice_id', $invoice->id)->sole();
+        $this->assertSame(FiscalDocumentRequest::PROVIDER_WINTOUCH, $request->provider);
+
+        $payload = $this->jsonPayload(['--order' => $order->id]);
+
+        $this->assertFinding($payload, 'store_order_payment_projection_clean', 'info', false);
+        $this->assertFinding($payload, 'store_order_paid_fiscal_request_created', 'info', false);
+        $this->assertSame(1, $payload['summary']['paid_fiscal_request_created_count']);
+        $this->assertSame(0, $payload['summary']['paid_fiscal_request_missing_count']);
+        $this->assertSame(0, $payload['summary']['payment_projection_mismatch_count']);
+    }
+
+    public function test_paid_store_invoice_without_fiscal_request_is_actionable(): void
+    {
+        [$order, $item, $product] = $this->storeOrder('pendente', 1);
+        app(LojaFinanceiroService::class)->prepareForOrder($order);
+        $invoice = $order->fresh()->invoice()->firstOrFail();
+        $this->movement($product, 'exit', 1, 'store_order_item', $item->id);
+
+        app(FinancialSettlementService::class)->settleInvoices([
+            ['invoice_id' => $invoice->id, 'amount' => 10],
+        ], [
+            'amount' => 10,
+            'method' => 'dinheiro',
+            'payment_date' => now()->toDateString(),
+            'user_id' => $invoice->user_id,
+        ]);
+        FiscalDocumentRequest::query()->where('invoice_id', $invoice->id)->forceDelete();
+
+        $payload = $this->jsonPayload(['--order' => $order->id]);
+
+        $this->assertFinding($payload, 'store_order_paid_fiscal_request_missing', 'critical', true);
+        $this->assertSame(1, $payload['summary']['paid_fiscal_request_missing_count']);
     }
 
     public function test_unlinked_pre_h5b_order_is_reported_as_legacy_without_automatic_backfill(): void
@@ -257,17 +314,19 @@ final class StoreLogisticsStockAuditCommandTest extends TestCase
             '--report-path' => $relativePath,
         ]);
 
-        $this->assertSame('h5b-store-logistics-financial-audit-v3', $payload['version']);
+        $this->assertSame('h5c-store-payment-fiscal-audit-v4', $payload['version']);
         $this->assertTrue($payload['read_only']);
         $this->assertTrue($payload['interpretation']['cancelled_order_is_balanced_when_exit_and_return_match']);
         $this->assertTrue($payload['interpretation']['canonical_store_invoice_contract_active']);
+        $this->assertTrue($payload['interpretation']['store_financial_state_is_derived_from_invoice']);
+        $this->assertTrue($payload['interpretation']['paid_store_invoice_requires_manual_wintouch_request']);
         $this->assertTrue($payload['interpretation']['legacy_orders_without_invoice_are_reported_without_backfill']);
         $this->assertTrue($payload['interpretation']['no_data_changed']);
         $this->assertNotEmpty($actionablePayload['findings']);
         $this->assertSame(1, $warningExitCode);
         $this->assertSame(0, $reportExitCode);
         $this->assertFileExists($absolutePath);
-        $this->assertSame('h5b-store-logistics-financial-audit-v3', json_decode((string) file_get_contents($absolutePath), true)['version']);
+        $this->assertSame('h5c-store-payment-fiscal-audit-v4', json_decode((string) file_get_contents($absolutePath), true)['version']);
         $this->assertSame($before, $this->snapshot());
         @unlink($absolutePath);
     }
