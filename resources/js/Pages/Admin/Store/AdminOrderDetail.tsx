@@ -22,6 +22,8 @@ export default function AdminOrderDetail() {
     const { order } = props;
     const [estado, setEstado] = useState<StoreOrder['estado']>(order.estado);
     const [submitting, setSubmitting] = useState(false);
+    const isTerminal = order.estado === 'cancelado' || order.estado === 'entregue';
+    const availableStatusOptions = isTerminal ? [order.estado] : statusOptions;
 
     const updateStatus = async () => {
         try {
@@ -96,13 +98,13 @@ export default function AdminOrderDetail() {
                                 <SectionTitle title="Atualizar estado" subtitle="Fluxo operacional do pedido." />
                             </CardHeader>
                             <CardContent>
-                            <select value={estado} onChange={(event) => setEstado(event.target.value as StoreOrder['estado'])} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none">
-                                {statusOptions.map((status) => (
+                            <select disabled={isTerminal} value={estado} onChange={(event) => setEstado(event.target.value as StoreOrder['estado'])} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none disabled:cursor-not-allowed disabled:bg-slate-100">
+                                {availableStatusOptions.map((status) => (
                                     <option key={status} value={status}>{storeOrderStatusLabel(status)}</option>
                                 ))}
                             </select>
-                            <Button type="button" disabled={submitting} onClick={updateStatus} className="mt-3 w-full">
-                                {submitting ? 'A guardar...' : 'Guardar estado'}
+                            <Button type="button" disabled={submitting || isTerminal} onClick={updateStatus} className="mt-3 w-full">
+                                {isTerminal ? 'Estado terminal' : submitting ? 'A guardar...' : 'Guardar estado'}
                             </Button>
                             </CardContent>
                         </Card>

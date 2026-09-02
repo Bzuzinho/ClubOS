@@ -508,6 +508,76 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+      - name: Collect Store and Logistics production lifecycle readiness audit
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          raw_report="${GITHUB_WORKSPACE}/store-logistics-lifecycle-raw.json"
+          local_report="${GITHUB_WORKSPACE}/store-logistics-lifecycle-readiness.json"
+          remote_report="/tmp/clubos-store-logistics-lifecycle-${GITHUB_SHA}.json"
+
+          ssh \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="${HOME}/.ssh/known_hosts" \
+            "${VM_USER}@${VM_HOST}" \
+            "cd '${VM_APP_DIR}' && php artisan inventory:audit-store-logistics-stock --json --report-path='${remote_report}' >/dev/null && cat '${remote_report}' && rm -f '${remote_report}'" \
+            > "${raw_report}"
+
+          jq '{
+            version,
+            read_only,
+            schema_detected,
+            summary,
+            interpretation
+          }' "${raw_report}" > "${local_report}"
+          rm -f "${raw_report}"
+
+          jq -e '
+            .version == "h5a-store-logistics-stock-audit-v2"
+            and .read_only == true
+            and .schema_detected.tables.loja_encomendas == true
+            and .schema_detected.tables.loja_encomenda_itens == true
+            and .schema_detected.tables.invoice_items == true
+            and .schema_detected.tables.invoices == true
+            and .schema_detected.tables.logistics_requests == true
+            and .schema_detected.tables.logistics_request_items == true
+            and .schema_detected.tables.products == true
+            and .schema_detected.tables.product_variants == true
+            and .schema_detected.tables.stock_movements == true
+            and .schema_detected.store_order_fields.status == "estado"
+            and .schema_detected.store_order_fields.invoice_id == "fatura_id"
+            and .schema_detected.store_order_item_fields.product_column == "article_id"
+            and .schema_detected.store_order_item_fields.variant_column == "product_variant_id"
+            and .summary.total_store_orders_scanned >= 0
+            and .summary.cancelled_stock_unbalanced_count >= 0
+            and .summary.critical_count >= 0
+            and .summary.warning_count >= 0
+            and .interpretation.cancelled_order_is_balanced_when_exit_and_return_match == true
+            and .interpretation.no_data_changed == true
+          ' "${local_report}" >/dev/null
+
+          {
+            echo '## Store and Logistics production lifecycle readiness audit'
+            echo ''
+            echo "- Commit: \`${GITHUB_SHA}\`"
+            echo "- Store orders/items scanned: \`$(jq -r '.summary.total_store_orders_scanned' "${local_report}")/$(jq -r '.summary.total_store_order_items_scanned' "${local_report}")\`"
+            echo "- Cancelled stock restored/unbalanced: \`$(jq -r '.summary.cancelled_stock_restored_count' "${local_report}")/$(jq -r '.summary.cancelled_stock_unbalanced_count' "${local_report}")\`"
+            echo "- Missing/duplicate physical exits: \`$(jq -r '.summary.missing_physical_exit_count' "${local_report}")/$(jq -r '.summary.duplicate_physical_exit_count' "${local_report}")\`"
+            echo "- Critical/warning findings: \`$(jq -r '.summary.critical_count' "${local_report}")/$(jq -r '.summary.warning_count' "${local_report}")\`"
+            echo '- Readiness is measured without mutating production; known debt is reported, not silently gated.'
+            echo '- Artifact contains aggregate counts only; no row or user identifiers.'
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload Store and Logistics production lifecycle readiness audit
+        uses: actions/upload-artifact@v7
+        with:
+          name: store-logistics-lifecycle-readiness-${{ github.sha }}
+          path: store-logistics-lifecycle-readiness.json
+          if-no-files-found: error
+          retention-days: 30
+
       - name: Collect Fiscal production operational readiness audit
         shell: bash
         run: |
@@ -594,6 +664,7 @@ jobs:
             echo '- Desportivo legacy readiness audit: collected read-only from production'
             echo '- Access Control readiness audit: collected, artifact preserved and critical findings gated separately'
             echo '- Family final schema audit: canonical tables present and retired legacy structures physically absent'
+            echo '- Store and Logistics lifecycle readiness: aggregate read-only evidence collected without gating known debt'
             echo '- Fiscal operational readiness audit: manual Wintouch contract active, automatic provider disabled and critical findings gated'
             echo '- Result: successful'
           } >> "${GITHUB_STEP_SUMMARY}"

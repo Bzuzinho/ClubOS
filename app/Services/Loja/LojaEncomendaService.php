@@ -23,6 +23,7 @@ class LojaEncomendaService
         private readonly LojaCarrinhoService $carrinhoService,
         private readonly CanonicalProductStockService $stockService,
         private readonly LojaFinanceiroService $financeiroService,
+        private readonly CancelStoreOrderStockAction $cancelStockAction,
         private readonly StoreProfileResolver $profileResolver,
         private readonly InAppAlertService $inAppAlertService,
     ) {
@@ -135,10 +136,34 @@ class LojaEncomendaService
 
             $encomenda = LojaEncomenda::query()->whereKey($encomenda->id)->lockForUpdate()->firstOrFail();
 
-            if ($encomenda->estado === LojaEncomenda::ESTADO_ENTREGUE && $estado === LojaEncomenda::ESTADO_CANCELADO) {
-                throw ValidationException::withMessages([
-                    'estado' => 'Não é possível cancelar uma encomenda já entregue.',
-                ]);
+            if ($encomenda->estado === LojaEncomenda::ESTADO_CANCELADO) {
+                if ($estado !== LojaEncomenda::ESTADO_CANCELADO) {
+                    throw ValidationException::withMessages([
+                        'estado' => 'Uma encomenda cancelada não pode ser reativada.',
+                    ]);
+                }
+
+                return $encomenda->fresh(['itens.article.category', 'itens.productVariant', 'user', 'targetUser']);
+            }
+
+            if ($encomenda->estado === LojaEncomenda::ESTADO_ENTREGUE) {
+                if ($estado !== LojaEncomenda::ESTADO_ENTREGUE) {
+                    throw ValidationException::withMessages([
+                        'estado' => 'Uma encomenda entregue exige um fluxo explícito de devolução e não pode mudar diretamente de estado.',
+                    ]);
+                }
+
+                return $encomenda->fresh(['itens.article.category', 'itens.productVariant', 'user', 'targetUser']);
+            }
+
+            if ($estado === LojaEncomenda::ESTADO_CANCELADO) {
+                if (filled($encomenda->fatura_id)) {
+                    throw ValidationException::withMessages([
+                        'estado' => 'A encomenda tem uma fatura associada e exige reversão financeira antes do cancelamento.',
+                    ]);
+                }
+
+                $this->cancelStockAction->execute($encomenda, $actor);
             }
 
             $encomenda->update([

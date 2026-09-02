@@ -58,6 +58,16 @@ final class StoreLogisticsStockAuditCommandTest extends TestCase
         $this->assertSame(1, $payload['summary']['missing_physical_exit_count']);
     }
 
+    public function test_pending_store_order_without_checkout_exit_is_also_reported(): void
+    {
+        [$order] = $this->storeOrder('pendente', 1);
+
+        $payload = $this->jsonPayload(['--order' => $order->id]);
+
+        $this->assertFinding($payload, 'store_order_missing_physical_exit', 'critical', true);
+        $this->assertSame(1, $payload['summary']['missing_physical_exit_count']);
+    }
+
     public function test_delivered_store_order_with_two_exits_generates_duplicate_physical_exit(): void
     {
         [$order, $item, $product] = $this->storeOrder('entregue', 2);
@@ -70,15 +80,28 @@ final class StoreLogisticsStockAuditCommandTest extends TestCase
         $this->assertSame(1, $payload['summary']['duplicate_physical_exit_count']);
     }
 
-    public function test_cancelled_store_order_with_physical_exit_is_reported(): void
+    public function test_cancelled_store_order_with_unrestored_physical_exit_is_reported(): void
     {
         [$order, $item, $product] = $this->storeOrder('cancelado', 1);
         $this->movement($product, 'exit', 1, 'store_order_item', $item->id);
 
         $payload = $this->jsonPayload(['--order' => $order->id]);
 
-        $this->assertFinding($payload, 'store_order_cancelled_with_physical_exit', 'warning', true);
-        $this->assertSame(1, $payload['summary']['cancelled_with_physical_exit_count']);
+        $this->assertFinding($payload, 'store_order_cancelled_stock_not_restored', 'warning', true);
+        $this->assertSame(1, $payload['summary']['cancelled_stock_unbalanced_count']);
+    }
+
+    public function test_cancelled_store_order_with_balanced_return_is_clean(): void
+    {
+        [$order, $item, $product] = $this->storeOrder('cancelado', 2);
+        $this->movement($product, 'exit', 2, 'store_order_item', $item->id);
+        $this->movement($product, 'return', 2, 'store_order_item', $item->id);
+
+        $payload = $this->jsonPayload(['--order' => $order->id]);
+
+        $this->assertFinding($payload, 'store_order_cancelled_stock_restored', 'info', false);
+        $this->assertSame(1, $payload['summary']['cancelled_stock_restored_count']);
+        $this->assertSame(0, $payload['summary']['cancelled_stock_unbalanced_count']);
     }
 
     public function test_invoice_item_with_correct_exit_is_clean(): void
@@ -206,12 +229,15 @@ final class StoreLogisticsStockAuditCommandTest extends TestCase
             '--report-path' => $relativePath,
         ]);
 
-        $this->assertSame('b6-store-logistics-stock-audit-v1', $payload['version']);
+        $this->assertSame('h5a-store-logistics-stock-audit-v2', $payload['version']);
+        $this->assertTrue($payload['read_only']);
+        $this->assertTrue($payload['interpretation']['cancelled_order_is_balanced_when_exit_and_return_match']);
+        $this->assertTrue($payload['interpretation']['no_data_changed']);
         $this->assertNotEmpty($actionablePayload['findings']);
         $this->assertSame(1, $warningExitCode);
         $this->assertSame(0, $reportExitCode);
         $this->assertFileExists($absolutePath);
-        $this->assertSame('b6-store-logistics-stock-audit-v1', json_decode((string) file_get_contents($absolutePath), true)['version']);
+        $this->assertSame('h5a-store-logistics-stock-audit-v2', json_decode((string) file_get_contents($absolutePath), true)['version']);
         $this->assertSame($before, $this->snapshot());
         @unlink($absolutePath);
     }

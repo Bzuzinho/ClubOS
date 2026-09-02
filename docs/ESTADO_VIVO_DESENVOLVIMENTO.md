@@ -55,8 +55,8 @@ Stack produtiva: Laravel 13, PHP 8.3, React 19 + TypeScript, Inertia 2, Vite, Po
 | Eventos | 75% | Lifecycle, recorrência, convocatórias e integrações corrigidos. H1.18 garante entrada pelo menu em desktop/mobile; falta remover estruturas antigas, criar contract tests Eventos ↔ Desportivo e E2E das operações críticas. |
 | Financeiro geral | 89% | Maduro; CRUDs legacy de transações/categorias aposentados e antigo `Financeiro/Edit` converge para o fluxo canónico. H1.18 garante entrada pelo menu em desktop/mobile; prioridade: preservar invariantes, evitar novas fontes de verdade e acrescentar E2E financeiro crítico. |
 | Fiscal | 88% | H4 fechado em produção com `manual_wintouch`: emissão externa e confirmação no ClubOS, sem chamada DLL/.NET pelo Laravel/Linux. O processamento automático fica fail-closed sem `provider_api`; o gate produtivo confirmou configuração, schema, sete rotas, zero adapters e zero findings críticos. A fila operacional tem 125 pedidos pendentes, 108 já prontos para emissão externa e 126 warnings a tratar. |
-| Inventário / Logística | 70% | `stock_movements` é o ledger canónico e H2.4b integrou o stock de variantes com atualização atómica produto+variante. Falta fechar o lifecycle transversal de Logística e ampliar QA operacional. |
-| Loja | 60% | Falta lifecycle completo produto → stock → encomenda → pagamento → fiscal → cancelamento/devolução/reposição. |
+| Inventário / Logística | 72% | `stock_movements` é o ledger canónico, H2.4b integrou variantes atomicamente e H5a passa a compensar no ledger as saídas de encomendas canceladas, incluindo variante. A CI recolhe readiness agregado de produção. Falta fechar compras/requisições/empréstimos transversalmente e ampliar QA operacional. |
+| Loja | 64% | H5a fecha o cancelamento pré-entrega com reposição atómica e idempotente, torna cancelado/entregue terminais e falha fechado perante histórico incoerente. Permanecem a fatura/pagamento/fiscal canónicos e a devolução posterior à entrega. |
 | Comunicação | 60% | Falta pipeline assíncrono persistente com attempts, retry, idempotência e provider IDs. |
 | Relatórios | 40% | Área menos madura; construir apenas depois de estabilizar fontes de verdade. |
 | PWA / Mobile | 62% | TypeScript permanece 0/0. H1.17 introduziu Playwright bloqueante em Chromium/Firefox/WebKit e perfis Pixel 7/iPhone 14; H1.18 acrescentou sessão autenticada, menu, navegação para Membros/Desportivo/Eventos/Financeiro/Configurações, overflow e axe no Dashboard. Falta ampliar a cobertura a workspaces/tabs, tablet, Portal e operações críticas por módulo. |
@@ -957,6 +957,14 @@ O novo `finance:audit-fiscal-operational-readiness` é read-only e agregado: con
 
 PR #297 merged em `45bba97e96e99db5ca2c5ef8e512c7e3f2d1a8b7`; CI #1073 totalmente verde na PR e CI #1074 totalmente verde em `main`, incluindo Laravel, PostgreSQL concorrente, browser QA multi-browser/mobile, deploy e cinco auditorias produtivas. O artifact fiscal confirmou `manual_wintouch/wintouch`, zero adapters automáticos, schema e 7/7 rotas presentes, `critical_count=0` e `ready=true`. Foram medidos 132 pedidos: 125 pendentes, 108 já prontos para emissão externa, zero emitidos registados e 126 warnings operacionais. Não existe migration nem alteração de dados neste lote.
 
+### H5a — Cancelamento de Loja e reposição de stock — implementado
+
+O checkout continua a registar uma única saída física por `store_order_item` através do `StockLedgerService`. Ao cancelar antes da entrega, `CancelStoreOrderStockAction` reconcilia essa saída, cria uma reposição idempotente com a mesma origem e atualiza produto+variante na mesma transação antes de tornar a encomenda `cancelado`. Repetir o cancelamento é neutro; cancelado e entregue ficam terminais até existir o fluxo explícito de devolução. Histórico duplicado, desalinhado, sobrecompensado ou já ligado a `fatura_id` bloqueia a mudança de estado para exigir revisão explícita e preservar os efeitos financeiros/fiscais.
+
+O audit `inventory:audit-store-logistics-stock` passa para `h5a-store-logistics-stock-audit-v2`, reconhece cancelamentos equilibrados e separa dívida não reposta/sobreposta. O pós-deploy recolhe apenas schema e contagens agregadas como artifact, sem IDs de encomendas, produtos ou utilizadores e sem mutar produção. O contrato e as lacunas remanescentes ficam registados em `docs/modules/store_logistics_end_to_end_contract.md`.
+
+Não existe migration, backfill, alteração de rotas nem correção automática de dados neste lote. H5b deve substituir o placeholder financeiro da Loja por uma `Invoice` canónica ligada à encomenda, sem duplicar a saída já registada no checkout.
+
 ---
 
 ## 8. Dívida estrutural prioritária
@@ -980,7 +988,7 @@ PR #297 merged em `45bba97e96e99db5ca2c5ef8e512c7e3f2d1a8b7`; CI #1073 totalment
 | 4 | H8 | Reporting consolidado transversal. |
 | 5 | H9 | Website: header/footer, notícias e polish final. |
 
-Próximo passo ativo: H5 — fechar o lifecycle Loja + Logística, preservando o contrato fiscal manual e os boundaries financeiros já consolidados. H3, H4, H2.5, stock por variante e Família/EE estão estruturalmente fechados. A fila fiscal produtiva e a ação operacional Cloudflare R2 permanecem pendências operacionais separadas. A matriz H1.17/H1.18 deve ser expandida dentro de cada workstream funcional.
+Próximo passo ativo: H5b — ligar idempotentemente a encomenda da Loja a `Invoice` e ao boundary `PaymentAllocationService`, sem duplicar a saída física já registada no checkout. H3, H4, H2.5, stock por variante e Família/EE estão estruturalmente fechados. A fila fiscal produtiva e a ação operacional Cloudflare R2 permanecem pendências operacionais separadas. A matriz H1.17/H1.18 deve ser expandida dentro de cada workstream funcional.
 
 ---
 
@@ -988,6 +996,7 @@ Próximo passo ativo: H5 — fechar o lifecycle Loja + Logística, preservando o
 
 | Data | Módulo | Desenvolvimento / análise | Evidência | Estado / pendências |
 |---|---|---|---|---|
+| 2026-09-02 | Loja / Inventário / Logística | H5a introduz cancelamento pré-entrega com reposição atómica/idempotente de produto+variante, estado cancelado terminal, audit v2 e recolha produtiva agregada. | `CancelStoreOrderStockAction`; `StorefrontCartOrderCanonicalTest`; `StoreLogisticsStockAuditCommandTest`; artifact `store-logistics-lifecycle-readiness-*`; `docs/modules/store_logistics_end_to_end_contract.md` | Sem migration/backfill/rotas/dados mutados; H5b fica responsável por `Invoice` + `PaymentAllocationService` + fiscal manual. |
 | 2026-09-02 | Fiscal / Wintouch | H4 fixa `manual_wintouch` como modo produtivo, bloqueia emissão automática fora de `provider_api`, remove a abstração provider duplicada e acrescenta audit agregado de prontidão ao pós-deploy. | PR #297; CI #1073/#1074; merge `45bba97e96e99db5ca2c5ef8e512c7e3f2d1a8b7`; `FiscalOperationalReadinessCommandTest`; artifact produtivo fiscal | Integrado e deployado, sem migration/mutação; `ready=true`, zero críticos, zero adapters, 7/7 rotas, 132 pedidos medidos, 125 pendentes, 108 prontos, zero emitidos registados e 126 warnings operacionais. |
 | 2026-09-02 | Desportivo / Análise e legacy | H3g fecha reporting read-only sobre fontes canónicas, remove a cadeia Performance/KeyValue órfã e torna `cleanup_closed=true` um gate produtivo obrigatório, preservando tabelas/dados owned por Eventos. | PR #295; CI #1069/#1070; merge `a971df9e189be56f6e59f526764611511f743868`; `SportsAnalysisWorkspaceFunctionalTest`; artifact produtivo Desportivo | Integrado e deployado; H3 fechado, 3/3 candidatos removidos, zero bloqueios/reconciliação pendente e estruturas Eventos preservadas. |
 | 2026-09-02 | Desportivo / Portal | H3f fixa agenda, `training_athletes` e resultados como projeções do atleta/clube autorizados, remove writes implícitos em GET e conserva `competition_id` nos eventos projetados. | PR #292; CI #1063/#1064; merge `48afd2173d41996ae7bf95ddc8ae3ad831ef448c`; `PortalSportsProjectionContractTest` | Integrado e deployado através da recuperação de infraestrutura #293/#1066; H3g avança para reporting + cleanup legacy. |

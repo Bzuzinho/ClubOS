@@ -177,4 +177,125 @@ class StorefrontCartOrderCanonicalTest extends TestCase
             ->where('reference_id', $orderItem->id)
             ->count());
     }
+
+    public function test_cancelling_order_restores_product_and_variant_stock_once_and_is_terminal(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $buyer = User::factory()->create();
+        $product = Product::query()->create([
+            'codigo' => 'CAN-CANCEL-001',
+            'slug' => 'camisola-cancelamento',
+            'nome' => 'Camisola Cancelamento',
+            'preco' => 30,
+            'preco_venda' => 35,
+            'stock' => 10,
+            'stock_reservado' => 0,
+            'ativo' => true,
+            'visible_in_store' => true,
+            'track_stock' => true,
+        ]);
+        $variant = ProductVariant::query()->create([
+            'product_id' => $product->id,
+            'nome' => 'Senior',
+            'tamanho' => 'M',
+            'sku' => 'CAN-CANCEL-001-M',
+            'preco_extra' => 2,
+            'stock' => 4,
+            'stock_reservado' => 0,
+            'ativo' => true,
+        ]);
+
+        $this->actingAs($buyer)->postJson('/api/loja/carrinho/itens', [
+            'article_id' => $product->id,
+            'product_variant_id' => $variant->id,
+            'quantidade' => 2,
+        ])->assertCreated();
+
+        $orderId = (string) $this->actingAs($buyer)
+            ->postJson('/api/loja/carrinho/submeter', [])
+            ->assertCreated()
+            ->json('encomenda_id');
+        $order = LojaEncomenda::query()->findOrFail($orderId);
+        $orderItem = $order->itens()->firstOrFail();
+
+        $this->assertSame(8, (int) $product->fresh()->stock);
+        $this->assertSame(2, (int) $variant->fresh()->stock);
+
+        $this->actingAs($admin)
+            ->patchJson('/api/admin/loja/encomendas/'.$orderId.'/estado', ['estado' => 'cancelado'])
+            ->assertOk()
+            ->assertJsonPath('estado', 'cancelado');
+
+        $this->assertSame(10, (int) $product->fresh()->stock);
+        $this->assertSame(4, (int) $variant->fresh()->stock);
+        $this->assertSame(1, StockMovement::query()
+            ->where('article_id', $product->id)
+            ->where('product_variant_id', $variant->id)
+            ->where('movement_type', 'return')
+            ->where('quantity', 2)
+            ->where('reference_type', 'store_order_item')
+            ->where('reference_id', $orderItem->id)
+            ->count());
+
+        $this->actingAs($admin)
+            ->patchJson('/api/admin/loja/encomendas/'.$orderId.'/estado', ['estado' => 'cancelado'])
+            ->assertOk();
+
+        $this->assertSame(1, StockMovement::query()
+            ->where('movement_type', 'return')
+            ->where('reference_type', 'store_order_item')
+            ->where('reference_id', $orderItem->id)
+            ->count());
+
+        $this->actingAs($admin)
+            ->patchJson('/api/admin/loja/encomendas/'.$orderId.'/estado', ['estado' => 'aprovado'])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('estado');
+
+        $this->assertSame(LojaEncomenda::ESTADO_CANCELADO, $order->fresh()->estado);
+        $this->assertSame(10, (int) $product->fresh()->stock);
+        $this->assertSame(4, (int) $variant->fresh()->stock);
+    }
+
+    public function test_cancellation_fails_closed_when_order_has_financial_invoice_reference(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $buyer = User::factory()->create();
+        $product = Product::query()->create([
+            'codigo' => 'CAN-CANCEL-002',
+            'slug' => 'produto-com-fatura',
+            'nome' => 'Produto com Fatura',
+            'preco' => 20,
+            'preco_venda' => 25,
+            'stock' => 5,
+            'stock_reservado' => 0,
+            'ativo' => true,
+            'visible_in_store' => true,
+            'track_stock' => true,
+        ]);
+
+        $this->actingAs($buyer)->postJson('/api/loja/carrinho/itens', [
+            'article_id' => $product->id,
+            'quantidade' => 1,
+        ])->assertCreated();
+
+        $orderId = (string) $this->actingAs($buyer)
+            ->postJson('/api/loja/carrinho/submeter', [])
+            ->assertCreated()
+            ->json('encomenda_id');
+        $order = LojaEncomenda::query()->findOrFail($orderId);
+        $order->update(['fatura_id' => (string) str()->uuid()]);
+
+        $this->actingAs($admin)
+            ->patchJson('/api/admin/loja/encomendas/'.$orderId.'/estado', ['estado' => 'cancelado'])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('estado');
+
+        $this->assertSame(LojaEncomenda::ESTADO_PENDENTE, $order->fresh()->estado);
+        $this->assertSame(4, (int) $product->fresh()->stock);
+        $this->assertSame(0, StockMovement::query()
+            ->where('movement_type', 'return')
+            ->where('reference_type', 'store_order_item')
+            ->count());
+    }
 }
