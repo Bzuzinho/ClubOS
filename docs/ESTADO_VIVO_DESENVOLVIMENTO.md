@@ -1,6 +1,3 @@
-Warning: truncated output (original token count: 30388)
-Total output lines: 1074
-
 # Estado Vivo de Desenvolvimento — ClubOS
 
 > Fonte de verdade funcional e técnica do projeto ClubOS.
@@ -770,7 +767,14 @@ PR #261 merged em `a729ea5ec9a7dd38cbac10faa8e4a7174524e146`; CI #986 totalmente
 
 O décimo lote controlado:
 
-- extrai as 9 rotas administrativas de leitura sob o prefixo `admin/loja`, cobrindo dashboa…388 tokens truncated…bloco extraído é textualmente equivalente após normalização da indentação e `routes/web.php` desceu para `229` linhas, `85` declarações diretas e `20` imports de controllers sem alterar comportamento runtime.
+- extrai as 9 rotas administrativas de leitura sob o prefixo `admin/loja`, cobrindo dashboard, produtos, encomendas e hero, para `routes/web_store_admin.php`;
+- mantém o gate `module.access:loja`, o prefixo nominal `admin.loja.` e o carregamento na posição original dentro de `auth` + `verified`;
+- conserva separados o POST financeiro de compatibilidade anterior, Patrocínios, Comunicação e os resources financeiros posteriores;
+- reforça a CI para exigir `28/28` ficheiros modulares carregados e testa a origem dedicada da fronteira administrativa da Loja;
+- elimina do monólito o último candidato literal `GET /` prefix-scoped, fazendo o ratchet convergir de `1/1` candidato classificado para `0` candidatos sem alterar o router efetivo;
+- mantém como condição de aceitação o hash H2.5a, as 517 rotas, os 491 nomes, os 23 redirects, ordem, middleware, constraints e fallback.
+
+A CI inicial #990 bloqueou corretamente no gate topológico porque o ratchet ainda exigia o candidato literal `GET /` que esta extração removeu do monólito. O follow-up atualizou explicitamente o esperado de `1` para `0`, sem alterar o baseline runtime. PR #263 merged em `d4a825ca26e1323aade7d30e497f2c08c49b394f`; CI #992 totalmente verde na PR e CI #993 totalmente verde em `main`, incluindo PostgreSQL, browser QA, deploy para a Oracle VM e audits produtivos pós-deploy. O artifact `web-route-topology-d4a825ca26e1323aade7d30e497f2c08c49b394f` confirmou: hash H2.5a inalterado, `517` rotas, `491` nomes, `28/28` ficheiros modulares carregados, `23` redirects preservados, `0` referências aos aliases retirados e `0` candidatos literais. O bloco extraído é textualmente equivalente após normalização da indentação e `routes/web.php` desceu para `229` linhas, `85` declarações diretas e `20` imports de controllers sem alterar comportamento runtime.
 
 ### H2.5l — Patrocínios administrativos modulares — concluída
 
