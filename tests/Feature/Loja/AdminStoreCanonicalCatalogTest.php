@@ -136,7 +136,7 @@ class AdminStoreCanonicalCatalogTest extends TestCase
         ]);
 
         $this->actingAs($admin)
-            ->putJson('/api/admin/loja/produtos/'.$product->id, [
+            ->patchJson('/api/admin/loja/produtos/'.$product->id, [
                 'categoria_id' => null,
                 'codigo' => $product->codigo,
                 'nome' => 'Artigo partilhado atualizado',
