@@ -34,6 +34,9 @@ class CommunicationCampaignService
                 'alert_link' => $payload['alert_link'] ?? null,
                 'alert_type' => $payload['alert_type'] ?? 'info',
                 'notes' => $payload['notes'] ?? null,
+                'source_type' => $payload['source_type'] ?? null,
+                'source_id' => $payload['source_id'] ?? null,
+                'idempotency_key' => $payload['idempotency_key'] ?? null,
             ]);
 
             foreach ($payload['channels'] as $channel) {
@@ -158,12 +161,34 @@ class CommunicationCampaignService
             throw new \RuntimeException('Campanha sem canais ativos.');
         }
 
-        $campaign->update([
-            'status' => 'em_processamento',
-        ]);
+        $dispatchRequired = true;
+        $campaign = DB::transaction(function () use ($campaign, &$dispatchRequired): CommunicationCampaign {
+            $locked = CommunicationCampaign::query()->lockForUpdate()->findOrFail($campaign->id);
+
+            if (in_array($locked->status, ['enviada', 'cancelada'], true)) {
+                $dispatchRequired = false;
+                return $locked;
+            }
+
+            if ($locked->status === 'em_processamento' && $locked->dispatch_requested_at !== null) {
+                $dispatchRequired = false;
+                return $locked;
+            }
+
+            $locked->update([
+                'status' => 'em_processamento',
+                'dispatch_requested_at' => now(),
+            ]);
+
+            return $locked->refresh();
+        });
+
+        if (! $dispatchRequired) {
+            return $campaign;
+        }
 
         if ($dispatchToQueue) {
-            ProcessCommunicationCampaignJob::dispatch($campaign->id, $executedBy);
+            ProcessCommunicationCampaignJob::dispatch($campaign->id, $executedBy)->afterCommit();
             return $campaign->refresh();
         }
 
@@ -186,6 +211,16 @@ class CommunicationCampaignService
 
     public function sendIndividualCommunication(array $payload, ?string $authorId = null): CommunicationCampaign
     {
+        if (! empty($payload['idempotency_key'])) {
+            $existing = CommunicationCampaign::query()
+                ->where('idempotency_key', $payload['idempotency_key'])
+                ->first();
+
+            if ($existing) {
+                return $existing->load(['channels', 'segment']);
+            }
+        }
+
         $campaign = DB::transaction(function () use ($payload, $authorId) {
             $scheduledAt = $payload['scheduled_at'] ?? null;
             $isScheduled = filled($scheduledAt);
@@ -225,6 +260,9 @@ class CommunicationCampaignService
                 'alert_message' => $payload['alert_message'] ?? null,
                 'alert_type' => $payload['alert_type'] ?? 'info',
                 'notes' => sprintf('Envio individual | categoria: %s | modo: %s', $payload['alert_category'], $isScheduled ? 'agendado' : 'imediato'),
+                'source_type' => $payload['source_type'] ?? null,
+                'source_id' => $payload['source_id'] ?? null,
+                'idempotency_key' => $payload['idempotency_key'] ?? null,
                 'channels' => $enabledChannels->all(),
             ], $authorId);
         });
@@ -238,10 +276,26 @@ class CommunicationCampaignService
 
     public function consolidateStatus(CommunicationCampaign $campaign): CommunicationCampaign
     {
+        $campaign->load('deliveries.recipients');
         $deliveries = $campaign->deliveries;
 
         if ($deliveries->isEmpty()) {
             return $campaign;
+        }
+
+        $hasPendingRetries = $deliveries->contains(fn ($delivery): bool =>
+            $delivery->status === 'processing'
+            || $delivery->recipients->contains(fn ($recipient): bool =>
+                $recipient->status === 'failed'
+                && $recipient->attempt_count < $recipient->max_attempts
+                && $recipient->next_attempt_at !== null
+            )
+        );
+
+        if ($hasPendingRetries) {
+            $campaign->update(['status' => 'em_processamento']);
+
+            return $campaign->refresh();
         }
 
         $hasFailures = $deliveries->contains(fn ($delivery) => in_array($delivery->status, ['failed', 'partial'], true));

@@ -28,12 +28,17 @@ class CommunicationCampaign extends Model
         'alert_link',
         'alert_type',
         'notes',
+        'source_type',
+        'source_id',
+        'idempotency_key',
+        'dispatch_requested_at',
     ];
 
     protected $casts = [
         'scheduled_at' => 'datetime',
         'sent_at' => 'datetime',
         'create_in_app_alert' => 'boolean',
+        'dispatch_requested_at' => 'datetime',
     ];
 
     public function segment(): BelongsTo

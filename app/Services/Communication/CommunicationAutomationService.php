@@ -321,10 +321,18 @@ class CommunicationAutomationService
         }
 
         try {
-            $campaign = $this->campaignService->sendIndividualCommunication($payload);
-            $campaign->update([
-                'notes' => trim(($campaign->notes ? $campaign->notes.' | ' : '').sprintf('origem: %s:%s', $originType, $originId)),
+            $campaign = $this->campaignService->sendIndividualCommunication([
+                ...$payload,
+                'source_type' => $originType,
+                'source_id' => $originId,
+                'idempotency_key' => hash('sha256', $originType.':'.$originId),
             ]);
+            $originNote = sprintf('origem: %s:%s', $originType, $originId);
+            if (! str_contains((string) $campaign->notes, $originNote)) {
+                $campaign->update([
+                    'notes' => trim(($campaign->notes ? $campaign->notes.' | ' : '').$originNote),
+                ]);
+            }
         } catch (\Throwable $exception) {
             Log::error('CommunicationAutomationService dispatch failed', [
                 'origin_type' => $originType,
@@ -346,7 +354,10 @@ class CommunicationAutomationService
     private function invoiceCommunicationAlreadyDispatched(Invoice $invoice): bool
     {
         return CommunicationCampaign::query()
-            ->where('notes', 'like', sprintf('%%origem: invoice:%s%%', $invoice->id))
+            ->where(function (Builder $query) use ($invoice): void {
+                $query->where('idempotency_key', hash('sha256', 'invoice:'.$invoice->id))
+                    ->orWhere('notes', 'like', sprintf('%%origem: invoice:%s%%', $invoice->id));
+            })
             ->exists();
     }
 

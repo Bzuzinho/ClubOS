@@ -122,17 +122,26 @@ class InAppAlertService
 
     private function createAlertRecord(array $payload, string $userId): InAppAlert
     {
-        return InAppAlert::create([
+        $attributes = [
             'campaign_id' => $payload['campaign_id'] ?? null,
             'delivery_id' => $payload['delivery_id'] ?? null,
             'user_id' => $userId,
+        ];
+
+        $values = [
             'title' => $payload['title'],
             'message' => $payload['message'],
             'link' => $payload['link'] ?? null,
             'type' => $payload['type'] ?? 'info',
             'visible_from' => $payload['visible_from'] ?? now(),
             'visible_until' => $payload['visible_until'] ?? null,
-        ]);
+        ];
+
+        if (! empty($attributes['delivery_id'])) {
+            return InAppAlert::query()->firstOrCreate($attributes, $values);
+        }
+
+        return InAppAlert::create([...$attributes, ...$values]);
     }
 
     private function inAppAlertsEnabled(): bool

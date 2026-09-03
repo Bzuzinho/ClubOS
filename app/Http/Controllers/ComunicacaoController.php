@@ -213,6 +213,16 @@ class ComunicacaoController extends Controller
 
         $deliveriesQuery = CommunicationDelivery::query()
             ->with(['campaign:id,codigo,title', 'segment:id,name'])
+            ->withCount([
+                'attempts',
+                'recipients as retryable_count' => fn ($builder) => $builder
+                    ->where('status', 'failed')
+                    ->whereColumn('attempt_count', '<', 'max_attempts')
+                    ->whereNotNull('next_attempt_at'),
+                'recipients as exhausted_count' => fn ($builder) => $builder
+                    ->where('status', 'failed')
+                    ->whereColumn('attempt_count', '>=', 'max_attempts'),
+            ])
             ->latest();
 
         if ($request->filled('delivery_channel')) {

@@ -57,7 +57,7 @@ Stack produtiva: Laravel 13, PHP 8.3, React 19 + TypeScript, Inertia 2, Vite, Po
 | Fiscal | 90% | H4 mantém `manual_wintouch`: emissão externa e confirmação no ClubOS. H5d bloqueia a devolução de uma encomenda com recibo emitido até existir nota de crédito Wintouch registada e preserva ambas as identidades fiscais. O processamento automático continua fail-closed sem `provider_api`. |
 | Inventário / Logística | 84% | `stock_movements` é o ledger canónico e variantes são atómicas. H5e está em produção com catálogo partilhado, elegibilidade backend, retries idempotentes e bloqueios transacionais de compras/requisições/entregas/empréstimos; o audit agregado confirma schema completo e zero críticos, warnings ou ações pendentes. |
 | Loja | 84% | H5a–H5d fecharam checkout, cancelamento pré-entrega, fatura, pagamento, fiscalidade e devolução integral pós-entrega. H5e fecha o lifecycle interno de Logística sobre o mesmo catálogo e ledger, sem criar uma fonte paralela. |
-| Comunicação | 60% | Falta pipeline assíncrono persistente com attempts, retry, idempotência e provider IDs. |
+| Comunicação | 70% | H6a implementa a fundação assíncrona persistente sobre campanhas/entregas existentes: scheduler, retries com backoff, leases, idempotência em três níveis, attempts, provider IDs, Redis e audit produtivo. A promoção produtiva está pendente; seguem o cutover das automações ainda síncronas, adapters/webhooks reais e futura integração Redes. |
 | Relatórios | 40% | Área menos madura; construir apenas depois de estabilizar fontes de verdade. |
 | PWA / Mobile | 62% | TypeScript permanece 0/0. H1.17 introduziu Playwright bloqueante em Chromium/Firefox/WebKit e perfis Pixel 7/iPhone 14; H1.18 acrescentou sessão autenticada, menu, navegação para Membros/Desportivo/Eventos/Financeiro/Configurações, overflow e axe no Dashboard. Falta ampliar a cobertura a workspaces/tabs, tablet, Portal e operações críticas por módulo. |
 | Importação de recibos antigos | 60% | Falta corpus real representativo e regression dataset idempotente. |
@@ -1007,6 +1007,14 @@ O novo comando read-only `inventory:audit-internal-logistics-lifecycle` agrega o
 
 PR #307 foi integrada no merge `c030d44e53987b098eca3d5a7b61fff8d0f5269e`. CI #1099 validou a PR e CI #1100 repetiu Laravel, PostgreSQL concorrente e browser QA em `main`, fez o deploy atómico na Oracle VM e recolheu o audit H5e. O artifact `internal-logistics-lifecycle-readiness-c030d44e53987b098eca3d5a7b61fff8d0f5269e` (ID `9886764812`, `sha256:500b9ad2988bb320860ebefde00a7d5ca42fd01b1f0b523b6fae5272f5d10c4c`) confirmou todas as nove tabelas e capacidades esperadas, uma compra histórica, zero requisições/empréstimos, zero origens financeiras divergentes e zero críticos, warnings ou ações pendentes. A compra histórica sem `financial_movement_id` foi apenas medida (`1`) e permanece não acionável; não existiu backfill nem mutação (`read_only=true`, `no_data_changed=true`).
 
+### H6a — Pipeline assíncrono persistente de Comunicação — implementado, promoção produtiva pendente
+
+`communication_campaigns`, `communication_deliveries` e `communication_delivery_recipients` permanecem a outbox canónica e passam a ter chaves idempotentes estruturadas. A nova `communication_delivery_attempts` conserva cada tentativa, provider, referência externa, erro e próxima retentativa. Uma execução repetida reutiliza campanha, entrega e destinatário; sucessos concluídos são no-op.
+
+`communication:dispatch-due` corre a cada minuto e enfileira campanhas agendadas, retries vencidos e leases abandonadas. Cada destinatário tem no máximo três tentativas, separadas por backoff de 1 e 5 minutos; exceções do job usam 1/5/15 minutos. Email usa `Message-ID` determinístico, SMS propaga `Idempotency-Key`, alertas internos guardam o ID do registo e push falha fechado sem provider. A configuração Laravel passa a expor a ligação Redis que já era indicada no ambiente/deploy e os jobs só são publicados após commit.
+
+A vista Execução mostra tentativas, retries e esgotamentos. O audit read-only `communication:audit-async-pipeline` mede schema, legado, backlog, referências de provider e anomalias; a CI recolherá apenas schema e contagens agregadas após deploy. Não existe backfill ou mutação de histórico. O contrato e os limites de exactly-once ficam em `docs/modules/communication_async_pipeline.md`.
+
 ---
 
 ## 8. Dívida estrutural prioritária
@@ -1029,7 +1037,7 @@ PR #307 foi integrada no merge `c030d44e53987b098eca3d5a7b61fff8d0f5269e`. CI #1
 | 3 | H8 | Reporting consolidado transversal. |
 | 4 | H9 | Website: header/footer, notícias e polish final. |
 
-Próximo passo: iniciar H6 pela infraestrutura persistente de comunicação assíncrona, com attempts, retry, idempotência e provider IDs, preservando a futura integração Redes. H3, H4, H5, H2.5, stock por variante e Família/EE estão estruturalmente fechados. A fila fiscal produtiva e a ação operacional Cloudflare R2 permanecem pendências operacionais separadas.
+Próximo passo: promover H6a com CI totalmente verde, aplicar a migration, validar Redis/scheduler/worker e recolher o artifact produtivo. Depois, H6b deve mover as automações ainda síncronas para esta outbox sem alterar preferências ou origens. H3, H4, H5, H2.5, stock por variante e Família/EE estão estruturalmente fechados. A fila fiscal produtiva e a ação operacional Cloudflare R2 permanecem pendências operacionais separadas.
 
 ---
 
@@ -1037,6 +1045,7 @@ Próximo passo: iniciar H6 pela infraestrutura persistente de comunicação ass�
 
 | Data | Módulo | Desenvolvimento / análise | Evidência | Estado / pendências |
 |---|---|---|---|---|
+| 2026-09-03 | Comunicação / Infraestrutura | H6a cria dispatcher de agendamentos/retries, attempts persistentes, leases, idempotência campanha→canal→destinatário, provider IDs, queue Redis válida, observabilidade UI e audit produtivo agregado. | `CommunicationDeliveryService`; `communication_delivery_attempts`; `DispatchDueCommunicationsCommand`; `CommunicationAsyncPipelineAuditService`; `CommunicationAsyncPipelineTest`; `communication_async_pipeline.md`; workflow CI | Implementado; TypeScript 0/0, lint, unit tests e build aprovados localmente. PHP/migration, PR, deploy e evidência produtiva pendentes. |
 | 2026-09-03 | Logística / Inventário / Financeiro / Desportivo | H5e fecha capacidades do catálogo, elegibilidade backend, locks e retries idempotentes em requisições/entregas/empréstimos/compras, preserva a identidade estruturada Desportivo→Logística e acrescenta audit agregado produtivo. | PR #307; CI #1099/#1100; merge `c030d44e53987b098eca3d5a7b61fff8d0f5269e`; artifact `internal-logistics-lifecycle-readiness-c030d44e53987b098eca3d5a7b61fff8d0f5269e` | Integrado e deployado; schema completo, 1 compra histórica medida, 0 requisições/empréstimos, 0 divergências financeiras e 0 críticos/warnings/ações; audit read-only sem mutação. H5 concluído e H6 é o próximo lote. |
 | 2026-09-03 | Loja / Financeiro / Fiscal / Inventário | H5d cria devolução integral pós-entrega em duas fases quando existe documento fiscal: nota de crédito Wintouch primeiro, depois reversão histórica e reposição idempotente de stock. | PR #305; CI #1092/#1095; merge `b178ec5426f78a845995e5173d3a60179d06b7d9`; artifact `store-logistics-lifecycle-readiness-6a0aa5d1ec8003613138931ad790654f7ac0f037` | Integrado e deployado; schema H5d presente, 0 devoluções incoerentes, 0 desequilíbrios, 0 críticos/warnings/ações. H5e é o próximo lote ativo. |
 | 2026-09-02 | Loja / Financeiro / Fiscal | H5c projeta pagamento, saldo e pedido fiscal da `Invoice` no estado composto da encomenda; prova parcial→pago→pedido Wintouch→documento externo sem mutar o estado logístico nem criar efeitos paralelos. | PR #303; CI #1088/#1089; merge `e7ddd8884d095bda5adf521444f0af2bbb487031`; artifact `store-logistics-lifecycle-readiness-e7ddd8884d095bda5adf521444f0af2bbb487031` | Integrado e deployado; 1 encomenda/1 item legacy, 0 incoerências de pagamento/fiscal, 0 saídas ausentes/duplicadas e 0 críticos/warnings/ações. H5d segue para reversão/devolução posterior à entrega. |

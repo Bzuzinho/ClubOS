@@ -679,6 +679,64 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+      - name: Collect Communication async pipeline production audit
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          raw_report="${GITHUB_WORKSPACE}/communication-async-pipeline-raw.json"
+          local_report="${GITHUB_WORKSPACE}/communication-async-pipeline-readiness.json"
+          remote_report="/tmp/clubos-communication-async-pipeline-${GITHUB_SHA}.json"
+
+          ssh \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="${HOME}/.ssh/known_hosts" \
+            "${VM_USER}@${VM_HOST}" \
+            "cd '${VM_APP_DIR}' && php artisan communication:audit-async-pipeline --json --report-path='${remote_report}' --fail-on-critical >/dev/null && cat '${remote_report}' && rm -f '${remote_report}'" \
+            > "${raw_report}"
+
+          jq '{version, read_only, schema_detected, summary, interpretation}' "${raw_report}" > "${local_report}"
+          rm -f "${raw_report}"
+
+          jq -e '
+            .version == "h6a-communication-async-pipeline-audit-v1"
+            and .read_only == true
+            and .summary.schema_ready == true
+            and .summary.critical_count == 0
+            and ([.schema_detected.required_tables[]] | all)
+            and ([.schema_detected.campaign_fields[]] | all)
+            and ([.schema_detected.delivery_fields[]] | all)
+            and ([.schema_detected.recipient_fields[]] | all)
+            and .schema_detected.redis_queue_connection_defined == true
+            and .interpretation.campaigns_are_the_canonical_outbox == true
+            and .interpretation.attempts_are_append_only == true
+            and .interpretation.future_social_network_providers_must_reuse_this_pipeline == true
+            and .interpretation.no_data_changed == true
+          ' "${local_report}" >/dev/null
+
+          {
+            echo '## Communication async pipeline production audit'
+            echo ''
+            echo "- Commit: \`${GITHUB_SHA}\`"
+            echo "- Campaigns managed/legacy: \`$(jq -r '(.summary.managed_campaign_count|tostring) + \"/\" + (.summary.legacy_campaign_count|tostring)' "${local_report}")\`"
+            echo "- Deliveries managed/legacy: \`$(jq -r '(.summary.managed_delivery_count|tostring) + \"/\" + (.summary.legacy_delivery_count|tostring)' "${local_report}")\`"
+            echo "- Recipients managed/legacy: \`$(jq -r '(.summary.managed_recipient_count|tostring) + \"/\" + (.summary.legacy_recipient_count|tostring)' "${local_report}")\`"
+            echo "- Attempts / failed attempts: \`$(jq -r '(.summary.attempt_count|tostring) + \"/\" + (.summary.failed_attempt_count|tostring)' "${local_report}")\`"
+            echo "- Scheduled due / retry due / retry waiting: \`$(jq -r '(.summary.scheduled_due_count|tostring) + \"/\" + (.summary.retry_due_count|tostring) + \"/\" + (.summary.retry_waiting_count|tostring)' "${local_report}")\`"
+            echo "- Exhausted / stale / actionable: \`$(jq -r '(.summary.exhausted_recipient_count|tostring) + \"/\" + (.summary.stale_processing_count|tostring) + \"/\" + (.summary.actionable_count|tostring)' "${local_report}")\`"
+            echo '- Read-only aggregate evidence; legacy rows are measured without backfill.'
+            echo '- Artifact contains aggregate counts only; no campaign, recipient, contact or user identifiers.'
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload Communication async pipeline production audit
+        uses: actions/upload-artifact@v7
+        with:
+          name: communication-async-pipeline-readiness-${{ github.sha }}
+          path: communication-async-pipeline-readiness.json
+          if-no-files-found: error
+          retention-days: 30
+
       - name: Collect Fiscal production operational readiness audit
         shell: bash
         run: |

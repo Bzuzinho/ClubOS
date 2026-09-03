@@ -73,6 +73,9 @@ interface DeliveryRow {
   success_count: number;
   failed_count: number;
   pending_count: number;
+  attempts_count: number;
+  retryable_count: number;
+  exhausted_count: number;
   result_summary?: string | null;
   error_message?: string | null;
   campaign?: { id: string; codigo: string; title: string } | null;
@@ -1575,6 +1578,7 @@ export default function ComunicacaoIndex({
                         <p>Canal: <span className="uppercase">{delivery.channel}</span></p>
                         <p>Data/Hora: {delivery.sent_at ? new Date(delivery.sent_at).toLocaleString('pt-PT') : '-'}</p>
                         <p>Resultado: S:{delivery.success_count} F:{delivery.failed_count} P:{delivery.pending_count}</p>
+                        <p>Tentativas: {delivery.attempts_count || 0} · Em retry: {delivery.retryable_count || 0} · Esgotadas: {delivery.exhausted_count || 0}</p>
                         <p className="break-words">Erro/Log: {delivery.error_message || delivery.result_summary || '-'}</p>
                       </div>
                     </div>
@@ -1602,7 +1606,10 @@ export default function ComunicacaoIndex({
                           <TableCell className="px-2 py-2 align-top text-sm whitespace-normal break-words">{delivery.segment?.name || '-'}</TableCell>
                           <TableCell className="px-2 py-2 align-top text-xs whitespace-normal break-words">{delivery.sent_at ? new Date(delivery.sent_at).toLocaleString('pt-PT') : '-'}</TableCell>
                           <TableCell className="px-2 py-2 align-top whitespace-normal"><Badge variant={delivery.status === 'failed' ? 'destructive' : 'secondary'} className="max-w-full whitespace-normal text-left">{delivery.status}</Badge></TableCell>
-                          <TableCell className="px-2 py-2 align-top text-xs whitespace-normal break-words">S:{delivery.success_count} F:{delivery.failed_count} P:{delivery.pending_count}</TableCell>
+                          <TableCell className="px-2 py-2 align-top text-xs whitespace-normal break-words">
+                            <div>S:{delivery.success_count} F:{delivery.failed_count} P:{delivery.pending_count}</div>
+                            <div className="text-muted-foreground">Tent.: {delivery.attempts_count || 0} · Retry: {delivery.retryable_count || 0} · Esg.: {delivery.exhausted_count || 0}</div>
+                          </TableCell>
                           <TableCell className="px-2 py-2 align-top text-xs text-muted-foreground whitespace-normal break-words">{delivery.error_message || delivery.result_summary || '-'}</TableCell>
                         </TableRow>
                       ))}

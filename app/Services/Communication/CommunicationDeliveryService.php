@@ -6,10 +6,14 @@ use App\Models\AgeGroup;
 use App\Models\CommunicationCampaign;
 use App\Models\CommunicationCampaignChannel;
 use App\Models\CommunicationDelivery;
+use App\Models\CommunicationDeliveryAttempt;
 use App\Models\CommunicationDeliveryRecipient;
 use App\Models\Event;
 use App\Models\Invoice;
+use App\Models\InAppAlert;
 use App\Models\User;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
@@ -28,18 +32,39 @@ class CommunicationDeliveryService
 
     public function createAndExecuteDelivery(CommunicationCampaign $campaign, CommunicationCampaignChannel $channel, ?string $executedBy = null): CommunicationDelivery
     {
-        $recipients = $this->segmentResolverService->resolveRecipients($campaign->segment, $channel->channel);
+        $deliveryKey = hash('sha256', sprintf('campaign:%s:channel:%s', $campaign->id, $channel->channel));
 
-        $delivery = CommunicationDelivery::create([
-            'campaign_id' => $campaign->id,
-            'channel' => $channel->channel,
-            'segment_id' => $campaign->segment_id,
-            'status' => 'processing',
-            'scheduled_at' => $campaign->scheduled_at,
-            'executed_by' => $executedBy,
-            'total_recipients' => $recipients->count(),
-            'pending_count' => $recipients->count(),
-        ]);
+        $delivery = DB::transaction(function () use ($campaign, $channel, $executedBy, $deliveryKey): CommunicationDelivery {
+            CommunicationCampaign::query()->lockForUpdate()->findOrFail($campaign->id);
+
+            return CommunicationDelivery::query()->firstOrCreate(
+                ['idempotency_key' => $deliveryKey],
+                [
+                    'campaign_id' => $campaign->id,
+                    'channel' => $channel->channel,
+                    'segment_id' => $campaign->segment_id,
+                    'status' => 'processing',
+                    'scheduled_at' => $campaign->scheduled_at,
+                    'executed_by' => $executedBy,
+                ],
+            );
+        });
+
+        if ($delivery->wasRecentlyCreated) {
+            $recipients = $this->segmentResolverService->resolveRecipients($campaign->segment, $channel->channel);
+            $this->snapshotRecipients($delivery, $recipients);
+
+            $delivery->update([
+                'total_recipients' => $recipients->count(),
+                'pending_count' => $recipients->count(),
+            ]);
+        } else {
+            $recipients = $this->recipientPayloads($delivery);
+        }
+
+        if ($delivery->status === 'completed') {
+            return $delivery;
+        }
 
         if ($recipients->isEmpty()) {
             $delivery->update([
@@ -47,46 +72,42 @@ class CommunicationDeliveryService
                 'error_message' => 'Sem destinatarios validos para o canal selecionado.',
                 'pending_count' => 0,
                 'result_summary' => 'Nenhum destinatario resolvido.',
+                'completed_at' => now(),
             ]);
 
             return $delivery;
         }
 
-        $successCount = 0;
-        $failedCount = 0;
-
         foreach ($recipients as $recipient) {
-            $recipientRow = CommunicationDeliveryRecipient::create([
-                'delivery_id' => $delivery->id,
-                'user_id' => $recipient['user_id'] ?? null,
-                'member_id' => $recipient['member_id'] ?? null,
-                'contact_email' => $recipient['email'] ?? null,
-                'contact_phone' => $recipient['phone'] ?? null,
-                'push_token' => $recipient['push_token'] ?? null,
-                'status' => 'pending',
-            ]);
+            $recipientRow = CommunicationDeliveryRecipient::query()
+                ->where('idempotency_key', $this->recipientKey($delivery, $recipient))
+                ->first();
+
+            if (! $recipientRow) {
+                continue;
+            }
+
+            $attempt = $this->claimAttempt($recipientRow);
+            if (! $attempt) {
+                continue;
+            }
 
             $rendered = $this->templateRenderService->renderChannelContent(
                 $channel,
                 $this->buildTemplateVariables($campaign, $channel, $recipient)
             );
 
-            $sent = $this->sendByChannel($channel->channel, $recipient, $rendered['subject'], $rendered['body']);
+            $outcome = $this->sendByChannel(
+                $channel->channel,
+                $recipient,
+                $rendered['subject'],
+                $rendered['body'],
+                $campaign,
+                $delivery,
+                (string) $recipientRow->idempotency_key,
+            );
 
-            if ($sent) {
-                $successCount++;
-                $recipientRow->update([
-                    'status' => in_array($channel->channel, ['interno', 'alert_app'], true) ? 'delivered' : 'sent',
-                    'sent_at' => now(),
-                    'delivered_at' => now(),
-                ]);
-            } else {
-                $failedCount++;
-                $recipientRow->update([
-                    'status' => 'failed',
-                    'error_message' => 'Destinatario sem dados compativeis com o canal.',
-                ]);
-            }
+            $this->completeAttempt($recipientRow, $attempt, $outcome, $channel->channel);
         }
 
         if ($this->shouldCreateInAppAlerts($campaign, $channel)) {
@@ -100,62 +121,67 @@ class CommunicationDeliveryService
             ], $recipients);
         }
 
-        $pendingCount = max(0, $delivery->total_recipients - $successCount - $failedCount);
-        $status = $failedCount === 0 ? 'completed' : ($successCount > 0 ? 'partial' : 'failed');
-
-        $delivery->update([
-            'status' => $status,
-            'sent_at' => now(),
-            'success_count' => $successCount,
-            'failed_count' => $failedCount,
-            'pending_count' => $pendingCount,
-            'result_summary' => sprintf('Sucesso: %d | Falhas: %d', $successCount, $failedCount),
-        ]);
-
-        return $delivery;
+        return $this->refreshDeliveryStatus($delivery);
     }
 
-    private function sendByChannel(string $channel, array $recipient, ?string $subject, ?string $body): bool
+    /** @return array{success:bool,provider:string,provider_message_id:?string,error_code:?string,error_message:?string} */
+    private function sendByChannel(
+        string $channel,
+        array $recipient,
+        ?string $subject,
+        ?string $body,
+        CommunicationCampaign $campaign,
+        CommunicationDelivery $delivery,
+        string $idempotencyKey,
+    ): array
     {
         try {
             return match ($channel) {
-                'email' => $this->sendEmail($recipient['email'] ?? null, $subject, $body),
-                'sms' => $this->sendSms($recipient['phone'] ?? null, $body),
-                'push' => !empty($recipient['push_token']),
-                'interno' => !empty($recipient['user_id']),
-                'alert_app' => !empty($recipient['user_id']),
-                default => false,
+                'email' => $this->sendEmail($recipient['email'] ?? null, $subject, $body, $idempotencyKey),
+                'sms' => $this->sendSms($recipient['phone'] ?? null, $body, $idempotencyKey),
+                'interno', 'alert_app' => $this->sendInApp($recipient, $subject, $body, $campaign, $delivery, $channel),
+                'push' => $this->failure('push', 'provider_not_configured', 'O provider push ainda não está configurado.'),
+                default => $this->failure($channel, 'unsupported_channel', 'Canal de comunicação não suportado.'),
             };
         } catch (\Throwable $exception) {
             Log::error('CommunicationDeliveryService::sendByChannel', [
                 'channel' => $channel,
-                'recipient' => $recipient,
-                'subject' => $subject,
                 'error' => $exception->getMessage(),
             ]);
 
-            return false;
+            return $this->failure($channel, 'provider_exception', $exception->getMessage());
         }
     }
 
-    private function sendEmail(?string $email, ?string $subject, ?string $body): bool
+    /** @return array{success:bool,provider:string,provider_message_id:?string,error_code:?string,error_message:?string} */
+    private function sendEmail(?string $email, ?string $subject, ?string $body, string $idempotencyKey): array
     {
         if (empty($email)) {
-            return false;
+            return $this->failure('mail', 'missing_email', 'Destinatário sem email válido.');
         }
 
-        Mail::raw($body ?: '', function ($message) use ($email, $subject) {
+        $messageId = $idempotencyKey.'@clubos.local';
+        $sentMessage = Mail::raw($body ?: '', function ($message) use ($email, $subject, $messageId) {
             $message->to($email)
                 ->subject($subject ?: 'Comunicacao ClubOS');
+
+            $headers = $message->getSymfonyMessage()->getHeaders();
+            if (! $headers->has('Message-ID')) {
+                $headers->addIdHeader('Message-ID', $messageId);
+            }
         });
 
-        return true;
+        return $this->success(
+            'mail:'.(string) config('mail.default', 'smtp'),
+            $sentMessage?->getMessageId() ?: $messageId,
+        );
     }
 
-    private function sendSms(?string $phone, ?string $body): bool
+    /** @return array{success:bool,provider:string,provider_message_id:?string,error_code:?string,error_message:?string} */
+    private function sendSms(?string $phone, ?string $body, string $idempotencyKey): array
     {
         if (empty($phone) || empty($body)) {
-            return false;
+            return $this->failure('sms', 'missing_sms_destination', 'Destinatário ou mensagem SMS em falta.');
         }
 
         $enabled = (bool) config('services.sms.enabled', false);
@@ -165,10 +191,11 @@ class CommunicationDeliveryService
 
         if (!$enabled || $apiUrl === '' || $token === '') {
             Log::warning('SMS provider not configured. Set SMS_ENABLED, SMS_API_URL and SMS_API_TOKEN.');
-            return false;
+            return $this->failure('sms', 'provider_not_configured', 'Provider SMS não configurado.');
         }
 
         $response = Http::withToken($token)
+            ->withHeaders(['Idempotency-Key' => $idempotencyKey])
             ->acceptJson()
             ->asJson()
             ->post($apiUrl, [
@@ -180,17 +207,24 @@ class CommunicationDeliveryService
         if (!$response->successful()) {
             Log::error('SMS delivery failed', [
                 'status' => $response->status(),
-                'body' => $response->body(),
             ]);
+            return $this->failure('sms', 'provider_http_'.$response->status(), 'O provider SMS recusou o envio.');
         }
 
-        return $response->successful();
+        $providerMessageId = data_get($response->json(), 'id')
+            ?? data_get($response->json(), 'message_id')
+            ?? data_get($response->json(), 'data.id');
+
+        return $this->success(
+            (string) config('services.sms.provider', 'sms_http'),
+            $providerMessageId ? (string) $providerMessageId : null,
+        );
     }
 
     private function shouldCreateInAppAlerts(CommunicationCampaign $campaign, CommunicationCampaignChannel $channel): bool
     {
-        if ($channel->channel === 'alert_app') {
-            return !$campaign->inAppAlerts()->exists();
+        if (in_array($channel->channel, ['interno', 'alert_app'], true)) {
+            return false;
         }
 
         if (!$campaign->create_in_app_alert) {
@@ -202,6 +236,218 @@ class CommunicationDeliveryService
         }
 
         return !$campaign->inAppAlerts()->exists();
+    }
+
+    private function snapshotRecipients(CommunicationDelivery $delivery, Collection $recipients): void
+    {
+        foreach ($recipients as $recipient) {
+            CommunicationDeliveryRecipient::query()->firstOrCreate(
+                ['idempotency_key' => $this->recipientKey($delivery, $recipient)],
+                [
+                    'delivery_id' => $delivery->id,
+                    'user_id' => $recipient['user_id'] ?? null,
+                    'member_id' => $recipient['member_id'] ?? null,
+                    'contact_email' => $recipient['email'] ?? null,
+                    'contact_phone' => $recipient['phone'] ?? null,
+                    'push_token' => $recipient['push_token'] ?? null,
+                    'status' => 'pending',
+                ],
+            );
+        }
+    }
+
+    private function recipientPayloads(CommunicationDelivery $delivery): Collection
+    {
+        return $delivery->recipients()->get()->map(static fn (CommunicationDeliveryRecipient $recipient): array => [
+            'user_id' => $recipient->user_id,
+            'member_id' => $recipient->member_id,
+            'email' => $recipient->contact_email,
+            'phone' => $recipient->contact_phone,
+            'push_token' => $recipient->push_token,
+        ]);
+    }
+
+    private function recipientKey(CommunicationDelivery $delivery, array $recipient): string
+    {
+        $identity = $recipient['user_id']
+            ?? $recipient['member_id']
+            ?? $recipient['email']
+            ?? $recipient['phone']
+            ?? $recipient['push_token']
+            ?? hash('sha256', json_encode($recipient, JSON_THROW_ON_ERROR));
+
+        return hash('sha256', sprintf('delivery:%s:recipient:%s', $delivery->id, $identity));
+    }
+
+    private function claimAttempt(CommunicationDeliveryRecipient $recipient): ?CommunicationDeliveryAttempt
+    {
+        return DB::transaction(function () use ($recipient): ?CommunicationDeliveryAttempt {
+            $locked = CommunicationDeliveryRecipient::query()->lockForUpdate()->findOrFail($recipient->id);
+
+            if (in_array($locked->status, ['sent', 'delivered', 'read'], true)) {
+                return null;
+            }
+
+            if ($locked->attempt_count >= $locked->max_attempts) {
+                return null;
+            }
+
+            if ($locked->next_attempt_at?->isFuture()) {
+                return null;
+            }
+
+            if ($locked->processing_at?->isAfter(now()->subMinutes(10))) {
+                return null;
+            }
+
+            $attemptNumber = $locked->attempt_count + 1;
+            $startedAt = now();
+            $locked->update([
+                'attempt_count' => $attemptNumber,
+                'processing_at' => $startedAt,
+                'last_attempt_at' => $startedAt,
+                'next_attempt_at' => null,
+            ]);
+
+            return CommunicationDeliveryAttempt::query()->create([
+                'recipient_id' => $locked->id,
+                'attempt_number' => $attemptNumber,
+                'status' => 'processing',
+                'started_at' => $startedAt,
+            ]);
+        });
+    }
+
+    /** @param array{success:bool,provider:string,provider_message_id:?string,error_code:?string,error_message:?string} $outcome */
+    private function completeAttempt(CommunicationDeliveryRecipient $recipient, CommunicationDeliveryAttempt $attempt, array $outcome, string $channel): void
+    {
+        DB::transaction(function () use ($recipient, $attempt, $outcome, $channel): void {
+            $locked = CommunicationDeliveryRecipient::query()->lockForUpdate()->findOrFail($recipient->id);
+            $completedAt = now();
+            $nextRetryAt = ! $outcome['success'] && $locked->attempt_count < $locked->max_attempts
+                ? $completedAt->copy()->addSeconds($this->retryDelaySeconds($locked->attempt_count))
+                : null;
+
+            $attempt->update([
+                'status' => $outcome['success'] ? 'sent' : 'failed',
+                'provider' => $outcome['provider'],
+                'provider_message_id' => $outcome['provider_message_id'],
+                'error_code' => $outcome['error_code'],
+                'error_message' => $outcome['error_message'] ? mb_substr($outcome['error_message'], 0, 2000) : null,
+                'completed_at' => $completedAt,
+                'next_retry_at' => $nextRetryAt,
+            ]);
+
+            $locked->update([
+                'status' => $outcome['success']
+                    ? (in_array($channel, ['interno', 'alert_app'], true) ? 'delivered' : 'sent')
+                    : 'failed',
+                'provider' => $outcome['provider'],
+                'provider_message_id' => $outcome['provider_message_id'],
+                'error_message' => $outcome['error_message'] ? mb_substr($outcome['error_message'], 0, 2000) : null,
+                'sent_at' => $outcome['success'] ? $completedAt : null,
+                'delivered_at' => $outcome['success'] && in_array($channel, ['interno', 'alert_app'], true) ? $completedAt : null,
+                'processing_at' => null,
+                'next_attempt_at' => $nextRetryAt,
+            ]);
+        });
+    }
+
+    private function refreshDeliveryStatus(CommunicationDelivery $delivery): CommunicationDelivery
+    {
+        $recipients = $delivery->recipients()->get();
+        $successCount = $recipients->whereIn('status', ['sent', 'delivered', 'read'])->count();
+        $retryableCount = $recipients->filter(static fn (CommunicationDeliveryRecipient $recipient): bool =>
+            $recipient->status === 'failed'
+            && $recipient->attempt_count < $recipient->max_attempts
+            && $recipient->next_attempt_at !== null
+        )->count();
+        $pendingCount = $recipients->where('status', 'pending')->count() + $retryableCount;
+        $terminalFailedCount = $recipients->where('status', 'failed')->count() - $retryableCount;
+
+        $status = $pendingCount > 0
+            ? 'processing'
+            : ($terminalFailedCount === 0 ? 'completed' : ($successCount > 0 ? 'partial' : 'failed'));
+
+        $delivery->update([
+            'status' => $status,
+            'sent_at' => $pendingCount === 0 ? now() : null,
+            'completed_at' => $pendingCount === 0 ? now() : null,
+            'success_count' => $successCount,
+            'failed_count' => $terminalFailedCount,
+            'pending_count' => $pendingCount,
+            'error_message' => $terminalFailedCount > 0 ? 'Existem destinatários sem entrega após esgotar as tentativas.' : null,
+            'result_summary' => sprintf('Sucesso: %d | Retentativas: %d | Falhas terminais: %d', $successCount, $retryableCount, $terminalFailedCount),
+        ]);
+
+        return $delivery->refresh();
+    }
+
+    /** @return array{success:bool,provider:string,provider_message_id:?string,error_code:?string,error_message:?string} */
+    private function sendInApp(array $recipient, ?string $subject, ?string $body, CommunicationCampaign $campaign, CommunicationDelivery $delivery, string $channel): array
+    {
+        $userId = (string) ($recipient['user_id'] ?? '');
+        if ($userId === '') {
+            return $this->failure('clubos_database', 'missing_user', 'Destinatário interno sem utilizador associado.');
+        }
+
+        $existingAlert = InAppAlert::query()
+            ->where('campaign_id', $campaign->id)
+            ->where('user_id', $userId)
+            ->first();
+
+        if ($existingAlert) {
+            return $this->success($channel === 'interno' ? 'clubos_internal' : 'clubos_alert_app', (string) $existingAlert->id);
+        }
+
+        $alert = $this->inAppAlertService->createAlert([
+            'campaign_id' => $campaign->id,
+            'delivery_id' => $delivery->id,
+            'title' => $campaign->alert_title ?: $subject ?: $campaign->title,
+            'message' => $campaign->alert_message ?: $body ?: $campaign->description ?: 'Nova comunicação disponível.',
+            'link' => $campaign->alert_link,
+            'type' => $campaign->alert_type ?: 'info',
+            'visible_from' => now(),
+        ], $userId);
+
+        if (! $alert) {
+            return $this->failure('clubos_database', 'in_app_disabled', 'Alertas internos desativados nas preferências.');
+        }
+
+        return $this->success($channel === 'interno' ? 'clubos_internal' : 'clubos_alert_app', (string) $alert->id);
+    }
+
+    private function retryDelaySeconds(int $attemptNumber): int
+    {
+        return match ($attemptNumber) {
+            1 => 60,
+            2 => 300,
+            default => 900,
+        };
+    }
+
+    /** @return array{success:bool,provider:string,provider_message_id:?string,error_code:?string,error_message:?string} */
+    private function success(string $provider, ?string $providerMessageId): array
+    {
+        return [
+            'success' => true,
+            'provider' => $provider,
+            'provider_message_id' => $providerMessageId,
+            'error_code' => null,
+            'error_message' => null,
+        ];
+    }
+
+    /** @return array{success:bool,provider:string,provider_message_id:?string,error_code:?string,error_message:?string} */
+    private function failure(string $provider, string $errorCode, string $errorMessage): array
+    {
+        return [
+            'success' => false,
+            'provider' => $provider,
+            'provider_message_id' => null,
+            'error_code' => $errorCode,
+            'error_message' => $errorMessage,
+        ];
     }
 
     private function buildTemplateVariables(CommunicationCampaign $campaign, CommunicationCampaignChannel $channel, array $recipient): array
