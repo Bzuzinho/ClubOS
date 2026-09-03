@@ -119,7 +119,7 @@ export interface StoreOrderItem {
 export interface StoreOrder {
     id: string;
     numero: string;
-    estado: 'pendente' | 'aprovado' | 'preparado' | 'entregue' | 'cancelado';
+    estado: 'pendente' | 'aprovado' | 'preparado' | 'entregue' | 'cancelado' | 'devolvido';
     subtotal: number;
     total: number;
     observacoes?: string | null;
@@ -142,6 +142,18 @@ export interface StoreOrder {
         numero_documento_fiscal?: string | null;
         emitido_em?: string | null;
     };
+    devolucao?: {
+        id: string;
+        estado: 'solicitada' | 'aguarda_nota_credito' | 'concluida';
+        motivo: string;
+        solicitada_em?: string | null;
+        concluida_em?: string | null;
+        nota_credito?: {
+            id: string;
+            estado: string;
+            numero_externo?: string | null;
+        } | null;
+    } | null;
     user?: {
         id: string;
         nome_completo: string;
@@ -164,6 +176,10 @@ export type StoreFiscalStatus =
     | 'dados_em_falta'
     | 'erro_provider'
     | 'cancelado'
+    | 'nota_credito_pendente'
+    | 'nota_credito_em_emissao'
+    | 'nota_credito_emitida'
+    | 'revertido'
     | 'nao_aplicavel';
 
 function getCsrfToken(): string {
@@ -207,6 +223,8 @@ export function storeOrderStatusLabel(status: StoreOrder['estado'] | string): st
             return 'Entregue';
         case 'cancelado':
             return 'Cancelado';
+        case 'devolvido':
+            return 'Devolvido';
         default:
             return status;
     }
@@ -224,6 +242,8 @@ export function storeOrderStatusClass(status: StoreOrder['estado'] | string): st
             return 'border-emerald-200 bg-emerald-50 text-emerald-700';
         case 'cancelado':
             return 'border-rose-200 bg-rose-50 text-rose-700';
+        case 'devolvido':
+            return 'border-violet-200 bg-violet-50 text-violet-700';
         default:
             return 'border-slate-200 bg-slate-50 text-slate-700';
     }
@@ -284,6 +304,14 @@ export function storeFiscalStatusLabel(status: StoreFiscalStatus | string): stri
             return 'Erro fiscal';
         case 'cancelado':
             return 'Documento fiscal cancelado';
+        case 'nota_credito_pendente':
+            return 'Nota de crédito pendente no Wintouch';
+        case 'nota_credito_em_emissao':
+            return 'Nota de crédito em emissão';
+        case 'nota_credito_emitida':
+            return 'Nota de crédito emitida';
+        case 'revertido':
+            return 'Fiscalidade revertida';
         case 'nao_aplicavel':
             return 'Não aplicável';
         default:

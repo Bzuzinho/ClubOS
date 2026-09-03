@@ -15,7 +15,7 @@ final class StoreOrderFinancialProjection
      */
     public function forOrder(LojaEncomenda $order): array
     {
-        $order->loadMissing('invoice.fiscalDocumentRequests');
+        $order->loadMissing(['invoice.fiscalDocumentRequests', 'devolucao.fiscalDocumentRequest']);
 
         $invoice = $order->invoice;
         if (! $invoice instanceof Invoice) {
@@ -33,7 +33,7 @@ final class StoreOrderFinancialProjection
             ];
         }
 
-        $request = $this->currentFiscalRequest($invoice);
+        $request = $order->devolucao?->fiscalDocumentRequest ?? $this->currentFiscalRequest($invoice);
         $paymentStatus = (string) $invoice->estado_pagamento;
 
         return [
@@ -41,7 +41,7 @@ final class StoreOrderFinancialProjection
             'pagamento_confirmado' => $paymentStatus === 'pago',
             'valor_pago' => (float) $invoice->valor_pago,
             'valor_em_aberto' => (float) $invoice->valor_em_aberto,
-            'estado_fiscal' => $this->fiscalState($invoice, $request),
+            'estado_fiscal' => $this->fiscalState($order, $invoice, $request),
             'pedido_fiscal_id' => $request?->id,
             'provider_fiscal' => $request?->provider,
             'modo_fiscal' => (string) config('fiscal.operation_mode', 'manual_wintouch'),
@@ -66,8 +66,21 @@ final class StoreOrderFinancialProjection
         ], true)) ?? $requests->first();
     }
 
-    private function fiscalState(Invoice $invoice, ?FiscalDocumentRequest $request): string
+    private function fiscalState(LojaEncomenda $order, Invoice $invoice, ?FiscalDocumentRequest $request): string
     {
+        $returnRequest = $order->devolucao?->fiscalDocumentRequest;
+        if ($order->estado === LojaEncomenda::ESTADO_DEVOLVIDO) {
+            return 'revertido';
+        }
+
+        if ($order->devolucao?->estado === 'aguarda_nota_credito') {
+            return match ($returnRequest?->status) {
+                FiscalDocumentRequest::STATUS_IN_PROGRESS => 'nota_credito_em_emissao',
+                FiscalDocumentRequest::STATUS_ISSUED => 'nota_credito_emitida',
+                default => 'nota_credito_pendente',
+            };
+        }
+
         if (! $request) {
             if ($invoice->estado_pagamento === 'pago') {
                 return 'pedido_em_falta';

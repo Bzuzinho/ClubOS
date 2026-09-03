@@ -52,6 +52,7 @@ class OperationalPermissionRouteGuardTest extends TestCase
             ['POST', 'api/admin/loja/produtos', 'permission.access:loja.produtos,edit'],
             ['DELETE', 'api/admin/loja/produtos/{produto}', 'permission.access:loja.produtos,delete'],
             ['PATCH', 'api/admin/loja/encomendas/{encomenda}/estado', 'permission.access:loja.encomendas,edit'],
+            ['POST', 'api/admin/loja/encomendas/{encomenda}/devolucao', 'permission.access:loja.encomendas,edit'],
             ['POST', 'api/admin/loja/hero', 'permission.access:loja.hero,edit'],
             ['DELETE', 'api/admin/loja/hero/{item}', 'permission.access:loja.hero,delete'],
         ];

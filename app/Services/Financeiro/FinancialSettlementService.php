@@ -11,6 +11,7 @@ use App\Models\MapaConciliacao;
 use App\Models\Movement;
 use App\Models\Payment;
 use App\Models\PaymentAllocation;
+use App\Models\PaymentReversal;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -690,10 +691,13 @@ class FinancialSettlementService
             ->where('payment_id', $payment->id)
             ->where('status', '!=', AccountCredit::STATUS_CANCELLED)
             ->sum('amount'), 2);
+        $reversedAmount = round((float) PaymentReversal::query()
+            ->where('payment_id', $payment->id)
+            ->sum('amount'), 2);
 
         $payment->forceFill([
             'allocated_amount' => $allocatedAmount,
-            'unallocated_amount' => round(max((float) $payment->amount - $allocatedAmount - $creditedAmount, 0), 2),
+            'unallocated_amount' => round(max((float) $payment->amount - $allocatedAmount - $creditedAmount - $reversedAmount, 0), 2),
         ])->save();
 
         return $payment->refresh();

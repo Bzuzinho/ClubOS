@@ -21,7 +21,7 @@ class LojaEncomendaController extends Controller
     public function index(Request $request): Response|JsonResponse
     {
         $query = LojaEncomenda::query()
-            ->with(['itens.article', 'itens.productVariant', 'user:id,nome_completo', 'targetUser:id,nome_completo', 'invoice.fiscalDocumentRequests'])
+            ->with(['itens.article', 'itens.productVariant', 'user:id,nome_completo', 'targetUser:id,nome_completo', 'invoice.fiscalDocumentRequests', 'devolucao.fiscalDocumentRequest'])
             ->ordered();
 
         $this->encomendaService->visibleForUser($query, $request->user());
@@ -50,7 +50,7 @@ class LojaEncomendaController extends Controller
         $this->encomendaService->visibleForUser($query, $request->user());
         abort_unless($query->exists(), 404);
 
-        $encomenda->load(['itens.article.category', 'itens.productVariant', 'user:id,nome_completo', 'targetUser:id,nome_completo', 'invoice.fiscalDocumentRequests']);
+        $encomenda->load(['itens.article.category', 'itens.productVariant', 'user:id,nome_completo', 'targetUser:id,nome_completo', 'invoice.fiscalDocumentRequests', 'devolucao.fiscalDocumentRequest']);
         $payload = $this->serializeOrder($encomenda, true);
 
         if ($request->is('api/*')) {
@@ -79,6 +79,18 @@ class LojaEncomendaController extends Controller
                 'valor_em_aberto' => (float) $encomenda->invoice->valor_em_aberto,
             ] : null,
             'financeiro' => $this->financialProjection->forOrder($encomenda),
+            'devolucao' => $encomenda->devolucao ? [
+                'id' => $encomenda->devolucao->id,
+                'estado' => $encomenda->devolucao->estado,
+                'motivo' => $encomenda->devolucao->motivo,
+                'solicitada_em' => $encomenda->devolucao->solicitada_em?->toIso8601String(),
+                'concluida_em' => $encomenda->devolucao->concluida_em?->toIso8601String(),
+                'nota_credito' => $encomenda->devolucao->fiscalDocumentRequest ? [
+                    'id' => $encomenda->devolucao->fiscalDocumentRequest->id,
+                    'estado' => $encomenda->devolucao->fiscalDocumentRequest->status,
+                    'numero_externo' => $encomenda->devolucao->fiscalDocumentRequest->external_document_number,
+                ] : null,
+            ] : null,
             'user' => $encomenda->user ? [
                 'id' => $encomenda->user->id,
                 'nome_completo' => $encomenda->user->nome_completo,

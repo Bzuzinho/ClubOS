@@ -95,6 +95,11 @@ class Payment extends Model
         return $this->hasMany(AccountCredit::class, 'payment_id');
     }
 
+    public function reversals(): HasMany
+    {
+        return $this->hasMany(PaymentReversal::class, 'payment_id');
+    }
+
     public function createdBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by');

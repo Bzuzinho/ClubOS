@@ -64,11 +64,39 @@ class FiscalDocumentRequestService
             return;
         }
 
-        if ($this->invoiceHasRegisteredDocument($invoice)) {
+        if ($this->invoiceHasRegisteredDocument($invoice) && ! $this->invoiceFiscalReversalIsComplete($invoice)) {
             throw ValidationException::withMessages([
                 'estado_pagamento' => self::INVOICE_STATUS_CHANGE_BLOCK_MESSAGE,
             ]);
         }
+    }
+
+    public function invoiceFiscalReversalIsComplete(Invoice $invoice): bool
+    {
+        $registeredOriginals = FiscalDocumentRequest::query()
+            ->where('invoice_id', $invoice->id)
+            ->where('document_type', '!=', FiscalDocumentRequest::DOCUMENT_TYPE_CREDIT_NOTE)
+            ->where(function ($query): void {
+                $query->whereNotNull('external_document_number')->where('external_document_number', '!=', '')
+                    ->orWhereNotNull('external_document_id')->where('external_document_id', '!=', '');
+            })
+            ->get();
+
+        if ($registeredOriginals->isEmpty() || $registeredOriginals->contains(
+            fn (FiscalDocumentRequest $request): bool => $request->status !== FiscalDocumentRequest::STATUS_CANCELLED,
+        )) {
+            return false;
+        }
+
+        return FiscalDocumentRequest::query()
+            ->where('invoice_id', $invoice->id)
+            ->where('document_type', FiscalDocumentRequest::DOCUMENT_TYPE_CREDIT_NOTE)
+            ->where('status', FiscalDocumentRequest::STATUS_ISSUED)
+            ->where(function ($query): void {
+                $query->whereNotNull('external_document_number')->where('external_document_number', '!=', '')
+                    ->orWhereNotNull('external_document_id')->where('external_document_id', '!=', '');
+            })
+            ->exists();
     }
 
     public function invoiceHasRegisteredDocument($invoice): bool
@@ -99,6 +127,7 @@ class FiscalDocumentRequestService
 
         return FiscalDocumentRequest::query()
             ->where('invoice_id', $invoiceId)
+            ->where('status', '!=', FiscalDocumentRequest::STATUS_CANCELLED)
             ->where(function ($query): void {
                 $query
                     ->whereNull('external_document_number')
@@ -110,6 +139,61 @@ class FiscalDocumentRequestService
                     ->orWhere('external_document_id', '');
             })
             ->delete();
+    }
+
+    public function cancelUnissuedForInvoice(Invoice $invoice, string $reason, ?string $userId = null): int
+    {
+        $requests = FiscalDocumentRequest::query()
+            ->where('invoice_id', $invoice->id)
+            ->where('document_type', '!=', FiscalDocumentRequest::DOCUMENT_TYPE_CREDIT_NOTE)
+            ->where(function ($query): void {
+                $query->whereNull('external_document_number')->orWhere('external_document_number', '');
+            })
+            ->where(function ($query): void {
+                $query->whereNull('external_document_id')->orWhere('external_document_id', '');
+            })
+            ->where('status', '!=', FiscalDocumentRequest::STATUS_CANCELLED)
+            ->lockForUpdate()
+            ->get();
+
+        foreach ($requests as $request) {
+            $request->forceFill([
+                'status' => FiscalDocumentRequest::STATUS_CANCELLED,
+                'handled_by' => $userId,
+                'handled_at' => now(),
+                'last_error' => $reason,
+                'metadata' => array_merge((array) $request->metadata, [
+                    'cancelled_without_external_document' => true,
+                    'cancelled_at' => now()->toIso8601String(),
+                ]),
+            ])->save();
+        }
+
+        return $requests->count();
+    }
+
+    public function createCreditNoteForInvoice(
+        Invoice $invoice,
+        FiscalDocumentRequest $originalRequest,
+        array $options = [],
+    ): FiscalDocumentRequest {
+        if (! $this->requestHasRegisteredDocument($originalRequest)) {
+            throw ValidationException::withMessages([
+                'request' => 'A nota de crédito só pode reverter um documento fiscal externo já registado.',
+            ]);
+        }
+
+        return $this->createFromInvoice($invoice, array_merge($options, [
+            'provider' => $originalRequest->provider,
+            'document_type' => FiscalDocumentRequest::DOCUMENT_TYPE_CREDIT_NOTE,
+            'amount' => round((float) $invoice->valor_total, 2),
+            'internal_reference' => 'NC-'.$originalRequest->external_document_number,
+            'metadata' => array_merge((array) ($options['metadata'] ?? []), [
+                'reverses_fiscal_document_request_id' => $originalRequest->id,
+                'reverses_external_document_number' => $originalRequest->external_document_number,
+                'invoice_payment_status' => $invoice->estado_pagamento,
+            ]),
+        ]));
     }
 
     public function deleteRequest(FiscalDocumentRequest $request): void
@@ -236,7 +320,8 @@ class FiscalDocumentRequestService
                     ->firstOrFail();
 
                 if (
-                    filled($lockedInvoice->numero_recibo)
+                    ($data['document_type'] ?? $lockedRequest->document_type) !== FiscalDocumentRequest::DOCUMENT_TYPE_CREDIT_NOTE
+                    && filled($lockedInvoice->numero_recibo)
                     && $lockedInvoice->numero_recibo !== $data['external_document_number']
                 ) {
                     throw ValidationException::withMessages([
@@ -261,7 +346,10 @@ class FiscalDocumentRequestService
             ]);
             $lockedRequest->save();
 
-            if ($lockedInvoice) {
+            if (
+                $lockedInvoice
+                && ($data['document_type'] ?? $lockedRequest->document_type) !== FiscalDocumentRequest::DOCUMENT_TYPE_CREDIT_NOTE
+            ) {
                 $lockedInvoice->forceFill([
                     'numero_recibo' => $data['external_document_number'],
                     'recibo_emitido_em' => $issuedAt->toDateString(),

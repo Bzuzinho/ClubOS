@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Concerns\HasVersion4Uuids as HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class PaymentAllocation extends Model
@@ -52,6 +53,11 @@ class PaymentAllocation extends Model
     public function createdBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by');
+    }
+
+    public function reversal(): HasOne
+    {
+        return $this->hasOne(PaymentReversal::class, 'payment_allocation_id');
     }
 
     public function scopeConfirmed(Builder $query): Builder

@@ -192,5 +192,6 @@ Route::middleware(['auth'])->group(function () {
         Route::get('encomendas', [AdminLojaEncomendaController::class, 'index']);
         Route::get('encomendas/{encomenda}', [AdminLojaEncomendaController::class, 'show']);
         Route::patch('encomendas/{encomenda}/estado', [AdminLojaEncomendaController::class, 'updateEstado']);
+        Route::post('encomendas/{encomenda}/devolucao', [AdminLojaEncomendaController::class, 'processDevolucao']);
     });
 });

@@ -23,16 +23,16 @@ final class CancelStoreOrderStockAction
     ) {
     }
 
-    public function execute(LojaEncomenda $order, User $actor): void
+    public function execute(LojaEncomenda $order, User $actor, string $reason = 'cancelamento'): void
     {
         $order->loadMissing(['itens.article']);
 
         foreach ($order->itens as $item) {
-            $this->restoreItem($item, $actor);
+            $this->restoreItem($item, $actor, $reason);
         }
     }
 
-    private function restoreItem(LojaEncomendaItem $item, User $actor): void
+    private function restoreItem(LojaEncomendaItem $item, User $actor, string $reason): void
     {
         $movements = StockMovement::query()
             ->where('article_id', $item->article_id)
@@ -84,8 +84,10 @@ final class CancelStoreOrderStockAction
             'product_variant_id' => $itemVariantId,
             'source_type' => 'store_order_item',
             'source_id' => (string) $item->id,
-            'idempotency_key' => 'store-order-item-cancel-'.$item->id,
-            'notes' => 'Reposição de stock por cancelamento da encomenda da loja',
+            'idempotency_key' => 'store-order-item-'.$reason.'-'.$item->id,
+            'notes' => $reason === 'devolucao'
+                ? 'Reposição de stock por devolução da encomenda da loja'
+                : 'Reposição de stock por cancelamento da encomenda da loja',
             'created_by' => (string) $actor->id,
             'occurred_at' => now(),
         ]);

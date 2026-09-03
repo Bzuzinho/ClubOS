@@ -14,7 +14,7 @@ use Illuminate\Support\Str;
 
 final class StoreLogisticsStockAuditService
 {
-    private const VERSION = 'h5c-store-payment-fiscal-audit-v4';
+    private const VERSION = 'h5d-store-return-reversal-audit-v5';
 
     private const STORE_SOURCES = ['store_order_item', 'loja_encomenda_item'];
     private const INVOICE_SOURCES = ['invoice_item', 'manual_invoice_item', 'manual_invoice_create', 'manual_invoice_update_exit'];
@@ -26,6 +26,7 @@ final class StoreLogisticsStockAuditService
     private const STOCK_EXIT_TYPES = ['exit', 'sale', 'venda'];
     private const ACTIVE_STORE_STATUSES = ['pendente', 'aprovado', 'preparado', 'entregue', 'pending', 'approved', 'pago', 'concluido', 'concluído', 'completed', 'delivered', 'paid'];
     private const CANCELLED_STORE_STATUSES = ['cancelado', 'cancelled', 'canceled', 'anulado', 'voided'];
+    private const RETURNED_STORE_STATUSES = ['devolvido', 'returned', 'refunded'];
 
     public function __construct(
         private readonly StockMovementSemantics $semantics = new StockMovementSemantics(),
@@ -47,10 +48,12 @@ final class StoreLogisticsStockAuditService
         $logisticsItems = $this->logisticsItems($filters);
         $products = $this->products($filters, $storeItems, $invoiceItems, $logisticsItems);
         $movements = $this->stockMovements($filters, $storeItems, $invoiceItems, $logisticsItems);
+        $storeReturns = $this->storeReturns($filters);
 
         $findings = [
             ...$this->storeInvoiceLinkFindings($storeOrders, $storeItems, $invoiceItems),
             ...$this->storeFindings($storeItems, $products, $movements),
+            ...$this->storeReturnFindings($storeReturns),
             ...$this->invoiceFindings($invoiceItems, $products, $movements, $storeItems),
             ...$this->crossDuplicateFindings($storeItems, $invoiceItems, $logisticsItems, $products, $movements),
             ...$this->sourceReferenceFindings($movements, $products),
@@ -72,12 +75,14 @@ final class StoreLogisticsStockAuditService
             'generated_at' => Carbon::now()->toIso8601String(),
             'filters' => $filters,
             'schema_detected' => $schema,
-            'summary' => $this->summary($storeOrders, $storeItems, $invoiceItems, $logisticsItems, $movements, $findings),
+            'summary' => $this->summary($storeOrders, $storeItems, $invoiceItems, $logisticsItems, $movements, $storeReturns, $findings),
             'interpretation' => [
                 'cancelled_order_is_balanced_when_exit_and_return_match' => true,
                 'canonical_store_invoice_contract_active' => true,
                 'store_financial_state_is_derived_from_invoice' => true,
                 'paid_store_invoice_requires_manual_wintouch_request' => true,
+                'delivered_return_requires_financial_and_fiscal_reversal_before_stock' => true,
+                'payment_reversal_history_is_preserved' => true,
                 'legacy_orders_without_invoice_are_reported_without_backfill' => true,
                 'no_data_changed' => true,
             ],
@@ -279,6 +284,28 @@ final class StoreLogisticsStockAuditService
             ),
         ];
 
+        if (in_array($this->normalizeStatus($order->status ?? null), self::RETURNED_STORE_STATUSES, true)) {
+            $creditNote = $requests->first(fn (object $request): bool => (string) $request->document_type === FiscalDocumentRequest::DOCUMENT_TYPE_CREDIT_NOTE);
+            $registeredOriginals = $requests->filter(fn (object $request): bool => (string) $request->document_type !== FiscalDocumentRequest::DOCUMENT_TYPE_CREDIT_NOTE
+                && (filled($request->external_document_number ?? null) || filled($request->external_document_id ?? null)));
+            $fiscalReversalClean = $registeredOriginals->isEmpty() || (
+                $creditNote
+                && (string) $creditNote->status === FiscalDocumentRequest::STATUS_ISSUED
+                && (filled($creditNote->external_document_number ?? null) || filled($creditNote->external_document_id ?? null))
+                && $registeredOriginals->every(fn (object $request): bool => (string) $request->status === FiscalDocumentRequest::STATUS_CANCELLED)
+            );
+            $findings[] = $this->finding(
+                $fiscalReversalClean ? 'info' : 'critical',
+                $fiscalReversalClean ? 'store_order_return_fiscal_reversal_clean' : 'store_order_return_fiscal_reversal_incomplete',
+                'store_order',
+                ! $fiscalReversalClean,
+                $fiscalReversalClean ? 'no_action_needed_store_return_fiscal_closed' : 'complete_store_return_fiscal_reversal',
+                extra: ['order_id' => $orderId, 'invoice_id' => $invoiceId],
+            );
+
+            return $findings;
+        }
+
         $currentRequest = $requests
             ->first(fn (object $request): bool => ! in_array((string) $request->status, [
                 FiscalDocumentRequest::STATUS_CANCELLED,
@@ -343,7 +370,9 @@ final class StoreLogisticsStockAuditService
                 'invoices' => Schema::hasTable('invoices'),
                 'payments' => Schema::hasTable('payments'),
                 'payment_allocations' => Schema::hasTable('payment_allocations'),
+                'payment_reversals' => Schema::hasTable('payment_reversals'),
                 'fiscal_document_requests' => Schema::hasTable('fiscal_document_requests'),
+                'loja_encomenda_devolucoes' => Schema::hasTable('loja_encomenda_devolucoes'),
                 'logistics_requests' => Schema::hasTable('logistics_requests'),
                 'logistics_request_items' => Schema::hasTable('logistics_request_items'),
                 'products' => Schema::hasTable('products'),
@@ -573,6 +602,124 @@ final class StoreLogisticsStockAuditService
     }
 
     /**
+     * @param array<string,mixed> $filters
+     * @return Collection<int,object>
+     */
+    private function storeReturns(array $filters): Collection
+    {
+        if (! Schema::hasTable('loja_encomenda_devolucoes')) {
+            return collect();
+        }
+
+        return DB::table('loja_encomenda_devolucoes as returns')
+            ->join('loja_encomendas as orders', 'orders.id', '=', 'returns.loja_encomenda_id')
+            ->leftJoin('invoices', 'invoices.id', '=', 'returns.fatura_id')
+            ->leftJoin('fiscal_document_requests as credit_notes', 'credit_notes.id', '=', 'returns.fiscal_document_request_id')
+            ->select([
+                'returns.id',
+                'returns.loja_encomenda_id as order_id',
+                'returns.fatura_id as invoice_id',
+                'returns.estado as return_status',
+                'returns.reversao_financeira_em',
+                'returns.stock_reposto_em',
+                'returns.concluida_em',
+                'orders.estado as order_status',
+                'invoices.estado_pagamento as invoice_status',
+                'credit_notes.document_type as credit_note_type',
+                'credit_notes.status as credit_note_status',
+                'credit_notes.external_document_number as credit_note_number',
+                'credit_notes.external_document_id as credit_note_external_id',
+            ])
+            ->when($filters['order'] !== null, fn (Builder $query) => $query->where('orders.id', $filters['order']))
+            ->when($filters['invoice'] !== null, fn (Builder $query) => $query->where('returns.fatura_id', $filters['invoice']))
+            ->orderBy('returns.created_at')
+            ->get();
+    }
+
+    /**
+     * @return list<array<string,mixed>>
+     */
+    private function storeReturnFindings(Collection $storeReturns): array
+    {
+        $findings = [];
+
+        foreach ($storeReturns as $return) {
+            $returnId = (string) $return->id;
+            $reversalCount = Schema::hasTable('payment_reversals')
+                ? DB::table('payment_reversals')->where('source_type', 'store_order_return')->where('source_id', $returnId)->count()
+                : 0;
+            $cancelledAllocationCount = Schema::hasTable('payment_allocations')
+                ? DB::table('payment_allocations')
+                    ->where('invoice_id', $return->invoice_id)
+                    ->where('status', 'cancelled')
+                    ->where('metadata->reversal_source_id', $returnId)
+                    ->count()
+                : 0;
+            $registeredOriginals = Schema::hasTable('fiscal_document_requests')
+                ? DB::table('fiscal_document_requests')
+                    ->where('invoice_id', $return->invoice_id)
+                    ->where('document_type', '!=', FiscalDocumentRequest::DOCUMENT_TYPE_CREDIT_NOTE)
+                    ->where(function (Builder $query): void {
+                        $query->whereNotNull('external_document_number')->where('external_document_number', '!=', '')
+                            ->orWhereNotNull('external_document_id')->where('external_document_id', '!=', '');
+                    })
+                    ->get()
+                : collect();
+
+            if ((string) $return->return_status === 'aguarda_nota_credito') {
+                $clean = (string) $return->order_status === 'entregue'
+                    && (string) $return->credit_note_type === FiscalDocumentRequest::DOCUMENT_TYPE_CREDIT_NOTE
+                    && (string) $return->credit_note_status !== FiscalDocumentRequest::STATUS_ISSUED
+                    && $return->reversao_financeira_em === null
+                    && $return->stock_reposto_em === null
+                    && $reversalCount === 0;
+                $findings[] = $this->finding(
+                    $clean ? 'info' : 'critical',
+                    $clean ? 'store_order_return_awaiting_credit_note_clean' : 'store_order_return_awaiting_credit_note_inconsistent',
+                    'store_order_return',
+                    ! $clean,
+                    $clean ? 'issue_credit_note_manually_before_return_completion' : 'inspect_store_return_sequence',
+                    extra: ['order_id' => (string) $return->order_id, 'return_id' => $returnId],
+                );
+                continue;
+            }
+
+            $creditNoteRequired = $registeredOriginals->isNotEmpty();
+            $creditNoteClean = ! $creditNoteRequired || (
+                (string) $return->credit_note_type === FiscalDocumentRequest::DOCUMENT_TYPE_CREDIT_NOTE
+                && (string) $return->credit_note_status === FiscalDocumentRequest::STATUS_ISSUED
+                && (filled($return->credit_note_number) || filled($return->credit_note_external_id))
+                && $registeredOriginals->every(fn (object $request): bool => (string) $request->status === FiscalDocumentRequest::STATUS_CANCELLED)
+            );
+            $financialHistoryClean = $reversalCount === $cancelledAllocationCount;
+            $completedClean = (string) $return->return_status === 'concluida'
+                && (string) $return->order_status === 'devolvido'
+                && (string) $return->invoice_status === 'cancelado'
+                && $return->reversao_financeira_em !== null
+                && $return->stock_reposto_em !== null
+                && $return->concluida_em !== null
+                && $creditNoteClean
+                && $financialHistoryClean;
+
+            $findings[] = $this->finding(
+                $completedClean ? 'info' : 'critical',
+                $completedClean ? 'store_order_return_reversal_clean' : 'store_order_return_reversal_incomplete',
+                'store_order_return',
+                ! $completedClean,
+                $completedClean ? 'no_action_needed_store_return_closed' : 'inspect_store_return_sequence',
+                extra: [
+                    'order_id' => (string) $return->order_id,
+                    'return_id' => $returnId,
+                    'payment_reversal_count' => $reversalCount,
+                    'cancelled_allocation_count' => $cancelledAllocationCount,
+                ],
+            );
+        }
+
+        return $findings;
+    }
+
+    /**
      * @return list<array<string,mixed>>
      */
     private function storeFindings(Collection $storeItems, Collection $products, Collection $movements): array
@@ -599,20 +746,22 @@ final class StoreLogisticsStockAuditService
                 continue;
             }
 
-            if (in_array($status, self::CANCELLED_STORE_STATUSES, true)) {
+            if (in_array($status, [...self::CANCELLED_STORE_STATUSES, ...self::RETURNED_STORE_STATUSES], true)) {
                 $extra = ['order_id' => (string) ($item->order_id ?? ''), 'store_order_item_id' => (string) $item->id, 'status' => $item->status ?? null];
+                $isReturn = in_array($status, self::RETURNED_STORE_STATUSES, true);
+                $codePrefix = $isReturn ? 'store_order_returned' : 'store_order_cancelled';
 
                 if ($metrics['exit_qty'] === 0 && $metrics['return_qty'] === 0) {
-                    $findings[] = $this->finding('info', 'store_order_cancelled_without_stock_impact', 'store_order_item', false, 'no_action_needed_store_stock_clean', $product, $quantity, $metrics, $extra);
+                    $findings[] = $this->finding('info', $codePrefix.'_without_stock_impact', 'store_order_item', false, 'no_action_needed_store_stock_clean', $product, $quantity, $metrics, $extra);
                 } elseif ($metrics['exit_count'] === 1
                     && $metrics['exit_qty'] === $quantity
                     && $metrics['return_qty'] === $metrics['exit_qty']
                     && $metrics['physical_net'] === 0) {
-                    $findings[] = $this->finding('info', 'store_order_cancelled_stock_restored', 'store_order_item', false, 'no_action_needed_store_stock_clean', $product, $quantity, $metrics, $extra);
+                    $findings[] = $this->finding('info', $codePrefix.'_stock_restored', 'store_order_item', false, 'no_action_needed_store_stock_clean', $product, $quantity, $metrics, $extra);
                 } elseif ($metrics['return_qty'] > $metrics['exit_qty']) {
-                    $findings[] = $this->finding('critical', 'store_order_cancelled_stock_over_restored', 'store_order_item', true, 'inspect_store_quantity_mismatch', $product, $quantity, $metrics, $extra);
+                    $findings[] = $this->finding('critical', $codePrefix.'_stock_over_restored', 'store_order_item', true, 'inspect_store_quantity_mismatch', $product, $quantity, $metrics, $extra);
                 } else {
-                    $findings[] = $this->finding('warning', 'store_order_cancelled_stock_not_restored', 'store_order_item', true, 'restore_cancelled_store_order_stock', $product, $quantity, $metrics, $extra);
+                    $findings[] = $this->finding('warning', $codePrefix.'_stock_not_restored', 'store_order_item', true, 'restore_cancelled_store_order_stock', $product, $quantity, $metrics, $extra);
                 }
                 continue;
             }
@@ -826,7 +975,7 @@ final class StoreLogisticsStockAuditService
     /**
      * @return array<string,int>
      */
-    private function summary(Collection $storeOrders, Collection $storeItems, Collection $invoiceItems, Collection $logisticsItems, Collection $movements, array $findings): array
+    private function summary(Collection $storeOrders, Collection $storeItems, Collection $invoiceItems, Collection $logisticsItems, Collection $movements, Collection $storeReturns, array $findings): array
     {
         $findingsCollection = collect($findings);
 
@@ -844,6 +993,14 @@ final class StoreLogisticsStockAuditService
             'paid_fiscal_request_missing_count' => $findingsCollection->where('code', 'store_order_paid_fiscal_request_missing')->count(),
             'premature_fiscal_request_count' => $findingsCollection->where('code', 'store_order_fiscal_request_before_full_payment')->count(),
             'fiscal_request_contract_mismatch_count' => $findingsCollection->where('code', 'store_order_fiscal_request_contract_mismatch')->count(),
+            'total_store_returns_scanned' => $storeReturns->count(),
+            'store_returns_awaiting_credit_note_count' => $findingsCollection->where('code', 'store_order_return_awaiting_credit_note_clean')->count(),
+            'store_returns_completed_clean_count' => $findingsCollection->where('code', 'store_order_return_reversal_clean')->count(),
+            'store_returns_inconsistent_count' => $findingsCollection->whereIn('code', [
+                'store_order_return_awaiting_credit_note_inconsistent',
+                'store_order_return_reversal_incomplete',
+                'store_order_return_fiscal_reversal_incomplete',
+            ])->count(),
             'total_invoice_items_scanned' => $invoiceItems->count(),
             'total_logistics_movements_scanned' => $logisticsItems->pluck('request_id')->unique()->count(),
             'total_related_stock_movements' => $movements->count(),
@@ -852,6 +1009,8 @@ final class StoreLogisticsStockAuditService
             'cancelled_stock_restored_count' => $findingsCollection->where('code', 'store_order_cancelled_stock_restored')->count(),
             'cancelled_without_stock_impact_count' => $findingsCollection->where('code', 'store_order_cancelled_without_stock_impact')->count(),
             'cancelled_stock_unbalanced_count' => $findingsCollection->whereIn('code', ['store_order_cancelled_stock_not_restored', 'store_order_cancelled_stock_over_restored'])->count(),
+            'returned_stock_restored_count' => $findingsCollection->where('code', 'store_order_returned_stock_restored')->count(),
+            'returned_stock_unbalanced_count' => $findingsCollection->whereIn('code', ['store_order_returned_stock_not_restored', 'store_order_returned_stock_over_restored'])->count(),
             'invoice_store_duplicate_exit_count' => $findingsCollection->where('code', 'invoice_store_duplicate_stock_exit')->count(),
             'logistics_store_duplicate_exit_count' => $findingsCollection->where('code', 'logistics_store_duplicate_stock_exit')->count(),
             'quantity_mismatch_count' => $findingsCollection->whereIn('code', ['store_order_quantity_mismatch', 'invoice_item_quantity_mismatch'])->count(),
@@ -859,7 +1018,7 @@ final class StoreLogisticsStockAuditService
             'invalid_quantity_count' => $findingsCollection->where('code', 'store_stock_invalid_quantity')->count(),
             'invalid_source_reference_count' => $findingsCollection->where('code', 'store_stock_invalid_source_reference')->count(),
             'legacy_corrected_by_audit_count' => $findingsCollection->where('code', 'store_stock_legacy_corrected_by_audit')->count(),
-            'clean_count' => $findingsCollection->whereIn('code', ['store_order_stock_clean', 'store_order_cancelled_stock_restored', 'store_order_cancelled_without_stock_impact', 'invoice_item_stock_clean', 'store_stock_legacy_corrected_by_audit', 'store_logistics_stock_clean'])->count(),
+            'clean_count' => $findingsCollection->whereIn('code', ['store_order_stock_clean', 'store_order_cancelled_stock_restored', 'store_order_cancelled_without_stock_impact', 'store_order_returned_stock_restored', 'store_order_returned_without_stock_impact', 'store_order_return_reversal_clean', 'store_order_return_fiscal_reversal_clean', 'store_order_return_awaiting_credit_note_clean', 'invoice_item_stock_clean', 'store_stock_legacy_corrected_by_audit', 'store_logistics_stock_clean'])->count(),
             'total_findings' => $findingsCollection->count(),
             'critical_count' => $findingsCollection->where('severity', 'critical')->count(),
             'warning_count' => $findingsCollection->where('severity', 'warning')->count(),

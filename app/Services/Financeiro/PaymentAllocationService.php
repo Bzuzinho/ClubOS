@@ -5,6 +5,7 @@ namespace App\Services\Financeiro;
 use App\Models\AccountCredit;
 use App\Models\BankReconciliationSuggestion;
 use App\Models\BankStatement;
+use App\Models\BankTransactionAllocation;
 use App\Models\Familia;
 use App\Models\FinancialEntry;
 use App\Models\Invoice;
@@ -12,6 +13,7 @@ use App\Models\MapaConciliacao;
 use App\Models\Payment;
 use App\Models\PaymentAllocation;
 use App\Models\PaymentMethod;
+use App\Models\PaymentReversal;
 use App\Models\User;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
@@ -987,6 +989,185 @@ class PaymentAllocationService
         });
     }
 
+    /**
+     * Reverte uma fatura sem remover o rasto contabilístico original.
+     *
+     * @param array<string,mixed> $options
+     */
+    public function reverseInvoicePaymentsPreservingHistory(Invoice $invoice, array $options): Invoice
+    {
+        $sourceType = trim((string) ($options['source_type'] ?? ''));
+        $sourceId = trim((string) ($options['source_id'] ?? ''));
+        $reason = trim((string) ($options['reason'] ?? ''));
+
+        if ($sourceType === '' || $sourceId === '' || $reason === '') {
+            throw ValidationException::withMessages([
+                'reversal' => 'A reversão financeira exige origem, referência e motivo explícitos.',
+            ]);
+        }
+
+        return DB::transaction(function () use ($invoice, $options, $sourceType, $sourceId, $reason): Invoice {
+            $invoice = Invoice::query()->whereKey($invoice->id)->lockForUpdate()->firstOrFail();
+            $allocations = PaymentAllocation::query()
+                ->confirmed()
+                ->where('invoice_id', $invoice->id)
+                ->with('payment')
+                ->lockForUpdate()
+                ->get();
+            $paymentIds = collect();
+
+            foreach ($allocations as $allocation) {
+                $payment = $allocation->payment;
+                if (! $payment) {
+                    throw ValidationException::withMessages([
+                        'reversal' => 'Uma alocação da encomenda perdeu a referência ao pagamento e requer revisão.',
+                    ]);
+                }
+
+                PaymentReversal::query()->firstOrCreate(
+                    ['payment_allocation_id' => $allocation->id],
+                    [
+                        'payment_id' => $payment->id,
+                        'invoice_id' => $invoice->id,
+                        'amount' => $allocation->amount,
+                        'source_type' => $sourceType,
+                        'source_id' => $sourceId,
+                        'reason' => $reason,
+                        'reference' => $options['reference'] ?? null,
+                        'reversed_by' => $options['reversed_by'] ?? null,
+                        'reversed_at' => $options['reversed_at'] ?? now(),
+                        'metadata' => $options['metadata'] ?? null,
+                    ],
+                );
+
+                MapaConciliacao::query()
+                    ->where('payment_allocation_id', $allocation->id)
+                    ->lockForUpdate()
+                    ->get()
+                    ->each(function (MapaConciliacao $map) use ($reason, $sourceType, $sourceId): void {
+                        $map->forceFill([
+                            'status' => 'reversed',
+                            'metadata' => array_merge((array) $map->metadata, [
+                                'reversal_source_type' => $sourceType,
+                                'reversal_source_id' => $sourceId,
+                                'reversal_reason' => $reason,
+                                'reversed_at' => now()->toIso8601String(),
+                            ]),
+                        ])->save();
+                    });
+
+                BankTransactionAllocation::query()
+                    ->where('payment_allocation_id', $allocation->id)
+                    ->lockForUpdate()
+                    ->get()
+                    ->each(function (BankTransactionAllocation $bankAllocation) use ($reason, $sourceType, $sourceId): void {
+                        $bankAllocation->forceFill([
+                            'status' => BankTransactionAllocation::STATUS_CANCELLED,
+                            'metadata' => array_merge((array) $bankAllocation->metadata, [
+                                'reversal_source_type' => $sourceType,
+                                'reversal_source_id' => $sourceId,
+                                'reversal_reason' => $reason,
+                                'reversed_at' => now()->toIso8601String(),
+                            ]),
+                        ])->save();
+                    });
+
+                FinancialEntry::query()
+                    ->where(function ($query) use ($allocation): void {
+                        $query->where('id', $allocation->financial_entry_id)
+                            ->orWhere(function ($origin) use ($allocation): void {
+                                $origin->where('origem_tipo', 'payment_allocation')->where('origem_id', $allocation->id);
+                            });
+                    })
+                    ->lockForUpdate()
+                    ->get()
+                    ->each(function (FinancialEntry $entry): void {
+                        $entry->forceFill([
+                            'estado' => 'cancelado',
+                            'valor_pago' => 0,
+                            'valor_em_aberto' => 0,
+                            'data_liquidacao' => null,
+                        ])->save();
+                    });
+
+                $allocation->forceFill([
+                    'status' => PaymentAllocation::STATUS_CANCELLED,
+                    'notes' => $this->appendRepairNote($allocation->notes, 'Alocação revertida: '.$reason),
+                    'metadata' => array_merge((array) $allocation->metadata, [
+                        'reversal_source_type' => $sourceType,
+                        'reversal_source_id' => $sourceId,
+                        'reversal_reason' => $reason,
+                        'reversed_at' => now()->toIso8601String(),
+                    ]),
+                ])->save();
+
+                $paymentIds->push($payment->id);
+            }
+
+            foreach ($paymentIds->unique() as $paymentId) {
+                $payment = Payment::query()->whereKey($paymentId)->lockForUpdate()->firstOrFail();
+                $payment = $this->syncPaymentBalances($payment);
+                $hasConfirmedAllocations = PaymentAllocation::query()->confirmed()->where('payment_id', $payment->id)->exists();
+                $hasActiveCredits = AccountCredit::query()
+                    ->where('payment_id', $payment->id)
+                    ->where('status', '!=', AccountCredit::STATUS_CANCELLED)
+                    ->exists();
+
+                if (! $hasConfirmedAllocations && ! $hasActiveCredits && $payment->source === Payment::SOURCE_MANUAL) {
+                    $payment->forceFill([
+                        'status' => Payment::STATUS_CANCELLED,
+                        'cancelled_by' => $options['reversed_by'] ?? null,
+                        'cancelled_at' => $options['reversed_at'] ?? now(),
+                        'notes' => $this->appendRepairNote($payment->notes, 'Pagamento revertido: '.$reason),
+                    ])->save();
+                }
+
+                if ($payment->bank_statement_id) {
+                    $bankStatement = BankStatement::query()->find($payment->bank_statement_id);
+                    if ($bankStatement) {
+                        $this->syncBankStatementStatus($bankStatement);
+                    }
+                }
+            }
+
+            $reversedAmount = round((float) $allocations->sum('amount'), 2);
+            if ($reversedAmount > 0) {
+                $reversedAt = $options['reversed_at'] ?? now();
+                FinancialEntry::query()->firstOrCreate(
+                    ['origem_tipo' => $sourceType, 'origem_id' => $sourceId],
+                    [
+                        'data' => $reversedAt->toDateString(),
+                        'tipo' => 'despesa',
+                        'categoria' => 'Reembolso de encomenda',
+                        'descricao' => 'Reversão financeira da encomenda: '.$reason,
+                        'documento_ref' => $options['reference'] ?? null,
+                        'valor' => $reversedAmount,
+                        'valor_pago' => $reversedAmount,
+                        'valor_em_aberto' => 0,
+                        'estado' => 'pago',
+                        'data_pagamento' => $reversedAt->toDateString(),
+                        'data_liquidacao' => $reversedAt->toDateString(),
+                        'centro_custo_id' => $invoice->centro_custo_id,
+                        'user_id' => $invoice->user_id,
+                        'fatura_id' => $invoice->id,
+                        'origem_modulo' => 'loja',
+                    ],
+                );
+            }
+
+            $invoice->forceFill([
+                'estado_pagamento' => 'cancelado',
+                'valor_pago' => 0,
+                'valor_em_aberto' => 0,
+                'data_pagamento' => null,
+                'metodo_pagamento' => null,
+                'pagamento_observacoes' => 'Revertida por devolução da Loja: '.$reason,
+            ])->save();
+
+            return $invoice->refresh();
+        });
+    }
+
     public function reopenInvoice(Invoice $invoice, string $targetStatus, array $options = []): Invoice
     {
         if (! in_array($targetStatus, ['pendente', 'vencido'], true)) {
@@ -1148,9 +1329,12 @@ class PaymentAllocationService
             ->where('payment_id', $payment->id)
             ->where('status', '!=', AccountCredit::STATUS_CANCELLED)
             ->sum('amount'), 2);
+        $reversedAmount = round((float) PaymentReversal::query()
+            ->where('payment_id', $payment->id)
+            ->sum('amount'), 2);
         $payment->forceFill([
             'allocated_amount' => $allocatedAmount,
-            'unallocated_amount' => round(max((float) $payment->amount - $allocatedAmount - $creditedAmount, 0), 2),
+            'unallocated_amount' => round(max((float) $payment->amount - $allocatedAmount - $creditedAmount - $reversedAmount, 0), 2),
         ]);
         $payment->save();
 

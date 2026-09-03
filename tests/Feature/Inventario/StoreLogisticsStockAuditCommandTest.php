@@ -314,19 +314,21 @@ final class StoreLogisticsStockAuditCommandTest extends TestCase
             '--report-path' => $relativePath,
         ]);
 
-        $this->assertSame('h5c-store-payment-fiscal-audit-v4', $payload['version']);
+        $this->assertSame('h5d-store-return-reversal-audit-v5', $payload['version']);
         $this->assertTrue($payload['read_only']);
         $this->assertTrue($payload['interpretation']['cancelled_order_is_balanced_when_exit_and_return_match']);
         $this->assertTrue($payload['interpretation']['canonical_store_invoice_contract_active']);
         $this->assertTrue($payload['interpretation']['store_financial_state_is_derived_from_invoice']);
         $this->assertTrue($payload['interpretation']['paid_store_invoice_requires_manual_wintouch_request']);
+        $this->assertTrue($payload['interpretation']['delivered_return_requires_financial_and_fiscal_reversal_before_stock']);
+        $this->assertTrue($payload['interpretation']['payment_reversal_history_is_preserved']);
         $this->assertTrue($payload['interpretation']['legacy_orders_without_invoice_are_reported_without_backfill']);
         $this->assertTrue($payload['interpretation']['no_data_changed']);
         $this->assertNotEmpty($actionablePayload['findings']);
         $this->assertSame(1, $warningExitCode);
         $this->assertSame(0, $reportExitCode);
         $this->assertFileExists($absolutePath);
-        $this->assertSame('h5c-store-payment-fiscal-audit-v4', json_decode((string) file_get_contents($absolutePath), true)['version']);
+        $this->assertSame('h5d-store-return-reversal-audit-v5', json_decode((string) file_get_contents($absolutePath), true)['version']);
         $this->assertSame($before, $this->snapshot());
         @unlink($absolutePath);
     }
