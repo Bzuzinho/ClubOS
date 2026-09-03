@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Models\UserType;
 use App\Services\AccessControl\AdministratorAuthority;
 use App\Services\AccessControl\UserTypeAccessControlService;
 use Closure;
@@ -31,6 +32,26 @@ class EnsurePermissionAccess
                 Response::HTTP_FORBIDDEN,
                 'A gestão de tipos de utilizador e permissões está reservada ao Administrador.'
             );
+        }
+
+        if ($isAdministrator && $permissionKey === 'configuracoes.tipos_utilizador') {
+            $targetUserType = $request->route('userType');
+
+            if ($targetUserType instanceof UserType && $this->administratorAuthority->isAdministratorType($targetUserType)) {
+                abort_if(
+                    $request->isMethod('delete'),
+                    Response::HTTP_UNPROCESSABLE_ENTITY,
+                    'O tipo de utilizador Administrador é estrutural e não pode ser eliminado.'
+                );
+
+                abort_if(
+                    in_array($request->method(), ['PUT', 'PATCH'], true)
+                        && $request->has('ativo')
+                        && ! $request->boolean('ativo'),
+                    Response::HTTP_UNPROCESSABLE_ENTITY,
+                    'O tipo de utilizador Administrador é estrutural e não pode ser desativado.'
+                );
+            }
         }
 
         if ($isAdministrator) {
