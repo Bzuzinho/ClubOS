@@ -321,7 +321,7 @@ class CommunicationAutomationService
         }
 
         try {
-            $campaign = $this->campaignService->sendIndividualCommunication([
+            $campaign = $this->campaignService->queueIndividualCommunication([
                 ...$payload,
                 'source_type' => $originType,
                 'source_id' => $originId,

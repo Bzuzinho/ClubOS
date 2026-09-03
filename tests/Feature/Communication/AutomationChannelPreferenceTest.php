@@ -2,18 +2,80 @@
 
 namespace Tests\Feature\Communication;
 
+use App\Jobs\ProcessCommunicationCampaignJob;
 use App\Models\CommunicationCampaign;
+use App\Models\CommunicationDelivery;
 use App\Models\InAppAlert;
 use App\Models\Invoice;
 use App\Models\NotificationPreference;
 use App\Models\User;
+use App\Services\Communication\CommunicationAutomationService;
+use App\Services\Communication\CommunicationCampaignService;
+use App\Services\Communication\CommunicationDeliveryService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Queue;
 use Tests\TestCase;
 
 class AutomationChannelPreferenceTest extends TestCase
 {
     use RefreshDatabase;
+
+    public function test_invoice_automation_persists_outbox_before_worker_delivery(): void
+    {
+        Queue::fake();
+        $recipient = $this->preparePreferences([]);
+
+        $invoice = $this->createInvoice($recipient);
+        $campaign = CommunicationCampaign::query()->sole();
+
+        $this->assertSame('invoice', $campaign->source_type);
+        $this->assertSame((string) $invoice->id, $campaign->source_id);
+        $this->assertSame('em_processamento', $campaign->status);
+        $this->assertNotNull($campaign->idempotency_key);
+        $this->assertNotNull($campaign->dispatch_requested_at);
+        $this->assertSame(0, CommunicationDelivery::query()->count());
+        $this->assertSame(0, InAppAlert::query()->count());
+        Queue::assertPushed(
+            ProcessCommunicationCampaignJob::class,
+            fn (ProcessCommunicationCampaignJob $job): bool => $job->campaignId === $campaign->id,
+        );
+
+        (new ProcessCommunicationCampaignJob($campaign->id))->handle(
+            app(CommunicationDeliveryService::class),
+            app(CommunicationCampaignService::class),
+        );
+
+        $this->assertSame('enviada', $campaign->fresh()->status);
+        $this->assertSame(2, CommunicationDelivery::query()->count());
+        $this->assertSame(1, InAppAlert::query()->where('user_id', $recipient->id)->count());
+
+        app(CommunicationAutomationService::class)->triggerInvoiceIssued($invoice);
+
+        $this->assertSame(1, CommunicationCampaign::query()->count());
+        Queue::assertPushed(ProcessCommunicationCampaignJob::class, 1);
+    }
+
+    public function test_automation_outbox_is_discarded_when_business_transaction_rolls_back(): void
+    {
+        $recipient = $this->preparePreferences([]);
+
+        try {
+            DB::transaction(function () use ($recipient): void {
+                $this->createInvoice($recipient);
+
+                throw new \RuntimeException('rollback expected');
+            });
+        } catch (\RuntimeException $exception) {
+            $this->assertSame('rollback expected', $exception->getMessage());
+        }
+
+        $this->assertSame(0, Invoice::query()->count());
+        $this->assertSame(0, CommunicationCampaign::query()->count());
+        $this->assertSame(0, CommunicationDelivery::query()->count());
+        $this->assertSame(0, InAppAlert::query()->count());
+    }
 
     public function test_invoice_automation_uses_email_only_when_in_app_channel_is_disabled(): void
     {

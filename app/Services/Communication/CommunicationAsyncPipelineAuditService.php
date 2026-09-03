@@ -9,7 +9,18 @@ use Illuminate\Support\Facades\Schema;
 
 final class CommunicationAsyncPipelineAuditService
 {
-    private const VERSION = 'h6a-communication-async-pipeline-audit-v1';
+    private const VERSION = 'h6b-communication-automation-cutover-audit-v2';
+
+    /** @var list<string> */
+    private const AUTOMATION_SOURCE_TYPES = [
+        'invoice',
+        'movement',
+        'event_convocation',
+        'logistics_request_created',
+        'logistics_request_status',
+        'supplier_purchase',
+        'sports_intent',
+    ];
 
     /** @return array<string,mixed> */
     public function audit(): array
@@ -27,6 +38,10 @@ final class CommunicationAsyncPipelineAuditService
             'legacy_campaign_count' => $this->whereNullCount('communication_campaigns', 'idempotency_key'),
             'scheduled_due_count' => $this->scheduledDueCount(true),
             'legacy_scheduled_due_count' => $this->scheduledDueCount(false),
+            'automation_campaign_count' => $this->automationCampaignCount(),
+            'automation_processing_count' => $this->automationProcessingCount(),
+            'automation_without_dispatch_request_count' => $this->automationWithoutDispatchRequestCount(),
+            'outbox_recovery_due_count' => $this->outboxRecoveryDueCount(),
             'delivery_count' => $this->count('communication_deliveries'),
             'managed_delivery_count' => $this->whereNotNullCount('communication_deliveries', 'idempotency_key'),
             'legacy_delivery_count' => $this->whereNullCount('communication_deliveries', 'idempotency_key'),
@@ -47,11 +62,13 @@ final class CommunicationAsyncPipelineAuditService
         $summary['warning_count'] = $summary['exhausted_recipient_count']
             + $summary['stale_processing_count']
             + $summary['legacy_scheduled_due_count']
+            + $summary['outbox_recovery_due_count']
             + $summary['managed_success_missing_provider_count']
             + $summary['managed_success_missing_provider_message_id_count'];
         $summary['actionable_count'] = $summary['exhausted_recipient_count']
             + $summary['stale_processing_count']
-            + $summary['legacy_scheduled_due_count'];
+            + $summary['legacy_scheduled_due_count']
+            + $summary['outbox_recovery_due_count'];
 
         return [
             'version' => self::VERSION,
@@ -68,6 +85,8 @@ final class CommunicationAsyncPipelineAuditService
                 'scheduled_and_retry_dispatch_share_one_scheduler' => true,
                 'legacy_rows_are_measured_without_backfill' => true,
                 'legacy_scheduled_campaigns_are_never_auto_dispatched' => true,
+                'automatic_sources_dispatch_via_persistent_outbox' => true,
+                'stale_automatic_outbox_campaigns_are_recoverable' => true,
                 'future_social_network_providers_must_reuse_this_pipeline' => true,
                 'no_data_changed' => true,
             ],
@@ -164,6 +183,60 @@ final class CommunicationAsyncPipelineAuditService
             ->count();
     }
 
+    private function automationCampaignCount(): int
+    {
+        return $this->automationCampaignQueryReady()
+            ? DB::table('communication_campaigns')->whereIn('source_type', self::AUTOMATION_SOURCE_TYPES)->count()
+            : 0;
+    }
+
+    private function automationProcessingCount(): int
+    {
+        return $this->automationCampaignQueryReady()
+            ? DB::table('communication_campaigns')
+                ->whereIn('source_type', self::AUTOMATION_SOURCE_TYPES)
+                ->where('status', 'em_processamento')
+                ->count()
+            : 0;
+    }
+
+    private function automationWithoutDispatchRequestCount(): int
+    {
+        return $this->automationCampaignQueryReady()
+            ? DB::table('communication_campaigns')
+                ->whereIn('source_type', self::AUTOMATION_SOURCE_TYPES)
+                ->whereNull('dispatch_requested_at')
+                ->count()
+            : 0;
+    }
+
+    private function outboxRecoveryDueCount(): int
+    {
+        if (! $this->automationCampaignQueryReady() || ! Schema::hasTable('communication_deliveries')) {
+            return 0;
+        }
+
+        return DB::table('communication_campaigns')
+            ->whereIn('source_type', self::AUTOMATION_SOURCE_TYPES)
+            ->whereNotNull('idempotency_key')
+            ->whereNotExists(function ($query): void {
+                $query->selectRaw('1')
+                    ->from('communication_deliveries')
+                    ->whereColumn('communication_deliveries.campaign_id', 'communication_campaigns.id');
+            })
+            ->where(function ($query): void {
+                $query->where(function ($pending): void {
+                    $pending->where('status', 'rascunho')
+                        ->whereNull('dispatch_requested_at');
+                })->orWhere(function ($stale): void {
+                    $stale->where('status', 'em_processamento')
+                        ->whereNotNull('dispatch_requested_at')
+                        ->where('dispatch_requested_at', '<=', now()->subMinutes(10));
+                });
+            })
+            ->count();
+    }
+
     private function retryWaitingCount(): int
     {
         if (! $this->recipientRetrySchemaReady()) {
@@ -238,5 +311,13 @@ final class CommunicationAsyncPipelineAuditService
             && Schema::hasColumn('communication_delivery_recipients', 'provider_message_id')
             && Schema::hasColumn('communication_delivery_recipients', 'processing_at')
             && Schema::hasColumn('communication_delivery_recipients', 'next_attempt_at');
+    }
+
+    private function automationCampaignQueryReady(): bool
+    {
+        return Schema::hasTable('communication_campaigns')
+            && Schema::hasColumn('communication_campaigns', 'source_type')
+            && Schema::hasColumn('communication_campaigns', 'idempotency_key')
+            && Schema::hasColumn('communication_campaigns', 'dispatch_requested_at');
     }
 }

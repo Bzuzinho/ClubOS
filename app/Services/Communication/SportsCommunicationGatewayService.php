@@ -97,7 +97,7 @@ final class SportsCommunicationGatewayService implements SportsCommunicationGate
         }
 
         try {
-            $campaign = $this->campaignService->sendIndividualCommunication([
+            $campaign = $this->campaignService->queueIndividualCommunication([
                 'title' => $subject,
                 'alert_category' => 'geral',
                 'alert_title' => 'Nova convocatória',
