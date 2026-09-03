@@ -55,6 +55,8 @@ return Application::configure(basePath: dirname(__DIR__))
         \App\Console\Commands\System\DatabaseHealthCommand::class,
         \App\Console\Commands\System\PerformanceAuditCommand::class,
         \App\Console\Commands\ReleaseVisibleInvoiceCommunications::class,
+        \App\Console\Commands\Communication\DispatchDueCommunicationsCommand::class,
+        \App\Console\Commands\Communication\CommunicationAsyncPipelineAuditCommand::class,
         \App\Console\Commands\SyncPermissionNodes::class,
         \App\Console\Commands\GenerateMonthlyFeesCommand::class,
         \App\Console\Commands\ActivateDueMonthlyFeesCommand::class,

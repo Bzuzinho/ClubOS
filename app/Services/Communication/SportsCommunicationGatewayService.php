@@ -106,6 +106,9 @@ final class SportsCommunicationGatewayService implements SportsCommunicationGate
                 'recipient_user_ids' => $recipientIds,
                 'context_event_id' => $request->context['event_id'] ?? null,
                 'channels' => $channels,
+                'source_type' => 'sports_intent',
+                'source_id' => $request->idempotencyKey(),
+                'idempotency_key' => hash('sha256', 'sports_intent:'.$request->idempotencyKey()),
             ], $request->requestedBy);
 
             $campaign->update([

@@ -8,6 +8,10 @@ Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
 })->purpose('Display an inspiring quote')->hourly();
 
+Schedule::command('communication:dispatch-due')
+    ->everyMinute()
+    ->withoutOverlapping(5);
+
 if (config('clubos.automations.release_invoice_communications_schedule', false)) {
     Schedule::command('comunicacao:libertar-alertas-faturas')->dailyAt('00:05');
 }

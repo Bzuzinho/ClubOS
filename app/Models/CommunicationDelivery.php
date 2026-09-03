@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasManyThrough;
 
 class CommunicationDelivery extends Model
 {
@@ -26,11 +27,14 @@ class CommunicationDelivery extends Model
         'result_summary',
         'error_message',
         'executed_by',
+        'idempotency_key',
+        'completed_at',
     ];
 
     protected $casts = [
         'scheduled_at' => 'datetime',
         'sent_at' => 'datetime',
+        'completed_at' => 'datetime',
     ];
 
     public function campaign(): BelongsTo
@@ -51,5 +55,15 @@ class CommunicationDelivery extends Model
     public function recipients(): HasMany
     {
         return $this->hasMany(CommunicationDeliveryRecipient::class, 'delivery_id');
+    }
+
+    public function attempts(): HasManyThrough
+    {
+        return $this->hasManyThrough(
+            CommunicationDeliveryAttempt::class,
+            CommunicationDeliveryRecipient::class,
+            'delivery_id',
+            'recipient_id',
+        );
     }
 }
