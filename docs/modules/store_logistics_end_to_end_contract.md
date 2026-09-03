@@ -162,8 +162,8 @@ O artifact `store-logistics-lifecycle-readiness-e7ddd8884d095bda5adf521444f0af2b
 
 Os contadores `payment_projection_clean_count` e `paid_fiscal_request_created_count` ficam a zero nesta fotografia porque a única encomenda produtiva é anterior a H5b. Não foi criada uma encomenda sintética em produção; o percurso canónico completo é provado pela suite bloqueante.
 
-## 12. Evidência de implementação H5d
+## 12. Evidência produtiva H5d
 
 `StoreOrderDeliveredReturnReversalTest` prova que uma encomenda entregue e paga permanece intocada após o primeiro pedido de devolução quando existe recibo externo: nasce uma única nota de crédito Wintouch e não há reversão financeira nem reposição antecipada. Depois do registo externo da nota de crédito, a mesma ação cancela logicamente o recibo, cria uma reversão imutável por alocação, preserva os registos originais, cria a compensação financeira, repõe stock e fecha a encomenda como `devolvido`. Uma terceira execução é neutra.
 
-A evidência de CI, merge, deploy e fotografia agregada de produção será acrescentada após todos os gates ficarem verdes.
+PR #305 foi integrada no merge `b178ec5426f78a845995e5173d3a60179d06b7d9`. CI #1092 validou o lote na PR e CI #1095 validou o HEAD produtivo `6a0aa5d1ec8003613138931ad790654f7ac0f037`, incluindo Laravel, PostgreSQL concorrente, browser QA, migration e deploy atómico na Oracle VM.\n\nO artifact `store-logistics-lifecycle-readiness-6a0aa5d1ec8003613138931ad790654f7ac0f037` (ID `9884759118`, digest `sha256:5c085d60091f92a8d01a6f8746aab4ed653af797677330af932c1efa6a9dc82d`) confirmou `payment_reversals` e `loja_encomenda_devolucoes` em produção, uma encomenda/um item legacy sem backfill, zero devoluções inconsistentes, zero stock devolvido desequilibrado, zero críticos, zero warnings, zero ações e `no_data_changed=true`. Os contadores de devoluções ficam a zero porque não foi criada uma operação sintética em produção; o percurso completo é provado pela suite bloqueante.
