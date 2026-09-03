@@ -99,7 +99,7 @@ O audit H5d acrescenta ainda:
 
 ## 7. Lacunas deliberadamente ainda abertas
 
-H5e fecha no código o lifecycle interno de compras, requisições, entregas e empréstimos. A promoção produtiva e a fotografia agregada do audit H5e permanecem necessárias antes de declarar o lote concluído em produção.
+H5 está estruturalmente concluído em produção. Permanecem melhorias incrementais de UX, cobertura E2E operacional e tratamento explícito de dados históricos quando os audits os classificarem como acionáveis; não existe uma fonte de verdade paralela por retirar neste lifecycle.
 
 ## 7.1. Estado implementado em H5e
 
@@ -120,7 +120,7 @@ O contrato Desportivo continua a criar uma única `LogisticsRequest` por identid
 | H5b | Encomenda ligada idempotentemente a `Invoice`, com itens e centro de custo estruturados, sem segunda saída de stock. Concluído em produção. |
 | H5c | Pagamento confirmado por `PaymentAllocationService` projeta o estado financeiro/fiscal da encomenda e cria o pedido fiscal manual pelo fluxo canónico. Implementado. |
 | H5d | Cancelamento/devolução após efeitos financeiros usa reversão explícita e apenas depois repõe stock; sem apagar histórico. Implementado. |
-| H5e | Lifecycle interno de compras, requisições, entregas e empréstimos de Logística fechado no código com QA operacional e contratos Desportivo↔core preservados; promoção produtiva pendente. |
+| H5e | Lifecycle interno de compras, requisições, entregas e empréstimos de Logística fechado em produção, com QA operacional, audit agregado e contratos Desportivo↔core preservados. |
 
 Nenhum destes lotes pode introduzir custos do atleta em descrições textuais: atleta, invoice, centro de custo, evento e requisição mantêm ligações estruturadas e separadas da dívida.
 
@@ -178,4 +178,23 @@ Os contadores `payment_projection_clean_count` e `paid_fiscal_request_created_co
 
 `StoreOrderDeliveredReturnReversalTest` prova que uma encomenda entregue e paga permanece intocada após o primeiro pedido de devolução quando existe recibo externo: nasce uma única nota de crédito Wintouch e não há reversão financeira nem reposição antecipada. Depois do registo externo da nota de crédito, a mesma ação cancela logicamente o recibo, cria uma reversão imutável por alocação, preserva os registos originais, cria a compensação financeira, repõe stock e fecha a encomenda como `devolvido`. Uma terceira execução é neutra.
 
-PR #305 foi integrada no merge `b178ec5426f78a845995e5173d3a60179d06b7d9`. CI #1092 validou o lote na PR e CI #1095 validou o HEAD produtivo `6a0aa5d1ec8003613138931ad790654f7ac0f037`, incluindo Laravel, PostgreSQL concorrente, browser QA, migration e deploy atómico na Oracle VM.\n\nO artifact `store-logistics-lifecycle-readiness-6a0aa5d1ec8003613138931ad790654f7ac0f037` (ID `9884759118`, digest `sha256:5c085d60091f92a8d01a6f8746aab4ed653af797677330af932c1efa6a9dc82d`) confirmou `payment_reversals` e `loja_encomenda_devolucoes` em produção, uma encomenda/um item legacy sem backfill, zero devoluções inconsistentes, zero stock devolvido desequilibrado, zero críticos, zero warnings, zero ações e `no_data_changed=true`. Os contadores de devoluções ficam a zero porque não foi criada uma operação sintética em produção; o percurso completo é provado pela suite bloqueante.
+PR #305 foi integrada no merge `b178ec5426f78a845995e5173d3a60179d06b7d9`. CI #1092 validou o lote na PR e CI #1095 validou o HEAD produtivo `6a0aa5d1ec8003613138931ad790654f7ac0f037`, incluindo Laravel, PostgreSQL concorrente, browser QA, migration e deploy atómico na Oracle VM.
+
+O artifact `store-logistics-lifecycle-readiness-6a0aa5d1ec8003613138931ad790654f7ac0f037` (ID `9884759118`, digest `sha256:5c085d60091f92a8d01a6f8746aab4ed653af797677330af932c1efa6a9dc82d`) confirmou `payment_reversals` e `loja_encomenda_devolucoes` em produção, uma encomenda/um item legacy sem backfill, zero devoluções inconsistentes, zero stock devolvido desequilibrado, zero críticos, zero warnings, zero ações e `no_data_changed=true`. Os contadores de devoluções ficam a zero porque não foi criada uma operação sintética em produção; o percurso completo é provado pela suite bloqueante.
+
+## 13. Evidência produtiva H5e
+
+`InternalLogisticsLifecycleTest` prova o percurso operacional com origem Desportivo estruturada, aprovação/reserva, entrega/saída, empréstimo/devolução, capacidades do catálogo e retries neutros. A suite também confirma que a desativação de um artigo preserva produto e ledger e que um request direto não contorna a elegibilidade.
+
+PR #307 foi integrada no merge `c030d44e53987b098eca3d5a7b61fff8d0f5269e`. CI #1099 validou o lote na PR e CI #1100 repetiu Laravel, PostgreSQL concorrente e browser QA em `main`, fez deploy atómico na Oracle VM e recolheu o audit `h5e-internal-logistics-lifecycle-audit-v1`.
+
+O artifact `internal-logistics-lifecycle-readiness-c030d44e53987b098eca3d5a7b61fff8d0f5269e` (ID `9886764812`, digest `sha256:500b9ad2988bb320860ebefde00a7d5ca42fd01b1f0b523b6fae5272f5d10c4c`) confirmou:
+
+- as nove tabelas e todas as capacidades de produto/origem Desportivo esperadas;
+- uma compra histórica e zero requisições, empréstimos ou pedidos ligados ao Desportivo;
+- uma compra histórica sem `financial_movement_id`, medida mas classificada como não acionável pelos audits canónicos;
+- zero ligações financeiras com origem divergente;
+- zero findings críticos, warnings ou ações pendentes;
+- `read_only=true` e `no_data_changed=true`.
+
+Não foi criado dado sintético, executado backfill ou alterado qualquer registo para validar o lote. Os percursos sem ocorrências produtivas são cobertos pela suite bloqueante.
