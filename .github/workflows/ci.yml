@@ -535,7 +535,7 @@ jobs:
           rm -f "${raw_report}"
 
           jq -e '
-            .version == "h5c-store-payment-fiscal-audit-v4"
+            .version == "h5d-store-return-reversal-audit-v5"
             and .read_only == true
             and .schema_detected.tables.loja_encomendas == true
             and .schema_detected.tables.loja_encomenda_itens == true
@@ -543,7 +543,9 @@ jobs:
             and .schema_detected.tables.invoices == true
             and .schema_detected.tables.payments == true
             and .schema_detected.tables.payment_allocations == true
+            and .schema_detected.tables.payment_reversals == true
             and .schema_detected.tables.fiscal_document_requests == true
+            and .schema_detected.tables.loja_encomenda_devolucoes == true
             and .schema_detected.tables.logistics_requests == true
             and .schema_detected.tables.logistics_request_items == true
             and .schema_detected.tables.products == true
@@ -565,6 +567,9 @@ jobs:
             and .summary.paid_fiscal_request_missing_count >= 0
             and .summary.premature_fiscal_request_count >= 0
             and .summary.fiscal_request_contract_mismatch_count >= 0
+            and .summary.total_store_returns_scanned >= 0
+            and .summary.store_returns_inconsistent_count >= 0
+            and .summary.returned_stock_unbalanced_count >= 0
             and .summary.cancelled_stock_unbalanced_count >= 0
             and .summary.critical_count >= 0
             and .summary.warning_count >= 0
@@ -572,6 +577,8 @@ jobs:
             and .interpretation.canonical_store_invoice_contract_active == true
             and .interpretation.store_financial_state_is_derived_from_invoice == true
             and .interpretation.paid_store_invoice_requires_manual_wintouch_request == true
+            and .interpretation.delivered_return_requires_financial_and_fiscal_reversal_before_stock == true
+            and .interpretation.payment_reversal_history_is_preserved == true
             and .interpretation.legacy_orders_without_invoice_are_reported_without_backfill == true
             and .interpretation.no_data_changed == true
           ' "${local_report}" >/dev/null
@@ -586,6 +593,8 @@ jobs:
             echo "- Payment projection clean/mismatched: \`$(jq -r '(.summary.payment_projection_clean_count|tostring) + "/" + (.summary.payment_projection_mismatch_count|tostring)' "${local_report}")\`"
             echo "- Paid fiscal requests created/missing: \`$(jq -r '(.summary.paid_fiscal_request_created_count|tostring) + "/" + (.summary.paid_fiscal_request_missing_count|tostring)' "${local_report}")\`"
             echo "- Cancelled stock restored/unbalanced: \`$(jq -r '.summary.cancelled_stock_restored_count' "${local_report}")/$(jq -r '.summary.cancelled_stock_unbalanced_count' "${local_report}")\`"
+            echo "- Store returns awaiting/completed/inconsistent: \`$(jq -r '(.summary.store_returns_awaiting_credit_note_count|tostring) + "/" + (.summary.store_returns_completed_clean_count|tostring) + "/" + (.summary.store_returns_inconsistent_count|tostring)' "${local_report}")\`"
+            echo "- Returned stock restored/unbalanced: \`$(jq -r '.summary.returned_stock_restored_count' "${local_report}")/$(jq -r '.summary.returned_stock_unbalanced_count' "${local_report}")\`"
             echo "- Missing/duplicate physical exits: \`$(jq -r '.summary.missing_physical_exit_count' "${local_report}")/$(jq -r '.summary.duplicate_physical_exit_count' "${local_report}")\`"
             echo "- Critical/warning findings: \`$(jq -r '.summary.critical_count' "${local_report}")/$(jq -r '.summary.warning_count' "${local_report}")\`"
             echo '- Readiness is measured without mutating production; known debt is reported, not silently gated.'

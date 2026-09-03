@@ -614,7 +614,11 @@ final class PaymentReversalAuditService
             );
         }
 
-        if ($invoice instanceof Invoice && $this->hasFiscalDocument($invoice, $fiscalRequests)) {
+        if (
+            $invoice instanceof Invoice
+            && $this->hasFiscalDocument($invoice, $fiscalRequests)
+            && ! $this->hasCompletedFiscalReversal($invoice, $fiscalRequests)
+        ) {
             $findings[] = $this->finding(
                 'critical',
                 'reversed_invoice_with_fiscal_document',
@@ -828,6 +832,10 @@ final class PaymentReversalAuditService
 
     private function isFinancialEntryActive(FinancialEntry $entry): bool
     {
+        if (in_array((string) $entry->estado, ['cancelado', 'cancelled', 'reversed', 'anulado'], true)) {
+            return false;
+        }
+
         return in_array((string) $entry->estado, ['pago', 'parcial'], true)
             || (float) $entry->valor_pago > self::TOLERANCE
             || filled($entry->payment_id);
@@ -919,6 +927,29 @@ final class PaymentReversalAuditService
             ->contains(static fn (FiscalDocumentRequest $request): bool => $request->status === FiscalDocumentRequest::STATUS_ISSUED
                 || filled($request->external_document_number)
                 || filled($request->external_document_id));
+    }
+
+    /**
+     * @param Collection<int,FiscalDocumentRequest> $fiscalRequests
+     */
+    private function hasCompletedFiscalReversal(Invoice $invoice, Collection $fiscalRequests): bool
+    {
+        $invoiceRequests = $fiscalRequests->where('invoice_id', $invoice->id);
+        $registeredOriginals = $invoiceRequests
+            ->where('document_type', '!=', FiscalDocumentRequest::DOCUMENT_TYPE_CREDIT_NOTE)
+            ->filter(static fn (FiscalDocumentRequest $request): bool => filled($request->external_document_number)
+                || filled($request->external_document_id));
+
+        if ($registeredOriginals->isEmpty() || $registeredOriginals->contains(
+            static fn (FiscalDocumentRequest $request): bool => $request->status !== FiscalDocumentRequest::STATUS_CANCELLED,
+        )) {
+            return false;
+        }
+
+        return $invoiceRequests
+            ->where('document_type', FiscalDocumentRequest::DOCUMENT_TYPE_CREDIT_NOTE)
+            ->contains(static fn (FiscalDocumentRequest $request): bool => $request->status === FiscalDocumentRequest::STATUS_ISSUED
+                && (filled($request->external_document_number) || filled($request->external_document_id)));
     }
 
     /**

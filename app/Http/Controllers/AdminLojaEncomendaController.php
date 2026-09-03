@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\LojaEncomenda;
 use App\Services\Loja\LojaEncomendaService;
 use App\Services\Loja\StoreOrderFinancialProjection;
+use App\Services\Loja\StoreOrderReturnService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -15,13 +16,14 @@ class AdminLojaEncomendaController extends Controller
     public function __construct(
         private readonly LojaEncomendaService $encomendaService,
         private readonly StoreOrderFinancialProjection $financialProjection,
+        private readonly StoreOrderReturnService $returnService,
     ) {
     }
 
     public function index(Request $request): Response|JsonResponse
     {
         $query = LojaEncomenda::query()
-            ->with(['itens.article', 'itens.productVariant', 'user:id,nome_completo', 'targetUser:id,nome_completo', 'invoice.fiscalDocumentRequests'])
+            ->with(['itens.article', 'itens.productVariant', 'user:id,nome_completo', 'targetUser:id,nome_completo', 'invoice.fiscalDocumentRequests', 'devolucao.fiscalDocumentRequest'])
             ->ordered();
 
         if ($request->filled('estado')) {
@@ -46,7 +48,7 @@ class AdminLojaEncomendaController extends Controller
 
     public function show(Request $request, LojaEncomenda $encomenda): Response|JsonResponse
     {
-        $payload = $this->serializeOrder($encomenda->load(['itens.article', 'itens.productVariant', 'user:id,nome_completo', 'targetUser:id,nome_completo', 'invoice.fiscalDocumentRequests']), true);
+        $payload = $this->serializeOrder($encomenda->load(['itens.article', 'itens.productVariant', 'user:id,nome_completo', 'targetUser:id,nome_completo', 'invoice.fiscalDocumentRequests', 'devolucao.fiscalDocumentRequest']), true);
 
         if ($request->is('api/*')) {
             return response()->json($payload);
@@ -68,6 +70,25 @@ class AdminLojaEncomendaController extends Controller
         return response()->json($this->serializeOrder($order, true));
     }
 
+    public function processDevolucao(Request $request, LojaEncomenda $encomenda): JsonResponse
+    {
+        $validated = $request->validate([
+            'motivo' => ['required', 'string', 'min:5', 'max:1000'],
+        ]);
+
+        $this->returnService->process($encomenda, $request->user(), $validated['motivo']);
+        $order = $encomenda->fresh([
+            'itens.article',
+            'itens.productVariant',
+            'user:id,nome_completo',
+            'targetUser:id,nome_completo',
+            'invoice.fiscalDocumentRequests',
+            'devolucao.fiscalDocumentRequest',
+        ]);
+
+        return response()->json($this->serializeOrder($order, true));
+    }
+
     private function serializeOrder(LojaEncomenda $encomenda, bool $withItems): array
     {
         return [
@@ -85,6 +106,18 @@ class AdminLojaEncomendaController extends Controller
                 'valor_em_aberto' => (float) $encomenda->invoice->valor_em_aberto,
             ] : null,
             'financeiro' => $this->financialProjection->forOrder($encomenda),
+            'devolucao' => $encomenda->devolucao ? [
+                'id' => $encomenda->devolucao->id,
+                'estado' => $encomenda->devolucao->estado,
+                'motivo' => $encomenda->devolucao->motivo,
+                'solicitada_em' => $encomenda->devolucao->solicitada_em?->toIso8601String(),
+                'concluida_em' => $encomenda->devolucao->concluida_em?->toIso8601String(),
+                'nota_credito' => $encomenda->devolucao->fiscalDocumentRequest ? [
+                    'id' => $encomenda->devolucao->fiscalDocumentRequest->id,
+                    'estado' => $encomenda->devolucao->fiscalDocumentRequest->status,
+                    'numero_externo' => $encomenda->devolucao->fiscalDocumentRequest->external_document_number,
+                ] : null,
+            ] : null,
             'user' => $encomenda->user ? [
                 'id' => $encomenda->user->id,
                 'nome_completo' => $encomenda->user->nome_completo,

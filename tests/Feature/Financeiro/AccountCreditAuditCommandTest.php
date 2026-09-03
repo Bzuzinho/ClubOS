@@ -237,7 +237,7 @@ final class AccountCreditAuditCommandTest extends TestCase
         $payload = json_decode(substr($output, (int) strpos($output, '{')), true);
         $this->assertIsArray($payload);
         $this->assertTrue($payload['detected_models']['account_credit']);
-        $this->assertSame([], $payload['schema_detected']['refund_reversal_entities_detected']);
+        $this->assertSame(['PaymentReversal'], $payload['schema_detected']['refund_reversal_entities_detected']);
         $this->assertTrue($payload['schema_detected']['usage_tables_detected']);
         $this->assertContains('account_credit_usages', $payload['schema_detected']['usage_tables']);
         $this->assertFileExists($absolutePath);

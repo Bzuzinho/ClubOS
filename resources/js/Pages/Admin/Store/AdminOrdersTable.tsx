@@ -16,7 +16,7 @@ interface AdminOrdersTableProps {
 
 type PageProps = SharedPageProps<AdminOrdersTableProps>;
 
-const statuses = ['all', 'pendente', 'aprovado', 'preparado', 'entregue', 'cancelado'];
+const statuses = ['all', 'pendente', 'aprovado', 'preparado', 'entregue', 'devolvido', 'cancelado'];
 
 export default function AdminOrdersTable() {
     const { props } = usePage<PageProps>();

@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Concerns\HasVersion4Uuids as HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class LojaEncomenda extends Model
 {
@@ -17,6 +18,7 @@ class LojaEncomenda extends Model
     public const ESTADO_PREPARADO = 'preparado';
     public const ESTADO_ENTREGUE = 'entregue';
     public const ESTADO_CANCELADO = 'cancelado';
+    public const ESTADO_DEVOLVIDO = 'devolvido';
 
     protected $table = 'loja_encomendas';
 
@@ -72,5 +74,10 @@ class LojaEncomenda extends Model
     public function itens(): HasMany
     {
         return $this->hasMany(LojaEncomendaItem::class, 'loja_encomenda_id');
+    }
+
+    public function devolucao(): HasOne
+    {
+        return $this->hasOne(LojaEncomendaDevolucao::class, 'loja_encomenda_id');
     }
 }

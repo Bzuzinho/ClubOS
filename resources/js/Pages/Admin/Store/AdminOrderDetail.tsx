@@ -22,7 +22,9 @@ export default function AdminOrderDetail() {
     const { order } = props;
     const [estado, setEstado] = useState<StoreOrder['estado']>(order.estado);
     const [submitting, setSubmitting] = useState(false);
-    const isTerminal = order.estado === 'cancelado' || order.estado === 'entregue';
+    const [returnReason, setReturnReason] = useState(order.devolucao?.motivo || 'Devolução integral da encomenda entregue.');
+    const [returning, setReturning] = useState(false);
+    const isTerminal = order.estado === 'cancelado' || order.estado === 'entregue' || order.estado === 'devolvido';
     const availableStatusOptions = isTerminal ? [order.estado] : statusOptions;
 
     const updateStatus = async () => {
@@ -38,6 +40,26 @@ export default function AdminOrderDetail() {
             toast.error(error instanceof Error ? error.message : 'Não foi possível atualizar a encomenda.');
         } finally {
             setSubmitting(false);
+        }
+    };
+
+    const processReturn = async () => {
+        try {
+            setReturning(true);
+            const updated = await storeRequest<StoreOrder>(`/api/admin/loja/encomendas/${order.id}/devolucao`, {
+                method: 'POST',
+                body: JSON.stringify({ motivo: returnReason }),
+            });
+            if (updated.estado === 'devolvido') {
+                toast.success('Devolução concluída, com reversão financeira/fiscal e reposição de stock.');
+            } else {
+                toast.success('Pedido de nota de crédito criado. Registe a emissão Wintouch antes de concluir.');
+            }
+            router.reload({ only: ['order'] });
+        } catch (error) {
+            toast.error(error instanceof Error ? error.message : 'Não foi possível processar a devolução.');
+        } finally {
+            setReturning(false);
         }
     };
 
@@ -108,6 +130,43 @@ export default function AdminOrderDetail() {
                             </Button>
                             </CardContent>
                         </Card>
+
+                        {(order.estado === 'entregue' || order.estado === 'devolvido' || order.devolucao) ? (
+                            <Card>
+                                <CardHeader className="pb-2">
+                                    <SectionTitle title="Devolução" subtitle="Reversão explícita antes de repor o stock." />
+                                </CardHeader>
+                                <CardContent>
+                                    {order.estado !== 'devolvido' ? (
+                                        <>
+                                            <label htmlFor="store-return-reason" className="text-xs font-semibold uppercase tracking-wide text-slate-500">Motivo</label>
+                                            <textarea
+                                                id="store-return-reason"
+                                                value={returnReason}
+                                                onChange={(event) => setReturnReason(event.target.value)}
+                                                rows={3}
+                                                disabled={Boolean(order.devolucao)}
+                                                className="mt-2 w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none disabled:bg-slate-100"
+                                            />
+                                            <Button type="button" variant="destructive" disabled={returning || returnReason.trim().length < 5} onClick={processReturn} className="mt-3 w-full">
+                                                {returning ? 'A processar...' : order.devolucao ? 'Verificar e concluir devolução' : 'Iniciar devolução'}
+                                            </Button>
+                                        </>
+                                    ) : (
+                                        <p className="rounded-md border border-violet-100 bg-violet-50 px-3 py-2 text-sm text-violet-800">
+                                            Devolução concluída sem apagar o histórico financeiro, fiscal ou de stock.
+                                        </p>
+                                    )}
+
+                                    {order.devolucao?.estado === 'aguarda_nota_credito' ? (
+                                        <div className="mt-3 rounded-md border border-amber-100 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
+                                            Emitir a nota de crédito no Wintouch e registar o número externo no Financeiro. O stock permanece sem alterações até essa confirmação.
+                                            {order.devolucao.nota_credito?.numero_externo ? <span className="mt-1 block font-semibold">Documento: {order.devolucao.nota_credito.numero_externo}</span> : null}
+                                        </div>
+                                    ) : null}
+                                </CardContent>
+                            </Card>
+                        ) : null}
 
                         <Card>
                             <CardHeader className="pb-2">

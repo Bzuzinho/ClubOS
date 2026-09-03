@@ -263,6 +263,7 @@ final class PaymentAuditCommandTest extends TestCase
 
         $this->assertSame($payment->id, $payload['findings'][0]['payment_id'] ?? $payment->id);
         $this->assertContains('AccountCredit', $payload['detected_models']['credit_refund_reversal_models_detected']);
+        $this->assertContains('PaymentReversal', $payload['detected_models']['credit_refund_reversal_models_detected']);
     }
 
     public function test_report_path_writes_json_file(): void

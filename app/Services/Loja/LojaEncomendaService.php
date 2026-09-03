@@ -146,6 +146,12 @@ class LojaEncomendaService
                 return $encomenda->fresh(['itens.article.category', 'itens.productVariant', 'user', 'targetUser']);
             }
 
+            if ($encomenda->estado === LojaEncomenda::ESTADO_DEVOLVIDO) {
+                throw ValidationException::withMessages([
+                    'estado' => 'Uma encomenda devolvida é terminal e preserva o respetivo histórico de reversão.',
+                ]);
+            }
+
             if ($encomenda->estado === LojaEncomenda::ESTADO_ENTREGUE) {
                 if ($estado !== LojaEncomenda::ESTADO_ENTREGUE) {
                     throw ValidationException::withMessages([

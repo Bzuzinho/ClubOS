@@ -23,6 +23,7 @@ const statusFilters = [
     { value: 'aprovado', label: 'Aprovados' },
     { value: 'preparado', label: 'Preparados' },
     { value: 'entregue', label: 'Entregues' },
+    { value: 'devolvido', label: 'Devolvidos' },
     { value: 'cancelado', label: 'Cancelados' },
 ];
 

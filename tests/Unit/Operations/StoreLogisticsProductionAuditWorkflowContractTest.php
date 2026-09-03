@@ -16,7 +16,7 @@ final class StoreLogisticsProductionAuditWorkflowContractTest extends TestCase
             'php artisan inventory:audit-store-logistics-stock --json --report-path=',
             $workflow,
         );
-        $this->assertStringContainsString('.version == "h5c-store-payment-fiscal-audit-v4"', $workflow);
+        $this->assertStringContainsString('.version == "h5d-store-return-reversal-audit-v5"', $workflow);
         $this->assertStringContainsString('.read_only == true', $workflow);
         $this->assertStringContainsString('.summary.canonical_invoice_linked_count >= 0', $workflow);
         $this->assertStringContainsString('.summary.legacy_without_invoice_count >= 0', $workflow);
@@ -24,9 +24,13 @@ final class StoreLogisticsProductionAuditWorkflowContractTest extends TestCase
         $this->assertStringContainsString('.summary.payment_projection_mismatch_count >= 0', $workflow);
         $this->assertStringContainsString('.summary.paid_fiscal_request_missing_count >= 0', $workflow);
         $this->assertStringContainsString('.summary.cancelled_stock_unbalanced_count >= 0', $workflow);
+        $this->assertStringContainsString('.summary.store_returns_inconsistent_count >= 0', $workflow);
+        $this->assertStringContainsString('.summary.returned_stock_unbalanced_count >= 0', $workflow);
         $this->assertStringContainsString('.interpretation.canonical_store_invoice_contract_active == true', $workflow);
         $this->assertStringContainsString('.interpretation.store_financial_state_is_derived_from_invoice == true', $workflow);
         $this->assertStringContainsString('.interpretation.paid_store_invoice_requires_manual_wintouch_request == true', $workflow);
+        $this->assertStringContainsString('.interpretation.delivered_return_requires_financial_and_fiscal_reversal_before_stock == true', $workflow);
+        $this->assertStringContainsString('.interpretation.payment_reversal_history_is_preserved == true', $workflow);
         $this->assertStringContainsString('.interpretation.no_data_changed == true', $workflow);
         $this->assertStringContainsString('store-logistics-lifecycle-readiness-${{ github.sha }}', $workflow);
         $this->assertStringContainsString('Artifact contains aggregate counts only; no row or user identifiers.', $workflow);
