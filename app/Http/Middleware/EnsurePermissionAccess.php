@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Services\AccessControl\AdministratorAuthority;
 use App\Services\AccessControl\UserTypeAccessControlService;
 use Closure;
 use Illuminate\Http\Request;
@@ -11,6 +12,7 @@ class EnsurePermissionAccess
 {
     public function __construct(
         private readonly UserTypeAccessControlService $accessControlService,
+        private readonly AdministratorAuthority $administratorAuthority,
     ) {
     }
 
@@ -21,6 +23,19 @@ class EnsurePermissionAccess
         // from it). Route declarations may still use the semantically clearer
         // "create" capability, so normalize it before enforcing the policy.
         $normalizedCapability = $capability === 'create' ? 'edit' : $capability;
+        $isAdministrator = $this->administratorAuthority->isAdministrator($request->user());
+
+        if ($this->administratorAuthority->isProtectedGovernanceMutation($permissionKey, $normalizedCapability)) {
+            abort_unless(
+                $isAdministrator,
+                Response::HTTP_FORBIDDEN,
+                'A gestão de tipos de utilizador e permissões está reservada ao Administrador.'
+            );
+        }
+
+        if ($isAdministrator) {
+            return $next($request);
+        }
 
         abort_unless(
             $this->accessControlService->canAccessPermission($request->user(), $permissionKey, $normalizedCapability)
