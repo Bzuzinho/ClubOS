@@ -57,9 +57,8 @@ class AutomationChannelPreferenceTest extends TestCase
         Queue::assertPushed(ProcessCommunicationCampaignJob::class, 1);
     }
 
-    public function test_automation_outbox_and_job_are_discarded_when_business_transaction_rolls_back(): void
+    public function test_automation_outbox_is_discarded_when_business_transaction_rolls_back(): void
     {
-        Queue::fake();
         $recipient = $this->preparePreferences([]);
 
         try {
@@ -74,7 +73,8 @@ class AutomationChannelPreferenceTest extends TestCase
 
         $this->assertSame(0, Invoice::query()->count());
         $this->assertSame(0, CommunicationCampaign::query()->count());
-        Queue::assertNothingPushed();
+        $this->assertSame(0, CommunicationDelivery::query()->count());
+        $this->assertSame(0, InAppAlert::query()->count());
     }
 
     public function test_invoice_automation_uses_email_only_when_in_app_channel_is_disabled(): void

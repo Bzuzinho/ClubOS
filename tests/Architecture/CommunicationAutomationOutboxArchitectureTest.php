@@ -20,4 +20,16 @@ class CommunicationAutomationOutboxArchitectureTest extends TestCase
             $this->assertStringNotContainsString('->sendIndividualCommunication(', $source, $path);
         }
     }
+
+    public function test_persistent_outbox_dispatch_is_deferred_until_transaction_commit(): void
+    {
+        $source = (string) file_get_contents(
+            app_path('Services/Communication/CommunicationCampaignService.php'),
+        );
+
+        $this->assertStringContainsString(
+            'ProcessCommunicationCampaignJob::dispatch($campaign->id, $executedBy)->afterCommit();',
+            $source,
+        );
+    }
 }
