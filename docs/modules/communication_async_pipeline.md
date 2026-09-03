@@ -32,7 +32,17 @@ O dispatcher recupera também campanhas automáticas sem qualquer entrega quando
 
 O envio individual explícito da interface mantém execução direta; este lote altera apenas produtores automáticos e o gateway Desportivo. Mensagens internas e alertas operacionais específicos que não usam `CommunicationAutomationService` conservam o seu lifecycle próprio.
 
-## 4. Semântica de estados
+## 4. H6c — adapters e lifecycle dos providers
+
+Email, SMS e push usam adapters explícitos que devolvem o mesmo contrato: sucesso, provider, identificador externo e erro normalizado. SMS e push propagam a chave idempotente no header `Idempotency-Key`; uma resposta HTTP de sucesso sem identificador da mensagem é tratada como falha, porque não permitiria correlacionar callbacks nem provar a entrega. Push continua fail-closed enquanto endpoint, token e destinatários não estiverem configurados.
+
+Os providers podem comunicar `delivered`, `failed` e `read` em `POST /api/webhooks/communication/{provider}`. O endpoint aceita apenas `email`, `sms` e `push`, exige os headers `X-ClubOS-Timestamp` e `X-ClubOS-Signature`, valida HMAC-SHA256 sobre `timestamp.payload`, rejeita mensagens expiradas e aplica throttling. Se o secret do provider não existir, responde `503` em vez de aceitar callbacks sem autenticação.
+
+`communication_provider_events` conserva a identidade externa, tipo, timestamps, hash canónico do payload, correlação e resultado de processamento. O payload bruto não é guardado. A chave `provider + external_event_id` torna retries idempotentes; reutilizar a mesma identidade com conteúdo diferente responde `409`. Eventos ainda sem destinatário ficam `unmatched` e visíveis no audit para reconciliação, sem inventar uma entrega.
+
+As transições são monotónicas: `read` implica `delivered`; eventos repetidos não escrevem novamente; `failed` nunca faz recuar um destinatário já `delivered` ou `read`. Depois de uma transição válida, os agregados entrega e campanha são recalculados pelo mesmo pipeline canónico. A ativação real de cada webhook depende do respetivo secret e da configuração no fornecedor; o código não cria credenciais nem presume providers ativos.
+
+## 5. Semântica de estados
 
 | Agregado | Estado | Significado |
 |---|---|---|
@@ -47,7 +57,7 @@ O envio individual explícito da interface mantém execução direta; este lote 
 
 Falhas transitórias do destinatário usam backoff de 1 e 5 minutos entre um máximo de três tentativas; a terceira falha esgota o destinatário. Exceções do job usam backoff de 1, 5 e 15 minutos. Um lease sem conclusão há dez minutos volta a ser elegível, preservando a tentativa anterior para auditoria.
 
-## 5. Idempotência e limites
+## 6. Idempotência e limites
 
 As chaves são aplicadas em três níveis:
 
@@ -59,21 +69,20 @@ Uma repetição após sucesso é neutra. SMS recebe a chave no pedido externo e 
 
 O lote não faz backfill das campanhas e entregas históricas. Linhas anteriores ficam classificadas como legado pelo audit e continuam legíveis. Uma campanha histórica agendada e vencida exige revisão e reagendamento explícito, que lhe atribui uma chave H6a; esta barreira impede o deploy de enviar mensagens antigas inadvertidamente.
 
-## 6. Próximos lotes H6
+## 7. Próximos lotes H6
 
-- H6c: adapters explícitos de email/SMS/push e webhooks autenticados para estados `delivered`, `failed` e `read`;
 - H6d: integrar Redes como provider adicional desta infraestrutura, mantendo Website independente e usando apenas APIs oficiais ou exportações autorizadas;
 - H6e: QA operacional profundo, métricas/SLA e fecho produtivo do módulo.
 
 Uma futura integração Facebook/Instagram não pode publicar diretamente a partir de controllers nem criar outra tabela de campanhas. Deve entrar por este pipeline e guardar o identificador devolvido pela API oficial.
 
-## 7. Evidência produtiva H6a
+## 8. Evidência produtiva H6a
 
 O deploy do merge `da108ba6d4df33a216c5584ce28f8a3fe939ce67` aplicou a migration e emitiu o sinal de reinício da queue. O audit produtivo confirmou o schema completo, zero críticos, zero retries vencidos/em espera, zero destinatários esgotados e zero leases abandonadas. A queue ativa nesse ambiente é `database`; a ligação Redis está definida, mas um eventual cutover deve validar primeiro o processo Supervisor e não é pressuposto por este lote.
 
 Existem 65 campanhas, 123 entregas e 7991 destinatários históricos classificados como legado, sem backfill. Uma das campanhas históricas está agendada e vencida: conta como uma ação operacional, mas permanece bloqueada contra disparo automático até revisão e reagendamento explícitos.
 
-## 8. Evidência produtiva H6b
+## 9. Evidência produtiva H6b
 
 PR #311 foi validada pela CI #1109 e integrada no merge `407ee6f825bbdadba27b6d02f95d2bba18a802c8`. A CI #1110 repetiu Laravel, PostgreSQL concorrente e browser QA no commit de `main`, fez deploy na Oracle VM e recolheu o artifact `communication-async-pipeline-readiness-407ee6f825bbdadba27b6d02f95d2bba18a802c8` (ID `9897116395`, `sha256:e947ad5bac55e2f8544347b21d4952189e2061312d6a019aca3ccbb49a3f9cf2`).
 

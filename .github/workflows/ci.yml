@@ -700,22 +700,28 @@ jobs:
           rm -f "${raw_report}"
 
           jq -e '
-            .version == "h6b-communication-automation-cutover-audit-v2"
+            .version == "h6c-communication-provider-lifecycle-audit-v3"
             and .read_only == true
             and .summary.schema_ready == true
             and .summary.critical_count == 0
             and .summary.automation_without_dispatch_request_count == 0
             and .summary.outbox_recovery_due_count == 0
+            and .summary.provider_event_unmatched_count == 0
             and ([.schema_detected.required_tables[]] | all)
             and ([.schema_detected.campaign_fields[]] | all)
             and ([.schema_detected.delivery_fields[]] | all)
             and ([.schema_detected.recipient_fields[]] | all)
+            and ([.schema_detected.provider_event_fields[]] | all)
             and .schema_detected.redis_queue_connection_defined == true
             and .interpretation.campaigns_are_the_canonical_outbox == true
             and .interpretation.attempts_are_append_only == true
             and .interpretation.legacy_scheduled_campaigns_are_never_auto_dispatched == true
             and .interpretation.automatic_sources_dispatch_via_persistent_outbox == true
             and .interpretation.stale_automatic_outbox_campaigns_are_recoverable == true
+            and .interpretation.external_channels_use_explicit_adapters == true
+            and .interpretation.provider_callbacks_require_hmac_and_fresh_timestamp == true
+            and .interpretation.provider_events_are_idempotent_and_payload_minimized == true
+            and .interpretation.provider_status_transitions_never_downgrade_delivered_or_read == true
             and .interpretation.future_social_network_providers_must_reuse_this_pipeline == true
             and .interpretation.no_data_changed == true
           ' "${local_report}" >/dev/null
@@ -731,6 +737,7 @@ jobs:
             echo "- Scheduled due managed/legacy: \`$(jq -r '(.summary.scheduled_due_count|tostring) + \"/\" + (.summary.legacy_scheduled_due_count|tostring)' "${local_report}")\`"
             echo "- Automations total/processing/recovery due: \`$(jq -r '(.summary.automation_campaign_count|tostring) + \"/\" + (.summary.automation_processing_count|tostring) + \"/\" + (.summary.outbox_recovery_due_count|tostring)' "${local_report}")\`"
             echo "- Retry due / retry waiting: \`$(jq -r '(.summary.retry_due_count|tostring) + \"/\" + (.summary.retry_waiting_count|tostring)' "${local_report}")\`"
+            echo "- Provider events applied/ignored/unmatched: \`$(jq -r '(.summary.provider_event_applied_count|tostring) + \"/\" + (.summary.provider_event_ignored_count|tostring) + \"/\" + (.summary.provider_event_unmatched_count|tostring)' "${local_report}")\`"
             echo "- Exhausted / stale / actionable: \`$(jq -r '(.summary.exhausted_recipient_count|tostring) + \"/\" + (.summary.stale_processing_count|tostring) + \"/\" + (.summary.actionable_count|tostring)' "${local_report}")\`"
             echo '- Read-only aggregate evidence; legacy rows are measured without backfill.'
             echo '- Artifact contains aggregate counts only; no campaign, recipient, contact or user identifiers.'

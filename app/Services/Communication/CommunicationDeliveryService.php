@@ -14,9 +14,7 @@ use App\Models\InAppAlert;
 use App\Models\User;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Schema;
 
 class CommunicationDeliveryService
@@ -26,7 +24,8 @@ class CommunicationDeliveryService
     public function __construct(
         private readonly SegmentResolverService $segmentResolverService,
         private readonly TemplateRenderService $templateRenderService,
-        private readonly InAppAlertService $inAppAlertService
+        private readonly InAppAlertService $inAppAlertService,
+        private readonly CommunicationChannelAdapterRegistry $adapterRegistry,
     ) {
     }
 
@@ -136,13 +135,17 @@ class CommunicationDeliveryService
     ): array
     {
         try {
-            return match ($channel) {
-                'email' => $this->sendEmail($recipient['email'] ?? null, $subject, $body, $idempotencyKey),
-                'sms' => $this->sendSms($recipient['phone'] ?? null, $body, $idempotencyKey),
+            $outcome = match ($channel) {
                 'interno', 'alert_app' => $this->sendInApp($recipient, $subject, $body, $campaign, $delivery, $channel),
-                'push' => $this->failure('push', 'provider_not_configured', 'O provider push ainda não está configurado.'),
-                default => $this->failure($channel, 'unsupported_channel', 'Canal de comunicação não suportado.'),
+                default => $this->adapterRegistry->resolve($channel)?->send(
+                    $recipient,
+                    $subject,
+                    $body,
+                    $idempotencyKey,
+                )->toArray(),
             };
+
+            return $outcome ?? $this->failure($channel, 'unsupported_channel', 'Canal de comunicação não suportado.');
         } catch (\Throwable $exception) {
             Log::error('CommunicationDeliveryService::sendByChannel', [
                 'channel' => $channel,
@@ -151,74 +154,6 @@ class CommunicationDeliveryService
 
             return $this->failure($channel, 'provider_exception', $exception->getMessage());
         }
-    }
-
-    /** @return array{success:bool,provider:string,provider_message_id:?string,error_code:?string,error_message:?string} */
-    private function sendEmail(?string $email, ?string $subject, ?string $body, string $idempotencyKey): array
-    {
-        if (empty($email)) {
-            return $this->failure('mail', 'missing_email', 'Destinatário sem email válido.');
-        }
-
-        $messageId = $idempotencyKey.'@clubos.local';
-        $sentMessage = Mail::raw($body ?: '', function ($message) use ($email, $subject, $messageId) {
-            $message->to($email)
-                ->subject($subject ?: 'Comunicacao ClubOS');
-
-            $headers = $message->getSymfonyMessage()->getHeaders();
-            if (! $headers->has('Message-ID')) {
-                $headers->addIdHeader('Message-ID', $messageId);
-            }
-        });
-
-        return $this->success(
-            'mail:'.(string) config('mail.default', 'smtp'),
-            $sentMessage?->getMessageId() ?: $messageId,
-        );
-    }
-
-    /** @return array{success:bool,provider:string,provider_message_id:?string,error_code:?string,error_message:?string} */
-    private function sendSms(?string $phone, ?string $body, string $idempotencyKey): array
-    {
-        if (empty($phone) || empty($body)) {
-            return $this->failure('sms', 'missing_sms_destination', 'Destinatário ou mensagem SMS em falta.');
-        }
-
-        $enabled = (bool) config('services.sms.enabled', false);
-        $apiUrl = (string) config('services.sms.api_url', '');
-        $token = (string) config('services.sms.token', '');
-        $sender = (string) config('services.sms.sender', '');
-
-        if (!$enabled || $apiUrl === '' || $token === '') {
-            Log::warning('SMS provider not configured. Set SMS_ENABLED, SMS_API_URL and SMS_API_TOKEN.');
-            return $this->failure('sms', 'provider_not_configured', 'Provider SMS não configurado.');
-        }
-
-        $response = Http::withToken($token)
-            ->withHeaders(['Idempotency-Key' => $idempotencyKey])
-            ->acceptJson()
-            ->asJson()
-            ->post($apiUrl, [
-                'to' => $phone,
-                'message' => $body,
-                'from' => $sender,
-            ]);
-
-        if (!$response->successful()) {
-            Log::error('SMS delivery failed', [
-                'status' => $response->status(),
-            ]);
-            return $this->failure('sms', 'provider_http_'.$response->status(), 'O provider SMS recusou o envio.');
-        }
-
-        $providerMessageId = data_get($response->json(), 'id')
-            ?? data_get($response->json(), 'message_id')
-            ?? data_get($response->json(), 'data.id');
-
-        return $this->success(
-            (string) config('services.sms.provider', 'sms_http'),
-            $providerMessageId ? (string) $providerMessageId : null,
-        );
     }
 
     private function shouldCreateInAppAlerts(CommunicationCampaign $campaign, CommunicationCampaignChannel $channel): bool
@@ -353,7 +288,7 @@ class CommunicationDeliveryService
         });
     }
 
-    private function refreshDeliveryStatus(CommunicationDelivery $delivery): CommunicationDelivery
+    public function refreshDeliveryStatus(CommunicationDelivery $delivery): CommunicationDelivery
     {
         $recipients = $delivery->recipients()->get();
         $successCount = $recipients->whereIn('status', ['sent', 'delivered', 'read'])->count();
