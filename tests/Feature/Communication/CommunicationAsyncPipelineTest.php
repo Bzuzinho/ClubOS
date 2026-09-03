@@ -246,7 +246,7 @@ class CommunicationAsyncPipelineTest extends TestCase
 
         $payload = app(CommunicationAsyncPipelineAuditService::class)->audit();
 
-        $this->assertSame('h6c-communication-provider-lifecycle-audit-v3', $payload['version']);
+        $this->assertSame('h6d-social-network-publishing-audit-v4', $payload['version']);
         $this->assertTrue($payload['read_only']);
         $this->assertTrue($payload['summary']['schema_ready']);
         $this->assertSame(0, $payload['summary']['critical_count']);
@@ -257,6 +257,8 @@ class CommunicationAsyncPipelineTest extends TestCase
         $this->assertTrue($payload['interpretation']['external_channels_use_explicit_adapters']);
         $this->assertTrue($payload['interpretation']['provider_callbacks_require_hmac_and_fresh_timestamp']);
         $this->assertTrue($payload['interpretation']['future_social_network_providers_must_reuse_this_pipeline']);
+        $this->assertTrue($payload['interpretation']['social_networks_reuse_canonical_campaigns_deliveries_and_attempts']);
+        $this->assertTrue($payload['interpretation']['social_credentials_are_encrypted_and_never_exposed_by_settings_payloads']);
         $this->assertTrue($payload['interpretation']['no_data_changed']);
         $this->assertSame($before, [
             CommunicationCampaign::query()->count(),

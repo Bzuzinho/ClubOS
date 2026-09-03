@@ -45,6 +45,8 @@ class CommunicationCampaignService
                     'template_id' => $channel['template_id'] ?? null,
                     'subject' => $channel['subject'] ?? null,
                     'message_body' => $channel['message_body'] ?? null,
+                    'link_url' => $channel['link_url'] ?? null,
+                    'media_url' => $channel['media_url'] ?? null,
                     'is_enabled' => (bool) ($channel['is_enabled'] ?? true),
                 ]);
             }
@@ -109,6 +111,8 @@ class CommunicationCampaignService
                         'template_id' => $channel['template_id'] ?? null,
                         'subject' => $channel['subject'] ?? null,
                         'message_body' => $channel['message_body'] ?? null,
+                        'link_url' => $channel['link_url'] ?? null,
+                        'media_url' => $channel['media_url'] ?? null,
                         'is_enabled' => (bool) ($channel['is_enabled'] ?? true),
                     ]);
                 }
@@ -143,6 +147,8 @@ class CommunicationCampaignService
                     'template_id' => $channel->template_id,
                     'subject' => $channel->subject,
                     'message_body' => $channel->message_body,
+                    'link_url' => $channel->link_url,
+                    'media_url' => $channel->media_url,
                     'is_enabled' => $channel->is_enabled,
                 ]);
             }
