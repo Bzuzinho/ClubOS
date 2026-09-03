@@ -100,3 +100,11 @@ O audit `h6b-communication-automation-cutover-audit-v2` confirmou schema pronto,
 PR #313 foi validada pela CI #1113 e integrada no merge `6cd2103e0897ac8f7909676e9e728e134826e709`. A CI #1114 repetiu Laravel, PostgreSQL concorrente e browser QA, aplicou a migration na Oracle VM e recolheu o artifact `communication-async-pipeline-readiness-6cd2103e0897ac8f7909676e9e728e134826e709` (ID `9900110232`, `sha256:84ff2204e3459f6b6da72080bfe4c38022e090b4aaabf36a1ed8300db4b04283`).
 
 O audit `h6c-communication-provider-lifecycle-audit-v3` confirmou as cinco tabelas e todos os campos esperados, zero eventos aplicados, ignorados ou sem correlação, zero críticos e `no_data_changed=true`. Os secrets de webhook para email, SMS e push estão ausentes no ambiente produtivo; por desenho, os três endpoints respondem fail-closed até a configuração ser feita em simultâneo no ClubOS e no provider. O histórico permanece em 65 campanhas, 123 entregas e 7991 destinatários legacy, com a única agenda legacy excluída do dispatcher automático.
+
+## 12. Evidência produtiva H6d
+
+PR #315 foi validada pela CI #1117 e integrada no merge `cbc879eb320a42a691b3fd1c1a14be50b2810c00`. A CI #1118 repetiu PostgreSQL concorrente, Laravel, frontend, TypeScript, build e browser QA multi-browser/mobile, concluiu o deploy na Oracle VM e recolheu o artifact `communication-async-pipeline-readiness-cbc879eb320a42a691b3fd1c1a14be50b2810c00` (ID `9903209342`, `sha256:775cc80bdf23f167fda7063f573e53b155597101cd759d1a570548008039b649`).
+
+O audit `h6d-social-network-publishing-audit-v4` confirmou as sete tabelas, todos os campos sociais e todas as interpretações de segurança e fronteira, com `schema_ready=true`, `critical_count=0` e `no_data_changed=true`. A queue produtiva permanece `database`. Antes da ativação operacional existem zero contas sociais, zero contas prontas, zero campanhas sociais e zero eventos sociais; este estado é deliberado e mantém publicação e callbacks fail-closed até serem adicionadas e validadas as credenciais Meta nas Definições.
+
+O histórico mantém 65 campanhas, 123 entregas e 7991 destinatários legacy sem backfill. A única campanha legacy agendada continua excluída do dispatcher automático e explica o único warning/ação do audit; requer revisão explícita, sem relação com a prontidão H6d.
