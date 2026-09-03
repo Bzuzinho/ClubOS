@@ -2,6 +2,7 @@
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\Communication\CommunicationProviderWebhookController;
 use App\Http\Controllers\Api\TiposUtilizadorController;
 use App\Http\Controllers\Api\EscaloesController;
 use App\Http\Controllers\Api\TiposEventoController;
@@ -37,6 +38,11 @@ use App\Http\Controllers\LojaProdutoController;
 | API Routes
 |--------------------------------------------------------------------------
 */
+
+Route::post('/webhooks/communication/{provider}', CommunicationProviderWebhookController::class)
+    ->whereIn('provider', ['email', 'sms', 'push'])
+    ->middleware(['throttle:120,1', 'communication.webhook.signature'])
+    ->name('api.communication.webhooks.provider');
 
 Route::middleware(['auth'])->group(function () {
     // Current user

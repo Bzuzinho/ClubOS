@@ -59,4 +59,9 @@ class CommunicationDeliveryRecipient extends Model
     {
         return $this->hasMany(CommunicationDeliveryAttempt::class, 'recipient_id');
     }
+
+    public function providerEvents(): HasMany
+    {
+        return $this->hasMany(CommunicationProviderEvent::class, 'recipient_id');
+    }
 }

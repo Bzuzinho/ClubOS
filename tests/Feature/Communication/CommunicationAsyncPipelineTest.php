@@ -70,6 +70,31 @@ class CommunicationAsyncPipelineTest extends TestCase
         Http::assertSent(fn ($request): bool => $request->hasHeader('Idempotency-Key'));
     }
 
+    public function test_sms_http_success_without_provider_id_is_not_recorded_as_sent(): void
+    {
+        config()->set('services.sms.enabled', true);
+        config()->set('services.sms.api_url', 'https://sms.example.test/messages');
+        config()->set('services.sms.token', 'test-token');
+        config()->set('services.sms.provider', 'sms-test');
+        Http::fake([
+            'https://sms.example.test/messages' => Http::response(['accepted' => true], 202),
+        ]);
+
+        [$campaign, $channel] = $this->campaignWithRecipient('sms', [
+            'contacto_telefonico' => '351910000099',
+        ]);
+
+        $delivery = app(CommunicationDeliveryService::class)->createAndExecuteDelivery($campaign, $channel);
+        $recipient = $delivery->recipients()->sole();
+        $attempt = $recipient->attempts()->sole();
+
+        $this->assertSame('processing', $delivery->status);
+        $this->assertSame('failed', $recipient->status);
+        $this->assertNull($recipient->provider_message_id);
+        $this->assertNotNull($recipient->next_attempt_at);
+        $this->assertSame('missing_provider_message_id', $attempt->error_code);
+    }
+
     public function test_in_app_retry_is_idempotent_and_persists_internal_provider_reference(): void
     {
         [$campaign, $channel] = $this->campaignWithRecipient('alert_app');
@@ -221,13 +246,16 @@ class CommunicationAsyncPipelineTest extends TestCase
 
         $payload = app(CommunicationAsyncPipelineAuditService::class)->audit();
 
-        $this->assertSame('h6b-communication-automation-cutover-audit-v2', $payload['version']);
+        $this->assertSame('h6c-communication-provider-lifecycle-audit-v3', $payload['version']);
         $this->assertTrue($payload['read_only']);
         $this->assertTrue($payload['summary']['schema_ready']);
         $this->assertSame(0, $payload['summary']['critical_count']);
         $this->assertSame(0, $payload['summary']['warning_count']);
         $this->assertSame(1, $payload['summary']['managed_delivery_count']);
         $this->assertSame(1, $payload['summary']['attempt_count']);
+        $this->assertSame(0, $payload['summary']['provider_event_count']);
+        $this->assertTrue($payload['interpretation']['external_channels_use_explicit_adapters']);
+        $this->assertTrue($payload['interpretation']['provider_callbacks_require_hmac_and_fresh_timestamp']);
         $this->assertTrue($payload['interpretation']['future_social_network_providers_must_reuse_this_pipeline']);
         $this->assertTrue($payload['interpretation']['no_data_changed']);
         $this->assertSame($before, [

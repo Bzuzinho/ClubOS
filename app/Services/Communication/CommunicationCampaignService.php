@@ -307,6 +307,10 @@ class CommunicationCampaignService
 
     public function consolidateStatus(CommunicationCampaign $campaign): CommunicationCampaign
     {
+        if ($campaign->status === 'cancelada') {
+            return $campaign;
+        }
+
         $campaign->load('deliveries.recipients');
         $deliveries = $campaign->deliveries;
 

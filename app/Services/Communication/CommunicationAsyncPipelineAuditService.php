@@ -9,7 +9,7 @@ use Illuminate\Support\Facades\Schema;
 
 final class CommunicationAsyncPipelineAuditService
 {
-    private const VERSION = 'h6b-communication-automation-cutover-audit-v2';
+    private const VERSION = 'h6c-communication-provider-lifecycle-audit-v3';
 
     /** @var list<string> */
     private const AUTOMATION_SOURCE_TYPES = [
@@ -29,7 +29,8 @@ final class CommunicationAsyncPipelineAuditService
         $schemaReady = ! in_array(false, $schema['required_tables'], true)
             && ! in_array(false, $schema['campaign_fields'], true)
             && ! in_array(false, $schema['delivery_fields'], true)
-            && ! in_array(false, $schema['recipient_fields'], true);
+            && ! in_array(false, $schema['recipient_fields'], true)
+            && ! in_array(false, $schema['provider_event_fields'], true);
 
         $summary = [
             'schema_ready' => $schemaReady,
@@ -56,6 +57,10 @@ final class CommunicationAsyncPipelineAuditService
             'stale_processing_count' => $this->staleProcessingCount(),
             'managed_success_missing_provider_count' => $this->managedSuccessMissingProviderCount(),
             'managed_success_missing_provider_message_id_count' => $this->managedSuccessMissingProviderMessageIdCount(),
+            'provider_event_count' => $this->count('communication_provider_events'),
+            'provider_event_applied_count' => $this->whereCount('communication_provider_events', 'status', 'applied'),
+            'provider_event_ignored_count' => $this->whereCount('communication_provider_events', 'status', 'ignored'),
+            'provider_event_unmatched_count' => $this->whereCount('communication_provider_events', 'status', 'unmatched'),
         ];
 
         $summary['critical_count'] = $schemaReady ? 0 : 1;
@@ -64,11 +69,13 @@ final class CommunicationAsyncPipelineAuditService
             + $summary['legacy_scheduled_due_count']
             + $summary['outbox_recovery_due_count']
             + $summary['managed_success_missing_provider_count']
-            + $summary['managed_success_missing_provider_message_id_count'];
+            + $summary['managed_success_missing_provider_message_id_count']
+            + $summary['provider_event_unmatched_count'];
         $summary['actionable_count'] = $summary['exhausted_recipient_count']
             + $summary['stale_processing_count']
             + $summary['legacy_scheduled_due_count']
-            + $summary['outbox_recovery_due_count'];
+            + $summary['outbox_recovery_due_count']
+            + $summary['provider_event_unmatched_count'];
 
         return [
             'version' => self::VERSION,
@@ -87,6 +94,10 @@ final class CommunicationAsyncPipelineAuditService
                 'legacy_scheduled_campaigns_are_never_auto_dispatched' => true,
                 'automatic_sources_dispatch_via_persistent_outbox' => true,
                 'stale_automatic_outbox_campaigns_are_recoverable' => true,
+                'external_channels_use_explicit_adapters' => true,
+                'provider_callbacks_require_hmac_and_fresh_timestamp' => true,
+                'provider_events_are_idempotent_and_payload_minimized' => true,
+                'provider_status_transitions_never_downgrade_delivered_or_read' => true,
                 'future_social_network_providers_must_reuse_this_pipeline' => true,
                 'no_data_changed' => true,
             ],
@@ -102,6 +113,7 @@ final class CommunicationAsyncPipelineAuditService
                 'communication_deliveries',
                 'communication_delivery_recipients',
                 'communication_delivery_attempts',
+                'communication_provider_events',
             ])->mapWithKeys(static fn (string $table): array => [$table => Schema::hasTable($table)])->all(),
             'campaign_fields' => collect(['source_type', 'source_id', 'idempotency_key', 'dispatch_requested_at'])
                 ->mapWithKeys(static fn (string $field): array => [$field => Schema::hasColumn('communication_campaigns', $field)])->all(),
@@ -117,6 +129,22 @@ final class CommunicationAsyncPipelineAuditService
                 'last_attempt_at',
                 'next_attempt_at',
             ])->mapWithKeys(static fn (string $field): array => [$field => Schema::hasColumn('communication_delivery_recipients', $field)])->all(),
+            'provider_event_fields' => collect([
+                'provider',
+                'external_event_id',
+                'provider_message_id',
+                'event_type',
+                'occurred_at',
+                'received_at',
+                'payload_hash',
+                'status',
+                'recipient_id',
+                'processed_at',
+            ])->mapWithKeys(static fn (string $field): array => [$field => Schema::hasColumn('communication_provider_events', $field)])->all(),
+            'webhook_secret_configured' => collect(['email', 'sms', 'push'])
+                ->mapWithKeys(static fn (string $provider): array => [
+                    $provider => filled(config("services.communication_webhooks.secrets.{$provider}")),
+                ])->all(),
             'redis_queue_connection_defined' => is_array(config('queue.connections.redis')),
             'default_queue_connection' => (string) config('queue.default'),
         ];
