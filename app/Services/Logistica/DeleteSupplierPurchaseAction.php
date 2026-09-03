@@ -21,7 +21,11 @@ class DeleteSupplierPurchaseAction
     public function execute(SupplierPurchase $purchase): void
     {
         DB::transaction(function () use ($purchase) {
-            $purchase->refresh()->load('items');
+            $purchase = SupplierPurchase::query()
+                ->whereKey($purchase->id)
+                ->lockForUpdate()
+                ->with('items')
+                ->firstOrFail();
 
             if (!$this->financialGuardService->canDelete($purchase)) {
                 throw ValidationException::withMessages([

@@ -141,6 +141,9 @@ interface Product {
     imagem?: string | null;
     ativo: boolean;
     visible_in_store?: boolean;
+    allow_request?: boolean;
+    allow_loan?: boolean;
+    track_stock?: boolean;
 }
 
 const toNumber = (value: unknown, fallback = 0): number => {
@@ -920,6 +923,9 @@ export default function SettingsIndex({
         if (type === 'product') {
             setData('ativo', true);
             setData('visible_in_store', false);
+            setData('allow_request', true);
+            setData('allow_loan', false);
+            setData('track_stock', true);
             setData('stock_minimo', 0);
             setData('area_armazenamento', '');
         }
@@ -2290,6 +2296,9 @@ export default function SettingsIndex({
                                             <TableHead>Stock Mínimo</TableHead>
                                             <TableHead>Área de armazenamento</TableHead>
                                             <TableHead>Visível na Loja</TableHead>
+                                            <TableHead>Requisição</TableHead>
+                                            <TableHead>Empréstimo</TableHead>
+                                            <TableHead>Gere Stock</TableHead>
                                             <TableHead>Ativo</TableHead>
                                             <TableHead className="text-right">Ações</TableHead>
                                         </TableRow>
@@ -2297,7 +2306,7 @@ export default function SettingsIndex({
                                     <TableBody>
                                         {products.length === 0 ? (
                                             <TableRow>
-                                                <TableCell colSpan={10} className="text-center text-muted-foreground">
+                                                <TableCell colSpan={13} className="text-center text-muted-foreground">
                                                     Nenhum artigo cadastrado
                                                 </TableCell>
                                             </TableRow>
@@ -2320,6 +2329,21 @@ export default function SettingsIndex({
                                                     <TableCell>
                                                         <Badge variant={product.visible_in_store ? 'secondary' : 'outline'}>
                                                             {product.visible_in_store ? 'Sim' : 'Não'}
+                                                        </Badge>
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        <Badge variant={product.allow_request ? 'secondary' : 'outline'}>
+                                                            {product.allow_request ? 'Sim' : 'Não'}
+                                                        </Badge>
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        <Badge variant={product.allow_loan ? 'secondary' : 'outline'}>
+                                                            {product.allow_loan ? 'Sim' : 'Não'}
+                                                        </Badge>
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        <Badge variant={product.track_stock ? 'secondary' : 'outline'}>
+                                                            {product.track_stock ? 'Sim' : 'Não'}
                                                         </Badge>
                                                     </TableCell>
                                                     <TableCell>
@@ -3774,6 +3798,45 @@ export default function SettingsIndex({
                                             <SelectTrigger id="visible_in_store">
                                                 <SelectValue placeholder="Selecionar" />
                                             </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="sim">Sim</SelectItem>
+                                                <SelectItem value="nao">Não</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label htmlFor="allow_request">Disponível para requisição</Label>
+                                        <Select
+                                            value={(data.allow_request ?? true) ? 'sim' : 'nao'}
+                                            onValueChange={(value) => setData('allow_request', value === 'sim')}
+                                        >
+                                            <SelectTrigger id="allow_request"><SelectValue placeholder="Selecionar" /></SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="sim">Sim</SelectItem>
+                                                <SelectItem value="nao">Não</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label htmlFor="allow_loan">Disponível para empréstimo</Label>
+                                        <Select
+                                            value={(data.allow_loan ?? false) ? 'sim' : 'nao'}
+                                            onValueChange={(value) => setData('allow_loan', value === 'sim')}
+                                        >
+                                            <SelectTrigger id="allow_loan"><SelectValue placeholder="Selecionar" /></SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="sim">Sim</SelectItem>
+                                                <SelectItem value="nao">Não</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label htmlFor="track_stock">Gerir stock</Label>
+                                        <Select
+                                            value={(data.track_stock ?? true) ? 'sim' : 'nao'}
+                                            onValueChange={(value) => setData('track_stock', value === 'sim')}
+                                        >
+                                            <SelectTrigger id="track_stock"><SelectValue placeholder="Selecionar" /></SelectTrigger>
                                             <SelectContent>
                                                 <SelectItem value="sim">Sim</SelectItem>
                                                 <SelectItem value="nao">Não</SelectItem>

@@ -17,7 +17,15 @@ class DeliverLogisticsRequestAction
     public function execute(LogisticsRequest $request, ?User $actor = null): LogisticsRequest
     {
         return DB::transaction(function () use ($request, $actor) {
-            $request->refresh()->load('items');
+            $request = LogisticsRequest::query()
+                ->whereKey($request->id)
+                ->lockForUpdate()
+                ->with('items')
+                ->firstOrFail();
+
+            if ($request->status === 'delivered') {
+                return $request->fresh(['items', 'requester', 'financialInvoice']);
+            }
 
             if (!in_array($request->status, ['approved', 'invoiced'], true)) {
                 throw ValidationException::withMessages([
@@ -33,6 +41,7 @@ class DeliverLogisticsRequestAction
                     'reference_type' => 'logistics_request',
                     'reference_id' => $request->id,
                     'notes' => 'Consumo da reserva na entrega da requisição',
+                    'idempotency_key' => 'logistics-request-deliver-'.$request->id.'-'.$item->id,
                 ], $actor);
             }
 

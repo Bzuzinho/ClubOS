@@ -49,6 +49,8 @@ class CreateLogisticsRequestAction
                     throw ValidationException::withMessages(['items' => 'Quantidade inválida nos itens da requisição.']);
                 }
 
+                $this->stockService->ensureRequestable($product, 'items');
+
                 $allowOverdraw = (bool) ($data['allow_overdraw'] ?? false);
 
                 if (! $allowOverdraw) {

@@ -17,7 +17,14 @@ class ReturnEquipmentLoanAction
     public function execute(EquipmentLoan $loan, ?User $actor = null): EquipmentLoan
     {
         return DB::transaction(function () use ($loan, $actor) {
-            $loan->refresh();
+            $loan = EquipmentLoan::query()
+                ->whereKey($loan->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            if ($loan->status === 'returned') {
+                return $loan->fresh(['borrower', 'article']);
+            }
 
             if (!in_array($loan->status, ['active', 'overdue'], true)) {
                 throw ValidationException::withMessages([
@@ -38,6 +45,7 @@ class ReturnEquipmentLoanAction
                 'reference_type' => 'equipment_loan',
                 'reference_id' => $loan->id,
                 'notes' => 'Devolução de material emprestado',
+                'idempotency_key' => 'equipment-loan-return-'.$loan->id,
             ], $actor);
 
             $loan->update([

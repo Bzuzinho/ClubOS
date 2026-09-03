@@ -10,6 +10,7 @@ use App\Models\Supplier;
 use App\Models\SupplierPurchase;
 use App\Models\SupplierPurchaseItem;
 use App\Models\User;
+use App\Services\Catalog\CanonicalProductStockService;
 use App\Services\Financeiro\MovementDocumentControlService;
 use App\Services\Inventario\StockLedgerService;
 use Illuminate\Support\Facades\DB;
@@ -22,13 +23,18 @@ class UpdateSupplierPurchaseAction
         private readonly MovementDocumentControlService $movementDocumentControlService,
         private readonly SupplierPurchaseFinancialGuardService $financialGuardService,
         private readonly StockLedgerService $stockLedger,
+        private readonly CanonicalProductStockService $stockService,
     ) {
     }
 
     public function execute(SupplierPurchase $purchase, array $data, ?User $actor = null): SupplierPurchase
     {
         return DB::transaction(function () use ($purchase, $data, $actor) {
-            $purchase->refresh()->load('items');
+            $purchase = SupplierPurchase::query()
+                ->whereKey($purchase->id)
+                ->lockForUpdate()
+                ->with('items')
+                ->firstOrFail();
 
             $items = $data['items'] ?? [];
             if (empty($items)) {
@@ -84,6 +90,7 @@ class UpdateSupplierPurchaseAction
 
             foreach ($items as $item) {
                 $product = Product::query()->lockForUpdate()->findOrFail($item['article_id']);
+                $this->stockService->ensureStockManaged($product, 'items');
                 $quantity = (int) $item['quantity'];
                 $unitCost = (float) $item['unit_cost'];
                 $lineTotal = $quantity * $unitCost;

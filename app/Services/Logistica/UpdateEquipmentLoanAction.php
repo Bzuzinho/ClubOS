@@ -4,6 +4,7 @@ namespace App\Services\Logistica;
 
 use App\Models\EquipmentLoan;
 use App\Models\Product;
+use App\Services\Catalog\CanonicalProductStockService;
 use App\Services\Inventario\StockLedgerService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -12,18 +13,24 @@ class UpdateEquipmentLoanAction
 {
     public function __construct(
         private readonly StockLedgerService $stockLedger,
+        private readonly CanonicalProductStockService $stockService,
     ) {
     }
 
     public function execute(EquipmentLoan $loan, array $data): EquipmentLoan
     {
-        if (!in_array($loan->status, ['active', 'overdue'])) {
-            throw ValidationException::withMessages([
-                'status' => 'Só é possível editar empréstimos ativos ou em atraso.',
-            ]);
-        }
-
         return DB::transaction(function () use ($loan, $data) {
+            $loan = EquipmentLoan::query()
+                ->whereKey($loan->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            if (!in_array($loan->status, ['active', 'overdue'], true)) {
+                throw ValidationException::withMessages([
+                    'status' => 'Só é possível editar empréstimos ativos ou em atraso.',
+                ]);
+            }
+
             $newArticleId = $data['article_id'];
             $newQuantity = (int) $data['quantity'];
             $oldQuantity = (int) $loan->quantity;
@@ -39,9 +46,13 @@ class UpdateEquipmentLoanAction
             ]);
 
             if ($oldArticleId === $newArticleId) {
+                $product = Product::query()->lockForUpdate()->findOrFail($newArticleId);
                 $diff = $newQuantity - $oldQuantity;
+                if ($diff > 0) {
+                    $this->stockService->ensureLoanable($product);
+                }
+
                 if ($diff !== 0) {
-                    $product = Product::query()->lockForUpdate()->findOrFail($newArticleId);
                     $this->applyLoanStockDelta(
                         product: $product,
                         quantityDelta: $diff,
@@ -64,6 +75,7 @@ class UpdateEquipmentLoanAction
                 ]);
 
                 $newProduct = Product::query()->lockForUpdate()->findOrFail($newArticleId);
+                $this->stockService->ensureLoanable($newProduct);
                 $this->applyLoanStockDelta(
                     product: $newProduct,
                     quantityDelta: $newQuantity,

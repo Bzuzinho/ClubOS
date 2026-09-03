@@ -116,6 +116,53 @@ class AdminStoreCanonicalCatalogTest extends TestCase
         ]);
     }
 
+    public function test_store_edit_preserves_logistics_capabilities_on_shared_product(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $product = Product::factory()->create([
+            'codigo' => 'ADM-SHARED-H5E',
+            'slug' => 'artigo-partilhado-h5e',
+            'nome' => 'Artigo partilhado H5e',
+            'preco' => 12,
+            'preco_venda' => 15,
+            'stock' => 5,
+            'stock_reservado' => 0,
+            'ativo' => true,
+            'visible_in_store' => true,
+            'allow_sale' => true,
+            'allow_request' => true,
+            'allow_loan' => true,
+            'track_stock' => true,
+        ]);
+
+        $this->actingAs($admin)
+            ->patchJson('/api/admin/loja/produtos/'.$product->id, [
+                'categoria_id' => null,
+                'codigo' => $product->codigo,
+                'nome' => 'Artigo partilhado atualizado',
+                'slug' => $product->slug,
+                'descricao' => null,
+                'preco' => 16,
+                'imagem_principal_path' => null,
+                'ativo' => true,
+                'destaque' => false,
+                'gere_stock' => true,
+                'stock_atual' => 5,
+                'stock_minimo' => 0,
+                'ordem' => null,
+                'variantes' => [],
+            ])
+            ->assertOk();
+
+        $this->assertDatabaseHas('products', [
+            'id' => $product->id,
+            'allow_sale' => true,
+            'allow_request' => true,
+            'allow_loan' => true,
+            'track_stock' => true,
+        ]);
+    }
+
     public function test_admin_hero_accepts_canonical_product_id_and_lists_it_back(): void
     {
         $admin = User::factory()->admin()->create();

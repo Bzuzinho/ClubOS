@@ -10,6 +10,7 @@ use App\Models\Supplier;
 use App\Models\SupplierPurchase;
 use App\Models\SupplierPurchaseItem;
 use App\Models\User;
+use App\Services\Catalog\CanonicalProductStockService;
 use App\Services\Financeiro\MovementDocumentControlService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -19,6 +20,7 @@ class RegisterSupplierPurchaseAction
     public function __construct(
         private RegisterStockMovementAction $registerStockMovementAction,
         private MovementDocumentControlService $movementDocumentControlService,
+        private readonly CanonicalProductStockService $stockService,
     ) {
     }
 
@@ -45,7 +47,8 @@ class RegisterSupplierPurchaseAction
 
             $total = 0;
             foreach ($items as $item) {
-                $product = Product::query()->findOrFail($item['article_id']);
+                $product = Product::query()->lockForUpdate()->findOrFail($item['article_id']);
+                $this->stockService->ensureStockManaged($product, 'items');
                 $quantity = (int) $item['quantity'];
                 $unitCost = (float) $item['unit_cost'];
                 $lineTotal = $quantity * $unitCost;

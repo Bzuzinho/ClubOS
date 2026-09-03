@@ -197,6 +197,7 @@ class LogisticsRequestFinancialLifecycleTest extends TestCase
             'stock_reservado' => 0,
             'stock_minimo' => 1,
             'ativo' => true,
+            'allow_request' => true,
         ]);
 
         $this->actingAs($admin)
@@ -281,6 +282,7 @@ class LogisticsRequestFinancialLifecycleTest extends TestCase
             'stock_reservado' => 0,
             'stock_minimo' => 1,
             'ativo' => true,
+            'allow_request' => true,
         ]);
 
         $this->actingAs($admin)

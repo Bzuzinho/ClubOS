@@ -724,6 +724,9 @@ class ConfiguracoesController extends Controller
             'descricao' => 'nullable|string',
             'ativo' => 'boolean',
             'visible_in_store' => 'boolean',
+            'allow_request' => 'boolean',
+            'allow_loan' => 'boolean',
+            'track_stock' => 'boolean',
         ]);
 
         if ($request->hasFile('imagem_file')) {
@@ -754,6 +757,9 @@ class ConfiguracoesController extends Controller
             'descricao' => 'nullable|string',
             'ativo' => 'boolean',
             'visible_in_store' => 'boolean',
+            'allow_request' => 'boolean',
+            'allow_loan' => 'boolean',
+            'track_stock' => 'boolean',
         ]);
 
         if ($request->hasFile('imagem_file')) {
@@ -771,11 +777,18 @@ class ConfiguracoesController extends Controller
 
     public function destroyProduct(Product $product): RedirectResponse
     {
-        $product->delete();
+        $product->update([
+            'ativo' => false,
+            'visible_in_store' => false,
+            'destaque' => false,
+            'allow_sale' => false,
+            'allow_request' => false,
+            'allow_loan' => false,
+        ]);
         $this->forgetLogisticaCaches();
 
         return redirect()->route('configuracoes')
-            ->with('success', 'Artigo eliminado com sucesso!');
+            ->with('success', 'Artigo desativado sem apagar o histórico operacional.');
     }
 
     public function storeSponsor(StoreSponsorRequest $request): RedirectResponse
