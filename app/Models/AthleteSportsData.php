@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Concerns\HasVersion4Uuids as HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Facades\Schema;
 
 class AthleteSportsData extends Model
 {
@@ -35,6 +36,62 @@ class AthleteSportsData extends Model
         'escalao_manual_override' => 'boolean',
         'ativo' => 'boolean',
     ];
+
+    /**
+     * `athlete_sports_data` remains a compatibility projection. The official
+     * age group is owned by the current canonical season profile and must not
+     * disappear from the Members fiche when this projection is stale.
+     */
+    public function getEscalaoIdAttribute(mixed $value): ?string
+    {
+        $fallback = $value !== null && trim((string) $value) !== ''
+            ? (string) $value
+            : null;
+
+        if (
+            ! $this->exists
+            || empty($this->user_id)
+            || ! Schema::hasTable('sports_athlete_participations')
+            || ! Schema::hasTable('sports_athlete_season_profiles')
+        ) {
+            return $fallback;
+        }
+
+        $participations = SportsAthleteParticipation::query()
+            ->where('user_id', $this->user_id)
+            ->where('active', true)
+            ->whereNull('ends_at')
+            ->get(['club_id', 'sports_modality_id']);
+
+        if ($participations->isEmpty()) {
+            return $fallback;
+        }
+
+        $clubIds = $participations->pluck('club_id')->filter()->unique()->values();
+        $modalityIds = $participations->pluck('sports_modality_id')->filter()->unique()->values();
+
+        $baseQuery = SportsAthleteSeasonProfile::query()
+            ->where('user_id', $this->user_id)
+            ->whereIn('club_id', $clubIds)
+            ->whereIn('sports_modality_id', $modalityIds)
+            ->whereNotNull('official_age_group_id');
+
+        $profile = (clone $baseQuery)
+            ->whereHas('season', function ($query): void {
+                $query->whereDate('data_inicio', '<=', today())
+                    ->whereDate('data_fim', '>=', today());
+            })
+            ->orderByDesc('evaluated_at')
+            ->first();
+
+        $profile ??= $baseQuery
+            ->orderByDesc('evaluated_at')
+            ->first();
+
+        return $profile?->official_age_group_id
+            ? (string) $profile->official_age_group_id
+            : $fallback;
+    }
 
     public function user(): BelongsTo
     {
