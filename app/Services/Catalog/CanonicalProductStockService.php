@@ -34,6 +34,33 @@ class CanonicalProductStockService
         }
     }
 
+    public function ensureRequestable(Product $product, string $errorKey = 'article_id'): void
+    {
+        if (! $product->ativo || ! $product->allow_request || ! $product->tracks_stock) {
+            throw ValidationException::withMessages([
+                $errorKey => 'O artigo selecionado não está disponível para requisição.',
+            ]);
+        }
+    }
+
+    public function ensureLoanable(Product $product, string $errorKey = 'article_id'): void
+    {
+        if (! $product->ativo || ! $product->allow_loan || ! $product->tracks_stock) {
+            throw ValidationException::withMessages([
+                $errorKey => 'O artigo selecionado não está disponível para empréstimo.',
+            ]);
+        }
+    }
+
+    public function ensureStockManaged(Product $product, string $errorKey = 'article_id'): void
+    {
+        if (! $product->ativo || ! $product->tracks_stock) {
+            throw ValidationException::withMessages([
+                $errorKey => 'O artigo selecionado não está ativo com gestão de stock.',
+            ]);
+        }
+    }
+
     public function ensureAvailableForStore(Product $product, ?ProductVariant $variant, int $quantity): void
     {
         $this->ensureEligibleForStore($product, $variant, $quantity);

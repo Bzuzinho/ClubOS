@@ -7,6 +7,7 @@ use App\Exceptions\Inventario\InvalidStockMovementException;
 use App\Models\Product;
 use App\Models\StockMovement;
 use App\Models\User;
+use App\Services\Catalog\CanonicalProductStockService;
 use App\Services\Inventario\StockLedgerService;
 use Illuminate\Validation\ValidationException;
 
@@ -14,12 +15,16 @@ class RegisterStockMovementAction
 {
     public function __construct(
         private readonly StockLedgerService $stockLedger,
+        private readonly CanonicalProductStockService $stockService,
     ) {
     }
 
     public function execute(array $data, ?User $actor = null): StockMovement
     {
         $product = Product::query()->findOrFail($data['article_id']);
+        if (empty($data['reference_type'])) {
+            $this->stockService->ensureStockManaged($product);
+        }
         $movementType = (string) $data['movement_type'];
         $quantity = (int) $data['quantity'];
         $context = [

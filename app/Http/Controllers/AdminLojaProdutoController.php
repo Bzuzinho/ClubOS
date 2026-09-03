@@ -179,8 +179,8 @@ class AdminLojaProdutoController extends Controller
             'visible_in_store' => (bool) $validated['ativo'],
             'destaque' => (bool) $validated['destaque'],
             'allow_sale' => true,
-            'allow_request' => false,
-            'allow_loan' => false,
+            'allow_request' => (bool) ($produto?->allow_request ?? false),
+            'allow_loan' => (bool) ($produto?->allow_loan ?? false),
             'track_stock' => (bool) $validated['gere_stock'],
             'ordem' => $validated['ordem'] ?? null,
         ];

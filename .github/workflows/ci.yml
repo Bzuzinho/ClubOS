@@ -610,6 +610,75 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+      - name: Collect Internal Logistics production lifecycle readiness audit
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          raw_report="${GITHUB_WORKSPACE}/internal-logistics-lifecycle-raw.json"
+          local_report="${GITHUB_WORKSPACE}/internal-logistics-lifecycle-readiness.json"
+          remote_report="/tmp/clubos-internal-logistics-lifecycle-${GITHUB_SHA}.json"
+
+          ssh \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="${HOME}/.ssh/known_hosts" \
+            "${VM_USER}@${VM_HOST}" \
+            "cd '${VM_APP_DIR}' && php artisan inventory:audit-internal-logistics-lifecycle --json --report-path='${remote_report}' >/dev/null && cat '${remote_report}' && rm -f '${remote_report}'" \
+            > "${raw_report}"
+
+          jq '{version, read_only, schema_detected, summary, interpretation}' "${raw_report}" > "${local_report}"
+          rm -f "${raw_report}"
+
+          jq -e '
+            .version == "h5e-internal-logistics-lifecycle-audit-v1"
+            and .read_only == true
+            and ([.schema_detected.tables[]] | all)
+            and ([.schema_detected.product_capability_fields[]] | all)
+            and ([.schema_detected.sports_request_source_fields[]] | all)
+            and .summary.supplier_purchase_count >= 0
+            and .summary.logistics_request_count >= 0
+            and .summary.equipment_loan_count >= 0
+            and .summary.sports_linked_request_count >= 0
+            and .summary.supplier_purchase_missing_movement_count >= 0
+            and .summary.supplier_purchase_legacy_financial_entry_count >= 0
+            and .summary.invoiced_request_missing_invoice_count >= 0
+            and .summary.financial_origin_mismatch_count >= 0
+            and .summary.critical_count >= 0
+            and .summary.warning_count >= 0
+            and .summary.actionable_count >= 0
+            and .interpretation.catalog_is_shared_with_store_and_configuration == true
+            and .interpretation.stock_movements_is_the_only_stock_ledger == true
+            and .interpretation.request_creation_does_not_move_stock == true
+            and .interpretation.request_approval_reserves_and_delivery_exits_stock == true
+            and .interpretation.equipment_loan_exit_and_return_use_stock_ledger == true
+            and .interpretation.supplier_purchase_uses_movement_as_financial_boundary == true
+            and .interpretation.supplier_purchase_financial_entry_is_legacy_read_only == true
+            and .interpretation.sports_requests_keep_structured_source_identity == true
+            and .interpretation.no_data_changed == true
+          ' "${local_report}" >/dev/null
+
+          {
+            echo '## Internal Logistics production lifecycle readiness audit'
+            echo ''
+            echo "- Commit: \`${GITHUB_SHA}\`"
+            echo "- Purchases / requests / loans: \`$(jq -r '(.summary.supplier_purchase_count|tostring) + \"/\" + (.summary.logistics_request_count|tostring) + \"/\" + (.summary.equipment_loan_count|tostring)' "${local_report}")\`"
+            echo "- Sports-linked requests: \`$(jq -r '.summary.sports_linked_request_count' "${local_report}")\`"
+            echo "- Missing purchase movement / legacy financial entry: \`$(jq -r '(.summary.supplier_purchase_missing_movement_count|tostring) + \"/\" + (.summary.supplier_purchase_legacy_financial_entry_count|tostring)' "${local_report}")\`"
+            echo "- Invoiced request missing invoice / financial origin mismatch: \`$(jq -r '(.summary.invoiced_request_missing_invoice_count|tostring) + \"/\" + (.summary.financial_origin_mismatch_count|tostring)' "${local_report}")\`"
+            echo "- Critical / warning / actionable stock findings: \`$(jq -r '(.summary.critical_count|tostring) + \"/\" + (.summary.warning_count|tostring) + \"/\" + (.summary.actionable_count|tostring)' "${local_report}")\`"
+            echo '- Read-only aggregate evidence; historical debt is measured without backfill.'
+            echo '- Artifact contains aggregate counts only; no purchase, request, loan, product or user identifiers.'
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload Internal Logistics production lifecycle readiness audit
+        uses: actions/upload-artifact@v7
+        with:
+          name: internal-logistics-lifecycle-readiness-${{ github.sha }}
+          path: internal-logistics-lifecycle-readiness.json
+          if-no-files-found: error
+          retention-days: 30
+
       - name: Collect Fiscal production operational readiness audit
         shell: bash
         run: |
@@ -697,6 +766,7 @@ jobs:
             echo '- Access Control readiness audit: collected, artifact preserved and critical findings gated separately'
             echo '- Family final schema audit: canonical tables present and retired legacy structures physically absent'
             echo '- Store and Logistics lifecycle readiness: aggregate read-only evidence collected without gating known debt'
+            echo '- Internal Logistics lifecycle readiness: purchases, requests, deliveries, loans and Sports/core contracts collected read-only'
             echo '- Fiscal operational readiness audit: manual Wintouch contract active, automatic provider disabled and critical findings gated'
             echo '- Result: successful'
           } >> "${GITHUB_STEP_SUMMARY}"

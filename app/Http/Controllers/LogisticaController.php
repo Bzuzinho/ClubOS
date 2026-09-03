@@ -65,6 +65,9 @@ class LogisticaController extends Controller
                     'stock_minimo' => (int) $product->stock_minimo,
                     'status' => $available <= (int) $product->stock_minimo ? 'baixo' : 'ok',
                     'ativo' => (bool) $product->ativo,
+                    'allow_request' => (bool) $product->allow_request,
+                    'allow_loan' => (bool) $product->allow_loan,
+                    'tracks_stock' => (bool) $product->tracks_stock,
                     'supplier' => $product->supplier ? [
                         'id' => $product->supplier->id,
                         'nome' => $product->supplier->nome,

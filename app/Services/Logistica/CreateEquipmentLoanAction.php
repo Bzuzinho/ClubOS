@@ -19,8 +19,10 @@ class CreateEquipmentLoanAction
     public function execute(array $data, ?User $actor = null): EquipmentLoan
     {
         return DB::transaction(function () use ($data, $actor) {
-            $product = Product::query()->findOrFail($data['article_id']);
+            $product = Product::query()->lockForUpdate()->findOrFail($data['article_id']);
             $quantity = (int) $data['quantity'];
+
+            $this->stockService->ensureLoanable($product);
 
             $this->stockService->ensureAvailable(
                 $product,
@@ -53,6 +55,7 @@ class CreateEquipmentLoanAction
                 'reference_type' => 'equipment_loan',
                 'reference_id' => $loan->id,
                 'notes' => 'Saída para empréstimo de material',
+                'idempotency_key' => 'equipment-loan-create-'.$loan->id,
             ], $actor);
 
             return $loan->fresh(['borrower', 'article']);

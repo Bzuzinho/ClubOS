@@ -70,13 +70,20 @@ class UpdateLogisticsRequestAction
                 ->delete();
 
             foreach ($items as $item) {
-                $product = Product::query()->findOrFail($item['article_id']);
+                $product = Product::query()->lockForUpdate()->findOrFail($item['article_id']);
                 $quantity = (int) $item['quantity'];
 
                 if ($quantity <= 0) {
                     throw ValidationException::withMessages([
                         'items' => 'Quantidade inválida nos itens da requisição.',
                     ]);
+                }
+
+
+                $oldQuantityForProduct = (int) ($oldQuantities->get($product->id) ?? 0);
+                $newQuantityForProduct = (int) ($newQuantities->get($product->id) ?? 0);
+                if ($newQuantityForProduct > $oldQuantityForProduct) {
+                    $this->stockService->ensureRequestable($product, 'items');
                 }
 
                 $unitPrice = isset($item['unit_price'])

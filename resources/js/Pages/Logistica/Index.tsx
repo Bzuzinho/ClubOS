@@ -26,6 +26,9 @@ type Product = {
   stock_minimo: number;
   status: 'ok' | 'baixo';
   ativo: boolean;
+  allow_request: boolean;
+  allow_loan: boolean;
+  tracks_stock: boolean;
   supplier?: { id: string; nome: string } | null;
 };
 
@@ -270,6 +273,9 @@ export default function LogisticaIndex({
 
   // ── Derived data ──
   const selectableProducts = useMemo(() => products.filter((p) => p.ativo), [products]);
+  const stockManagedProducts = useMemo(() => selectableProducts.filter((p) => p.tracks_stock), [selectableProducts]);
+  const requestableProducts = useMemo(() => stockManagedProducts.filter((p) => p.allow_request), [stockManagedProducts]);
+  const loanableProducts = useMemo(() => stockManagedProducts.filter((p) => p.allow_loan), [stockManagedProducts]);
 
   const productCategories = useMemo(
     () => [...new Set(products.map((p) => p.categoria).filter(Boolean) as string[])],
@@ -605,7 +611,7 @@ export default function LogisticaIndex({
                               setReqItems(!!editingReqId, reqItems(!!editingReqId).map((l, i) => i === idx ? { ...l, article_id: v, unit_price: product ? String(product.preco) : l.unit_price } : l));
                             }}>
                               <SelectTrigger className={ws}><SelectValue placeholder="Artigo" /></SelectTrigger>
-                              <SelectContent>{selectableProducts.map((p) => <SelectItem key={p.id} value={p.id}>{p.codigo} · {p.nome}</SelectItem>)}</SelectContent>
+                              <SelectContent>{requestableProducts.map((p) => <SelectItem key={p.id} value={p.id}>{p.codigo} · {p.nome}</SelectItem>)}</SelectContent>
                             </Select>
                           </div>
                           <div className="col-span-3">
@@ -784,7 +790,7 @@ export default function LogisticaIndex({
                       <Label>Artigo</Label>
                       <Select value={stockForm.data.article_id} onValueChange={(v) => stockForm.setData('article_id', v)}>
                         <SelectTrigger className={ws}><SelectValue placeholder="Selecionar" /></SelectTrigger>
-                        <SelectContent>{selectableProducts.map((p) => <SelectItem value={p.id} key={p.id}>{p.nome}</SelectItem>)}</SelectContent>
+                        <SelectContent>{stockManagedProducts.map((p) => <SelectItem value={p.id} key={p.id}>{p.nome}</SelectItem>)}</SelectContent>
                       </Select>
                     </div>
                     <div>
@@ -1020,7 +1026,7 @@ export default function LogisticaIndex({
                           onValueChange={(v) => editingLoanId ? loanEditForm.setData('article_id', v) : loanForm.setData('article_id', v)}
                         >
                           <SelectTrigger className={ws}><SelectValue placeholder="Selecionar" /></SelectTrigger>
-                          <SelectContent>{selectableProducts.map((p) => <SelectItem key={p.id} value={p.id}>{p.nome}</SelectItem>)}</SelectContent>
+                          <SelectContent>{loanableProducts.map((p) => <SelectItem key={p.id} value={p.id}>{p.nome}</SelectItem>)}</SelectContent>
                         </Select>
                       </div>
                       <div>
@@ -1211,7 +1217,7 @@ export default function LogisticaIndex({
                           <div className="col-span-6">
                             <Select value={item.article_id} onValueChange={(v) => setPurchaseItems(!!editingPurchaseId, purchaseItems(!!editingPurchaseId).map((l, i) => i === idx ? { ...l, article_id: v } : l))}>
                               <SelectTrigger className={ws}><SelectValue placeholder="Artigo" /></SelectTrigger>
-                              <SelectContent>{selectableProducts.map((p) => <SelectItem key={p.id} value={p.id}>{p.nome}</SelectItem>)}</SelectContent>
+                              <SelectContent>{stockManagedProducts.map((p) => <SelectItem key={p.id} value={p.id}>{p.nome}</SelectItem>)}</SelectContent>
                             </Select>
                           </div>
                           <div className="col-span-2">

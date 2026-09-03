@@ -32,6 +32,7 @@ class LogisticaFlowsTest extends TestCase
             'stock_reservado' => 0,
             'stock_minimo' => 3,
             'ativo' => true,
+            'allow_request' => true,
         ]);
 
         $this->actingAs($admin)
@@ -188,6 +189,7 @@ class LogisticaFlowsTest extends TestCase
             'stock_reservado' => 0,
             'stock_minimo' => 1,
             'ativo' => true,
+            'allow_loan' => true,
         ]);
 
         $this->actingAs($admin)
@@ -247,6 +249,7 @@ class LogisticaFlowsTest extends TestCase
             'stock_reservado' => 0,
             'stock_minimo' => 1,
             'ativo' => true,
+            'allow_loan' => true,
         ]);
 
         $this->actingAs($admin)
@@ -297,6 +300,7 @@ class LogisticaFlowsTest extends TestCase
             'stock_reservado' => 0,
             'stock_minimo' => 1,
             'ativo' => true,
+            'allow_loan' => true,
         ]);
 
         $this->actingAs($admin)
@@ -342,6 +346,7 @@ class LogisticaFlowsTest extends TestCase
             'stock_reservado' => 0,
             'stock_minimo' => 2,
             'ativo' => true,
+            'allow_request' => true,
         ]);
 
         $this->actingAs($admin)
@@ -418,6 +423,7 @@ class LogisticaFlowsTest extends TestCase
             'stock_reservado' => 0,
             'stock_minimo' => 2,
             'ativo' => true,
+            'allow_request' => true,
         ]);
 
         $this->actingAs($admin)
@@ -473,6 +479,7 @@ class LogisticaFlowsTest extends TestCase
             'stock_reservado' => 0,
             'stock_minimo' => 2,
             'ativo' => true,
+            'allow_request' => true,
         ]);
 
         $this->actingAs($admin)
@@ -535,6 +542,7 @@ class LogisticaFlowsTest extends TestCase
             'stock_reservado' => 0,
             'stock_minimo' => 2,
             'ativo' => true,
+            'allow_request' => true,
         ]);
 
         $this->actingAs($admin)

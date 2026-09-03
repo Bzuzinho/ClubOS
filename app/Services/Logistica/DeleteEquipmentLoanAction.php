@@ -17,13 +17,18 @@ class DeleteEquipmentLoanAction
 
     public function execute(EquipmentLoan $loan): void
     {
-        if (!in_array($loan->status, ['active', 'overdue'])) {
-            throw ValidationException::withMessages([
-                'status' => 'Só é possível apagar empréstimos ativos ou em atraso.',
-            ]);
-        }
-
         DB::transaction(function () use ($loan) {
+            $loan = EquipmentLoan::query()
+                ->whereKey($loan->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            if (!in_array($loan->status, ['active', 'overdue'], true)) {
+                throw ValidationException::withMessages([
+                    'status' => 'Só é possível apagar empréstimos ativos ou em atraso.',
+                ]);
+            }
+
             if ($loan->article_id) {
                 $product = Product::query()->lockForUpdate()->find($loan->article_id);
                 if ($product) {

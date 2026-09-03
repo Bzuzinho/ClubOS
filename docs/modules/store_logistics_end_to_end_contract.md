@@ -99,7 +99,19 @@ O audit H5d acrescenta ainda:
 
 ## 7. Lacunas deliberadamente ainda abertas
 
-H5d não apresenta como concluído o que pertence ao lote seguinte: o lifecycle interno de compras, requisições, entregas e empréstimos de Logística permanece em H5e.
+H5e fecha no código o lifecycle interno de compras, requisições, entregas e empréstimos. A promoção produtiva e a fotografia agregada do audit H5e permanecem necessárias antes de declarar o lote concluído em produção.
+
+## 7.1. Estado implementado em H5e
+
+O catálogo partilhado passa a expor em `Configurações > Logística > Artigos` as capacidades canónicas `allow_request`, `allow_loan` e `track_stock`. A UI operacional filtra cada seleção pela capacidade correspondente e o backend volta a validar artigo ativo, capacidade e gestão de stock, pelo que um request direto não contorna o catálogo.
+
+Editar o mesmo artigo no Admin da Loja preserva as capacidades da Logística. A remoção em Configurações passa a desativar o artigo e os respetivos canais, sem apagar o produto nem o seu ledger histórico.
+
+As transições de aprovação/entrega da requisição e devolução do empréstimo bloqueiam o agregado com `lockForUpdate`, usam chaves de idempotência por operação/item no ledger e tratam retries já concluídos como no-op. Update/delete de empréstimos e compras bloqueiam igualmente o agregado antes de calcular deltas. Assim, um duplo clique ou retry concorrente não cria uma segunda reserva, saída, entrada ou devolução.
+
+O contrato Desportivo continua a criar uma única `LogisticsRequest` por identidade estruturada `source_type + source_id + source_version`, sem movimentar stock. Só a aprovação reserva e só a entrega cria a saída física. Compras a fornecedor continuam a produzir uma entrada no ledger e um único `Movement` de despesa; `financial_entry_id` permanece apenas para leitura histórica.
+
+`inventory:audit-internal-logistics-lifecycle` agrega, sem escrita, os audits de compras, requisições e empréstimos, mede ligações financeiras e pedidos originados pelo Desportivo e expõe apenas schema/contagens/contratos no artifact produtivo.
 
 ## 8. Sequência dos próximos lotes
 
@@ -108,7 +120,7 @@ H5d não apresenta como concluído o que pertence ao lote seguinte: o lifecycle 
 | H5b | Encomenda ligada idempotentemente a `Invoice`, com itens e centro de custo estruturados, sem segunda saída de stock. Concluído em produção. |
 | H5c | Pagamento confirmado por `PaymentAllocationService` projeta o estado financeiro/fiscal da encomenda e cria o pedido fiscal manual pelo fluxo canónico. Implementado. |
 | H5d | Cancelamento/devolução após efeitos financeiros usa reversão explícita e apenas depois repõe stock; sem apagar histórico. Implementado. |
-| H5e | Lifecycle interno de compras, requisições, entregas e empréstimos de Logística fechado com QA operacional e contratos Desportivo↔core preservados. |
+| H5e | Lifecycle interno de compras, requisições, entregas e empréstimos de Logística fechado no código com QA operacional e contratos Desportivo↔core preservados; promoção produtiva pendente. |
 
 Nenhum destes lotes pode introduzir custos do atleta em descrições textuais: atleta, invoice, centro de custo, evento e requisição mantêm ligações estruturadas e separadas da dívida.
 
