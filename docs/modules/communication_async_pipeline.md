@@ -4,7 +4,7 @@
 
 O pipeline reutiliza o domínio já existente. `communication_campaigns` é a outbox canónica; `communication_deliveries` fixa uma execução por campanha/canal; `communication_delivery_recipients` fixa o destinatário e o contacto usados nessa execução; `communication_delivery_attempts` conserva cada tentativa.
 
-Não existe uma segunda fila funcional em tabelas paralelas. Redis transporta jobs, mas o estado de negócio permanece em PostgreSQL. Perder ou repetir um job não pode apagar o histórico nem criar outra entrega lógica.
+Não existe uma segunda fila funcional em tabelas paralelas. A queue Laravel transporta jobs e pode usar `database` ou Redis, mas o estado de negócio permanece sempre nas tabelas canónicas PostgreSQL. Perder ou repetir um job não pode apagar o histórico nem criar outra entrega lógica.
 
 ## 2. H6a — fundação implementada
 
@@ -18,7 +18,7 @@ Não existe uma segunda fila funcional em tabelas paralelas. Redis transporta jo
 - `communication:dispatch-due` enfileira campanhas H6a agendadas vencidas, retentativas vencidas e leases abandonadas;
 - campanhas históricas sem `idempotency_key` nunca são disparadas automaticamente; o audit assinala-as para revisão explícita;
 - o scheduler executa o dispatcher a cada minuto com exclusão mútua;
-- a ligação Redis de queue passa a existir na configuração Laravel e usa `after_commit=true`;
+- a ligação Redis de queue passa a existir na configuração Laravel e usa `after_commit=true`; o transporte ativo continua dependente do ambiente;
 - a vista de Execução apresenta tentativas, destinatários em retry e tentativas esgotadas;
 - `communication:audit-async-pipeline` mede schema, legado, backlog, retries, referências de provider e anomalias sem escrever dados.
 
@@ -57,3 +57,9 @@ O lote não faz backfill das campanhas e entregas históricas. Linhas anteriores
 - H6e: QA operacional profundo, métricas/SLA e fecho produtivo do módulo.
 
 Uma futura integração Facebook/Instagram não pode publicar diretamente a partir de controllers nem criar outra tabela de campanhas. Deve entrar por este pipeline e guardar o identificador devolvido pela API oficial.
+
+## 6. Evidência produtiva H6a
+
+O deploy do merge `da108ba6d4df33a216c5584ce28f8a3fe939ce67` aplicou a migration e emitiu o sinal de reinício da queue. O audit produtivo confirmou o schema completo, zero críticos, zero retries vencidos/em espera, zero destinatários esgotados e zero leases abandonadas. A queue ativa nesse ambiente é `database`; a ligação Redis está definida, mas um eventual cutover deve validar primeiro o processo Supervisor e não é pressuposto por este lote.
+
+Existem 65 campanhas, 123 entregas e 7991 destinatários históricos classificados como legado, sem backfill. Uma das campanhas históricas está agendada e vencida: conta como uma ação operacional, mas permanece bloqueada contra disparo automático até revisão e reagendamento explícitos.
