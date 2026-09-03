@@ -15,7 +15,8 @@ Não existe uma segunda fila funcional em tabelas paralelas. Redis transporta jo
 - email usa `Message-ID` determinístico e SMS envia `Idempotency-Key` ao provider HTTP;
 - alertas internos guardam o ID real do `InAppAlert` como referência do provider;
 - push falha fechado enquanto não existir provider real, em vez de simular sucesso por existir um token;
-- `communication:dispatch-due` enfileira campanhas agendadas vencidas, retentativas vencidas e leases abandonadas;
+- `communication:dispatch-due` enfileira campanhas H6a agendadas vencidas, retentativas vencidas e leases abandonadas;
+- campanhas históricas sem `idempotency_key` nunca são disparadas automaticamente; o audit assinala-as para revisão explícita;
 - o scheduler executa o dispatcher a cada minuto com exclusão mútua;
 - a ligação Redis de queue passa a existir na configuração Laravel e usa `after_commit=true`;
 - a vista de Execução apresenta tentativas, destinatários em retry e tentativas esgotadas;
@@ -46,7 +47,7 @@ As chaves são aplicadas em três níveis:
 
 Uma repetição após sucesso é neutra. SMS recebe a chave no pedido externo e email conserva um `Message-ID` estável. Ainda assim, nenhum sistema distribuído pode prometer exactly-once depois de o provider aceitar uma mensagem e antes de o ClubOS persistir a resposta; o contrato é at-least-once com deduplicação local e chave propagada ao provider.
 
-O lote não faz backfill das campanhas e entregas históricas. Linhas anteriores ficam classificadas como legado pelo audit e continuam legíveis.
+O lote não faz backfill das campanhas e entregas históricas. Linhas anteriores ficam classificadas como legado pelo audit e continuam legíveis. Uma campanha histórica agendada e vencida exige revisão e reagendamento explícito, que lhe atribui uma chave H6a; esta barreira impede o deploy de enviar mensagens antigas inadvertidamente.
 
 ## 5. Próximos lotes H6
 

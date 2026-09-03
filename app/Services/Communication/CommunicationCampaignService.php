@@ -36,7 +36,7 @@ class CommunicationCampaignService
                 'notes' => $payload['notes'] ?? null,
                 'source_type' => $payload['source_type'] ?? null,
                 'source_id' => $payload['source_id'] ?? null,
-                'idempotency_key' => $payload['idempotency_key'] ?? null,
+                'idempotency_key' => $payload['idempotency_key'] ?? $this->generateIdempotencyKey(),
             ]);
 
             foreach ($payload['channels'] as $channel) {
@@ -58,6 +58,14 @@ class CommunicationCampaignService
         return DB::transaction(function () use ($campaign, $payload) {
             $campaign->loadMissing('segment');
 
+            $idempotencyKey = $campaign->idempotency_key;
+            if (! $idempotencyKey && (
+                ($payload['status'] ?? null) === 'agendada'
+                || filled($payload['scheduled_at'] ?? null)
+            )) {
+                $idempotencyKey = $this->generateIdempotencyKey();
+            }
+
             $campaign->update([
                 'title' => $payload['title'],
                 'description' => $payload['description'] ?? null,
@@ -70,6 +78,7 @@ class CommunicationCampaignService
                 'alert_link' => $payload['alert_link'] ?? null,
                 'alert_type' => $payload['alert_type'] ?? 'info',
                 'notes' => $payload['notes'] ?? $campaign->notes,
+                'idempotency_key' => $idempotencyKey,
             ]);
 
             if ($campaign->segment && (
@@ -125,6 +134,7 @@ class CommunicationCampaignService
                 'alert_link' => $campaign->alert_link,
                 'alert_type' => $campaign->alert_type,
                 'notes' => $campaign->notes,
+                'idempotency_key' => $this->generateIdempotencyKey(),
             ]);
 
             foreach ($campaign->channels as $channel) {
@@ -146,6 +156,7 @@ class CommunicationCampaignService
         $campaign->update([
             'scheduled_at' => $scheduledAt,
             'status' => 'agendada',
+            'idempotency_key' => $campaign->idempotency_key ?? $this->generateIdempotencyKey(),
         ]);
 
         return $campaign->refresh();
@@ -314,5 +325,10 @@ class CommunicationCampaignService
     private function generateCode(): string
     {
         return sprintf('CMP-%s-%s', now()->format('Ymd'), Str::upper(Str::random(5)));
+    }
+
+    private function generateIdempotencyKey(): string
+    {
+        return hash('sha256', 'campaign:'.Str::uuid()->toString());
     }
 }

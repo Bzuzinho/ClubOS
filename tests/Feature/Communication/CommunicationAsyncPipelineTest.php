@@ -100,6 +100,13 @@ class CommunicationAsyncPipelineTest extends TestCase
             'scheduled_at' => now()->subMinute(),
         ]);
 
+        [$legacyScheduled] = $this->campaignWithRecipient('alert_app');
+        $legacyScheduled->update([
+            'status' => 'agendada',
+            'scheduled_at' => now()->subMinute(),
+            'idempotency_key' => null,
+        ]);
+
         [$retryCampaign, $retryChannel] = $this->campaignWithRecipient('sms', [
             'contacto_telefonico' => '351910000001',
         ]);
@@ -126,6 +133,7 @@ class CommunicationAsyncPipelineTest extends TestCase
 
         $this->assertSame(0, Artisan::call('communication:dispatch-due'));
         $this->assertSame('em_processamento', $scheduled->fresh()->status);
+        $this->assertSame('agendada', $legacyScheduled->fresh()->status);
         $this->assertSame('em_processamento', $retryCampaign->fresh()->status);
 
         Queue::assertPushed(ProcessCommunicationCampaignJob::class, 2);
@@ -221,6 +229,7 @@ class CommunicationAsyncPipelineTest extends TestCase
             'alert_title' => 'Alerta H6a',
             'alert_message' => 'Mensagem persistente',
             'alert_type' => 'info',
+            'idempotency_key' => hash('sha256', 'test-campaign:'.uniqid('', true)),
         ]);
         $campaignChannel = $campaign->channels()->create([
             'channel' => $channel,

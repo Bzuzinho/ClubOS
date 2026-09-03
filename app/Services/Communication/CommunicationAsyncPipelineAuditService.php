@@ -25,7 +25,8 @@ final class CommunicationAsyncPipelineAuditService
             'campaign_count' => $this->count('communication_campaigns'),
             'managed_campaign_count' => $this->whereNotNullCount('communication_campaigns', 'idempotency_key'),
             'legacy_campaign_count' => $this->whereNullCount('communication_campaigns', 'idempotency_key'),
-            'scheduled_due_count' => $this->scheduledDueCount(),
+            'scheduled_due_count' => $this->scheduledDueCount(true),
+            'legacy_scheduled_due_count' => $this->scheduledDueCount(false),
             'delivery_count' => $this->count('communication_deliveries'),
             'managed_delivery_count' => $this->whereNotNullCount('communication_deliveries', 'idempotency_key'),
             'legacy_delivery_count' => $this->whereNullCount('communication_deliveries', 'idempotency_key'),
@@ -45,9 +46,12 @@ final class CommunicationAsyncPipelineAuditService
         $summary['critical_count'] = $schemaReady ? 0 : 1;
         $summary['warning_count'] = $summary['exhausted_recipient_count']
             + $summary['stale_processing_count']
+            + $summary['legacy_scheduled_due_count']
             + $summary['managed_success_missing_provider_count']
             + $summary['managed_success_missing_provider_message_id_count'];
-        $summary['actionable_count'] = $summary['exhausted_recipient_count'] + $summary['stale_processing_count'];
+        $summary['actionable_count'] = $summary['exhausted_recipient_count']
+            + $summary['stale_processing_count']
+            + $summary['legacy_scheduled_due_count'];
 
         return [
             'version' => self::VERSION,
@@ -63,6 +67,7 @@ final class CommunicationAsyncPipelineAuditService
                 'provider_references_are_preserved_when_available' => true,
                 'scheduled_and_retry_dispatch_share_one_scheduler' => true,
                 'legacy_rows_are_measured_without_backfill' => true,
+                'legacy_scheduled_campaigns_are_never_auto_dispatched' => true,
                 'future_social_network_providers_must_reuse_this_pipeline' => true,
                 'no_data_changed' => true,
             ],
@@ -124,14 +129,22 @@ final class CommunicationAsyncPipelineAuditService
             : 0;
     }
 
-    private function scheduledDueCount(): int
+    private function scheduledDueCount(bool $managed): int
     {
-        if (! Schema::hasTable('communication_campaigns')) {
+        if (
+            ! Schema::hasTable('communication_campaigns')
+            || ! Schema::hasColumn('communication_campaigns', 'idempotency_key')
+        ) {
             return 0;
         }
 
         return DB::table('communication_campaigns')
             ->where('status', 'agendada')
+            ->when(
+                $managed,
+                static fn ($query) => $query->whereNotNull('idempotency_key'),
+                static fn ($query) => $query->whereNull('idempotency_key'),
+            )
             ->whereNotNull('scheduled_at')
             ->where('scheduled_at', '<=', now())
             ->count();

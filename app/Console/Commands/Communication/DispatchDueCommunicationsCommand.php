@@ -29,6 +29,7 @@ final class DispatchDueCommunicationsCommand extends Command
 
         CommunicationCampaign::query()
             ->where('status', 'agendada')
+            ->whereNotNull('idempotency_key')
             ->whereNotNull('scheduled_at')
             ->where('scheduled_at', '<=', now())
             ->orderBy('scheduled_at')
