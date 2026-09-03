@@ -17,6 +17,8 @@ class CommunicationCampaignChannel extends Model
         'template_id',
         'subject',
         'message_body',
+        'link_url',
+        'media_url',
         'is_enabled',
     ];
 

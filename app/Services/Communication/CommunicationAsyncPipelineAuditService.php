@@ -9,7 +9,7 @@ use Illuminate\Support\Facades\Schema;
 
 final class CommunicationAsyncPipelineAuditService
 {
-    private const VERSION = 'h6c-communication-provider-lifecycle-audit-v3';
+    private const VERSION = 'h6d-social-network-publishing-audit-v4';
 
     /** @var list<string> */
     private const AUTOMATION_SOURCE_TYPES = [
@@ -30,7 +30,9 @@ final class CommunicationAsyncPipelineAuditService
             && ! in_array(false, $schema['campaign_fields'], true)
             && ! in_array(false, $schema['delivery_fields'], true)
             && ! in_array(false, $schema['recipient_fields'], true)
-            && ! in_array(false, $schema['provider_event_fields'], true);
+            && ! in_array(false, $schema['provider_event_fields'], true)
+            && ! in_array(false, $schema['social_account_fields'], true)
+            && ! in_array(false, $schema['social_event_fields'], true);
 
         $summary = [
             'schema_ready' => $schemaReady,
@@ -61,6 +63,10 @@ final class CommunicationAsyncPipelineAuditService
             'provider_event_applied_count' => $this->whereCount('communication_provider_events', 'status', 'applied'),
             'provider_event_ignored_count' => $this->whereCount('communication_provider_events', 'status', 'ignored'),
             'provider_event_unmatched_count' => $this->whereCount('communication_provider_events', 'status', 'unmatched'),
+            'social_account_count' => $this->count('social_network_accounts'),
+            'social_publish_ready_count' => $this->socialPublishReadyCount(),
+            'social_campaign_count' => $this->whereCount('communication_campaigns', 'source_type', 'social_publication'),
+            'social_event_count' => $this->count('social_network_events'),
         ];
 
         $summary['critical_count'] = $schemaReady ? 0 : 1;
@@ -99,6 +105,10 @@ final class CommunicationAsyncPipelineAuditService
                 'provider_events_are_idempotent_and_payload_minimized' => true,
                 'provider_status_transitions_never_downgrade_delivered_or_read' => true,
                 'future_social_network_providers_must_reuse_this_pipeline' => true,
+                'social_networks_reuse_canonical_campaigns_deliveries_and_attempts' => true,
+                'social_credentials_are_encrypted_and_never_exposed_by_settings_payloads' => true,
+                'meta_webhooks_are_signed_idempotent_and_payload_minimized' => true,
+                'website_remains_independent_from_social_publication' => true,
                 'no_data_changed' => true,
             ],
         ];
@@ -114,6 +124,8 @@ final class CommunicationAsyncPipelineAuditService
                 'communication_delivery_recipients',
                 'communication_delivery_attempts',
                 'communication_provider_events',
+                'social_network_accounts',
+                'social_network_events',
             ])->mapWithKeys(static fn (string $table): array => [$table => Schema::hasTable($table)])->all(),
             'campaign_fields' => collect(['source_type', 'source_id', 'idempotency_key', 'dispatch_requested_at'])
                 ->mapWithKeys(static fn (string $field): array => [$field => Schema::hasColumn('communication_campaigns', $field)])->all(),
@@ -128,6 +140,7 @@ final class CommunicationAsyncPipelineAuditService
                 'processing_at',
                 'last_attempt_at',
                 'next_attempt_at',
+                'social_network_account_id',
             ])->mapWithKeys(static fn (string $field): array => [$field => Schema::hasColumn('communication_delivery_recipients', $field)])->all(),
             'provider_event_fields' => collect([
                 'provider',
@@ -141,6 +154,14 @@ final class CommunicationAsyncPipelineAuditService
                 'recipient_id',
                 'processed_at',
             ])->mapWithKeys(static fn (string $field): array => [$field => Schema::hasColumn('communication_provider_events', $field)])->all(),
+            'social_account_fields' => collect([
+                'provider', 'external_account_id', 'graph_api_version', 'app_id', 'app_secret', 'access_token',
+                'webhook_verify_token', 'is_enabled', 'verification_status', 'last_verified_at',
+            ])->mapWithKeys(static fn (string $field): array => [$field => Schema::hasColumn('social_network_accounts', $field)])->all(),
+            'social_event_fields' => collect([
+                'provider', 'external_event_id', 'event_type', 'provider_message_id', 'recipient_id',
+                'payload_hash', 'status', 'occurred_at', 'received_at', 'processed_at',
+            ])->mapWithKeys(static fn (string $field): array => [$field => Schema::hasColumn('social_network_events', $field)])->all(),
             'webhook_secret_configured' => collect(['email', 'sms', 'push'])
                 ->mapWithKeys(static fn (string $provider): array => [
                     $provider => filled(config("services.communication_webhooks.secrets.{$provider}")),
@@ -347,5 +368,18 @@ final class CommunicationAsyncPipelineAuditService
             && Schema::hasColumn('communication_campaigns', 'source_type')
             && Schema::hasColumn('communication_campaigns', 'idempotency_key')
             && Schema::hasColumn('communication_campaigns', 'dispatch_requested_at');
+    }
+
+    private function socialPublishReadyCount(): int
+    {
+        if (! Schema::hasTable('social_network_accounts')) {
+            return 0;
+        }
+
+        return DB::table('social_network_accounts')
+            ->where('is_enabled', true)
+            ->whereNotNull('external_account_id')
+            ->whereNotNull('access_token')
+            ->count();
     }
 }

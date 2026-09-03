@@ -11,6 +11,7 @@ use App\Models\CommunicationDeliveryRecipient;
 use App\Models\Event;
 use App\Models\Invoice;
 use App\Models\InAppAlert;
+use App\Models\SocialNetworkAccount;
 use App\Models\User;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -50,7 +51,9 @@ class CommunicationDeliveryService
         });
 
         if ($delivery->wasRecentlyCreated) {
-            $recipients = $this->segmentResolverService->resolveRecipients($campaign->segment, $channel->channel);
+            $recipients = in_array($channel->channel, ['facebook', 'instagram'], true)
+                ? $this->resolveSocialRecipients($channel)
+                : $this->segmentResolverService->resolveRecipients($campaign->segment, $channel->channel);
             $this->snapshotRecipients($delivery, $recipients);
 
             $delivery->update([
@@ -185,6 +188,7 @@ class CommunicationDeliveryService
                     'contact_email' => $recipient['email'] ?? null,
                     'contact_phone' => $recipient['phone'] ?? null,
                     'push_token' => $recipient['push_token'] ?? null,
+                    'social_network_account_id' => $recipient['social_network_account_id'] ?? null,
                     'status' => 'pending',
                 ],
             );
@@ -193,12 +197,20 @@ class CommunicationDeliveryService
 
     private function recipientPayloads(CommunicationDelivery $delivery): Collection
     {
-        return $delivery->recipients()->get()->map(static fn (CommunicationDeliveryRecipient $recipient): array => [
+        $channel = $delivery->campaign
+            ? $delivery->campaign->channels()->where('channel', $delivery->channel)->first()
+            : null;
+
+        return $delivery->recipients()->with('socialNetworkAccount')->get()->map(static fn (CommunicationDeliveryRecipient $recipient): array => [
             'user_id' => $recipient->user_id,
             'member_id' => $recipient->member_id,
             'email' => $recipient->contact_email,
             'phone' => $recipient->contact_phone,
             'push_token' => $recipient->push_token,
+            'social_network_account_id' => $recipient->social_network_account_id,
+            'social_network_account' => $recipient->socialNetworkAccount,
+            'link_url' => $channel?->link_url,
+            'media_url' => $channel?->media_url,
         ]);
     }
 
@@ -209,6 +221,7 @@ class CommunicationDeliveryService
             ?? $recipient['email']
             ?? $recipient['phone']
             ?? $recipient['push_token']
+            ?? $recipient['social_network_account_id']
             ?? hash('sha256', json_encode($recipient, JSON_THROW_ON_ERROR));
 
         return hash('sha256', sprintf('delivery:%s:recipient:%s', $delivery->id, $identity));
@@ -359,6 +372,19 @@ class CommunicationDeliveryService
             2 => 300,
             default => 900,
         };
+    }
+
+    private function resolveSocialRecipients(CommunicationCampaignChannel $channel): Collection
+    {
+        return SocialNetworkAccount::query()
+            ->where('provider', $channel->channel)
+            ->get()
+            ->map(static fn (SocialNetworkAccount $account): array => [
+                'social_network_account_id' => (string) $account->id,
+                'social_network_account' => $account,
+                'link_url' => $channel->link_url,
+                'media_url' => $channel->media_url,
+            ]);
     }
 
     /** @return array{success:bool,provider:string,provider_message_id:?string,error_code:?string,error_message:?string} */

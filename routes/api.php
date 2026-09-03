@@ -1,8 +1,12 @@
 <?php
 
 use Illuminate\Http\Request;
+use Illuminate\Foundation\Http\Middleware\ValidateCsrfToken;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Communication\CommunicationProviderWebhookController;
+use App\Http\Controllers\Communication\MetaWebhookController;
+use App\Http\Controllers\Communication\SocialNetworkSettingsController;
+use App\Http\Controllers\Communication\SocialPublicationController;
 use App\Http\Controllers\Api\TiposUtilizadorController;
 use App\Http\Controllers\Api\EscaloesController;
 use App\Http\Controllers\Api\TiposEventoController;
@@ -44,7 +48,32 @@ Route::post('/webhooks/communication/{provider}', CommunicationProviderWebhookCo
     ->middleware(['throttle:120,1', 'communication.webhook.signature'])
     ->name('api.communication.webhooks.provider');
 
+Route::get('/webhooks/meta/{provider}', [MetaWebhookController::class, 'verify'])
+    ->whereIn('provider', ['facebook', 'instagram'])
+    ->middleware('throttle:60,1')
+    ->name('api.meta.webhooks.verify');
+Route::post('/webhooks/meta/{provider}', [MetaWebhookController::class, 'receive'])
+    ->whereIn('provider', ['facebook', 'instagram'])
+    ->middleware(['throttle:120,1', 'meta.webhook.signature'])
+    ->name('api.meta.webhooks.receive');
+
 Route::middleware(['auth'])->group(function () {
+    Route::put('/configuracoes/redes/{provider}', [SocialNetworkSettingsController::class, 'update'])
+        ->whereIn('provider', ['facebook', 'instagram'])
+        ->middleware([ValidateCsrfToken::class, 'verified', 'module.access:configuracoes'])
+        ->name('configuracoes.redes.update');
+    Route::post('/configuracoes/redes/{provider}/validar', [SocialNetworkSettingsController::class, 'verify'])
+        ->whereIn('provider', ['facebook', 'instagram'])
+        ->middleware([ValidateCsrfToken::class, 'verified', 'module.access:configuracoes'])
+        ->name('configuracoes.redes.verify');
+    Route::delete('/configuracoes/redes/{provider}', [SocialNetworkSettingsController::class, 'destroy'])
+        ->whereIn('provider', ['facebook', 'instagram'])
+        ->middleware([ValidateCsrfToken::class, 'verified', 'module.access:configuracoes'])
+        ->name('configuracoes.redes.destroy');
+    Route::post('/comunicacao/redes/publicacoes', [SocialPublicationController::class, 'store'])
+        ->middleware([ValidateCsrfToken::class, 'verified', 'module.access:comunicacao'])
+        ->name('comunicacao.redes.publicacoes.store');
+
     // Current user
     Route::get('/user', function (Request $request) {
         return $request->user();

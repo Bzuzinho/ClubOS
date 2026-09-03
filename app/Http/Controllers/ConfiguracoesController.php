@@ -46,6 +46,7 @@ use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use App\Support\Communication\AlertCategoryRegistry;
+use App\Services\Communication\SocialNetworkAccountService;
 
 class ConfiguracoesController extends Controller
 {
@@ -93,6 +94,7 @@ class ConfiguracoesController extends Controller
             'notificationPrefs' => Inertia::lazy(fn () => $this->buildNotificacoesPayload($useDefaultCache)['notificationPrefs']),
             'communicationDynamicSources' => Inertia::lazy(fn () => $this->buildNotificacoesPayload($useDefaultCache)['communicationDynamicSources']),
             'communicationAlertCategories' => Inertia::lazy(fn () => $this->buildNotificacoesPayload($useDefaultCache)['communicationAlertCategories']),
+            'socialAccounts' => Inertia::lazy(fn () => $this->buildNotificacoesPayload($useDefaultCache)['socialAccounts']),
             'users' => Inertia::lazy(fn () => $this->buildBaseDadosPayload($useDefaultCache)['users']),
             'trainingTypes' => Inertia::lazy(fn () => $this->buildDesportivoPayload($useDefaultCache)['trainingTypes']),
             'trainingZones' => Inertia::lazy(fn () => $this->buildDesportivoPayload($useDefaultCache)['trainingZones']),
@@ -203,6 +205,7 @@ class ConfiguracoesController extends Controller
             'notificationPrefs' => NotificationPreference::first(),
             'communicationDynamicSources' => $this->communicationDynamicSources(),
             'communicationAlertCategories' => AlertCategoryRegistry::all(false)->values()->all(),
+            'socialAccounts' => app(SocialNetworkAccountService::class)->safeConfigurations(),
         ];
     }
 

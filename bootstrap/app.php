@@ -115,6 +115,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'module.access' => \App\Http\Middleware\EnsureModuleAccess::class,
             'permission.access' => \App\Http\Middleware\EnsurePermissionAccess::class,
             'communication.webhook.signature' => \App\Http\Middleware\VerifyCommunicationWebhookSignature::class,
+            'meta.webhook.signature' => \App\Http\Middleware\VerifyMetaWebhookSignature::class,
         ]);
 
         $middleware->validateCsrfTokens(except: [

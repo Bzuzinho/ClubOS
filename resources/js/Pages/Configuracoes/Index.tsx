@@ -18,6 +18,7 @@ import { Plus, PencilSimple, Trash, FloppyDisk } from '@phosphor-icons/react';
 import { toast } from 'sonner';
 import { AccessControlBootstrap } from '@/types/access-control';
 import { BankReconciliationManagementTab } from '@/Components/Configuracoes/Financeiro/BankReconciliationManagementTab';
+import SocialNetworkSettings, { SocialAccountConfiguration } from '@/Components/Configuracoes/SocialNetworkSettings';
 
 const UserTypePermissionSettings = lazy(() => import('@/Components/Configuracoes/Permissions/UserTypePermissionSettings').then((module) => ({ default: module.UserTypePermissionSettings })));
 const ConfiguracoesDesportivoIndex = lazy(() => import('@/Pages/Configuracoes/Desportivo/Index'));
@@ -606,6 +607,7 @@ interface Props {
     notificationPrefs?: NotificationPrefs | null;
     communicationDynamicSources?: CommunicationDynamicSource[];
     communicationAlertCategories?: CommunicationAlertCategory[];
+    socialAccounts?: SocialAccountConfiguration[];
     users?: DbUser[];
     clubSettings?: ClubSettings;
     accessControlBootstrap: AccessControlBootstrap;
@@ -636,6 +638,7 @@ export default function SettingsIndex({
     notificationPrefs: initialNotificationPrefs,
     communicationDynamicSources = [],
     communicationAlertCategories = [],
+    socialAccounts = [],
     users = [],
     clubSettings,
     accessControlBootstrap,
@@ -772,6 +775,7 @@ export default function SettingsIndex({
     const hasNotificationPrefs = Object.prototype.hasOwnProperty.call(page.props, 'notificationPrefs');
     const hasCommunicationDynamicSources = Object.prototype.hasOwnProperty.call(page.props, 'communicationDynamicSources');
     const hasCommunicationAlertCategories = Object.prototype.hasOwnProperty.call(page.props, 'communicationAlertCategories');
+    const hasSocialAccounts = Object.prototype.hasOwnProperty.call(page.props, 'socialAccounts');
     const hasUsers = Object.prototype.hasOwnProperty.call(page.props, 'users');
     const hasTrainingTypes = Object.prototype.hasOwnProperty.call(page.props, 'trainingTypes');
     const hasTrainingZones = Object.prototype.hasOwnProperty.call(page.props, 'trainingZones');
@@ -868,7 +872,7 @@ export default function SettingsIndex({
                 ],
             },
             logistica: { ready: hasProducts && hasSponsors && hasSuppliers && hasItemCategories, props: ['products', 'sponsors', 'suppliers', 'itemCategories'] },
-            notificacoes: { ready: hasNotificationPrefs && hasCommunicationDynamicSources && hasCommunicationAlertCategories, props: ['notificationPrefs', 'communicationDynamicSources', 'communicationAlertCategories'] },
+            notificacoes: { ready: hasNotificationPrefs && hasCommunicationDynamicSources && hasCommunicationAlertCategories && hasSocialAccounts, props: ['notificationPrefs', 'communicationDynamicSources', 'communicationAlertCategories', 'socialAccounts'] },
             'base-dados': { ready: hasUsers, props: ['users'] },
             desportivo: { ready: hasTrainingTypes && hasTrainingZones && hasInjuryReasons && hasPoolTypes && hasProvaTipos, props: ['trainingTypes', 'trainingZones', 'injuryReasons', 'poolTypes', 'provaTipos'] },
         };
@@ -889,6 +893,7 @@ export default function SettingsIndex({
         currentTab,
         hasCommunicationAlertCategories,
         hasCommunicationDynamicSources,
+        hasSocialAccounts,
         hasCostCenters,
         hasInvoiceTypes,
         hasInjuryReasons,
@@ -2622,7 +2627,7 @@ export default function SettingsIndex({
                     {/* Tab: Notificações */}
                     <TabsContent value="notificacoes" className="mt-0 min-h-0 flex-1 overflow-hidden">
                         {currentTab === 'notificacoes' ? (
-                        !hasNotificationPrefs || !hasCommunicationDynamicSources || !hasCommunicationAlertCategories || loadingRootTab === 'notificacoes' ? (
+                        !hasNotificationPrefs || !hasCommunicationDynamicSources || !hasCommunicationAlertCategories || !hasSocialAccounts || loadingRootTab === 'notificacoes' ? (
                         <TabFallback />
                         ) : (
                         <Tabs value={currentNotificacoesTab} onValueChange={setCurrentNotificacoesTab} className={sectionTabsClass}>
@@ -2630,6 +2635,7 @@ export default function SettingsIndex({
                                 <TabsTrigger value="automacoes">Automações</TabsTrigger>
                                 <TabsTrigger value="fontes-dinamicas">Fontes Dinâmicas</TabsTrigger>
                                 <TabsTrigger value="categorias-alerta">Categoria do Alerta</TabsTrigger>
+                                <TabsTrigger value="redes">Redes sociais</TabsTrigger>
                             </TabsList>
 
                             <TabsContent value="automacoes" className={nestedScrollableTabContentClass}>
@@ -2820,6 +2826,10 @@ export default function SettingsIndex({
                                     </CardContent>
                                 </Card>
                                 ) : null}
+                            </TabsContent>
+
+                            <TabsContent value="redes" className={nestedScrollableTabContentClass}>
+                                {currentNotificacoesTab === 'redes' ? <SocialNetworkSettings accounts={socialAccounts} /> : null}
                             </TabsContent>
                         </Tabs>
                         )

@@ -32,6 +32,7 @@ class CommunicationDeliveryRecipient extends Model
         'processing_at',
         'last_attempt_at',
         'next_attempt_at',
+        'social_network_account_id',
     ];
 
     protected $casts = [
@@ -63,5 +64,10 @@ class CommunicationDeliveryRecipient extends Model
     public function providerEvents(): HasMany
     {
         return $this->hasMany(CommunicationProviderEvent::class, 'recipient_id');
+    }
+
+    public function socialNetworkAccount(): BelongsTo
+    {
+        return $this->belongsTo(SocialNetworkAccount::class, 'social_network_account_id');
     }
 }

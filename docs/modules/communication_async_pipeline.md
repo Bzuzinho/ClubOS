@@ -69,26 +69,33 @@ Uma repetição após sucesso é neutra. SMS recebe a chave no pedido externo e 
 
 O lote não faz backfill das campanhas e entregas históricas. Linhas anteriores ficam classificadas como legado pelo audit e continuam legíveis. Uma campanha histórica agendada e vencida exige revisão e reagendamento explícito, que lhe atribui uma chave H6a; esta barreira impede o deploy de enviar mensagens antigas inadvertidamente.
 
-## 7. Próximos lotes H6
+## 7. H6d — publicação em redes sociais
 
-- H6d: integrar Redes como provider adicional desta infraestrutura, mantendo Website independente e usando apenas APIs oficiais ou exportações autorizadas;
+Facebook e Instagram entram como canais explícitos da mesma `communication_campaign`. O separador `Comunicação > Redes` cria publicações imediatas ou agendadas, mas não envia a partir do controller: materializa o segmento técnico, os canais e a campanha canónica, entregando depois o trabalho ao `ProcessCommunicationCampaignJob`. Entregas, destinatário social, tentativas, backoff, identificador externo e consolidação de estado reutilizam integralmente H6a–H6c.
+
+As credenciais são geridas em `Definições > Notificações > Redes sociais`. `access_token`, `app_secret` e `webhook_verify_token` usam casts cifrados Laravel, nunca são devolvidos ao frontend e um campo secreto vazio preserva o valor existente. Cada rede só fica pronta com ativação explícita, ID externo e access token; o botão de validação consulta a Graph API e confirma que o ID devolvido coincide com a conta configurada.
+
+Facebook publica texto e ligação através do edge oficial `/{page-id}/feed`. Instagram executa o fluxo oficial em duas fases `/{ig-user-id}/media` e `/{ig-user-id}/media_publish`, exigindo uma URL HTTPS pública para a imagem. A versão Graph API é configurável por conta. Ambos os adapters exigem um ID externo no sucesso e falham fechados quando a conta está ausente ou incompleta.
+
+Os callbacks `GET|POST /api/webhooks/meta/{provider}` implementam challenge/verify token e `X-Hub-Signature-256`. O payload bruto não é persistido: `social_network_events` guarda apenas campos mínimos, hash, identidade externa, correlação e resultado. Eventos de lifecycle que tragam ID e estado normalizável convergem no mesmo `CommunicationProviderEventService`; duplicados são neutros. O Website permanece independente e não conhece tokens, campanhas ou chamadas Meta.
+
+## 8. Próximos lotes H6
+
 - H6e: QA operacional profundo, métricas/SLA e fecho produtivo do módulo.
 
-Uma futura integração Facebook/Instagram não pode publicar diretamente a partir de controllers nem criar outra tabela de campanhas. Deve entrar por este pipeline e guardar o identificador devolvido pela API oficial.
-
-## 8. Evidência produtiva H6a
+## 9. Evidência produtiva H6a
 
 O deploy do merge `da108ba6d4df33a216c5584ce28f8a3fe939ce67` aplicou a migration e emitiu o sinal de reinício da queue. O audit produtivo confirmou o schema completo, zero críticos, zero retries vencidos/em espera, zero destinatários esgotados e zero leases abandonadas. A queue ativa nesse ambiente é `database`; a ligação Redis está definida, mas um eventual cutover deve validar primeiro o processo Supervisor e não é pressuposto por este lote.
 
 Existem 65 campanhas, 123 entregas e 7991 destinatários históricos classificados como legado, sem backfill. Uma das campanhas históricas está agendada e vencida: conta como uma ação operacional, mas permanece bloqueada contra disparo automático até revisão e reagendamento explícitos.
 
-## 9. Evidência produtiva H6b
+## 10. Evidência produtiva H6b
 
 PR #311 foi validada pela CI #1109 e integrada no merge `407ee6f825bbdadba27b6d02f95d2bba18a802c8`. A CI #1110 repetiu Laravel, PostgreSQL concorrente e browser QA no commit de `main`, fez deploy na Oracle VM e recolheu o artifact `communication-async-pipeline-readiness-407ee6f825bbdadba27b6d02f95d2bba18a802c8` (ID `9897116395`, `sha256:e947ad5bac55e2f8544347b21d4952189e2061312d6a019aca3ccbb49a3f9cf2`).
 
 O audit `h6b-communication-automation-cutover-audit-v2` confirmou schema pronto, queue ativa `database`, zero campanhas automáticas sem pedido de dispatch, zero outbox automática por recuperar, zero retries, esgotamentos ou leases abandonadas e zero críticos. Não existiam ainda campanhas automáticas H6b no instante do deploy; as 65 campanhas, 123 entregas e 7991 destinatários permanecem classificados como legado e não foram alterados. A única campanha legacy agendada continua excluída do dispatcher automático e requer revisão explícita.
 
-## 10. Evidência produtiva H6c
+## 11. Evidência produtiva H6c
 
 PR #313 foi validada pela CI #1113 e integrada no merge `6cd2103e0897ac8f7909676e9e728e134826e709`. A CI #1114 repetiu Laravel, PostgreSQL concorrente e browser QA, aplicou a migration na Oracle VM e recolheu o artifact `communication-async-pipeline-readiness-6cd2103e0897ac8f7909676e9e728e134826e709` (ID `9900110232`, `sha256:84ff2204e3459f6b6da72080bfe4c38022e090b4aaabf36a1ed8300db4b04283`).
 

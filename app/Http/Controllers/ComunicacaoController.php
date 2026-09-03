@@ -11,6 +11,7 @@ use App\Models\CommunicationTemplate;
 use App\Models\InAppAlert;
 use App\Models\AgeGroup;
 use App\Models\User;
+use App\Services\Communication\SocialNetworkAccountService;
 use App\Services\Communication\SegmentResolverService;
 use App\Services\Members\MemberDataReadService;
 use App\Services\Members\MemberIdentityDisplayResolver;
@@ -56,6 +57,13 @@ class ComunicacaoController extends Controller
             'templates' => Inertia::lazy(fn () => $this->buildTemplatesPayload($useDefaultCache)),
             'segments' => Inertia::lazy(fn () => $this->buildSegmentsPayload($useDefaultCache)),
             'recipientOptions' => Inertia::lazy(fn () => $this->buildRecipientOptions($useDefaultCache)),
+            'socialAccounts' => Inertia::lazy(fn () => app(SocialNetworkAccountService::class)->safeConfigurations()),
+            'socialCampaigns' => Inertia::lazy(fn () => CommunicationCampaign::query()
+                ->where('source_type', 'social_publication')
+                ->with(['channels', 'deliveries'])
+                ->latest()
+                ->limit(20)
+                ->get()),
             'filters' => $request->only([
                 'search',
                 'channel',
@@ -89,7 +97,8 @@ class ComunicacaoController extends Controller
             'page',
             'deliveries_page',
             'templates_page',
-            'segments_page',
+                'segments_page',
+                'social',
         ];
 
         $query = collect($request->query())
@@ -171,6 +180,10 @@ class ComunicacaoController extends Controller
                 'channels:id,campaign_id,channel,is_enabled,template_id,subject,message_body',
                 'deliveries:id,campaign_id,channel,status,success_count,failed_count,error_message,sent_at,created_at',
             ])
+            ->where(function ($query): void {
+                $query->whereNull('source_type')
+                    ->orWhere('source_type', '!=', 'social_publication');
+            })
             ->latest();
 
         if ($request->filled('search')) {

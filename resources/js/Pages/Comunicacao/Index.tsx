@@ -167,6 +167,13 @@ interface Props {
     numero_socio?: string | null;
   }>;
   filters: Record<string, string | undefined>;
+  socialAccounts?: Array<{
+    provider: 'facebook' | 'instagram';
+    display_name?: string | null;
+    publish_ready: boolean;
+    verification_status: string;
+  }>;
+  socialCampaigns?: CampaignRow[];
 }
 
 type ComunicacaoPageProps = Props & Record<string, unknown>;
@@ -196,6 +203,8 @@ const CHANNELS: Array<{ value: Channel; label: string }> = [
   { value: 'push', label: 'Push' },
   { value: 'interno', label: 'Interno' },
   { value: 'alert_app', label: 'Alerta App' },
+  { value: 'facebook', label: 'Facebook' },
+  { value: 'instagram', label: 'Instagram' },
 ];
 
 const DIRECT_CHANNEL_CONFIG: Array<'email' | 'sms' | 'alert_app'> = [
@@ -266,6 +275,8 @@ export default function ComunicacaoIndex({
   filterOptions = EMPTY_FILTER_OPTIONS,
   recipientOptions,
   filters,
+  socialAccounts = [],
+  socialCampaigns = [],
 }: Props) {
   const page = usePage<ComunicacaoPageProps>();
   const fallbackAlertCategories = useMemo<Array<{ value: AlertCategory; label: string; channels: Array<'email' | 'sms' | 'alert_app'> }>>(
@@ -314,6 +325,8 @@ export default function ComunicacaoIndex({
   const hasSegments = Object.prototype.hasOwnProperty.call(page.props, 'segments');
   const hasFilterOptions = Object.prototype.hasOwnProperty.call(page.props, 'filterOptions');
   const hasRecipientOptions = Object.prototype.hasOwnProperty.call(page.props, 'recipientOptions');
+  const hasSocialAccounts = Object.prototype.hasOwnProperty.call(page.props, 'socialAccounts');
+  const hasSocialCampaigns = Object.prototype.hasOwnProperty.call(page.props, 'socialCampaigns');
 
   const templateVariableMap = useMemo(
     () => filterOptions.templateVariables.reduce<Record<string, string>>((accumulator, variable) => {
@@ -405,6 +418,30 @@ export default function ComunicacaoIndex({
       message_body: '',
     })),
   });
+
+  const socialForm = useForm({
+    title: '',
+    message: '',
+    providers: [] as Array<'facebook' | 'instagram'>,
+    link_url: '',
+    media_url: '',
+    scheduled_at: '',
+    submission_mode: 'send' as 'send' | 'schedule',
+  });
+
+  const toggleSocialProvider = (provider: 'facebook' | 'instagram', enabled: boolean) => {
+    socialForm.setData('providers', enabled
+      ? Array.from(new Set([...socialForm.data.providers, provider]))
+      : socialForm.data.providers.filter((item) => item !== provider));
+  };
+
+  const submitSocialPublication = (mode: 'send' | 'schedule') => {
+    socialForm.transform((data) => ({ ...data, submission_mode: mode }));
+    socialForm.post(route('comunicacao.redes.publicacoes.store'), {
+      preserveScroll: true,
+      onSuccess: () => socialForm.reset(),
+    });
+  };
 
   const createDirectChannelOverrides = () => DIRECT_CHANNEL_CONFIG.reduce<Record<string, { subjectCustomized: boolean; messageCustomized: boolean }>>((accumulator, channel) => {
     accumulator[channel] = { subjectCustomized: false, messageCustomized: false };
@@ -1227,6 +1264,7 @@ export default function ComunicacaoIndex({
       execucao: { ready: hasFilterOptions && hasDeliveries, props: ['filterOptions', 'deliveries'] },
       templates: { ready: hasFilterOptions && hasTemplates, props: ['filterOptions', 'templates'] },
       segmentos: { ready: hasFilterOptions && hasSegments, props: ['filterOptions', 'segments'] },
+      redes: { ready: hasSocialAccounts && hasSocialCampaigns, props: ['socialAccounts', 'socialCampaigns'] },
     };
 
     const pending = pendingByTab[activeTab];
@@ -1241,7 +1279,7 @@ export default function ComunicacaoIndex({
       only: pending.props,
       onFinish: () => setLoadingTab((current) => (current === activeTab ? null : current)),
     });
-  }, [activeTab, hasCampaigns, hasDeliveries, hasFilterOptions, hasSegments, hasTemplates]);
+  }, [activeTab, hasCampaigns, hasDeliveries, hasFilterOptions, hasSegments, hasSocialAccounts, hasSocialCampaigns, hasTemplates]);
 
   useEffect(() => {
     const needsFilterOptions = showCampaignModal || showTemplateModal || showSegmentModal || showDirectModal;
@@ -1310,7 +1348,7 @@ export default function ComunicacaoIndex({
       <div className={moduleViewportClass}>
         <Tabs value={activeTab} onValueChange={setActiveTab} className={moduleTabsClass}>
           <div className="w-full">
-            <TabsList className="grid h-auto w-full shrink-0 grid-cols-2 gap-1 p-1 text-[11px] sm:h-9 sm:grid-cols-5 sm:text-xs">
+            <TabsList className="grid h-auto w-full shrink-0 grid-cols-2 gap-1 p-1 text-[11px] sm:h-9 sm:grid-cols-6 sm:text-xs">
               <TabsTrigger value="dashboard" className="flex h-8 min-w-0 items-center justify-center gap-1 whitespace-nowrap px-2 py-1 text-[11px] leading-none sm:h-7 sm:text-xs">
                 <ChartLineUp size={14} />
                 <span>Dashboard</span>
@@ -1330,6 +1368,10 @@ export default function ComunicacaoIndex({
               <TabsTrigger value="execucao" className="flex h-8 min-w-0 items-center justify-center gap-1 whitespace-nowrap px-2 py-1 text-[11px] leading-none sm:h-7 sm:text-xs">
                 <UsersThree size={14} />
                 <span>Execução</span>
+              </TabsTrigger>
+              <TabsTrigger value="redes" className="flex h-8 min-w-0 items-center justify-center gap-1 whitespace-nowrap px-2 py-1 text-[11px] leading-none sm:h-7 sm:text-xs">
+                <PaperPlaneTilt size={14} />
+                <span>Redes</span>
               </TabsTrigger>
             </TabsList>
           </div>
@@ -1618,6 +1660,72 @@ export default function ComunicacaoIndex({
                 </div>
               </CardContent>
             </Card>
+            )
+            ) : null}
+          </TabsContent>
+
+          <TabsContent value="redes" className={`${moduleTabbedContentClass} space-y-3`}>
+            {activeTab === 'redes' ? (
+            !hasSocialAccounts || !hasSocialCampaigns || loadingTab === 'redes' ? (
+            <SectionLoadingState message="A carregar redes sociais..." />
+            ) : (
+            <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(360px,0.8fr)]">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Nova publicação</CardTitle>
+                  <p className="text-xs text-muted-foreground">Usa o mesmo pipeline assíncrono, histórico e retries das restantes comunicações.</p>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="space-y-2">
+                    <Label>Título interno</Label>
+                    <Input value={socialForm.data.title} onChange={(event) => socialForm.setData('title', event.target.value)} placeholder="Ex.: Resultados do fim de semana" />
+                    <InputError message={socialForm.errors.title} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Texto / legenda</Label>
+                    <Textarea value={socialForm.data.message} onChange={(event) => socialForm.setData('message', event.target.value)} rows={6} />
+                    <InputError message={socialForm.errors.message} />
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {socialAccounts.map((account) => (
+                      <label key={account.provider} className="flex items-center justify-between rounded-md border p-3">
+                        <div>
+                          <p className="text-sm font-medium">{account.provider === 'facebook' ? 'Facebook' : 'Instagram'}</p>
+                          <p className="text-xs text-muted-foreground">{account.publish_ready ? account.display_name || 'Conta configurada' : 'Adicionar credenciais nas Definições'}</p>
+                        </div>
+                        <Checkbox
+                          checked={socialForm.data.providers.includes(account.provider)}
+                          disabled={!account.publish_ready}
+                          onCheckedChange={(checked) => toggleSocialProvider(account.provider, Boolean(checked))}
+                        />
+                      </label>
+                    ))}
+                  </div>
+                  <InputError message={socialForm.errors.providers} />
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-2"><Label>Ligação (Facebook, opcional)</Label><Input type="url" value={socialForm.data.link_url} onChange={(event) => socialForm.setData('link_url', event.target.value)} placeholder="https://..." /><InputError message={socialForm.errors.link_url} /></div>
+                    <div className="space-y-2"><Label>Imagem pública (obrigatória no Instagram)</Label><Input type="url" value={socialForm.data.media_url} onChange={(event) => socialForm.setData('media_url', event.target.value)} placeholder="https://.../imagem.jpg" /><InputError message={socialForm.errors.media_url} /></div>
+                  </div>
+                  <div className="space-y-2"><Label>Agendar para</Label><Input type="datetime-local" value={socialForm.data.scheduled_at} onChange={(event) => socialForm.setData('scheduled_at', event.target.value)} /><InputError message={socialForm.errors.scheduled_at} /></div>
+                  <div className="flex flex-wrap justify-end gap-2">
+                    <Button variant="outline" disabled={socialForm.processing || !socialForm.data.scheduled_at || socialForm.data.providers.length === 0} onClick={() => submitSocialPublication('schedule')}>Agendar</Button>
+                    <Button disabled={socialForm.processing || socialForm.data.providers.length === 0} onClick={() => submitSocialPublication('send')}>{socialForm.processing ? 'A processar...' : 'Publicar agora'}</Button>
+                  </div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader><CardTitle className="text-base">Histórico recente</CardTitle></CardHeader>
+                <CardContent className="space-y-3">
+                  {socialCampaigns.length === 0 ? <p className="text-sm text-muted-foreground">Ainda não existem publicações sociais.</p> : socialCampaigns.map((campaign) => (
+                    <div key={campaign.id} className="rounded-md border p-3">
+                      <div className="flex items-start justify-between gap-2"><div><p className="text-sm font-medium">{campaign.title}</p><p className="text-xs text-muted-foreground">{campaign.codigo}</p></div><Badge variant={statusBadge[campaign.status]}>{campaign.status}</Badge></div>
+                      <div className="mt-2">{renderCampaignChannels(campaign)}</div>
+                      {campaign.scheduled_at ? <p className="mt-2 text-xs text-muted-foreground">{new Date(campaign.scheduled_at).toLocaleString('pt-PT')}</p> : null}
+                    </div>
+                  ))}
+                </CardContent>
+              </Card>
+            </div>
             )
             ) : null}
           </TabsContent>
@@ -2125,7 +2233,7 @@ export default function ComunicacaoIndex({
             <Label>Canal</Label>
             <Select value={templateForm.data.channel} onValueChange={(value: Channel) => templateForm.setData('channel', value)}>
               <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>{CHANNELS.map((item) => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}</SelectContent>
+              <SelectContent>{CHANNELS.filter((item) => !['facebook', 'instagram'].includes(item.value)).map((item) => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}</SelectContent>
             </Select>
             <Label>Categoria</Label>
             <Select value={templateForm.data.category} onValueChange={(value: AlertCategory) => templateForm.setData('category', value)}>
