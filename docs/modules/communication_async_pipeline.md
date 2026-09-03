@@ -72,3 +72,9 @@ Uma futura integração Facebook/Instagram não pode publicar diretamente a part
 O deploy do merge `da108ba6d4df33a216c5584ce28f8a3fe939ce67` aplicou a migration e emitiu o sinal de reinício da queue. O audit produtivo confirmou o schema completo, zero críticos, zero retries vencidos/em espera, zero destinatários esgotados e zero leases abandonadas. A queue ativa nesse ambiente é `database`; a ligação Redis está definida, mas um eventual cutover deve validar primeiro o processo Supervisor e não é pressuposto por este lote.
 
 Existem 65 campanhas, 123 entregas e 7991 destinatários históricos classificados como legado, sem backfill. Uma das campanhas históricas está agendada e vencida: conta como uma ação operacional, mas permanece bloqueada contra disparo automático até revisão e reagendamento explícitos.
+
+## 8. Evidência produtiva H6b
+
+PR #311 foi validada pela CI #1109 e integrada no merge `407ee6f825bbdadba27b6d02f95d2bba18a802c8`. A CI #1110 repetiu Laravel, PostgreSQL concorrente e browser QA no commit de `main`, fez deploy na Oracle VM e recolheu o artifact `communication-async-pipeline-readiness-407ee6f825bbdadba27b6d02f95d2bba18a802c8` (ID `9897116395`, `sha256:e947ad5bac55e2f8544347b21d4952189e2061312d6a019aca3ccbb49a3f9cf2`).
+
+O audit `h6b-communication-automation-cutover-audit-v2` confirmou schema pronto, queue ativa `database`, zero campanhas automáticas sem pedido de dispatch, zero outbox automática por recuperar, zero retries, esgotamentos ou leases abandonadas e zero críticos. Não existiam ainda campanhas automáticas H6b no instante do deploy; as 65 campanhas, 123 entregas e 7991 destinatários permanecem classificados como legado e não foram alterados. A única campanha legacy agendada continua excluída do dispatcher automático e requer revisão explícita.
