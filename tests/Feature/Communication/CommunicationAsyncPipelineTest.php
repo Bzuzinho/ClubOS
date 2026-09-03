@@ -143,6 +143,36 @@ class CommunicationAsyncPipelineTest extends TestCase
         $this->assertNotNull($retryChannel);
     }
 
+    public function test_due_dispatcher_recovers_pending_and_stale_automation_outbox_once(): void
+    {
+        Queue::fake();
+
+        [$pending] = $this->campaignWithRecipient('alert_app');
+        $pending->update([
+            'source_type' => 'invoice',
+            'source_id' => 'invoice-pending',
+            'status' => 'rascunho',
+            'dispatch_requested_at' => null,
+        ]);
+
+        [$stale] = $this->campaignWithRecipient('alert_app');
+        $stale->update([
+            'source_type' => 'logistics_request_created',
+            'source_id' => 'request-stale',
+            'status' => 'em_processamento',
+            'dispatch_requested_at' => now()->subMinutes(11),
+        ]);
+
+        $this->assertSame(0, Artisan::call('communication:dispatch-due'));
+        $this->assertSame('em_processamento', $pending->fresh()->status);
+        $this->assertNotNull($pending->fresh()->dispatch_requested_at);
+        $this->assertTrue($stale->fresh()->dispatch_requested_at->gt(now()->subMinute()));
+        Queue::assertPushed(ProcessCommunicationCampaignJob::class, 2);
+
+        Artisan::call('communication:dispatch-due');
+        Queue::assertPushed(ProcessCommunicationCampaignJob::class, 2);
+    }
+
     public function test_structured_origin_is_idempotent_at_campaign_level(): void
     {
         $recipient = User::factory()->create();
@@ -191,7 +221,7 @@ class CommunicationAsyncPipelineTest extends TestCase
 
         $payload = app(CommunicationAsyncPipelineAuditService::class)->audit();
 
-        $this->assertSame('h6a-communication-async-pipeline-audit-v1', $payload['version']);
+        $this->assertSame('h6b-communication-automation-cutover-audit-v2', $payload['version']);
         $this->assertTrue($payload['read_only']);
         $this->assertTrue($payload['summary']['schema_ready']);
         $this->assertSame(0, $payload['summary']['critical_count']);
@@ -206,6 +236,27 @@ class CommunicationAsyncPipelineTest extends TestCase
             CommunicationDeliveryRecipient::query()->count(),
             CommunicationDeliveryAttempt::query()->count(),
         ]);
+    }
+
+    public function test_async_pipeline_audit_reports_recoverable_automation_outbox(): void
+    {
+        [$campaign] = $this->campaignWithRecipient('alert_app');
+        $campaign->update([
+            'source_type' => 'invoice',
+            'source_id' => 'invoice-orphan',
+            'status' => 'rascunho',
+            'dispatch_requested_at' => null,
+        ]);
+
+        $payload = app(CommunicationAsyncPipelineAuditService::class)->audit();
+
+        $this->assertSame(1, $payload['summary']['automation_campaign_count']);
+        $this->assertSame(1, $payload['summary']['automation_without_dispatch_request_count']);
+        $this->assertSame(1, $payload['summary']['outbox_recovery_due_count']);
+        $this->assertSame(1, $payload['summary']['warning_count']);
+        $this->assertSame(1, $payload['summary']['actionable_count']);
+        $this->assertTrue($payload['interpretation']['automatic_sources_dispatch_via_persistent_outbox']);
+        $this->assertTrue($payload['interpretation']['stale_automatic_outbox_campaigns_are_recoverable']);
     }
 
     /** @return array{CommunicationCampaign,\App\Models\CommunicationCampaignChannel} */

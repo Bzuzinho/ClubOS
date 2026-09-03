@@ -222,6 +222,30 @@ class CommunicationCampaignService
 
     public function sendIndividualCommunication(array $payload, ?string $authorId = null): CommunicationCampaign
     {
+        $campaign = $this->createOrReuseIndividualCampaign($payload, $authorId);
+
+        if ($campaign->status === 'agendada') {
+            return $campaign->fresh(['channels', 'segment']);
+        }
+
+        return $this->sendCampaign($campaign->load(['channels', 'segment']), $authorId, false);
+    }
+
+    public function queueIndividualCommunication(array $payload, ?string $authorId = null): CommunicationCampaign
+    {
+        return DB::transaction(function () use ($payload, $authorId): CommunicationCampaign {
+            $campaign = $this->createOrReuseIndividualCampaign($payload, $authorId);
+
+            if ($campaign->status === 'agendada') {
+                return $campaign->fresh(['channels', 'segment']);
+            }
+
+            return $this->sendCampaign($campaign->load(['channels', 'segment']), $authorId, true);
+        });
+    }
+
+    private function createOrReuseIndividualCampaign(array $payload, ?string $authorId): CommunicationCampaign
+    {
         if (! empty($payload['idempotency_key'])) {
             $existing = CommunicationCampaign::query()
                 ->where('idempotency_key', $payload['idempotency_key'])
@@ -278,11 +302,7 @@ class CommunicationCampaignService
             ], $authorId);
         });
 
-        if ($campaign->status === 'agendada') {
-            return $campaign->fresh(['channels', 'segment']);
-        }
-
-        return $this->sendCampaign($campaign->load(['channels', 'segment']), $authorId, false);
+        return $campaign;
     }
 
     public function consolidateStatus(CommunicationCampaign $campaign): CommunicationCampaign

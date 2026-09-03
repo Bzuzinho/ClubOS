@@ -22,7 +22,17 @@ Não existe uma segunda fila funcional em tabelas paralelas. A queue Laravel tra
 - a vista de Execução apresenta tentativas, destinatários em retry e tentativas esgotadas;
 - `communication:audit-async-pipeline` mede schema, legado, backlog, retries, referências de provider e anomalias sem escrever dados.
 
-## 3. Semântica de estados
+## 3. H6b — cutover das automações
+
+As automações de faturas, movimentos, convocatórias de Eventos, requisições e compras de Logística, bem como o gateway de publicação Desportivo, deixam de executar entregas no processo que originou o evento. O processo funcional apenas avalia as preferências, fixa destinatários/canais numa campanha idempotente e publica `ProcessCommunicationCampaignJob` depois do commit.
+
+A campanha é escrita na mesma transação do evento de negócio quando o produtor já está dentro de uma transação. Se essa transação fizer rollback, campanha e job são descartados em conjunto. Preferências desligadas continuam a impedir a criação da campanha; preferências ativas ficam materializadas nos canais da campanha antes de esta entrar na queue.
+
+O dispatcher recupera também campanhas automáticas sem qualquer entrega quando ficaram em `rascunho` sem pedido de dispatch ou em `em_processamento` há mais de dez minutos. Esta recuperação usa a mesma chave da campanha e o job único, sem criar outra entrega lógica.
+
+O envio individual explícito da interface mantém execução direta; este lote altera apenas produtores automáticos e o gateway Desportivo. Mensagens internas e alertas operacionais específicos que não usam `CommunicationAutomationService` conservam o seu lifecycle próprio.
+
+## 4. Semântica de estados
 
 | Agregado | Estado | Significado |
 |---|---|---|
@@ -37,7 +47,7 @@ Não existe uma segunda fila funcional em tabelas paralelas. A queue Laravel tra
 
 Falhas transitórias do destinatário usam backoff de 1 e 5 minutos entre um máximo de três tentativas; a terceira falha esgota o destinatário. Exceções do job usam backoff de 1, 5 e 15 minutos. Um lease sem conclusão há dez minutos volta a ser elegível, preservando a tentativa anterior para auditoria.
 
-## 4. Idempotência e limites
+## 5. Idempotência e limites
 
 As chaves são aplicadas em três níveis:
 
@@ -49,16 +59,15 @@ Uma repetição após sucesso é neutra. SMS recebe a chave no pedido externo e 
 
 O lote não faz backfill das campanhas e entregas históricas. Linhas anteriores ficam classificadas como legado pelo audit e continuam legíveis. Uma campanha histórica agendada e vencida exige revisão e reagendamento explícito, que lhe atribui uma chave H6a; esta barreira impede o deploy de enviar mensagens antigas inadvertidamente.
 
-## 5. Próximos lotes H6
+## 6. Próximos lotes H6
 
-- H6b: mover as automações síncronas ainda existentes para a outbox assíncrona sem alterar preferências nem origens;
 - H6c: adapters explícitos de email/SMS/push e webhooks autenticados para estados `delivered`, `failed` e `read`;
 - H6d: integrar Redes como provider adicional desta infraestrutura, mantendo Website independente e usando apenas APIs oficiais ou exportações autorizadas;
 - H6e: QA operacional profundo, métricas/SLA e fecho produtivo do módulo.
 
 Uma futura integração Facebook/Instagram não pode publicar diretamente a partir de controllers nem criar outra tabela de campanhas. Deve entrar por este pipeline e guardar o identificador devolvido pela API oficial.
 
-## 6. Evidência produtiva H6a
+## 7. Evidência produtiva H6a
 
 O deploy do merge `da108ba6d4df33a216c5584ce28f8a3fe939ce67` aplicou a migration e emitiu o sinal de reinício da queue. O audit produtivo confirmou o schema completo, zero críticos, zero retries vencidos/em espera, zero destinatários esgotados e zero leases abandonadas. A queue ativa nesse ambiente é `database`; a ligação Redis está definida, mas um eventual cutover deve validar primeiro o processo Supervisor e não é pressuposto por este lote.
 

@@ -4,7 +4,9 @@ namespace Tests\Feature\Sports;
 
 use App\Contracts\Logistica\SportsLogisticsGateway;
 use App\Contracts\Logistica\SportsLogisticsRequest;
+use App\Jobs\ProcessCommunicationCampaignJob;
 use App\Models\CommunicationCampaign;
+use App\Models\CommunicationDelivery;
 use App\Models\ConvocationGroup;
 use App\Models\Event;
 use App\Models\EventConvocation;
@@ -18,6 +20,7 @@ use App\Services\Communication\CommunicationCampaignService;
 use App\Services\Desportivo\SportsConvocationPublicationService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Queue;
 use Tests\TestCase;
 
 class SportsCommunicationLogisticsContractFoundationTest extends TestCase
@@ -61,6 +64,7 @@ class SportsCommunicationLogisticsContractFoundationTest extends TestCase
     public function test_explicit_publication_is_idempotent_for_same_version(): void
     {
         Mail::fake();
+        Queue::fake();
 
         [$actor, $athlete, $event, $group] = $this->convocationFixture();
         EventConvocation::query()->create([
@@ -80,6 +84,9 @@ class SportsCommunicationLogisticsContractFoundationTest extends TestCase
         $this->assertSame($first['communication']->intentId, $second['communication']->intentId);
         $this->assertSame(1, SportsCommunicationIntent::query()->count());
         $this->assertSame(1, CommunicationCampaign::query()->count());
+        $this->assertSame('em_processamento', CommunicationCampaign::query()->value('status'));
+        $this->assertSame(0, CommunicationDelivery::query()->count());
+        Queue::assertPushed(ProcessCommunicationCampaignJob::class, 1);
         $this->assertStringContainsString(
             'origem: sports_intent:',
             (string) CommunicationCampaign::query()->value('notes'),
@@ -184,7 +191,7 @@ class SportsCommunicationLogisticsContractFoundationTest extends TestCase
             {
             }
 
-            public function sendIndividualCommunication(array $payload, ?string $authorId = null): CommunicationCampaign
+            public function queueIndividualCommunication(array $payload, ?string $authorId = null): CommunicationCampaign
             {
                 throw new \RuntimeException('delivery unavailable');
             }

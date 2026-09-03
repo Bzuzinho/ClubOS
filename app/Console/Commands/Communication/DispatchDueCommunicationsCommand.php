@@ -14,7 +14,7 @@ final class DispatchDueCommunicationsCommand extends Command
 {
     protected $signature = 'communication:dispatch-due {--limit=100 : Máximo de campanhas por ciclo}';
 
-    protected $description = 'Enfileira campanhas agendadas e retentativas de comunicação vencidas';
+    protected $description = 'Enfileira campanhas agendadas, outbox automática pendente e retentativas vencidas';
 
     public function __construct(private readonly CommunicationCampaignService $campaignService)
     {
@@ -25,6 +25,7 @@ final class DispatchDueCommunicationsCommand extends Command
     {
         $limit = max(1, min(500, (int) $this->option('limit')));
         $scheduledCount = 0;
+        $outboxCount = 0;
         $retryCount = 0;
 
         CommunicationCampaign::query()
@@ -45,6 +46,36 @@ final class DispatchDueCommunicationsCommand extends Command
             });
 
         $remaining = max(0, $limit - $scheduledCount);
+        if ($remaining > 0) {
+            CommunicationCampaign::query()
+                ->whereNotNull('idempotency_key')
+                ->whereNotNull('source_type')
+                ->whereDoesntHave('deliveries')
+                ->where(function ($query): void {
+                    $query->where(function ($pending): void {
+                        $pending->where('status', 'rascunho')
+                            ->whereNull('dispatch_requested_at');
+                    })->orWhere(function ($stale): void {
+                        $stale->where('status', 'em_processamento')
+                            ->whereNotNull('dispatch_requested_at')
+                            ->where('dispatch_requested_at', '<=', now()->subMinutes(10));
+                    });
+                })
+                ->orderBy('created_at')
+                ->limit($remaining)
+                ->get()
+                ->each(function (CommunicationCampaign $campaign) use (&$outboxCount): void {
+                    $campaign->update([
+                        'status' => 'em_processamento',
+                        'dispatch_requested_at' => now(),
+                    ]);
+
+                    ProcessCommunicationCampaignJob::dispatch((string) $campaign->id)->afterCommit();
+                    $outboxCount++;
+                });
+        }
+
+        $remaining = max(0, $limit - $scheduledCount - $outboxCount);
         if ($remaining > 0) {
             $retryCampaignIds = CommunicationDeliveryRecipient::query()
                 ->join('communication_deliveries', 'communication_deliveries.id', '=', 'communication_delivery_recipients.delivery_id')
@@ -86,8 +117,9 @@ final class DispatchDueCommunicationsCommand extends Command
         }
 
         $this->info(sprintf(
-            'Comunicações enfileiradas: %d agendadas, %d retentativas.',
+            'Comunicações enfileiradas: %d agendadas, %d outbox pendentes, %d retentativas.',
             $scheduledCount,
+            $outboxCount,
             $retryCount,
         ));
 
