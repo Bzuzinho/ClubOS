@@ -1,6 +1,5 @@
 import { Head, router, usePage } from '@inertiajs/react';
-import { Bell, CreditCard, FileText, IdCard, Megaphone, ShoppingBag, Trophy, Users } from 'lucide-react';
-import PortalCard from '@/Components/Portal/PortalCard';
+import { CalendarDays, ChevronRight, CreditCard, FileText, IdCard, Megaphone } from 'lucide-react';
 import PortalLayout from '@/Layouts/PortalLayout';
 import { portalRoutes } from '@/lib/portalRoutes';
 import type { ClubSettingsProps, PageProps as SharedPageProps } from '@/types';
@@ -33,80 +32,33 @@ interface BasePortalProps {
 
 type PageProps = SharedPageProps<BasePortalProps>;
 
+function firstName(name: string): string {
+    return name.trim().split(/\s+/)[0] || 'Utilizador';
+}
+
 export default function Base() {
     const { props } = usePage<PageProps>();
-    const { auth, clubSettings, is_also_admin, has_family = false, perfil_tipos = [] } = props;
+    const {
+        auth,
+        clubSettings,
+        user,
+        is_also_admin,
+        has_family = false,
+        perfil_tipos = [],
+        communicationAlerts,
+    } = props;
 
-    const cards = [
-        {
-            key: 'profile',
-            title: 'Os meus dados',
-            description: 'Consultar e atualizar a minha ficha.',
-            icon: IdCard,
-            accentClass: 'bg-blue-50 text-blue-600',
-            href: portalRoutes.profile,
-        },
-        {
-            key: 'events',
-            title: 'Convocatórias / Eventos',
-            description: 'Agenda e compromissos do clube.',
-            icon: Megaphone,
-            accentClass: 'bg-orange-50 text-orange-600',
-            href: portalRoutes.events,
-        },
-        {
-            key: 'payments',
-            title: 'Pagamentos',
-            description: 'Ver estado financeiro e mensalidades.',
-            icon: CreditCard,
-            accentClass: 'bg-emerald-50 text-emerald-600',
-            href: portalRoutes.payments,
-        },
-        {
-            key: 'results',
-            title: 'Resultados',
-            description: 'Consultar evolução e provas recentes.',
-            icon: Trophy,
-            accentClass: 'bg-violet-50 text-violet-600',
-            href: portalRoutes.results,
-        },
-        {
-            key: 'documents',
-            title: 'Documentos',
-            description: 'Licenças, anexos e comprovativos.',
-            icon: FileText,
-            accentClass: 'bg-indigo-50 text-indigo-600',
-            href: portalRoutes.documents,
-        },
-        {
-            key: 'alerts',
-            title: 'Comunicados',
-            description: 'Abrir alertas e mensagens do clube.',
-            icon: Bell,
-            accentClass: 'bg-violet-50 text-violet-600',
-            href: portalRoutes.communications,
-        },
-        {
-            key: 'store',
-            title: 'Loja / Requisições',
-            description: 'Aceder a artigos e requisições.',
-            icon: ShoppingBag,
-            accentClass: 'bg-amber-50 text-amber-600',
-            href: portalRoutes.shop,
-        },
-        ...(has_family ? [{
-            key: 'family',
-            title: 'Família',
-            description: 'Área familiar agregada.',
-            icon: Users,
-            accentClass: 'bg-rose-50 text-rose-600',
-            href: portalRoutes.family,
-        }] : []),
+    const quickActions = [
+        { key: 'profile', label: 'Perfil', icon: IdCard, href: portalRoutes.profile },
+        { key: 'payments', label: 'Pagamentos', icon: CreditCard, href: portalRoutes.payments },
+        { key: 'events', label: 'Agenda', icon: CalendarDays, href: portalRoutes.events },
+        { key: 'documents', label: 'Documentos', icon: FileText, href: portalRoutes.documents },
     ];
+    const recentAlerts = (communicationAlerts?.recent ?? []).slice(0, 4);
 
     return (
         <>
-            <Head title="A Minha Área" />
+            <Head title="Início" />
 
             <PortalLayout
                 user={auth.user}
@@ -115,22 +67,69 @@ export default function Base() {
                 activeNav="dashboard"
                 hasFamily={has_family}
             >
-                <section className="overflow-hidden rounded-[20px] bg-[linear-gradient(180deg,#0f57b3_0%,#114c98_100%)] px-3.5 py-3.5 text-white shadow-[0_14px_28px_rgba(15,76,152,0.18)]">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-blue-100">Portal Base</p>
-                    <h2 className="mt-1.5 text-xl font-semibold">A Minha Área</h2>
+                <section className="overflow-hidden rounded-[22px] bg-[linear-gradient(145deg,#0f62c8_0%,#0c4d9d_100%)] px-4 py-4 text-white shadow-[0_16px_32px_rgba(15,76,152,0.18)] sm:px-5">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-blue-100">Portal pessoal</p>
+                    <h1 className="mt-1.5 text-lg font-semibold">Olá, {firstName(user.name)}</h1>
+                    <p className="mt-1 text-xs text-blue-100">
+                        {perfil_tipos.length > 0 ? perfil_tipos.join(' · ') : 'A tua área do clube'}
+                    </p>
                 </section>
 
-                <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                    {cards.map((card) => (
-                        <PortalCard
-                            key={card.key}
-                            title={card.title}
-                            description={card.description}
-                            icon={card.icon}
-                            accentClass={card.accentClass}
-                            onClick={() => router.visit(card.href)}
-                        />
-                    ))}
+                <section>
+                    <h2 className="mb-3 text-base font-semibold text-slate-900">Ações rápidas</h2>
+                    <div className="grid grid-cols-4 gap-2.5">
+                        {quickActions.map((action) => (
+                            <button
+                                key={action.key}
+                                type="button"
+                                onClick={() => router.visit(action.href)}
+                                className="flex min-w-0 flex-col items-center gap-2 rounded-[18px] border border-slate-200 bg-white px-2 py-3 text-center shadow-[0_6px_18px_rgba(15,23,42,0.04)] transition hover:border-blue-200 hover:bg-blue-50/40"
+                            >
+                                <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-blue-50 text-blue-700">
+                                    <action.icon className="h-4 w-4" />
+                                </span>
+                                <span className="truncate text-[10px] font-semibold text-slate-700 sm:text-xs">{action.label}</span>
+                            </button>
+                        ))}
+                    </div>
+                </section>
+
+                <section className="rounded-[22px] border border-slate-200 bg-white p-4 shadow-[0_8px_22px_rgba(15,23,42,0.045)] sm:p-5">
+                    <div className="flex items-center justify-between gap-3">
+                        <div>
+                            <h2 className="text-base font-semibold text-slate-900">Comunicados recentes</h2>
+                            <p className="mt-1 text-xs text-slate-500">Informação relevante do clube.</p>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => router.visit(portalRoutes.communications)}
+                            className="text-xs font-semibold text-blue-700"
+                        >
+                            Ver todos
+                        </button>
+                    </div>
+
+                    <div className="mt-4 divide-y divide-slate-100">
+                        {recentAlerts.length > 0 ? recentAlerts.map((alert) => (
+                            <button
+                                key={alert.id}
+                                type="button"
+                                onClick={() => router.visit(alert.link || portalRoutes.communications)}
+                                className="flex w-full items-start gap-3 py-3 text-left first:pt-0 last:pb-0"
+                            >
+                                <span className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-700">
+                                    <Megaphone className="h-4 w-4" />
+                                </span>
+                                <span className="min-w-0 flex-1">
+                                    <span className="block truncate text-sm font-semibold text-slate-900">{alert.title}</span>
+                                    <span className="mt-1 line-clamp-2 block text-xs leading-5 text-slate-500">{alert.message}</span>
+                                </span>
+                                <ChevronRight className="mt-2 h-4 w-4 shrink-0 text-slate-300" />
+                            </button>
+                        )) : (
+                            <p className="text-sm text-slate-500">Sem comunicados recentes.</p>
+                        )}
+                    </div>
                 </section>
             </PortalLayout>
         </>
