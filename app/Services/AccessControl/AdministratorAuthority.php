@@ -24,13 +24,18 @@ final class AdministratorAuthority
             return false;
         }
 
+        // Preserve the legacy profile field because existing installations may
+        // still identify the structural administrator through users.perfil.
         if ($this->isAdministratorIdentifier($user->perfil)) {
             return true;
         }
 
+        // UserType.nome is human-facing and editable. Authority must only be
+        // derived from the canonical code so renaming a normal type can never
+        // become a privilege-escalation path.
         return $user->userTypes()
             ->where('ativo', true)
-            ->get(['codigo', 'nome'])
+            ->get(['codigo'])
             ->contains(fn (UserType $userType): bool => $this->isAdministratorType($userType));
     }
 
@@ -40,8 +45,7 @@ final class AdministratorAuthority
             return false;
         }
 
-        return $this->isAdministratorIdentifier($userType->codigo)
-            || $this->isAdministratorIdentifier($userType->nome);
+        return $this->isAdministratorIdentifier($userType->codigo);
     }
 
     public function isProtectedGovernanceMutation(string $permissionKey, string $capability): bool
