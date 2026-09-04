@@ -66,6 +66,23 @@ class FaturasTabFlowContractTest extends TestCase
         );
     }
 
+
+    public function test_invoice_update_does_not_resubmit_read_only_origin_fields(): void
+    {
+        $source = file_get_contents(resource_path('js/Pages/Financeiro/FaturasTab.tsx'));
+
+        $this->assertIsString($source);
+        $start = strpos($source, 'const updated = await persistInvoiceUpdate(editingFaturaId, {');
+        $end = $start === false ? false : strpos($source, 'items: novosItens.map', $start);
+
+        $this->assertNotFalse($start);
+        $this->assertNotFalse($end);
+
+        $payload = substr($source, $start, $end - $start);
+        $this->assertStringNotContainsString('origem_tipo:', $payload);
+        $this->assertStringNotContainsString('origem_id:', $payload);
+    }
+
     public function test_mensalidades_show_the_bank_reconciliation_trace_and_ignore_reversed_maps(): void
     {
         $source = file_get_contents(resource_path('js/Pages/Financeiro/FaturasTab.tsx'));

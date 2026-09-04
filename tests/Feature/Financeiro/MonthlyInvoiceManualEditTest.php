@@ -47,8 +47,8 @@ class MonthlyInvoiceManualEditTest extends TestCase
             'estado_pagamento' => 'vencido',
             'centro_custo_id' => $costCenter->id,
             'tipo' => 'mensalidade',
-            'origem_tipo' => 'monthly_fee',
-            'origem_id' => 'monthly-fee-plan-1',
+            'origem_tipo' => 'monthly_fee_legacy',
+            'origem_id' => null,
             'observacoes' => 'Mensalidade março 2026',
         ]);
 
@@ -72,8 +72,8 @@ class MonthlyInvoiceManualEditTest extends TestCase
             'valor_total' => 30,
             'estado_pagamento' => 'vencido',
             'centro_custo_id' => $costCenter->id,
-            'origem_tipo' => 'monthly_fee',
-            'origem_id' => 'monthly-fee-plan-1',
+            'origem_tipo' => 'monthly_fee_legacy',
+            'origem_id' => null,
             'observacoes' => 'Mensalidade março 2026 corrigida manualmente',
             'oculta' => false,
             'items' => [[
@@ -88,7 +88,7 @@ class MonthlyInvoiceManualEditTest extends TestCase
 
         $response->assertOk()
             ->assertJsonPath('invoice.tipo', 'mensalidade')
-            ->assertJsonPath('invoice.origem_tipo', 'monthly_fee')
+            ->assertJsonPath('invoice.origem_tipo', 'monthly_fee_legacy')
             ->assertJsonPath('invoice.valor_total', '30.00')
             ->assertJsonPath('invoice.valor_em_aberto', '30.00')
             ->assertJsonPath('invoice.estado_pagamento', 'vencido');
@@ -96,7 +96,7 @@ class MonthlyInvoiceManualEditTest extends TestCase
         $this->assertDatabaseHas('invoices', [
             'id' => $invoice->id,
             'tipo' => 'mensalidade',
-            'origem_tipo' => 'monthly_fee',
+            'origem_tipo' => 'monthly_fee_legacy',
             'valor_total' => 30,
             'valor_em_aberto' => 30,
             'estado_pagamento' => 'vencido',

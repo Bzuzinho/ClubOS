@@ -1202,8 +1202,6 @@ export function FaturasTab({
           estado_pagamento: administrativeStatus,
           centro_custo_id: faturaAtualizada.centro_custo_id || undefined,
           observacoes: faturaAtualizada.observacoes || undefined,
-          origem_tipo: faturaAtualizada.origem_tipo || null,
-          origem_id: faturaAtualizada.origem_id || null,
           oculta: faturaAtualizada.oculta || false,
           items: novosItens.map((item) => ({
             descricao: item.descricao,
