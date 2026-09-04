@@ -104,7 +104,6 @@ interface SearchResultMember {
 }
 
 type PageProps = SharedPageProps<FamilyPortalProps>;
-
 type FamilyRole = 'educando' | 'familiar' | 'encarregado_educacao' | 'responsavel' | 'family-member';
 
 interface FamilyMemberCard {
@@ -176,6 +175,16 @@ function roleLabel(value?: string | null): string {
     }
 }
 
+function safeAgeGroup(value?: string | null): string | null {
+    const normalized = value?.trim();
+    if (!normalized) {
+        return null;
+    }
+
+    const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    return uuidPattern.test(normalized) ? null : normalized;
+}
+
 function paymentAmount(payment: PaymentItem): number {
     const raw = payment.valor_label ?? payment.valor ?? payment.valor_nominal ?? 0;
     if (typeof raw === 'number') {
@@ -224,7 +233,7 @@ export default function Family() {
                 numero_socio: member.numero_socio ?? null,
                 foto_perfil: member.foto_perfil ?? null,
                 estado: member.estado ?? null,
-                escalao: member.escalao?.[0] ?? null,
+                escalao: safeAgeGroup(member.escalao?.[0] ?? null),
                 roleLabel: roleLabel(member.papel_na_familia),
                 memberUrl: member.can_view ? `/portal/perfil?member=${member.id}` : null,
             });
@@ -307,25 +316,27 @@ export default function Family() {
                 activeNav="family"
                 hasFamily={has_family}
             >
-                <section className="rounded-[22px] border border-slate-200 bg-white p-4 shadow-[0_8px_22px_rgba(15,23,42,0.045)] sm:p-5">
-                    <div className="flex items-center justify-between gap-3">
+                <section className="overflow-hidden rounded-[22px] bg-[linear-gradient(145deg,#0f62c8_0%,#0c4d9d_100%)] p-4 text-white shadow-[0_16px_32px_rgba(15,76,152,0.18)] sm:p-5">
+                    <div className="flex min-w-0 items-center justify-between gap-3">
                         <div className="flex min-w-0 items-center gap-3">
                             {familyMember.foto_perfil ? (
-                                <img src={familyMember.foto_perfil} alt={familyMember.name} className="h-11 w-11 rounded-2xl object-cover" />
+                                <img src={familyMember.foto_perfil} alt={familyMember.name} className="h-12 w-12 shrink-0 rounded-2xl border border-white/20 object-cover" />
                             ) : (
-                                <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-blue-50 text-sm font-semibold text-blue-700">
+                                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white/90 text-sm font-semibold text-blue-700">
                                     {getInitials(familyMember.name)}
                                 </div>
                             )}
                             <div className="min-w-0">
-                                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Família</p>
-                                <h1 className="truncate text-base font-semibold text-slate-900">{familyMember.name}</h1>
-                                <p className="mt-0.5 text-xs text-slate-500">
+                                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-blue-100">Família</p>
+                                <h1 className="mt-0.5 line-clamp-2 break-words text-base font-semibold text-white">{familyMember.name}</h1>
+                                <p className="mt-1 text-xs text-blue-100">
                                     {familyMember.numero_socio ? `Sócio #${familyMember.numero_socio}` : 'Gestão familiar'}
                                 </p>
                             </div>
                         </div>
-                        <Users className="h-5 w-5 shrink-0 text-blue-600" />
+                        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-white/15 bg-white/10 text-white">
+                            <Users className="h-5 w-5" />
+                        </span>
                     </div>
                 </section>
 
@@ -335,7 +346,7 @@ export default function Family() {
                     className="w-full rounded-[22px] border border-slate-200 bg-white p-4 text-left shadow-[0_8px_22px_rgba(15,23,42,0.045)] transition hover:border-blue-200 sm:p-5"
                 >
                     <div className="flex items-start justify-between gap-3">
-                        <div>
+                        <div className="min-w-0">
                             <p className="text-xs font-semibold text-slate-900">Conta Corrente da família</p>
                             <div className="mt-3 flex flex-wrap items-end gap-x-8 gap-y-3">
                                 <div>
@@ -367,38 +378,38 @@ export default function Family() {
                     <button
                         type="button"
                         onClick={() => router.visit(portalRoutes.payments)}
-                        className="rounded-[20px] border border-slate-200 bg-white p-3.5 text-left shadow-[0_6px_18px_rgba(15,23,42,0.04)] transition hover:border-blue-200"
+                        className="min-w-0 rounded-[20px] border border-slate-200 bg-white p-3.5 text-left shadow-[0_6px_18px_rgba(15,23,42,0.04)] transition hover:border-blue-200"
                     >
                         <div className="flex items-start justify-between gap-2">
-                            <div>
+                            <div className="min-w-0">
                                 <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">Pagamentos</p>
                                 <p className="mt-1.5 text-xl font-semibold text-slate-900">{familySummary?.pagamentos_pendentes ?? pagamentos.length}</p>
                                 <p className="mt-1 text-[11px] text-slate-500">em aberto</p>
                             </div>
-                            <CreditCard className="h-4 w-4 text-blue-600" />
+                            <CreditCard className="h-4 w-4 shrink-0 text-blue-600" />
                         </div>
                     </button>
                     <button
                         type="button"
                         onClick={() => router.visit(portalRoutes.events)}
-                        className="rounded-[20px] border border-slate-200 bg-white p-3.5 text-left shadow-[0_6px_18px_rgba(15,23,42,0.04)] transition hover:border-blue-200"
+                        className="min-w-0 rounded-[20px] border border-slate-200 bg-white p-3.5 text-left shadow-[0_6px_18px_rgba(15,23,42,0.04)] transition hover:border-blue-200"
                     >
                         <div className="flex items-start justify-between gap-2">
-                            <div>
+                            <div className="min-w-0">
                                 <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">Agenda</p>
                                 <p className="mt-1.5 text-xl font-semibold text-slate-900">
                                     {(familySummary?.convocatorias_pendentes ?? convocatorias_pendentes.length) + (familySummary?.proximos_treinos ?? proximos_treinos.length)}
                                 </p>
                                 <p className="mt-1 text-[11px] text-slate-500">itens a acompanhar</p>
                             </div>
-                            <CalendarDays className="h-4 w-4 text-blue-600" />
+                            <CalendarDays className="h-4 w-4 shrink-0 text-blue-600" />
                         </div>
                     </button>
                 </section>
 
-                <section className="rounded-[22px] border border-slate-200 bg-white p-4 shadow-[0_8px_22px_rgba(15,23,42,0.045)] sm:p-5">
-                    <div className="flex items-center justify-between gap-3">
-                        <div>
+                <section className="min-w-0 overflow-hidden rounded-[22px] border border-slate-200 bg-white p-4 shadow-[0_8px_22px_rgba(15,23,42,0.045)] sm:p-5">
+                    <div className="flex min-w-0 items-center justify-between gap-3">
+                        <div className="min-w-0">
                             <h2 className="text-base font-semibold text-slate-900">Membros</h2>
                             <p className="mt-1 text-xs text-slate-500">Pessoas associadas à tua família.</p>
                         </div>
@@ -406,7 +417,7 @@ export default function Family() {
                             <button
                                 type="button"
                                 onClick={() => setShowAssociate((current) => !current)}
-                                className="inline-flex items-center gap-1.5 rounded-xl bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700"
+                                className="inline-flex shrink-0 items-center gap-1.5 rounded-xl bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700"
                             >
                                 {showAssociate ? <X className="h-3.5 w-3.5" /> : <UserPlus className="h-3.5 w-3.5" />}
                                 {showAssociate ? 'Fechar' : 'Associar'}
@@ -414,33 +425,41 @@ export default function Family() {
                         ) : null}
                     </div>
 
-                    <div className="mt-4 grid gap-2.5 sm:grid-cols-2">
-                        {familyMembers.length > 0 ? familyMembers.map((member) => (
-                            <button
-                                key={member.id}
-                                type="button"
-                                onClick={() => member.memberUrl ? router.visit(member.memberUrl) : undefined}
-                                className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50/70 p-3 text-left transition hover:border-blue-200 hover:bg-white"
-                            >
-                                {member.foto_perfil ? (
-                                    <img src={member.foto_perfil} alt={member.name} className="h-11 w-11 rounded-xl object-cover" />
-                                ) : (
-                                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-slate-200 text-xs font-semibold text-slate-700">
-                                        {getInitials(member.name)}
+                    <div className="mt-4 grid min-w-0 gap-2.5 sm:grid-cols-2">
+                        {familyMembers.length > 0 ? familyMembers.map((member) => {
+                            const memberMeta = [
+                                member.roleLabel,
+                                safeAgeGroup(member.escalao),
+                                member.numero_socio ? `#${member.numero_socio}` : null,
+                            ].filter(Boolean).join(' · ');
+
+                            return (
+                                <button
+                                    key={member.id}
+                                    type="button"
+                                    onClick={() => member.memberUrl ? router.visit(member.memberUrl) : undefined}
+                                    className="flex w-full min-w-0 items-center gap-3 overflow-hidden rounded-2xl border border-slate-200 bg-slate-50/70 p-3 text-left transition hover:border-blue-200 hover:bg-white"
+                                >
+                                    {member.foto_perfil ? (
+                                        <img src={member.foto_perfil} alt={member.name} className="h-11 w-11 shrink-0 rounded-xl object-cover" />
+                                    ) : (
+                                        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-slate-200 text-xs font-semibold text-slate-700">
+                                            {getInitials(member.name)}
+                                        </div>
+                                    )}
+                                    <div className="min-w-0 flex-1 overflow-hidden">
+                                        <p className="line-clamp-2 break-words text-sm font-semibold leading-5 text-slate-900">{member.name}</p>
+                                        <p className="mt-0.5 truncate text-[11px] text-slate-500" title={memberMeta}>
+                                            {memberMeta || 'Membro da família'}
+                                        </p>
+                                        <span className="mt-1.5 inline-flex max-w-full truncate rounded-full bg-white px-2 py-0.5 text-[9px] font-semibold text-slate-600">
+                                            {member.estado || 'Ativo'}
+                                        </span>
                                     </div>
-                                )}
-                                <div className="min-w-0 flex-1">
-                                    <p className="truncate text-sm font-semibold text-slate-900">{member.name}</p>
-                                    <p className="mt-0.5 truncate text-[11px] text-slate-500">
-                                        {[member.roleLabel, member.escalao, member.numero_socio ? `#${member.numero_socio}` : null].filter(Boolean).join(' · ')}
-                                    </p>
-                                    <span className="mt-1.5 inline-flex rounded-full bg-white px-2 py-0.5 text-[9px] font-semibold text-slate-600">
-                                        {member.estado || 'Ativo'}
-                                    </span>
-                                </div>
-                                <ChevronRight className="h-4 w-4 shrink-0 text-slate-300" />
-                            </button>
-                        )) : (
+                                    <ChevronRight className="h-4 w-4 shrink-0 text-slate-300" />
+                                </button>
+                            );
+                        }) : (
                             <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-500 sm:col-span-2">
                                 Não existem outros membros familiares visíveis.
                             </div>
@@ -448,9 +467,9 @@ export default function Family() {
                     </div>
 
                     {showAssociate ? (
-                        <div className="mt-4 rounded-2xl border border-blue-100 bg-blue-50/40 p-3.5">
+                        <div className="mt-4 min-w-0 rounded-2xl border border-blue-100 bg-blue-50/40 p-3.5">
                             <label className="text-xs font-semibold text-slate-600">Nome, email ou número de sócio</label>
-                            <div className="mt-2 flex gap-2">
+                            <div className="mt-2 flex min-w-0 gap-2">
                                 <input
                                     value={searchQuery}
                                     onChange={(event) => setSearchQuery(event.target.value)}
@@ -476,11 +495,11 @@ export default function Family() {
 
                             {searchError ? <p className="mt-2 text-xs text-rose-600">{searchError}</p> : null}
 
-                            <div className="mt-3 space-y-2.5">
+                            <div className="mt-3 min-w-0 space-y-2.5">
                                 {searchResults.map((member) => (
-                                    <div key={member.id} className="rounded-xl border border-slate-200 bg-white p-3">
-                                        <p className="text-sm font-semibold text-slate-900">{member.name}</p>
-                                        <p className="mt-0.5 text-[11px] text-slate-500">
+                                    <div key={member.id} className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white p-3">
+                                        <p className="break-words text-sm font-semibold text-slate-900">{member.name}</p>
+                                        <p className="mt-0.5 truncate text-[11px] text-slate-500">
                                             {[member.numero_socio ? `#${member.numero_socio}` : null, member.email, member.estado].filter(Boolean).join(' · ')}
                                         </p>
                                         <div className="mt-2.5 flex flex-wrap gap-2">
@@ -496,10 +515,10 @@ export default function Family() {
                 </section>
 
                 <section className="grid gap-4 lg:grid-cols-2">
-                    <div className="rounded-[22px] border border-slate-200 bg-white p-4 shadow-[0_8px_22px_rgba(15,23,42,0.045)] sm:p-5">
+                    <div className="min-w-0 rounded-[22px] border border-slate-200 bg-white p-4 shadow-[0_8px_22px_rgba(15,23,42,0.045)] sm:p-5">
                         <div className="flex items-center justify-between gap-3">
                             <h2 className="text-base font-semibold text-slate-900">Pagamentos pendentes</h2>
-                            <button type="button" onClick={() => router.visit(portalRoutes.payments)} className="text-xs font-semibold text-blue-700">Ver todos</button>
+                            <button type="button" onClick={() => router.visit(portalRoutes.payments)} className="shrink-0 text-xs font-semibold text-blue-700">Ver todos</button>
                         </div>
                         <div className="mt-3 space-y-2.5">
                             {pendingPayments.length > 0 ? pendingPayments.map((payment) => (
@@ -507,11 +526,11 @@ export default function Family() {
                                     key={payment.id}
                                     type="button"
                                     onClick={() => router.visit(portalRoutes.payments)}
-                                    className="flex w-full items-center justify-between gap-3 rounded-xl bg-slate-50 px-3 py-2.5 text-left"
+                                    className="flex w-full min-w-0 items-center justify-between gap-3 rounded-xl bg-slate-50 px-3 py-2.5 text-left"
                                 >
-                                    <div className="min-w-0">
+                                    <div className="min-w-0 flex-1">
                                         <p className="truncate text-sm font-medium text-slate-900">{payment.user_name}</p>
-                                        <p className="mt-0.5 text-[11px] text-slate-500">{payment.tipo_label || payment.mes || 'Pagamento'} · vence {formatDate(payment.data_vencimento)}</p>
+                                        <p className="mt-0.5 truncate text-[11px] text-slate-500">{payment.tipo_label || payment.mes || 'Pagamento'} · vence {formatDate(payment.data_vencimento)}</p>
                                     </div>
                                     <span className="shrink-0 text-sm font-semibold text-rose-600">
                                         {formatSignedCurrency(paymentAmount(payment), 'debt')}
@@ -521,10 +540,10 @@ export default function Family() {
                         </div>
                     </div>
 
-                    <div className="rounded-[22px] border border-slate-200 bg-white p-4 shadow-[0_8px_22px_rgba(15,23,42,0.045)] sm:p-5">
+                    <div className="min-w-0 rounded-[22px] border border-slate-200 bg-white p-4 shadow-[0_8px_22px_rgba(15,23,42,0.045)] sm:p-5">
                         <div className="flex items-center justify-between gap-3">
                             <h2 className="text-base font-semibold text-slate-900">Agenda da família</h2>
-                            <button type="button" onClick={() => router.visit(portalRoutes.events)} className="text-xs font-semibold text-blue-700">Ver agenda</button>
+                            <button type="button" onClick={() => router.visit(portalRoutes.events)} className="shrink-0 text-xs font-semibold text-blue-700">Ver agenda</button>
                         </div>
                         <div className="mt-3 space-y-2.5">
                             {agendaItems.length > 0 ? agendaItems.map((item) => (
@@ -532,7 +551,7 @@ export default function Family() {
                                     key={`${item.type || 'agenda'}-${item.id}`}
                                     type="button"
                                     onClick={() => router.visit(portalRoutes.events)}
-                                    className="flex w-full items-center gap-3 rounded-xl bg-slate-50 px-3 py-2.5 text-left"
+                                    className="flex w-full min-w-0 items-center gap-3 rounded-xl bg-slate-50 px-3 py-2.5 text-left"
                                 >
                                     <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-700">
                                         <CalendarDays className="h-4 w-4" />
