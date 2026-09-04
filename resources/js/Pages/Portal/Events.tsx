@@ -1,19 +1,16 @@
 import { Head, router, usePage } from '@inertiajs/react';
 import { useState } from 'react';
 import {
-    AlertTriangle,
     CalendarDays,
-    CheckCircle2,
-    CircleDot,
+    Check,
+    ChevronDown,
+    ChevronRight,
     Clock3,
     FileText,
     MapPin,
     Megaphone,
-    ShieldAlert,
-    Trophy,
+    X,
 } from 'lucide-react';
-import PortalKpiCard from '@/Components/Portal/PortalKpiCard';
-import PortalSection from '@/Components/Portal/PortalSection';
 import PortalLayout from '@/Layouts/PortalLayout';
 import type { PageProps as SharedPageProps } from '@/types';
 
@@ -102,7 +99,6 @@ interface PortalEventsProps extends Record<string, unknown> {
         upcoming_events: number;
         registered_competitions: number;
     };
-    hero_card: EventCard | null;
     active_items: EventCard[];
     response_state: {
         pending_count: number;
@@ -119,6 +115,140 @@ interface PortalEventsProps extends Record<string, unknown> {
 }
 
 type PageProps = SharedPageProps<PortalEventsProps>;
+type AgendaTab = 'upcoming' | 'respond' | 'history';
+
+function statusClasses(status: EventStatus): string {
+    switch (status.key) {
+        case 'confirmed':
+            return 'bg-emerald-50 text-emerald-700';
+        case 'justified':
+            return 'bg-slate-100 text-slate-600';
+        case 'pending':
+            return 'bg-amber-50 text-amber-700';
+        case 'expired':
+            return 'bg-rose-50 text-rose-700';
+        default:
+            return 'bg-blue-50 text-blue-700';
+    }
+}
+
+function AgendaItem({
+    card,
+    expanded,
+    onToggle,
+    onConfirm,
+    onJustify,
+    onReset,
+    justification,
+    onJustificationChange,
+    showResponseActions = true,
+}: {
+    card: EventCard;
+    expanded: boolean;
+    onToggle: () => void;
+    onConfirm: () => void;
+    onJustify: () => void;
+    onReset: () => void;
+    justification: string;
+    onJustificationChange: (value: string) => void;
+    showResponseActions?: boolean;
+}) {
+    return (
+        <article className="overflow-hidden rounded-[20px] border border-slate-200 bg-white shadow-[0_6px_18px_rgba(15,23,42,0.04)]">
+            <button type="button" onClick={onToggle} className="w-full p-3.5 text-left sm:p-4">
+                <div className="flex items-start gap-3">
+                    <div className="flex h-11 w-11 shrink-0 flex-col items-center justify-center rounded-xl bg-blue-50 text-blue-700">
+                        <CalendarDays className="h-4 w-4" />
+                        <span className="mt-0.5 text-[8px] font-semibold uppercase">{card.date.day_label}</span>
+                    </div>
+                    <div className="min-w-0 flex-1">
+                        <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                                <p className="truncate text-sm font-semibold text-slate-900">{card.title}</p>
+                                <p className="mt-1 truncate text-xs text-slate-500">{card.type.label} · {card.group.label}</p>
+                            </div>
+                            <span className={`shrink-0 rounded-full px-2 py-1 text-[9px] font-semibold ${statusClasses(card.status)}`}>
+                                {card.status.label}
+                            </span>
+                        </div>
+                        <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-slate-500">
+                            <span className="inline-flex items-center gap-1"><Clock3 className="h-3 w-3" /> {card.date.full_label}{card.date.time_label ? ` · ${card.date.time_label}` : ''}</span>
+                            <span className="inline-flex items-center gap-1"><MapPin className="h-3 w-3" /> {card.location.name}</span>
+                        </div>
+                    </div>
+                    {expanded ? <ChevronDown className="mt-1 h-4 w-4 shrink-0 text-slate-400" /> : <ChevronRight className="mt-1 h-4 w-4 shrink-0 text-slate-300" />}
+                </div>
+            </button>
+
+            {expanded ? (
+                <div className="border-t border-slate-100 bg-slate-50/60 px-3.5 pb-3.5 pt-3 sm:px-4 sm:pb-4">
+                    <div className="grid gap-2 sm:grid-cols-2">
+                        {card.details.meeting_time ? <Detail label="Hora de encontro" value={card.details.meeting_time} /> : null}
+                        {card.details.meeting_point ? <Detail label="Ponto de encontro" value={card.details.meeting_point} /> : null}
+                        {card.details.transport ? <Detail label="Transporte" value={card.details.transport} /> : null}
+                        {card.details.material ? <Detail label="Material" value={card.details.material} /> : null}
+                    </div>
+
+                    {card.details.notes ? <p className="mt-3 text-xs leading-5 text-slate-600">{card.details.notes}</p> : null}
+
+                    {(card.details.convocatoria_file || card.details.regulation_file) ? (
+                        <div className="mt-3 flex flex-wrap gap-2">
+                            {card.details.convocatoria_file ? (
+                                <a href={card.details.convocatoria_file} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 rounded-xl bg-white px-3 py-2 text-xs font-semibold text-blue-700">
+                                    <FileText className="h-3.5 w-3.5" /> Convocatória
+                                </a>
+                            ) : null}
+                            {card.details.regulation_file ? (
+                                <a href={card.details.regulation_file} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 rounded-xl bg-white px-3 py-2 text-xs font-semibold text-blue-700">
+                                    <FileText className="h-3.5 w-3.5" /> Regulamento
+                                </a>
+                            ) : null}
+                        </div>
+                    ) : null}
+
+                    {showResponseActions && (card.actions.can_confirm || card.actions.can_justify || card.actions.can_change_response) ? (
+                        <div className="mt-3 border-t border-slate-200 pt-3">
+                            {card.actions.can_justify ? (
+                                <textarea
+                                    value={justification}
+                                    onChange={(event) => onJustificationChange(event.target.value)}
+                                    placeholder="Justificação, se não puderes estar presente"
+                                    className="mb-2.5 min-h-20 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-blue-300"
+                                />
+                            ) : null}
+                            <div className="flex flex-wrap gap-2">
+                                {card.actions.can_confirm ? (
+                                    <button type="button" onClick={onConfirm} className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700">
+                                        <Check className="h-3.5 w-3.5" /> Vou
+                                    </button>
+                                ) : null}
+                                {card.actions.can_justify ? (
+                                    <button type="button" onClick={onJustify} className="inline-flex items-center gap-1.5 rounded-xl bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">
+                                        <X className="h-3.5 w-3.5" /> Não vou
+                                    </button>
+                                ) : null}
+                                {card.actions.can_change_response ? (
+                                    <button type="button" onClick={onReset} className="rounded-xl bg-white px-3 py-2 text-xs font-semibold text-slate-600">
+                                        Alterar resposta
+                                    </button>
+                                ) : null}
+                            </div>
+                        </div>
+                    ) : null}
+                </div>
+            ) : null}
+        </article>
+    );
+}
+
+function Detail({ label, value }: { label: string; value: string }) {
+    return (
+        <div className="rounded-xl bg-white px-3 py-2.5">
+            <p className="text-[9px] font-semibold uppercase tracking-[0.12em] text-slate-400">{label}</p>
+            <p className="mt-1 text-xs font-medium text-slate-700">{value}</p>
+        </div>
+    );
+}
 
 export default function Events() {
     const { props } = usePage<PageProps>();
@@ -128,17 +258,19 @@ export default function Events() {
         view_mode,
         selected_profile,
         summary,
-        hero_card,
-        active_items,
+        active_items = [],
         response_state,
-        recent_history,
+        recent_history = [],
         is_also_admin,
         has_family,
     } = props;
 
-    const [expandedCardId, setExpandedCardId] = useState<string | null>(hero_card?.id ?? active_items[0]?.id ?? null);
-    const [justifyingCardId, setJustifyingCardId] = useState<string | null>(null);
+    const [activeTab, setActiveTab] = useState<AgendaTab>('upcoming');
+    const [expandedCardId, setExpandedCardId] = useState<string | null>(null);
     const [justifications, setJustifications] = useState<Record<string, string>>({});
+
+    const pendingItems = active_items.filter((card) => card.status.key === 'pending' || card.actions.can_confirm || card.actions.can_justify);
+    const tabItems = activeTab === 'history' ? recent_history : activeTab === 'respond' ? pendingItems : active_items;
 
     const submitAction = (card: EventCard, action: 'confirm_presence' | 'justify_absence' | 'reset_response') => {
         if (!card.convocation_id) {
@@ -146,37 +278,30 @@ export default function Events() {
         }
 
         const justification = justifications[card.id]?.trim();
-
         if (action === 'justify_absence' && !justification) {
-            setJustifyingCardId(card.id);
             setExpandedCardId(card.id);
             return;
         }
 
         const query = view_mode === 'family' ? '?scope=family' : '';
-        router.patch(
-            `/portal/eventos/${card.convocation_id}${query}`,
-            {
-                action,
-                justification,
-                scope: view_mode === 'family' ? 'family' : undefined,
-            },
-            {
-                preserveScroll: true,
-                onSuccess: () => {
-                    if (action === 'justify_absence') {
-                        setJustifyingCardId(null);
-                    }
-                },
-            },
-        );
+        router.patch(`/portal/eventos/${card.convocation_id}${query}`, {
+            action,
+            justification,
+            scope: view_mode === 'family' ? 'family' : undefined,
+        }, {
+            preserveScroll: true,
+        });
     };
 
-    const highlightCard = hero_card ?? active_items[0] ?? null;
+    const tabs: Array<{ key: AgendaTab; label: string; count?: number }> = [
+        { key: 'upcoming', label: 'Próximos' },
+        { key: 'respond', label: 'Responder', count: response_state?.pending_count ?? summary.pending_convocations },
+        { key: 'history', label: 'Histórico' },
+    ];
 
     return (
         <>
-            <Head title="Convocatórias e Eventos" />
+            <Head title="Agenda" />
 
             <PortalLayout
                 user={auth.user}
@@ -185,395 +310,68 @@ export default function Events() {
                 activeNav="events"
                 hasFamily={has_family}
             >
-                <section className="overflow-hidden rounded-[20px] border border-blue-900/10 bg-[linear-gradient(180deg,rgba(30,98,193,0.96)_0%,rgba(20,75,154,0.92)_100%)] px-3.5 py-4 text-white shadow-[0_14px_28px_rgba(20,75,154,0.16)] sm:px-4 lg:px-5">
-                    <div className="flex flex-col items-start gap-3">
-                        <div className="max-w-2xl">
-                            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-blue-100">Portal</p>
-                            <h2 className="mt-1.5 text-xl font-semibold">Convocatórias e Eventos</h2>
-                            <p className="mt-2 text-xs text-blue-100">
-                                {view_mode === 'family' ? 'A acompanhar:' : 'Perfil ativo:'} <span className="font-semibold text-white">{selected_profile.name}</span> · {selected_profile.type}
-                            </p>
+                <section className="rounded-[22px] border border-slate-200 bg-white p-4 shadow-[0_8px_22px_rgba(15,23,42,0.045)] sm:p-5">
+                    <div className="flex items-center justify-between gap-3">
+                        <div>
+                            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Agenda</p>
+                            <h1 className="mt-1 text-lg font-semibold text-slate-900">{selected_profile.name}</h1>
+                            <p className="mt-0.5 text-xs text-slate-500">{view_mode === 'family' ? 'Agenda familiar' : selected_profile.type}</p>
                         </div>
-
-                        <div className="w-full max-w-[22rem] rounded-[18px] border border-white/15 bg-white/10 p-3.5 backdrop-blur">
-                            {highlightCard ? (
-                                <>
-                                    <div className="flex items-start justify-between gap-3">
-                                        <div>
-                                            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-blue-100">
-                                                {highlightCard.status.key === 'pending' ? 'Convocatória pendente' : 'Próximo destaque'}
-                                            </p>
-                                            <h3 className="mt-1.5 text-base font-semibold text-white">{highlightCard.title}</h3>
-                                        </div>
-                                        <StatusBadge status={highlightCard.status} />
-                                    </div>
-                                    <p className="mt-2.5 text-xs text-blue-50">{highlightCard.date.full_label}</p>
-                                    <p className="mt-1 text-xs text-blue-50">{highlightCard.location.name}</p>
-                                    <div className="mt-3 flex flex-wrap gap-2">
-                                        {highlightCard.actions.can_confirm ? (
-                                            <button
-                                                type="button"
-                                                onClick={() => submitAction(highlightCard, 'confirm_presence')}
-                                                className="inline-flex items-center justify-center rounded-xl bg-white px-3 py-1.5 text-xs font-semibold text-blue-700 transition hover:bg-blue-50"
-                                            >
-                                                Confirmar presença
-                                            </button>
-                                        ) : null}
-                                        <button
-                                            type="button"
-                                            onClick={() => setExpandedCardId(highlightCard.id)}
-                                            className="inline-flex items-center justify-center rounded-xl border border-white/30 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-white/10"
-                                        >
-                                            Ver detalhes
-                                        </button>
-                                        {highlightCard.actions.can_justify ? (
-                                            <button
-                                                type="button"
-                                                onClick={() => {
-                                                    setExpandedCardId(highlightCard.id);
-                                                    setJustifyingCardId(highlightCard.id);
-                                                }}
-                                                className="inline-flex items-center justify-center rounded-xl border border-white/20 bg-white/10 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-white/15"
-                                            >
-                                                Justificar ausência
-                                            </button>
-                                        ) : null}
-                                    </div>
-                                </>
-                            ) : (
-                                <p className="text-xs text-blue-50">Sem eventos próximos.</p>
-                            )}
-                        </div>
+                        <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50 text-blue-700">
+                            <CalendarDays className="h-5 w-5" />
+                        </span>
                     </div>
                 </section>
 
-                <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-                    <PortalKpiCard label="Convocatórias pendentes" value={String(summary.pending_convocations)} helper="aguardam resposta" icon={Megaphone} />
-                    <PortalKpiCard label="Eventos confirmados" value={String(summary.confirmed_events)} helper="com presença validada" icon={CheckCircle2} />
-                    <PortalKpiCard label="Próximos eventos" value={String(summary.upcoming_events)} helper="agenda visível" icon={CalendarDays} />
-                    <PortalKpiCard label="Provas inscritas" value={String(summary.registered_competitions)} helper="provas e competições" icon={Trophy} />
-                </section>
-
-                <section className="grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(320px,0.9fr)] xl:items-start">
-                    <div className="space-y-4">
-                        <PortalSection title="Convocatórias ativas" description="Agenda do utilizador final, sem ferramentas administrativas.">
-                            {active_items.length > 0 ? (
-                                <div className="grid gap-3 md:grid-cols-2">
-                                    {active_items.map((card) => {
-                                        const isExpanded = expandedCardId === card.id;
-                                        const isJustifying = justifyingCardId === card.id;
-
-                                        return (
-                                            <article key={card.id} className="rounded-[24px] border border-slate-200 bg-slate-50/80 p-4">
-                                                <div className="flex items-start justify-between gap-3">
-                                                    <div>
-                                                        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">{card.date.day_label}</p>
-                                                        <h3 className="mt-2 text-base font-semibold text-slate-900">{card.title}</h3>
-                                                        {view_mode === 'family' ? (
-                                                            <p className="mt-1 text-xs font-medium text-slate-500">{card.subtitle}</p>
-                                                        ) : null}
-                                                        <p className="mt-1 text-sm text-slate-500">{card.location.name}</p>
-                                                    </div>
-                                                    <StatusBadge status={card.status} />
-                                                </div>
-
-                                                <div className="mt-4 flex flex-wrap gap-2">
-                                                    <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${card.type.badge_class}`}>
-                                                        {card.type.label}
-                                                    </span>
-                                                    <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-600">
-                                                        {card.group.label}
-                                                    </span>
-                                                    {card.details.participations ? (
-                                                        <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-600">
-                                                            {card.details.participations}
-                                                        </span>
-                                                    ) : null}
-                                                </div>
-
-                                                <div className="mt-4 space-y-2 text-sm text-slate-600">
-                                                    <InlineMeta icon={Clock3} label={card.date.time_label} />
-                                                    <InlineMeta icon={MapPin} label={card.location.meeting_point || card.location.name} />
-                                                    <InlineMeta icon={CircleDot} label={card.trip.transport || 'Sem transporte definido'} />
-                                                </div>
-
-                                                <div className="mt-4 flex flex-wrap gap-2">
-                                                    {card.actions.can_confirm ? (
-                                                        <ActionButton tone="primary" onClick={() => submitAction(card, 'confirm_presence')}>
-                                                            Confirmar
-                                                        </ActionButton>
-                                                    ) : null}
-                                                    <ActionButton tone="secondary" onClick={() => setExpandedCardId(isExpanded ? null : card.id)}>
-                                                        {isExpanded ? 'Ocultar detalhes' : 'Ver detalhes'}
-                                                    </ActionButton>
-                                                    {card.actions.can_justify ? (
-                                                        <ActionButton
-                                                            tone="danger"
-                                                            onClick={() => {
-                                                                setExpandedCardId(card.id);
-                                                                setJustifyingCardId(card.id);
-                                                            }}
-                                                        >
-                                                            Justificar ausência
-                                                        </ActionButton>
-                                                    ) : null}
-                                                    {card.actions.can_change_response ? (
-                                                        <ActionButton tone="muted" onClick={() => submitAction(card, 'reset_response')}>
-                                                            Alterar resposta
-                                                        </ActionButton>
-                                                    ) : null}
-                                                </div>
-
-                                                {isExpanded ? (
-                                                    <div className="mt-4 rounded-[20px] border border-slate-200 bg-white p-4">
-                                                        <dl className="grid gap-3 text-sm text-slate-600 sm:grid-cols-2">
-                                                            <DetailItem label="Hora de concentração" value={card.details.meeting_time || 'Por definir'} />
-                                                            <DetailItem label="Local" value={card.details.location} />
-                                                            <DetailItem label="Transporte" value={card.details.transport || 'Sem transporte definido'} />
-                                                            <DetailItem label="Material a levar" value={card.details.material || 'Sem indicação adicional'} />
-                                                            <DetailItem label="Observações" value={card.details.notes || 'Sem observações adicionais'} />
-                                                            <DetailItem label="Estado" value={card.status.label} />
-                                                        </dl>
-                                                        <EventFiles card={card} />
-
-                                                        {card.justification ? (
-                                                            <p className="mt-3 rounded-2xl bg-amber-50 px-3 py-2 text-sm text-amber-800">
-                                                                Justificação enviada: {card.justification}
-                                                            </p>
-                                                        ) : null}
-
-                                                        {isJustifying ? (
-                                                            <div className="mt-4 space-y-3">
-                                                                <label className="block text-sm font-medium text-slate-700" htmlFor={`justification-${card.id}`}>
-                                                                    Motivo da ausência
-                                                                </label>
-                                                                <textarea
-                                                                    id={`justification-${card.id}`}
-                                                                    value={justifications[card.id] ?? ''}
-                                                                    onChange={(event) => setJustifications((current) => ({ ...current, [card.id]: event.target.value }))}
-                                                                    rows={3}
-                                                                    className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-blue-300 focus:bg-white"
-                                                                    placeholder="Indica o motivo para ausência"
-                                                                />
-                                                                <div className="flex flex-wrap gap-2">
-                                                                    <ActionButton tone="danger" onClick={() => submitAction(card, 'justify_absence')}>
-                                                                        Enviar justificação
-                                                                    </ActionButton>
-                                                                    <ActionButton tone="muted" onClick={() => setJustifyingCardId(null)}>
-                                                                        Cancelar
-                                                                    </ActionButton>
-                                                                </div>
-                                                            </div>
-                                                        ) : null}
-                                                    </div>
-                                                ) : null}
-                                            </article>
-                                        );
-                                    })}
-                                </div>
-                            ) : (
-                                <EmptyState icon={Megaphone} label="Sem convocatórias pendentes." />
-                            )}
-                        </PortalSection>
+                <section className="rounded-[22px] border border-slate-200 bg-white shadow-[0_8px_22px_rgba(15,23,42,0.045)]">
+                    <div className="grid grid-cols-3 border-b border-slate-100 px-2 pt-2">
+                        {tabs.map((tab) => (
+                            <button
+                                key={tab.key}
+                                type="button"
+                                onClick={() => setActiveTab(tab.key)}
+                                className={`relative flex items-center justify-center gap-1.5 px-2 py-3 text-xs font-semibold transition ${
+                                    activeTab === tab.key ? 'text-blue-700' : 'text-slate-500'
+                                }`}
+                            >
+                                {tab.label}
+                                {tab.count ? <span className="rounded-full bg-amber-50 px-1.5 py-0.5 text-[9px] text-amber-700">{tab.count}</span> : null}
+                                {activeTab === tab.key ? <span className="absolute inset-x-3 bottom-0 h-0.5 rounded-full bg-blue-600" /> : null}
+                            </button>
+                        ))}
                     </div>
 
-                    <div className="space-y-4">
-                        <PortalSection title="Estado das respostas" description="Pendências, prazos e alertas importantes.">
-                            <div className="space-y-3">
-                                <ResponseMetric icon={ShieldAlert} label="Convocatórias pendentes" value={String(response_state.pending_count)} />
-                                {response_state.upcoming_deadlines.length > 0 ? (
-                                    <div className="space-y-2">
-                                        {response_state.upcoming_deadlines.map((deadline) => (
-                                            <div key={deadline.id} className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2">
-                                                <p className="text-sm font-semibold text-amber-900">{deadline.title}</p>
-                                                <p className="text-xs text-amber-700">Prazo implícito: {deadline.deadline_label}</p>
-                                            </div>
-                                        ))}
-                                    </div>
-                                ) : (
-                                    <p className="text-sm text-slate-500">Sem convocatórias pendentes.</p>
-                                )}
-                                <div className="space-y-2">
-                                    {response_state.alerts.map((alert) => (
-                                        <div key={alert} className="flex items-start gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
-                                            <AlertTriangle className="mt-0.5 h-4 w-4 text-amber-500" />
-                                            <span>{alert}</span>
-                                        </div>
-                                    ))}
-                                </div>
+                    <div className="space-y-3 p-3.5 sm:p-4">
+                        {activeTab === 'respond' && response_state?.alerts?.length > 0 ? (
+                            <div className="rounded-xl bg-amber-50 px-3 py-2.5 text-xs text-amber-800">
+                                {response_state.alerts[0]}
                             </div>
-                        </PortalSection>
+                        ) : null}
 
-                        <PortalSection title="Histórico de convocatórias e eventos" description="Consulta de todos os eventos passados e respetivos detalhes.">
-                            {recent_history.length > 0 ? (
-                                <div className="space-y-2">
-                                    {recent_history.map((card) => {
-                                        const isExpanded = expandedCardId === card.id;
-
-                                        return (
-                                            <article key={card.id} className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
-                                                <div className="flex items-start justify-between gap-3">
-                                                    <div>
-                                                        <p className="text-sm font-semibold text-slate-900">{card.title}</p>
-                                                        {view_mode === 'family' ? (
-                                                            <p className="mt-1 text-xs font-medium text-slate-500">{card.subtitle}</p>
-                                                        ) : null}
-                                                        <p className="mt-1 text-xs text-slate-500">{card.date.full_label} · {card.location.name}</p>
-                                                    </div>
-                                                    <StatusBadge status={card.status} compact />
-                                                </div>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => setExpandedCardId(isExpanded ? null : card.id)}
-                                                    className="mt-3 text-xs font-semibold text-blue-700"
-                                                >
-                                                    {isExpanded ? 'Ocultar detalhes' : 'Ver detalhes'}
-                                                </button>
-                                                {isExpanded ? (
-                                                    <div className="mt-3 rounded-2xl border border-slate-200 bg-white p-3">
-                                                        <dl className="grid gap-3 sm:grid-cols-2">
-                                                            <DetailItem label="Data e hora" value={`${card.date.full_label} · ${card.details.time}`} />
-                                                            <DetailItem label="Local" value={card.details.location} />
-                                                            <DetailItem label="Ponto de encontro" value={card.details.meeting_point || 'Não definido'} />
-                                                            <DetailItem label="Transporte" value={card.details.transport || 'Sem transporte definido'} />
-                                                            <DetailItem label="Material" value={card.details.material || 'Sem indicação adicional'} />
-                                                            <DetailItem label="Observações" value={card.details.notes || 'Sem observações adicionais'} />
-                                                        </dl>
-                                                        <EventFiles card={card} />
-                                                    </div>
-                                                ) : null}
-                                            </article>
-                                        );
-                                    })}
-                                </div>
-                            ) : (
-                                <EmptyState icon={FileText} label="Sem histórico recente." />
-                            )}
-                        </PortalSection>
+                        {tabItems.length > 0 ? tabItems.map((card) => (
+                            <AgendaItem
+                                key={card.id}
+                                card={card}
+                                expanded={expandedCardId === card.id}
+                                onToggle={() => setExpandedCardId((current) => current === card.id ? null : card.id)}
+                                onConfirm={() => submitAction(card, 'confirm_presence')}
+                                onJustify={() => submitAction(card, 'justify_absence')}
+                                onReset={() => submitAction(card, 'reset_response')}
+                                justification={justifications[card.id] ?? ''}
+                                onJustificationChange={(value) => setJustifications((current) => ({ ...current, [card.id]: value }))}
+                                showResponseActions={activeTab !== 'history'}
+                            />
+                        )) : (
+                            <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-6 text-center">
+                                <Megaphone className="mx-auto h-5 w-5 text-slate-300" />
+                                <p className="mt-2 text-sm font-medium text-slate-600">
+                                    {activeTab === 'respond' ? 'Sem respostas pendentes.' : activeTab === 'history' ? 'Sem histórico disponível.' : 'Sem compromissos próximos.'}
+                                </p>
+                            </div>
+                        )}
                     </div>
                 </section>
             </PortalLayout>
         </>
-    );
-}
-
-const statusToneClasses: Record<EventStatus['tone'], string> = {
-    warning: 'border-amber-200 bg-amber-50 text-amber-700',
-    success: 'border-emerald-200 bg-emerald-50 text-emerald-700',
-    info: 'border-sky-200 bg-sky-50 text-sky-700',
-    danger: 'border-rose-200 bg-rose-50 text-rose-700',
-};
-
-function StatusBadge({ status, compact = false }: { status: EventStatus; compact?: boolean }) {
-    return (
-        <span
-            className={`inline-flex items-center rounded-full border font-semibold ${statusToneClasses[status.tone]} ${compact ? 'px-2 py-1 text-[11px]' : 'px-2.5 py-1 text-xs'}`}
-        >
-            {status.label}
-        </span>
-    );
-}
-
-function InlineMeta({ icon: Icon, label }: { icon: typeof Clock3; label: string }) {
-    return (
-        <div className="flex items-center gap-2">
-            <Icon className="h-4 w-4 text-slate-400" />
-            <span>{label}</span>
-        </div>
-    );
-}
-
-function DetailItem({ label, value }: { label: string; value: string }) {
-    return (
-        <div>
-            <dt className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">{label}</dt>
-            <dd className="mt-1 text-sm text-slate-700">{value}</dd>
-        </div>
-    );
-}
-
-function resolveEventFileUrl(path: string): string {
-    if (/^https?:\/\//i.test(path) || path.startsWith('/')) {
-        return path;
-    }
-
-    return `/storage/${path.replace(/^storage\//, '')}`;
-}
-
-function EventFiles({ card }: { card: EventCard }) {
-    const files = [
-        card.details.convocatoria_file ? { label: 'Abrir convocatória', path: card.details.convocatoria_file } : null,
-        card.details.regulation_file ? { label: 'Abrir regulamento', path: card.details.regulation_file } : null,
-    ].filter((file): file is { label: string; path: string } => file !== null);
-
-    if (files.length === 0) {
-        return null;
-    }
-
-    return (
-        <div className="mt-3 flex flex-wrap gap-2">
-            {files.map((file) => (
-                <a
-                    key={file.label}
-                    href={resolveEventFileUrl(file.path)}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex items-center gap-1.5 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700 hover:bg-blue-100"
-                >
-                    <FileText className="h-3.5 w-3.5" />
-                    {file.label}
-                </a>
-            ))}
-        </div>
-    );
-}
-
-function ResponseMetric({ icon: Icon, label, value }: { icon: typeof Clock3; label: string; value: string }) {
-    return (
-        <div className="flex items-start gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-white text-blue-700">
-                <Icon className="h-4 w-4" />
-            </div>
-            <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">{label}</p>
-                <p className="mt-1 text-sm font-medium text-slate-800">{value}</p>
-            </div>
-        </div>
-    );
-}
-
-function EmptyState({ icon: Icon, label }: { icon: typeof Clock3; label: string }) {
-    return (
-        <div className="rounded-[24px] border border-dashed border-slate-300 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
-            <Icon className="mx-auto h-5 w-5 text-slate-400" />
-            <p className="mt-2">{label}</p>
-        </div>
-    );
-}
-
-function ActionButton({
-    children,
-    onClick,
-    tone,
-}: {
-    children: string;
-    onClick: () => void;
-    tone: 'primary' | 'secondary' | 'danger' | 'muted';
-}) {
-    const classes = {
-        primary: 'bg-blue-600 text-white hover:bg-blue-700',
-        secondary: 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-100',
-        danger: 'bg-rose-50 text-rose-700 hover:bg-rose-100',
-        muted: 'bg-slate-100 text-slate-700 hover:bg-slate-200',
-    };
-
-    return (
-        <button
-            type="button"
-            onClick={onClick}
-            className={`inline-flex items-center justify-center rounded-2xl px-3.5 py-2 text-sm font-semibold transition ${classes[tone]}`}
-        >
-            {children}
-        </button>
     );
 }
