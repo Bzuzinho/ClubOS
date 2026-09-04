@@ -14,6 +14,7 @@ use App\Http\Controllers\Api\CentrosCustoController;
 use App\Http\Controllers\Api\ClubSettingController;
 use App\Http\Controllers\Api\KeyValueController;
 use App\Http\Controllers\Api\UsersController;
+use App\Http\Controllers\Api\MemberReportsController;
 use App\Http\Controllers\Api\EventsController;
 use App\Http\Controllers\Api\ProvasController;
 use App\Http\Controllers\Api\ResultsController;
@@ -83,6 +84,10 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/kv/{key}', [KeyValueController::class, 'show']);
     Route::put('/kv/{key}', [KeyValueController::class, 'update']);
     Route::delete('/kv/{key}', [KeyValueController::class, 'destroy']);
+
+    Route::get('/membros/reports', MemberReportsController::class)
+        ->middleware(['module.access:membros', 'permission.access:membros.lista,view'])
+        ->name('api.membros.reports');
 
     // Resource APIs
     Route::apiResource('users', UsersController::class)

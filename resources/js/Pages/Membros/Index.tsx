@@ -3,7 +3,7 @@ import { Head } from '@inertiajs/react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { moduleTabbedContentClass, moduleTabsClass, moduleViewportClass } from '@/lib/module-layout';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/Components/ui/tabs';
-import { ChartLineUp, Users as UsersIcon } from '@phosphor-icons/react';
+import { ChartBar, ChartLineUp, Users as UsersIcon } from '@phosphor-icons/react';
 
 interface User {
     id: string;
@@ -75,12 +75,13 @@ interface MembersPagination {
 
 const MembrosDashboard = lazy(() => import('./Dashboard'));
 const MembrosListTab = lazy(() => import('./ListTab'));
+const MembrosReportsTab = lazy(() => import('./ReportsTab'));
 
 function TabLoadingState() {
     return <div className="min-h-[240px] rounded-lg border border-dashed border-border bg-background" />;
 }
 
-export default function MembrosIndex({ members, membersPagination, filters, userTypes, ageGroups, stats, tipoMembrosStats, escaloesStats, communicationState }: Props) {
+export default function MembrosIndex({ members, membersPagination, filters, userTypes, stats, tipoMembrosStats, escaloesStats, communicationState }: Props) {
     const [activeTab, setActiveTab] = useState(() => {
         if (typeof window !== 'undefined') {
             const queryTab = new URLSearchParams(window.location.search).get('tab');
@@ -99,7 +100,7 @@ export default function MembrosIndex({ members, membersPagination, filters, user
                 <div>
                     <h1 className="text-lg sm:text-xl font-semibold tracking-tight">Gestão de Membros</h1>
                     <p className="text-muted-foreground text-xs mt-0.5">
-                        Visão geral e gestão de todos os membros do clube
+                        Visão geral, gestão e reporting dos membros do clube
                     </p>
                 </div>
             }
@@ -107,35 +108,44 @@ export default function MembrosIndex({ members, membersPagination, filters, user
             <Head title="Membros" />
 
             <div className={moduleViewportClass}>
-            <Tabs value={activeTab} onValueChange={setActiveTab} className={moduleTabsClass}>
-                <TabsList className="grid w-full shrink-0 grid-cols-2 h-auto">
-                    <TabsTrigger value="dashboard" className="flex items-center gap-1.5 py-1.5 text-xs">
-                        <ChartLineUp size={14} weight="duotone" />
-                        <span>Dashboard</span>
-                    </TabsTrigger>
-                    <TabsTrigger value="list" className="flex items-center gap-1.5 py-1.5 text-xs">
-                        <UsersIcon size={14} weight="duotone" />
-                        <span>Lista de Membros</span>
-                    </TabsTrigger>
-                </TabsList>
+                <Tabs value={activeTab} onValueChange={setActiveTab} className={moduleTabsClass}>
+                    <TabsList className="grid h-auto w-full shrink-0 grid-cols-3">
+                        <TabsTrigger value="dashboard" className="flex items-center gap-1.5 py-1.5 text-xs">
+                            <ChartLineUp size={14} weight="duotone" />
+                            <span>Dashboard</span>
+                        </TabsTrigger>
+                        <TabsTrigger value="list" className="flex items-center gap-1.5 py-1.5 text-xs">
+                            <UsersIcon size={14} weight="duotone" />
+                            <span>Lista de Membros</span>
+                        </TabsTrigger>
+                        <TabsTrigger value="reports" className="flex items-center gap-1.5 py-1.5 text-xs">
+                            <ChartBar size={14} weight="duotone" />
+                            <span>Relatórios</span>
+                        </TabsTrigger>
+                    </TabsList>
 
-                <TabsContent value="dashboard" className={moduleTabbedContentClass}>
-                    <Suspense fallback={<TabLoadingState />}>
-                        <MembrosDashboard 
-                            stats={stats} 
-                            tipoMembrosStats={tipoMembrosStats} 
-                            escaloesStats={escaloesStats} 
-                        />
-                    </Suspense>
-                </TabsContent>
+                    <TabsContent value="dashboard" className={moduleTabbedContentClass}>
+                        <Suspense fallback={<TabLoadingState />}>
+                            <MembrosDashboard
+                                stats={stats}
+                                tipoMembrosStats={tipoMembrosStats}
+                                escaloesStats={escaloesStats}
+                            />
+                        </Suspense>
+                    </TabsContent>
 
-                <TabsContent value="list" className={moduleTabbedContentClass}>
-                    <Suspense fallback={<TabLoadingState />}>
-                        <MembrosListTab members={members} membersPagination={membersPagination} filters={filters} userTypes={userTypes} />
-                    </Suspense>
-                </TabsContent>
+                    <TabsContent value="list" className={moduleTabbedContentClass}>
+                        <Suspense fallback={<TabLoadingState />}>
+                            <MembrosListTab members={members} membersPagination={membersPagination} filters={filters} userTypes={userTypes} />
+                        </Suspense>
+                    </TabsContent>
 
-            </Tabs>
+                    <TabsContent value="reports" className={moduleTabbedContentClass}>
+                        <Suspense fallback={<TabLoadingState />}>
+                            <MembrosReportsTab />
+                        </Suspense>
+                    </TabsContent>
+                </Tabs>
             </div>
         </AuthenticatedLayout>
     );
