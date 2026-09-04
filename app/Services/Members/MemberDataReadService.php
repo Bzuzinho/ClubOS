@@ -7,15 +7,21 @@ namespace App\Services\Members;
 use App\Models\AthleteSportsData;
 use App\Models\DadosConfiguracao;
 use App\Models\DadosPessoais;
+use App\Models\Season;
+use App\Models\SportsAthleteSeasonProfile;
 use App\Models\User;
+use App\Services\Desportivo\SportsClubContext;
 use Carbon\Carbon;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\Schema;
 
 /**
  * Sprint M2.3 — Camada de leitura canónica com fallback.
  *
  * Lê dados pessoais e de configuração preferencialmente de
  * dados_pessoais / dados_configuracao, com fallback para users.
- * Os dados desportivos passam a preferir athlete_sports_data.
+ * O escalão atual é projetado prioritariamente do perfil desportivo sazonal
+ * canónico; athlete_sports_data/users ficam apenas como compatibilidade.
  *
  * Regras:
  *  - null e string vazia caem para fallback.
@@ -26,6 +32,11 @@ use Carbon\Carbon;
  */
 final class MemberDataReadService
 {
+    public function __construct(
+        private readonly SportsClubContext $sportsClubContext,
+    ) {
+    }
+
     /** @var array<string, string|list<string>|null> */
     private const PERSONAL_FALLBACK_MAP = [
         'nome_completo'           => ['nome_completo', 'name'],
@@ -56,7 +67,7 @@ final class MemberDataReadService
         'consentimento_rgpd'               => 'rgpd',
         'consentimento_rgpd_data'          => 'data_rgpd',
         'consentimento_imagem'             => 'consentimento',
-        'consentimento_imagem_data'        => 'data_consentimento',
+        'consentimento_imagem_data'        => 'consentimento_imagem_data',
         'declaracao_transporte'            => 'declaracao_de_transporte',
         'declaracao_transporte_data'       => null,
         'declaracao_transporte_ficheiro'   => null,
@@ -119,15 +130,16 @@ final class MemberDataReadService
     }
 
     /**
-     * Perfil desportivo canónico. Quando ainda não existe athlete_sports_data,
-     * dados_configuracao é o primeiro fallback para informação que já tinha
-     * sido migrada para a camada canónica de Membros; users é a última rede de
-     * compatibilidade de transição.
+     * Perfil desportivo canónico. O escalão da época atual é propriedade de
+     * sports_athlete_season_profiles; athlete_sports_data e users ficam apenas
+     * como fallback para dados ainda não materializados na fonte sazonal.
      *
      * @return array<string, mixed>
      */
     public function sportsPayload(User $user): array
     {
+        $canonicalAgeGroup = $this->currentCanonicalAgeGroup($user);
+
         /** @var AthleteSportsData|null $sports */
         $sports = $user->relationLoaded('athleteSportsData')
             ? $user->getRelation('athleteSportsData')
@@ -142,6 +154,9 @@ final class MemberDataReadService
                 ->map(static fn (mixed $value): string => trim((string) $value))
                 ->first(static fn (string $value): bool => $value !== '');
             $legacyFederationCard = $user->getAttribute('cartao_federacao');
+            $officialAgeGroup = $canonicalAgeGroup['official_age_group_id'] ?? null;
+            $calculatedAgeGroup = $canonicalAgeGroup['calculated_age_group_id'] ?? null;
+            $resolvedAgeGroup = $officialAgeGroup ?: $calculatedAgeGroup ?: ($legacyAgeGroup ?: null);
 
             return [
                 'num_federacao' => $configuration['afiliacao_numero']
@@ -151,9 +166,11 @@ final class MemberDataReadService
                     : ($configuration['afiliacao_ficheiro'] ?? null),
                 'numero_pmb' => $user->getAttribute('numero_pmb'),
                 'data_inscricao' => $this->formatDate($user->getAttribute('data_inscricao')),
-                'escalao_id' => $legacyAgeGroup ?: null,
-                'escalao_calculado_id' => $legacyAgeGroup ?: null,
-                'escalao_manual_override' => $legacyAgeGroup !== null,
+                'escalao_id' => $resolvedAgeGroup,
+                'escalao_calculado_id' => $calculatedAgeGroup ?: ($legacyAgeGroup ?: null),
+                'escalao_manual_override' => $canonicalAgeGroup !== null
+                    ? ($canonicalAgeGroup['placement_source'] === 'override')
+                    : $legacyAgeGroup !== null,
                 'data_atestado_medico' => $this->formatDate($user->getAttribute('data_atestado_medico')),
                 'arquivo_atestado_medico' => $configuration['certificado_medico_ficheiro']
                     ?? $user->getAttribute('arquivo_atestado_medico'),
@@ -163,14 +180,23 @@ final class MemberDataReadService
             ];
         }
 
+        $officialAgeGroup = $canonicalAgeGroup['official_age_group_id'] ?? null;
+        $calculatedAgeGroup = $canonicalAgeGroup['calculated_age_group_id'] ?? null;
+        $resolvedAgeGroup = $officialAgeGroup
+            ?: $calculatedAgeGroup
+            ?: ($sports->escalao_id ? (string) $sports->escalao_id : null);
+
         return [
             'num_federacao' => $sports->num_federacao,
             'cartao_federacao' => $sports->cartao_federacao,
             'numero_pmb' => $sports->numero_pmb,
             'data_inscricao' => $this->formatDate($sports->data_inscricao),
-            'escalao_id' => $sports->escalao_id,
-            'escalao_calculado_id' => $sports->escalao_calculado_id,
-            'escalao_manual_override' => (bool) $sports->escalao_manual_override,
+            'escalao_id' => $resolvedAgeGroup,
+            'escalao_calculado_id' => $calculatedAgeGroup
+                ?: ($sports->escalao_calculado_id ? (string) $sports->escalao_calculado_id : null),
+            'escalao_manual_override' => $canonicalAgeGroup !== null
+                ? ($canonicalAgeGroup['placement_source'] === 'override')
+                : (bool) $sports->escalao_manual_override,
             'data_atestado_medico' => $this->formatDate($sports->data_atestado_medico),
             'arquivo_atestado_medico' => $sports->arquivo_atestado_medico,
             'informacoes_medicas' => $sports->informacoes_medicas,
@@ -256,6 +282,59 @@ final class MemberDataReadService
         string|array|null $fallbackUserField = null,
     ): mixed {
         return $this->resolveConfiguration($user->dadosConfiguracao, $user, $newField, $fallbackUserField);
+    }
+
+    /**
+     * @return array{official_age_group_id:?string,calculated_age_group_id:?string,placement_source:?string}|null
+     */
+    private function currentCanonicalAgeGroup(User $user): ?array
+    {
+        if (! Schema::hasTable('sports_athlete_season_profiles') || ! Schema::hasTable('seasons')) {
+            return null;
+        }
+
+        $today = today()->toDateString();
+        $currentSeasonIds = Season::query()
+            ->where('club_id', $this->sportsClubContext->id())
+            ->where(function (Builder $query) use ($today): void {
+                $query->where('status', 'active')
+                    ->orWhere(function (Builder $dateQuery) use ($today): void {
+                        $dateQuery
+                            ->whereDate('data_inicio', '<=', $today)
+                            ->whereDate('data_fim', '>=', $today);
+                    });
+            })
+            ->pluck('id');
+
+        if ($currentSeasonIds->isEmpty()) {
+            return null;
+        }
+
+        $profile = SportsAthleteSeasonProfile::query()
+            ->where('club_id', $this->sportsClubContext->id())
+            ->where('user_id', $user->id)
+            ->whereIn('season_id', $currentSeasonIds)
+            ->where(function (Builder $query): void {
+                $query->whereNotNull('official_age_group_id')
+                    ->orWhereNotNull('calculated_age_group_id');
+            })
+            ->orderByRaw('CASE WHEN official_age_group_id IS NOT NULL THEN 0 ELSE 1 END')
+            ->orderByDesc('evaluated_at')
+            ->first(['official_age_group_id', 'calculated_age_group_id', 'placement_source']);
+
+        if ($profile === null) {
+            return null;
+        }
+
+        return [
+            'official_age_group_id' => $profile->official_age_group_id
+                ? (string) $profile->official_age_group_id
+                : null,
+            'calculated_age_group_id' => $profile->calculated_age_group_id
+                ? (string) $profile->calculated_age_group_id
+                : null,
+            'placement_source' => $profile->placement_source,
+        ];
     }
 
     private function resolvePersonal(
