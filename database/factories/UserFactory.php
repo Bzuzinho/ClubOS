@@ -26,7 +26,7 @@ class UserFactory extends Factory
         $sexo = $this->faker->randomElement(['masculino', 'female']);
         $age = $this->faker->numberBetween(10, 50);
         $birthYear = now()->year - $age;
-        
+
         return [
             'name' => fake()->name(),
             'email' => fake()->unique()->safeEmail(),
@@ -37,7 +37,10 @@ class UserFactory extends Factory
             // range used by deterministic financial and reconciliation fixtures.
             'numero_socio' => $this->faker->unique()->numberBetween(10000, 99999),
             'nome_completo' => fake()->name(),
-            'perfil' => $this->faker->randomElement(['user', 'atleta', 'admin']),
+            // The default factory must never grant administrative authority by
+            // chance. Tests that need an administrator must opt in explicitly
+            // through ->admin() or an explicit perfil override.
+            'perfil' => 'user',
             'estado' => 'ativo',
             'data_nascimento' => $birthYear . '-' . $this->faker->numberBetween(1, 12) . '-' . $this->faker->numberBetween(1, 28),
             'menor' => $age < 18,
