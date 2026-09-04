@@ -1,23 +1,23 @@
-import { Head, useForm, usePage } from '@inertiajs/react';
+import { Head, router, useForm, usePage } from '@inertiajs/react';
 import { useMemo, useState } from 'react';
 import {
     AlertTriangle,
-    CalendarClock,
     CheckCircle2,
-    Clock3,
     Download,
     Eye,
     FileText,
-    FileUp,
-    FolderOpen,
-    Info,
-    ShieldCheck,
     Upload,
 } from 'lucide-react';
-import PortalKpiCard from '@/Components/Portal/PortalKpiCard';
-import PortalSection from '@/Components/Portal/PortalSection';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/Components/ui/dialog';
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from '@/Components/ui/dialog';
 import PortalLayout from '@/Layouts/PortalLayout';
+import { portalRoutes } from '@/lib/portalRoutes';
 import type { PageProps as SharedPageProps } from '@/types';
 
 type DocumentStatusKey = 'valid' | 'pending' | 'expiring' | 'expired' | 'in_review';
@@ -51,35 +51,14 @@ interface DocumentCard {
     actions: DocumentActions;
 }
 
-interface DocumentsHero {
-    title: string;
-    headline: string;
-    subheadline: string;
-    tone: DocumentTone;
-    primary_upload_type: string;
-}
-
-interface DocumentsAlerts {
-    items: Array<{
-        id: string;
-        name: string;
-        status: string;
-        message: string;
-        valid_until: string | null;
-        is_medical: boolean;
-    }>;
-    empty_message: string | null;
-}
-
-interface DocumentsUploadConfig {
-    enabled: boolean;
-    route: string | null;
-    accept: string;
-    max_size_mb: number;
-}
-
 interface DocumentsOverview {
-    hero: DocumentsHero;
+    hero: {
+        title: string;
+        headline: string;
+        subheadline: string;
+        tone: DocumentTone;
+        primary_upload_type: string;
+    };
     kpis: {
         valid: number;
         expiring: number;
@@ -87,7 +66,17 @@ interface DocumentsOverview {
         season: string;
     };
     documents: DocumentCard[];
-    alerts: DocumentsAlerts;
+    alerts: {
+        items: Array<{
+            id: string;
+            name: string;
+            status: string;
+            message: string;
+            valid_until: string | null;
+            is_medical: boolean;
+        }>;
+        empty_message: string | null;
+    };
     history: Array<{
         id: string;
         name: string;
@@ -98,7 +87,12 @@ interface DocumentsOverview {
         family: string;
         settings: string;
     };
-    upload: DocumentsUploadConfig;
+    upload: {
+        enabled: boolean;
+        route: string | null;
+        accept: string;
+        max_size_mb: number;
+    };
 }
 
 interface PortalDocumentsProps {
@@ -109,25 +103,13 @@ interface PortalDocumentsProps {
 
 type PageProps = SharedPageProps<PortalDocumentsProps>;
 
-const heroToneClasses: Record<DocumentTone, string> = {
+const statusToneClasses: Record<DocumentTone, string> = {
     success: 'bg-emerald-50 text-emerald-700',
     warning: 'bg-amber-50 text-amber-700',
     danger: 'bg-rose-50 text-rose-700',
     info: 'bg-sky-50 text-sky-700',
-    muted: 'bg-slate-100 text-slate-700',
+    muted: 'bg-slate-100 text-slate-600',
 };
-
-const statusToneClasses: Record<DocumentTone, string> = {
-    success: 'border-emerald-200 bg-emerald-50 text-emerald-700',
-    warning: 'border-amber-200 bg-amber-50 text-amber-700',
-    danger: 'border-rose-200 bg-rose-50 text-rose-700',
-    info: 'border-sky-200 bg-sky-50 text-sky-700',
-    muted: 'border-slate-200 bg-slate-100 text-slate-600',
-};
-
-function emptyValue(value: string | null | undefined, fallback: string): string {
-    return value && value.trim() !== '' ? value : fallback;
-}
 
 function openDocument(url: string | null, target: '_self' | '_blank' = '_blank') {
     if (!url) {
@@ -137,33 +119,14 @@ function openDocument(url: string | null, target: '_self' | '_blank' = '_blank')
     window.open(url, target, target === '_blank' ? 'noopener,noreferrer' : undefined);
 }
 
-function DownloadButton({ url }: { url: string | null }) {
-    return (
-        <button
-            type="button"
-            onClick={() => openDocument(url, '_self')}
-            disabled={!url}
-            className="inline-flex items-center justify-center gap-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-            <Download className="h-3.5 w-3.5" />
-            Descarregar
-        </button>
-    );
-}
-
-function EmptyState({ icon: Icon, message }: { icon: typeof Info; message: string }) {
-    return (
-        <div className="rounded-[22px] border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
-            <Icon className="mx-auto h-5 w-5 text-slate-400" />
-            <p className="mt-2">{message}</p>
-        </div>
-    );
+function displayValue(value: string | null | undefined, fallback: string): string {
+    return value && value.trim() !== '' ? value : fallback;
 }
 
 export default function Documents() {
     const { auth, clubSettings, is_also_admin, has_family, documents_overview } = usePage<PageProps>().props;
     const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
-    const [selectedUploadType, setSelectedUploadType] = useState<string>(documents_overview.hero.primary_upload_type || 'outro');
+    const [selectedUploadType, setSelectedUploadType] = useState(documents_overview.hero.primary_upload_type || 'outro');
     const [withoutExpiry, setWithoutExpiry] = useState(false);
     const uploadForm = useForm<{
         type: string;
@@ -177,14 +140,16 @@ export default function Documents() {
         file: null,
     });
 
-    const essentialDocuments = useMemo(
-        () => documents_overview.documents.filter((document) => document.group === 'essential'),
-        [documents_overview.documents],
-    );
-    const additionalDocuments = useMemo(
-        () => documents_overview.documents.filter((document) => document.group === 'other'),
-        [documents_overview.documents],
-    );
+    const orderedDocuments = useMemo(() => {
+        const priority = (document: DocumentCard) => {
+            if (document.status.key === 'expired') return 0;
+            if (document.status.key === 'expiring') return 1;
+            if (document.status.key === 'pending' || document.status.key === 'in_review') return 2;
+            return document.group === 'essential' ? 3 : 4;
+        };
+
+        return [...documents_overview.documents].sort((left, right) => priority(left) - priority(right));
+    }, [documents_overview.documents]);
 
     const uploadTypeOptions = useMemo(
         () => documents_overview.documents.reduce<Array<{ type: string; name: string }>>((carry, document) => {
@@ -195,11 +160,6 @@ export default function Documents() {
             return carry;
         }, []),
         [documents_overview.documents],
-    );
-
-    const selectedUploadLabel = useMemo(
-        () => uploadTypeOptions.find((option) => option.type === selectedUploadType)?.name ?? 'Documento',
-        [selectedUploadType, uploadTypeOptions],
     );
 
     const resetUploadForm = (type = selectedUploadType) => {
@@ -225,8 +185,11 @@ export default function Documents() {
             return;
         }
 
-        uploadForm.setData('type', selectedUploadType);
-        uploadForm.setData('expiry_date', withoutExpiry ? '' : uploadForm.data.expiry_date);
+        uploadForm.transform((data) => ({
+            ...data,
+            type: selectedUploadType,
+            expiry_date: withoutExpiry ? '' : data.expiry_date,
+        }));
         uploadForm.post(documents_overview.upload.route, {
             forceFormData: true,
             preserveScroll: true,
@@ -234,12 +197,16 @@ export default function Documents() {
                 setIsUploadModalOpen(false);
                 resetUploadForm(selectedUploadType);
             },
+            onFinish: () => uploadForm.transform((data) => data),
         });
     };
 
+    const attentionCount = documents_overview.kpis.expiring + documents_overview.kpis.pending;
+
     return (
         <>
-            <Head title="Documentos" />
+            <Head title="Pagamentos e Documentos" />
+
             <PortalLayout
                 user={auth.user}
                 clubSettings={clubSettings}
@@ -247,316 +214,256 @@ export default function Documents() {
                 activeNav="documents"
                 hasFamily={has_family}
             >
-                <section className="overflow-hidden rounded-[20px] border border-blue-900/10 bg-[linear-gradient(180deg,rgba(15,87,179,0.96)_0%,rgba(17,76,152,0.94)_100%)] px-3.5 py-4 text-white shadow-[0_14px_28px_rgba(15,76,152,0.16)] sm:px-4 lg:px-5">
-                    <div className="flex flex-col items-start gap-3">
-                        <div className="max-w-2xl">
-                            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-blue-100">Portal</p>
-                            <h2 className="mt-1.5 text-xl font-semibold">{documents_overview.hero.title}</h2>
-                            {documents_overview.alerts.items.length > 0 ? (
-                                <div className="mt-2.5 flex flex-wrap gap-2">
-                                    {documents_overview.alerts.items.map((alert) => (
-                                        <span
-                                            key={alert.id}
-                                            className="inline-flex items-center rounded-full border border-white/20 bg-white px-2.5 py-0.5 text-[11px] font-semibold text-blue-900 shadow-sm"
-                                        >
-                                            {alert.name}
-                                        </span>
-                                    ))}
-                                </div>
-                            ) : null}
-                            <div className="mt-2.5 flex flex-wrap items-center gap-2">
-                                <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${heroToneClasses[documents_overview.hero.tone]}`}>
-                                    {documents_overview.hero.headline}
-                                </span>
-                            </div>
-                            <p className="mt-3 text-sm text-blue-50">{documents_overview.hero.subheadline}</p>
+                <section className="overflow-hidden rounded-[22px] border border-slate-200 bg-white shadow-[0_8px_22px_rgba(15,23,42,0.045)]">
+                    <div className="flex items-center gap-3 px-4 pb-3 pt-4 sm:px-5 sm:pt-5">
+                        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-700">
+                            <FileText className="h-5 w-5" />
+                        </span>
+                        <div className="min-w-0">
+                            <h1 className="text-lg font-semibold text-slate-900">Pagamentos e Documentos</h1>
+                            <p className="mt-0.5 truncate text-xs text-slate-500">Validades, comprovativos e documentos pessoais.</p>
                         </div>
                     </div>
+
+                    <div className="grid grid-cols-2 border-t border-slate-100 px-2 pt-1">
+                        <button
+                            type="button"
+                            onClick={() => router.visit(portalRoutes.payments)}
+                            className="px-3 py-3 text-xs font-semibold text-slate-500 transition hover:text-blue-700"
+                        >
+                            Pagamentos
+                        </button>
+                        <button
+                            type="button"
+                            aria-current="page"
+                            className="relative px-3 py-3 text-xs font-semibold text-blue-700"
+                        >
+                            Documentos
+                            <span className="absolute inset-x-5 bottom-0 h-0.5 rounded-full bg-blue-600" />
+                        </button>
+                    </div>
                 </section>
 
-                <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-                    <PortalKpiCard label="Documentos válidos" value={String(documents_overview.kpis.valid)} helper="em conformidade" icon={ShieldCheck} />
-                    <PortalKpiCard label="A caducar" value={String(documents_overview.kpis.expiring)} helper="requer atenção" icon={CalendarClock} />
-                    <PortalKpiCard label="Pendentes" value={String(documents_overview.kpis.pending)} helper="em falta ou validação" icon={AlertTriangle} />
-                    <PortalKpiCard label="Época atual" value={documents_overview.kpis.season} helper="referência ativa" icon={CheckCircle2} />
+                <section className="grid grid-cols-3 gap-2.5">
+                    <div className="rounded-[18px] border border-slate-200 bg-white p-3 shadow-[0_6px_18px_rgba(15,23,42,0.04)]">
+                        <p className="text-[9px] font-semibold uppercase tracking-[0.12em] text-slate-400">Válidos</p>
+                        <div className="mt-1.5 flex items-center justify-between gap-2">
+                            <p className="text-xl font-semibold text-slate-900">{documents_overview.kpis.valid}</p>
+                            <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                        </div>
+                    </div>
+                    <div className="rounded-[18px] border border-slate-200 bg-white p-3 shadow-[0_6px_18px_rgba(15,23,42,0.04)]">
+                        <p className="text-[9px] font-semibold uppercase tracking-[0.12em] text-slate-400">Atenção</p>
+                        <div className="mt-1.5 flex items-center justify-between gap-2">
+                            <p className="text-xl font-semibold text-slate-900">{attentionCount}</p>
+                            <AlertTriangle className="h-4 w-4 text-amber-600" />
+                        </div>
+                    </div>
+                    <div className="rounded-[18px] border border-slate-200 bg-white p-3 shadow-[0_6px_18px_rgba(15,23,42,0.04)]">
+                        <p className="text-[9px] font-semibold uppercase tracking-[0.12em] text-slate-400">Época</p>
+                        <p className="mt-1.5 truncate text-sm font-semibold text-slate-900">{documents_overview.kpis.season}</p>
+                    </div>
                 </section>
 
-                <section className="grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(320px,0.85fr)] xl:items-start">
-                    <div className="space-y-4">
-                        <PortalSection id="documentos-essenciais" title="Documentos essenciais" description="Só vê os seus próprios documentos. Documentos de educandos continuam na área Família.">
-                            {essentialDocuments.length > 0 ? (
-                                <div className="grid gap-3 md:grid-cols-2">
-                                    {essentialDocuments.map((document) => (
-                                        <article
-                                            key={document.id}
-                                            className={`rounded-[24px] border p-4 shadow-sm ${document.priority === 'high' ? 'border-amber-200 bg-amber-50/40' : 'border-slate-200 bg-slate-50/70'}`}
-                                        >
-                                            <div className="flex items-start justify-between gap-3">
-                                                <div>
-                                                    <h3 className="text-base font-semibold text-slate-900">{document.name}</h3>
-                                                    <p className="mt-1 text-sm text-slate-500">{document.description}</p>
-                                                </div>
-                                                <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${statusToneClasses[document.status.tone]}`}>
-                                                    {document.status.label}
-                                                </span>
-                                            </div>
+                {documents_overview.alerts.items.length > 0 ? (
+                    <section className="rounded-[20px] border border-amber-200 bg-amber-50/70 p-3.5">
+                        <div className="flex items-start gap-2.5">
+                            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" />
+                            <div className="min-w-0">
+                                <p className="text-xs font-semibold text-amber-900">Há documentos que precisam de atenção.</p>
+                                <p className="mt-1 line-clamp-2 text-xs leading-5 text-amber-800">
+                                    {documents_overview.alerts.items.map((alert) => alert.name).join(' · ')}
+                                </p>
+                            </div>
+                        </div>
+                    </section>
+                ) : null}
 
-                                            <p className="mt-4 rounded-2xl bg-white px-3 py-2 text-sm text-slate-600">{document.highlight}</p>
-
-                                            <div className="mt-4 grid gap-2 text-sm text-slate-600 sm:grid-cols-2">
-                                                <div className="rounded-2xl border border-slate-200 bg-white px-3 py-2">
-                                                    <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">Assinatura / upload</p>
-                                                    <p className="mt-1 font-medium text-slate-800">{emptyValue(document.signed_at, 'Sem registo')}</p>
-                                                </div>
-                                                <div className="rounded-2xl border border-slate-200 bg-white px-3 py-2">
-                                                    <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">Validade</p>
-                                                    <p className="mt-1 font-medium text-slate-800">{emptyValue(document.valid_until, 'Sem validade')}</p>
-                                                </div>
-                                            </div>
-
-                                            <div className="mt-4 flex flex-wrap gap-2">
-                                                <button
-                                                    type="button"
-                                                    onClick={() => openDocument(document.actions.view_url)}
-                                                    disabled={!document.actions.view_url}
-                                                    className="inline-flex items-center justify-center gap-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
-                                                >
-                                                    <Eye className="h-3.5 w-3.5" />
-                                                    Ver documento
-                                                </button>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => openUploadModal(document.actions.upload_type)}
-                                                    disabled={!document.actions.can_upload}
-                                                    className="inline-flex items-center justify-center gap-1 rounded-xl bg-blue-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-300"
-                                                >
-                                                    <FileUp className="h-3.5 w-3.5" />
-                                                    {document.actions.primary_upload_label}
-                                                </button>
-                                                <DownloadButton url={document.actions.download_url} />
-                                            </div>
-                                        </article>
-                                    ))}
-                                </div>
-                            ) : (
-                                <EmptyState icon={FileText} message="Ainda não existem documentos carregados." />
-                            )}
-                        </PortalSection>
-
-                        <PortalSection title="Outros documentos configurados" description={documents_overview.notes.settings}>
-                            {additionalDocuments.length > 0 ? (
-                                <div className="grid gap-3 md:grid-cols-2">
-                                    {additionalDocuments.map((document) => (
-                                        <article key={document.id} className="rounded-[24px] border border-slate-200 bg-slate-50/70 p-4 shadow-sm">
-                                            <div className="flex items-start justify-between gap-3">
-                                                <div>
-                                                    <h3 className="text-base font-semibold text-slate-900">{document.name}</h3>
-                                                    <p className="mt-1 text-sm text-slate-500">{document.description}</p>
-                                                </div>
-                                                <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${statusToneClasses[document.status.tone]}`}>
-                                                    {document.status.label}
-                                                </span>
-                                            </div>
-                                            <div className="mt-4 grid gap-2 text-sm text-slate-600 sm:grid-cols-2">
-                                                <div className="rounded-2xl border border-slate-200 bg-white px-3 py-2">
-                                                    <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">Upload</p>
-                                                    <p className="mt-1 font-medium text-slate-800">{emptyValue(document.signed_at, 'Sem registo')}</p>
-                                                </div>
-                                                <div className="rounded-2xl border border-slate-200 bg-white px-3 py-2">
-                                                    <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">Validade</p>
-                                                    <p className="mt-1 font-medium text-slate-800">{emptyValue(document.valid_until, 'Sem validade')}</p>
-                                                </div>
-                                            </div>
-                                            <div className="mt-4 flex flex-wrap gap-2">
-                                                <button
-                                                    type="button"
-                                                    onClick={() => openDocument(document.actions.view_url)}
-                                                    disabled={!document.actions.view_url}
-                                                    className="inline-flex items-center justify-center gap-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
-                                                >
-                                                    <Eye className="h-3.5 w-3.5" />
-                                                    Ver documento
-                                                </button>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => openUploadModal(document.actions.upload_type)}
-                                                    className="inline-flex items-center justify-center gap-1 rounded-xl bg-blue-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-blue-700"
-                                                >
-                                                    <FileUp className="h-3.5 w-3.5" />
-                                                    Substituir
-                                                </button>
-                                                <DownloadButton url={document.actions.download_url} />
-                                            </div>
-                                        </article>
-                                    ))}
-                                </div>
-                            ) : (
-                                <EmptyState icon={FolderOpen} message="Ainda não existem documentos carregados." />
-                            )}
-                        </PortalSection>
+                <section className="rounded-[22px] border border-slate-200 bg-white p-4 shadow-[0_8px_22px_rgba(15,23,42,0.045)] sm:p-5">
+                    <div className="flex items-center justify-between gap-3">
+                        <div>
+                            <h2 className="text-base font-semibold text-slate-900">Os meus documentos</h2>
+                            <p className="mt-1 text-xs text-slate-500">Os que precisam de atenção aparecem primeiro.</p>
+                        </div>
+                        {documents_overview.upload.enabled ? (
+                            <button
+                                type="button"
+                                onClick={() => openUploadModal()}
+                                className="inline-flex shrink-0 items-center gap-1.5 rounded-xl bg-blue-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-blue-700"
+                            >
+                                <Upload className="h-3.5 w-3.5" />
+                                Enviar
+                            </button>
+                        ) : null}
                     </div>
 
-                    <div className="space-y-4">
-                        <PortalSection title="Alertas" description="Prioridade a documentos expirados e ao atestado médico.">
-                            {documents_overview.alerts.items.length > 0 ? (
-                                <div className="space-y-3">
-                                    {documents_overview.alerts.items.map((alert) => (
-                                        <article key={alert.id} className={`rounded-[22px] border p-4 ${alert.is_medical ? 'border-amber-200 bg-amber-50' : 'border-slate-200 bg-slate-50/70'}`}>
-                                            <div className="flex items-start gap-3">
-                                                <div className={`rounded-2xl p-2 ${alert.is_medical ? 'bg-white text-amber-600' : 'bg-white text-slate-500'}`}>
-                                                    <AlertTriangle className="h-4 w-4" />
-                                                </div>
-                                                <div className="min-w-0 flex-1">
-                                                    <p className="text-sm font-semibold text-slate-900">{alert.name}</p>
-                                                    <p className="mt-1 text-xs font-medium text-slate-500">{alert.status}</p>
-                                                    <p className="mt-2 text-sm text-slate-600">{alert.message}</p>
-                                                    <p className="mt-2 text-xs text-slate-500">{emptyValue(alert.valid_until, 'Sem validade registada')}</p>
-                                                </div>
+                    <div className="mt-4 divide-y divide-slate-100">
+                        {orderedDocuments.length > 0 ? orderedDocuments.map((document) => (
+                            <article key={document.id} className="py-3 first:pt-0 last:pb-0">
+                                <div className="flex items-start gap-3">
+                                    <span className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${statusToneClasses[document.status.tone]}`}>
+                                        <FileText className="h-4 w-4" />
+                                    </span>
+                                    <div className="min-w-0 flex-1">
+                                        <div className="flex items-start justify-between gap-3">
+                                            <div className="min-w-0">
+                                                <p className="truncate text-sm font-semibold text-slate-900">{document.name}</p>
+                                                <p className="mt-0.5 line-clamp-1 text-[11px] text-slate-500">
+                                                    {document.highlight || document.description}
+                                                </p>
                                             </div>
-                                        </article>
-                                    ))}
-                                </div>
-                            ) : (
-                                <EmptyState icon={CheckCircle2} message={documents_overview.alerts.empty_message || 'Todos os documentos estão válidos.'} />
-                            )}
-                        </PortalSection>
-
-                        <PortalSection title="Histórico" description="Últimos uploads e estados mais recentes.">
-                            {documents_overview.history.length > 0 ? (
-                                <div className="space-y-2.5">
-                                    {documents_overview.history.map((entry) => (
-                                        <div key={entry.id} className="rounded-2xl border border-slate-200 bg-slate-50/70 px-3 py-3">
-                                            <div className="flex items-start justify-between gap-3">
-                                                <div>
-                                                    <p className="text-sm font-semibold text-slate-900">{entry.name}</p>
-                                                    <p className="mt-1 text-xs text-slate-500">{emptyValue(entry.date, 'Sem data')}</p>
-                                                </div>
-                                                <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700">
-                                                    {entry.status}
-                                                </span>
-                                            </div>
+                                            <span className={`shrink-0 rounded-full px-2 py-1 text-[9px] font-semibold ${statusToneClasses[document.status.tone]}`}>
+                                                {document.status.label}
+                                            </span>
                                         </div>
-                                    ))}
+
+                                        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-slate-500">
+                                            <span>Registo: {displayValue(document.signed_at, '—')}</span>
+                                            <span>Validade: {displayValue(document.valid_until, '—')}</span>
+                                        </div>
+
+                                        {(document.actions.view_url || document.actions.download_url || document.actions.can_upload) ? (
+                                            <div className="mt-2.5 flex flex-wrap gap-2">
+                                                {document.actions.view_url ? (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => openDocument(document.actions.view_url)}
+                                                        className="inline-flex items-center gap-1 rounded-lg bg-slate-100 px-2.5 py-1.5 text-[10px] font-semibold text-slate-700"
+                                                    >
+                                                        <Eye className="h-3 w-3" /> Ver
+                                                    </button>
+                                                ) : null}
+                                                {document.actions.download_url ? (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => openDocument(document.actions.download_url, '_self')}
+                                                        className="inline-flex items-center gap-1 rounded-lg bg-slate-100 px-2.5 py-1.5 text-[10px] font-semibold text-slate-700"
+                                                    >
+                                                        <Download className="h-3 w-3" /> Descarregar
+                                                    </button>
+                                                ) : null}
+                                                {document.actions.can_upload ? (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => openUploadModal(document.actions.upload_type)}
+                                                        className="inline-flex items-center gap-1 rounded-lg bg-blue-50 px-2.5 py-1.5 text-[10px] font-semibold text-blue-700"
+                                                    >
+                                                        <Upload className="h-3 w-3" /> {document.actions.primary_upload_label}
+                                                    </button>
+                                                ) : null}
+                                            </div>
+                                        ) : null}
+                                    </div>
                                 </div>
-                            ) : (
-                                <EmptyState icon={Clock3} message="Ainda não existem documentos carregados." />
-                            )}
-                        </PortalSection>
+                            </article>
+                        )) : (
+                            <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
+                                Ainda não existem documentos configurados para este perfil.
+                            </div>
+                        )}
                     </div>
                 </section>
             </PortalLayout>
 
-            <Dialog open={isUploadModalOpen} onOpenChange={setIsUploadModalOpen}>
-                <DialogContent className="w-[95vw] max-h-[90vh] overflow-y-auto sm:max-w-xl">
+            <Dialog open={isUploadModalOpen} onOpenChange={(open) => {
+                setIsUploadModalOpen(open);
+                if (!open) {
+                    resetUploadForm();
+                }
+            }}>
+                <DialogContent className="sm:max-w-md">
                     <DialogHeader>
-                        <DialogTitle>Carregar documento</DialogTitle>
+                        <DialogTitle>Enviar documento</DialogTitle>
                         <DialogDescription>
-                            Escolha o ficheiro, indique o nome do documento e defina a validade para {selectedUploadLabel.toLowerCase()}.
+                            Carrega o documento e, quando aplicável, indica a respetiva validade.
                         </DialogDescription>
                     </DialogHeader>
 
-                    {documents_overview.upload.enabled && documents_overview.upload.route ? (
-                        <div className="space-y-4">
-                            <div>
-                                <label className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Tipo de documento</label>
-                                <select
-                                    value={selectedUploadType}
-                                    onChange={(event) => {
-                                        setSelectedUploadType(event.target.value);
-                                        uploadForm.setData('type', event.target.value);
-                                    }}
-                                    className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-900 outline-none transition focus:border-blue-300 focus:bg-white"
-                                >
-                                    {uploadTypeOptions.map((document) => (
-                                        <option key={document.type} value={document.type}>{document.name}</option>
-                                    ))}
-                                </select>
-                            </div>
+                    <div className="space-y-3 py-2">
+                        <label className="block text-xs font-semibold text-slate-600">
+                            Tipo de documento
+                            <select
+                                value={selectedUploadType}
+                                onChange={(event) => setSelectedUploadType(event.target.value)}
+                                className="mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-blue-300"
+                            >
+                                {uploadTypeOptions.map((option) => (
+                                    <option key={option.type} value={option.type}>{option.name}</option>
+                                ))}
+                            </select>
+                        </label>
 
-                            <div>
-                                <label className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Nome do documento</label>
-                                <input
-                                    value={uploadForm.data.name}
-                                    onChange={(event) => uploadForm.setData('name', event.target.value)}
-                                    className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-900 outline-none transition focus:border-blue-300 focus:bg-white"
-                                    placeholder="Ex.: Atestado médico 2026"
-                                />
-                            </div>
+                        <label className="block text-xs font-semibold text-slate-600">
+                            Nome / referência <span className="font-normal text-slate-400">(opcional)</span>
+                            <input
+                                value={uploadForm.data.name}
+                                onChange={(event) => uploadForm.setData('name', event.target.value)}
+                                className="mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-blue-300"
+                                placeholder="Ex.: Atestado médico 2026"
+                            />
+                            {uploadForm.errors.name ? <span className="mt-1 block text-[11px] text-rose-600">{uploadForm.errors.name}</span> : null}
+                        </label>
 
-                            <div>
-                                <div className="flex items-center justify-between gap-3">
-                                    <label className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Data de validade</label>
-                                    <label className="inline-flex items-center gap-2 text-sm text-slate-600">
-                                        <input
-                                            type="checkbox"
-                                            checked={withoutExpiry}
-                                            onChange={(event) => {
-                                                const nextValue = event.target.checked;
-                                                setWithoutExpiry(nextValue);
-                                                if (nextValue) {
-                                                    uploadForm.setData('expiry_date', '');
-                                                }
-                                            }}
-                                            className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                                        />
-                                        Sem validade
-                                    </label>
-                                </div>
-                                <input
-                                    type="date"
-                                    value={uploadForm.data.expiry_date}
-                                    disabled={withoutExpiry}
-                                    onChange={(event) => uploadForm.setData('expiry_date', event.target.value)}
-                                    className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-900 outline-none transition focus:border-blue-300 focus:bg-white disabled:cursor-not-allowed disabled:opacity-60"
-                                />
+                        <div>
+                            <div className="flex items-center justify-between gap-3">
+                                <label className="text-xs font-semibold text-slate-600" htmlFor="document-expiry-date">Validade</label>
+                                <label className="inline-flex items-center gap-2 text-[11px] text-slate-500">
+                                    <input
+                                        type="checkbox"
+                                        checked={withoutExpiry}
+                                        onChange={(event) => setWithoutExpiry(event.target.checked)}
+                                        className="rounded border-slate-300"
+                                    />
+                                    Sem validade
+                                </label>
                             </div>
+                            <input
+                                id="document-expiry-date"
+                                type="date"
+                                value={uploadForm.data.expiry_date}
+                                disabled={withoutExpiry}
+                                onChange={(event) => uploadForm.setData('expiry_date', event.target.value)}
+                                className="mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-blue-300 disabled:bg-slate-100"
+                            />
+                            {uploadForm.errors.expiry_date ? <span className="mt-1 block text-[11px] text-rose-600">{uploadForm.errors.expiry_date}</span> : null}
+                        </div>
 
-                            <div>
-                                <label className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Ficheiro</label>
-                                <input
-                                    type="file"
-                                    accept={documents_overview.upload.accept}
-                                    onChange={(event) => uploadForm.setData('file', event.target.files?.[0] ?? null)}
-                                    className="mt-2 block w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-700 file:mr-3 file:rounded-xl file:border-0 file:bg-blue-600 file:px-3 file:py-2 file:text-sm file:font-semibold file:text-white"
-                                />
-                                <p className="mt-2 text-xs text-slate-500">Tipos permitidos: {documents_overview.upload.accept}. Máximo {documents_overview.upload.max_size_mb} MB.</p>
-                            </div>
-
-                            {Object.keys(uploadForm.errors).length > 0 ? (
-                                <div className="rounded-2xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
-                                    {Object.values(uploadForm.errors).map((error) => (
-                                        <p key={error}>{error}</p>
-                                    ))}
-                                </div>
+                        <label className="block rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-4 text-center">
+                            <Upload className="mx-auto h-5 w-5 text-blue-600" />
+                            <span className="mt-2 block text-xs font-semibold text-blue-700">Selecionar ficheiro</span>
+                            <span className="mt-1 block text-[10px] text-slate-500">
+                                Máximo {documents_overview.upload.max_size_mb} MB
+                            </span>
+                            <input
+                                type="file"
+                                accept={documents_overview.upload.accept}
+                                onChange={(event) => uploadForm.setData('file', event.target.files?.[0] ?? null)}
+                                className="sr-only"
+                            />
+                            {uploadForm.data.file ? (
+                                <span className="mt-2 block truncate text-[11px] font-medium text-slate-700">{uploadForm.data.file.name}</span>
                             ) : null}
+                            {uploadForm.errors.file ? <span className="mt-1 block text-[11px] text-rose-600">{uploadForm.errors.file}</span> : null}
+                        </label>
+                    </div>
 
-                            <DialogFooter>
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        setIsUploadModalOpen(false);
-                                        resetUploadForm(selectedUploadType);
-                                    }}
-                                    className="inline-flex items-center justify-center rounded-2xl border border-slate-200 bg-white px-3.5 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-100"
-                                >
-                                    Cancelar
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={submitUpload}
-                                    disabled={uploadForm.processing || !uploadForm.data.file}
-                                    className="inline-flex items-center justify-center gap-2 rounded-2xl bg-blue-600 px-3.5 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-300"
-                                >
-                                    <Upload className="h-4 w-4" />
-                                    {uploadForm.processing ? 'A carregar...' : 'Carregar documento'}
-                                </button>
-                            </DialogFooter>
-                        </div>
-                    ) : (
-                        <div className="rounded-[22px] border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-500">
-                            O upload de documentos não está disponível neste momento.
-                        </div>
-                    )}
+                    <DialogFooter>
+                        <button
+                            type="button"
+                            onClick={() => setIsUploadModalOpen(false)}
+                            className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700"
+                        >
+                            Cancelar
+                        </button>
+                        <button
+                            type="button"
+                            onClick={submitUpload}
+                            disabled={uploadForm.processing || !uploadForm.data.file}
+                            className="rounded-xl bg-blue-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                            {uploadForm.processing ? 'A enviar...' : 'Enviar documento'}
+                        </button>
+                    </DialogFooter>
                 </DialogContent>
             </Dialog>
         </>

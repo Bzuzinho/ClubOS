@@ -11,54 +11,56 @@ interface ProductCardProps {
 
 function stockLabel(product: StoreProduct): { label: string; className: string } {
     if (product.stock_atual <= 0) {
-        return { label: '0 em stock', className: 'border-rose-200 bg-rose-50 text-rose-700' };
+        return { label: 'Sem stock', className: 'bg-rose-50 text-rose-700' };
     }
 
-    return { label: `${product.stock_atual} em stock`, className: 'border-sky-200 bg-sky-50 text-sky-700' };
+    return { label: `${product.stock_atual} em stock`, className: 'bg-sky-50 text-sky-700' };
 }
 
 export default function ProductCard({ product, onView, onAdd }: ProductCardProps) {
     const badge = stockLabel(product);
 
     return (
-        <article className="overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-[0_10px_24px_rgba(15,23,42,0.05)]">
-            <div className="aspect-[4/3] bg-slate-100">
-                {product.imagem_principal_path ? (
-                    <img src={product.imagem_principal_path} alt={product.nome} className="h-full w-full object-cover" />
-                ) : (
-                    <div className="flex h-full items-center justify-center text-sm text-slate-400">Sem imagem</div>
-                )}
-            </div>
+        <article className="overflow-hidden rounded-[20px] border border-slate-200 bg-white shadow-[0_6px_18px_rgba(15,23,42,0.04)]">
+            <button type="button" onClick={() => onView(product)} className="block w-full text-left">
+                <div className="aspect-square bg-slate-100 sm:aspect-[4/3]">
+                    {product.imagem_principal_path ? (
+                        <img src={product.imagem_principal_path} alt={product.nome} className="h-full w-full object-cover" />
+                    ) : (
+                        <div className="flex h-full items-center justify-center text-xs text-slate-400">Sem imagem</div>
+                    )}
+                </div>
+            </button>
 
-            <div className="p-4">
-                <div className="flex items-start justify-between gap-3">
-                    <div>
-                        <p className="text-sm font-semibold text-slate-900">{product.nome}</p>
-                        <p className="mt-1 text-xs text-slate-500">{product.categoria?.nome || 'Colecao oficial'}</p>
+            <div className="p-3">
+                <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                        <p className="line-clamp-2 text-sm font-semibold leading-5 text-slate-900">{product.nome}</p>
+                        <p className="mt-0.5 truncate text-[10px] text-slate-500">{product.categoria?.nome || 'Coleção oficial'}</p>
                     </div>
-                    <span className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${badge.className}`}>
+                    <span className={`shrink-0 rounded-full px-2 py-1 text-[9px] font-semibold ${badge.className}`}>
                         {badge.label}
                     </span>
                 </div>
 
-                <p className="mt-3 text-lg font-semibold text-blue-700">{formatStoreCurrency(product.preco)}</p>
-                <p className="mt-2 line-clamp-2 text-sm text-slate-500">{product.descricao || 'Artigo oficial do clube com recolha e acompanhamento via portal.'}</p>
-
-                <div className="mt-4 flex justify-end gap-2">
-                    <Button type="button" size="icon" variant="outline" className="rounded-2xl" onClick={() => onView(product)} aria-label={`Ver ${product.nome}`} title="Ver artigo">
-                        <Eye className="h-4 w-4" />
-                    </Button>
-                    <Button
-                        type="button"
-                        size="icon"
-                        className="rounded-2xl bg-blue-600 hover:bg-blue-700"
-                        disabled={product.gere_stock && product.stock_atual <= 0}
-                        onClick={() => onAdd(product)}
-                        aria-label={`Comprar ${product.nome}`}
-                        title="Comprar"
-                    >
-                        <ShoppingBag className="h-4 w-4" />
-                    </Button>
+                <div className="mt-3 flex items-center justify-between gap-2">
+                    <p className="text-base font-semibold text-blue-700">{formatStoreCurrency(product.preco)}</p>
+                    <div className="flex gap-1.5">
+                        <Button type="button" size="icon" variant="outline" className="h-8 w-8 rounded-xl" onClick={() => onView(product)} aria-label={`Ver ${product.nome}`} title="Ver artigo">
+                            <Eye className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                            type="button"
+                            size="icon"
+                            className="h-8 w-8 rounded-xl bg-blue-600 hover:bg-blue-700"
+                            disabled={product.gere_stock && product.stock_atual <= 0}
+                            onClick={() => onAdd(product)}
+                            aria-label={`Adicionar ${product.nome} ao carrinho`}
+                            title="Adicionar ao carrinho"
+                        >
+                            <ShoppingBag className="h-3.5 w-3.5" />
+                        </Button>
+                    </div>
                 </div>
             </div>
         </article>
