@@ -1,7 +1,7 @@
 import { Head, router, usePage } from '@inertiajs/react';
-import { CalendarDays, ChevronRight, CreditCard, FileText, IdCard, Megaphone } from 'lucide-react';
+import { CalendarDays, ChevronRight, CreditCard, FileText, Megaphone, Trophy } from 'lucide-react';
 import PortalLayout from '@/Layouts/PortalLayout';
-import { portalRoutes } from '@/lib/portalRoutes';
+import { getPortalBottomNavItems, portalRoutes } from '@/lib/portalRoutes';
 import type { ClubSettingsProps, PageProps as SharedPageProps } from '@/types';
 
 interface AlertItem {
@@ -48,12 +48,14 @@ export default function Base() {
         communicationAlerts,
     } = props;
 
+    const bottomNavKeys = new Set<string>(getPortalBottomNavItems(has_family).map((item) => item.key));
     const quickActions = [
-        { key: 'profile', label: 'Perfil', icon: IdCard, href: portalRoutes.profile },
         { key: 'payments', label: 'Pagamentos', icon: CreditCard, href: portalRoutes.payments },
-        { key: 'events', label: 'Agenda', icon: CalendarDays, href: portalRoutes.events },
         { key: 'documents', label: 'Documentos', icon: FileText, href: portalRoutes.documents },
-    ];
+        { key: 'communications', label: 'Comunicações', icon: Megaphone, href: portalRoutes.communications },
+        { key: 'trainings', label: 'Treinos', icon: CalendarDays, href: portalRoutes.trainings },
+        { key: 'results', label: 'Resultados', icon: Trophy, href: portalRoutes.results },
+    ].filter((action) => !bottomNavKeys.has(action.key));
     const recentAlerts = (communicationAlerts?.recent ?? []).slice(0, 4);
 
     return (
@@ -77,7 +79,7 @@ export default function Base() {
 
                 <section>
                     <h2 className="mb-3 text-base font-semibold text-slate-900">Ações rápidas</h2>
-                    <div className="grid grid-cols-4 gap-2.5">
+                    <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4 xl:grid-cols-5">
                         {quickActions.map((action) => (
                             <button
                                 key={action.key}
@@ -88,7 +90,7 @@ export default function Base() {
                                 <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-blue-50 text-blue-700">
                                     <action.icon className="h-4 w-4" />
                                 </span>
-                                <span className="truncate text-[10px] font-semibold text-slate-700 sm:text-xs">{action.label}</span>
+                                <span className="w-full truncate text-[10px] font-semibold text-slate-700 sm:text-xs">{action.label}</span>
                             </button>
                         ))}
                     </div>
