@@ -138,7 +138,7 @@ Isto testa efetivamente:
 Nginx → TLS → public/index.php → PHP-FPM → Laravel → /up
 ```
 
-O hostname canónico tem de devolver `HTTP 200` em `/` (website público), `/login` (entrada ClubOS) e `/up` (saúde Laravel). Cada alias tem de devolver exatamente `HTTP 301` para o mesmo caminho no hostname canónico, sem seguir o redirect. Desta forma, um website público substituído por um redirect para login, um certificado sem o alias, um virtual host incorreto ou um redirect de `www` para si próprio fazem falhar o deploy.
+O hostname canónico tem de devolver `HTTP 200` em `/` (website público), `/login` (entrada ClubOS) e `/up` (saúde Laravel). Em cada alias, `/` e `/login` têm de devolver exatamente `HTTP 301` para o mesmo caminho no hostname canónico, sem seguir o redirect. O endpoint técnico `/up`, registado fora do grupo de middleware web do Laravel, tem de responder diretamente com `HTTP 200` também no alias. Desta forma, um website público substituído por um redirect para login, um certificado sem o alias, um virtual host incorreto ou um redirect de `www` para si próprio fazem falhar o deploy.
 
 Para o BSCN, o contrato Nginx de referência está versionado em `docs/deploy/nginx-bscn-canonical.conf`: `bscn.pt` é canónico e `www.bscn.pt` redireciona sempre para `https://bscn.pt$request_uri`.
 
