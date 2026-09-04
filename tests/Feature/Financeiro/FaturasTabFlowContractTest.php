@@ -65,4 +65,35 @@ class FaturasTabFlowContractTest extends TestCase
             $source,
         );
     }
+
+    public function test_mensalidades_show_the_bank_reconciliation_trace_and_ignore_reversed_maps(): void
+    {
+        $source = file_get_contents(resource_path('js/Pages/Financeiro/FaturasTab.tsx'));
+
+        $this->assertIsString($source);
+        $this->assertStringContainsString('const bankReconciliationsByInvoiceId = useMemo(() => {', $source);
+        $this->assertStringContainsString("new Set(['cancelled', 'cancelado', 'reversed', 'anulado'])", $source);
+        $this->assertStringContainsString('Conciliação bancária', $source);
+        $this->assertStringContainsString('reconciliation.valor_conciliado', $source);
+        $this->assertStringContainsString('statement.data_movimento', $source);
+        $this->assertStringContainsString('statement.descricao', $source);
+        $this->assertStringContainsString('statement.referencia', $source);
+        $this->assertStringContainsString('statement.conta', $source);
+        $this->assertStringContainsString('Movimento bancário:', $source);
+    }
+
+    public function test_financeiro_index_exposes_the_canonical_reconciliation_trace_fields(): void
+    {
+        $source = file_get_contents(app_path('Http/Controllers/FinanceiroController.php'));
+
+        $this->assertIsString($source);
+        $this->assertStringContainsString("'payment_id',", $source);
+        $this->assertStringContainsString("'payment_allocation_id',", $source);
+        $this->assertStringContainsString("'bank_reconciliation_suggestion_id',", $source);
+        $this->assertStringContainsString("'valor_conciliado',", $source);
+        $this->assertStringContainsString("'status',", $source);
+        $this->assertStringContainsString("'regra_usada',", $source);
+        $this->assertStringContainsString("'metadata',", $source);
+    }
+
 }
