@@ -336,7 +336,7 @@ export default function Family() {
                 >
                     <div className="flex items-start justify-between gap-3">
                         <div>
-                            <p className="text-xs font-semibold text-slate-900">Resumo financeiro da família</p>
+                            <p className="text-xs font-semibold text-slate-900">Conta Corrente da família</p>
                             <div className="mt-3 flex flex-wrap items-end gap-x-8 gap-y-3">
                                 <div>
                                     <p className="text-[10px] uppercase tracking-[0.13em] text-slate-400">Saldo total</p>
