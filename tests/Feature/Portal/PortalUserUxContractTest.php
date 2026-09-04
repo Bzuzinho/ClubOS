@@ -16,7 +16,7 @@ class PortalUserUxContractTest extends TestCase
         $family = file_get_contents(resource_path('js/Pages/Portal/Family.tsx'));
         $agenda = file_get_contents(resource_path('js/Pages/Portal/Events.tsx'));
         $profile = file_get_contents(resource_path('js/Pages/Portal/Profile.tsx'));
-        $dashboard = file_get_contents(resource_path('js/Pages/Portal/Base.tsx'));
+        $dashboard = file_get_contents(resource_path('js/Pages/Dashboard/Atleta.tsx'));
         $communications = file_get_contents(resource_path('js/Pages/Membros/CommunicationsTab.tsx'));
 
         $this->assertIsString($family);
@@ -44,7 +44,10 @@ class PortalUserUxContractTest extends TestCase
         $this->assertStringContainsString("key: 'payments', label: 'Pagamentos'", $dashboard);
         $this->assertStringContainsString("key: 'documents', label: 'Documentos'", $dashboard);
         $this->assertStringContainsString("key: 'communications', label: 'Comunicações'", $dashboard);
+        $this->assertStringContainsString("key: 'trainings', label: 'Treinos'", $dashboard);
+        $this->assertStringContainsString("key: 'results', label: 'Resultados'", $dashboard);
         $this->assertStringContainsString('.filter((action) => !bottomNavKeys.has(action.key))', $dashboard);
+        $this->assertStringContainsString('grid grid-cols-2 gap-2.5 sm:grid-cols-3 xl:grid-cols-5', $dashboard);
 
         $this->assertStringContainsString('className="divide-y divide-slate-100 lg:hidden"', $communications);
         $this->assertStringContainsString('className="hidden max-h-[420px] overflow-auto lg:block"', $communications);
