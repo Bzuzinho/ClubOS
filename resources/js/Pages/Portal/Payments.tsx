@@ -179,7 +179,7 @@ export default function Payments() {
                         </span>
                         <div>
                             <h1 className="text-lg font-semibold text-slate-900">Pagamentos e Documentos</h1>
-                            <p className="mt-0.5 text-xs text-slate-500">Conta corrente, faturas, recibos e documentos pessoais.</p>
+                            <p className="mt-0.5 text-xs text-slate-500">Conta Corrente, faturas, recibos e documentos pessoais.</p>
                         </div>
                     </div>
 
