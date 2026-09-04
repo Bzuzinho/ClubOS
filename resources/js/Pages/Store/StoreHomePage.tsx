@@ -53,12 +53,13 @@ export default function StoreHomePage() {
     }, [activeCategoryId, featuredProducts]);
 
     const visibleProducts = useMemo(() => {
-        if (activeCategoryId === 'all') {
-            return products;
-        }
+        const featuredIds = new Set(visibleFeatured.map((product) => product.id));
+        const categoryProducts = activeCategoryId === 'all'
+            ? products
+            : products.filter((product) => product.categoria_id === activeCategoryId);
 
-        return products.filter((product) => product.categoria_id === activeCategoryId);
-    }, [activeCategoryId, products]);
+        return categoryProducts.filter((product) => !featuredIds.has(product.id));
+    }, [activeCategoryId, products, visibleFeatured]);
 
     const applyFilters = () => {
         router.get('/loja', {
@@ -84,7 +85,7 @@ export default function StoreHomePage() {
             setLocalCart(nextCart);
             toast.success('Artigo adicionado ao carrinho.');
         } catch (error) {
-            toast.error(error instanceof Error ? error.message : 'Nao foi possivel adicionar ao carrinho.');
+            toast.error(error instanceof Error ? error.message : 'Não foi possível adicionar ao carrinho.');
         } finally {
             setBusyProductId(null);
         }
@@ -105,63 +106,65 @@ export default function StoreHomePage() {
                     onOpenCart={() => router.visit('/loja/carrinho')}
                 />
 
-                <CategoryScroller search={search} onSearchChange={setSearch} onSubmitSearch={applyFilters} categories={categories} activeCategoryId={activeCategoryId} onSelect={(categoryId) => {
-                    setActiveCategoryId(categoryId);
-                    router.get('/loja', {
-                        search: search || undefined,
-                        categoria: categoryId === 'all' ? undefined : categoryId,
-                    }, {
-                        preserveState: true,
-                        replace: true,
-                    });
-                }} />
+                <CategoryScroller
+                    search={search}
+                    onSearchChange={setSearch}
+                    onSubmitSearch={applyFilters}
+                    categories={categories}
+                    activeCategoryId={activeCategoryId}
+                    onSelect={(categoryId) => {
+                        setActiveCategoryId(categoryId);
+                        router.get('/loja', {
+                            search: search || undefined,
+                            categoria: categoryId === 'all' ? undefined : categoryId,
+                        }, {
+                            preserveState: true,
+                            replace: true,
+                        });
+                    }}
+                />
 
-                <section>
-                    <div className="space-y-4">
-                        <section className="rounded-[24px] border border-slate-200 bg-white p-4 shadow-[0_10px_24px_rgba(15,23,42,0.05)]">
-                            <div className="flex items-center justify-between gap-3">
-                                <div>
-                                    <h2 className="text-base font-semibold text-slate-900">Destaques da semana</h2>
-                                    <p className="text-sm text-slate-500">Produtos em evidencia para o portal pessoal.</p>
+                {visibleFeatured.length > 0 ? (
+                    <section className="rounded-[22px] border border-slate-200 bg-white p-4 shadow-[0_8px_22px_rgba(15,23,42,0.045)]">
+                        <div className="flex items-center justify-between gap-3">
+                            <div>
+                                <h2 className="text-base font-semibold text-slate-900">Destaques</h2>
+                                <p className="mt-1 text-xs text-slate-500">Seleção em evidência na loja do clube.</p>
+                            </div>
+                        </div>
+
+                        <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4">
+                            {visibleFeatured.map((product) => (
+                                <div key={`featured-${product.id}`} className={busyProductId === product.id ? 'opacity-70' : ''}>
+                                    <ProductCard product={product} onView={(item) => visitStoreProduct(item.slug)} onAdd={handleAddToCart} />
                                 </div>
-                            </div>
+                            ))}
+                        </div>
+                    </section>
+                ) : null}
 
-                            <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-                                {visibleFeatured.length > 0 ? visibleFeatured.map((product) => (
-                                    <div key={`featured-${product.id}`} className={busyProductId === product.id ? 'opacity-70' : ''}>
-                                        <ProductCard product={product} onView={(item) => visitStoreProduct(item.slug)} onAdd={handleAddToCart} />
-                                    </div>
-                                )) : (
-                                    <div className="rounded-[22px] border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-sm text-slate-500 sm:col-span-2 xl:col-span-3">
-                                        Sem destaques ativos para os filtros atuais.
-                                    </div>
-                                )}
-                            </div>
-                        </section>
-
-                        <section className="rounded-[24px] border border-slate-200 bg-white p-4 shadow-[0_10px_24px_rgba(15,23,42,0.05)]">
-                            <div className="flex items-center justify-between gap-3">
-                                <div>
-                                    <h2 className="text-base font-semibold text-slate-900">Colecao completa</h2>
-                                    <p className="text-sm text-slate-500">Explora todos os artigos ativos da Loja do Clube.</p>
-                                </div>
-                                <span className="text-sm font-semibold text-blue-700">{visibleProducts.length} artigo(s)</span>
-                            </div>
-
-                            <div className="mt-4 grid gap-4 grid-cols-2 xl:grid-cols-4">
-                                {visibleProducts.length > 0 ? visibleProducts.map((product) => (
-                                    <div key={product.id} className={busyProductId === product.id ? 'opacity-70' : ''}>
-                                        <ProductCard product={product} onView={(item) => visitStoreProduct(item.slug)} onAdd={handleAddToCart} />
-                                    </div>
-                                )) : (
-                                    <div className="rounded-[22px] border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-sm text-slate-500 col-span-2 xl:col-span-4">
-                                        Nao existem produtos para a pesquisa ou categoria selecionada.
-                                    </div>
-                                )}
-                            </div>
-                        </section>
+                <section className="rounded-[22px] border border-slate-200 bg-white p-4 shadow-[0_8px_22px_rgba(15,23,42,0.045)]">
+                    <div className="flex items-center justify-between gap-3">
+                        <div>
+                            <h2 className="text-base font-semibold text-slate-900">Coleção</h2>
+                            <p className="mt-1 text-xs text-slate-500">Todos os restantes artigos para os filtros atuais.</p>
+                        </div>
+                        <span className="text-xs font-semibold text-blue-700">{visibleProducts.length}</span>
                     </div>
 
+                    <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4">
+                        {visibleProducts.length > 0 ? visibleProducts.map((product) => (
+                            <div key={product.id} className={busyProductId === product.id ? 'opacity-70' : ''}>
+                                <ProductCard product={product} onView={(item) => visitStoreProduct(item.slug)} onAdd={handleAddToCart} />
+                            </div>
+                        )) : (
+                            <div className="col-span-2 rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-7 text-center text-sm text-slate-500 md:col-span-3 xl:col-span-4">
+                                {visibleFeatured.length > 0
+                                    ? 'Os artigos disponíveis para estes filtros já estão nos destaques acima.'
+                                    : 'Não existem produtos para a pesquisa ou categoria selecionada.'}
+                            </div>
+                        )}
+                    </div>
                 </section>
             </PortalLayout>
         </>
