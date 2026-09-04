@@ -91,8 +91,9 @@ class ManualInvoiceService
                 'referencia_pagamento' => $data['referencia_pagamento'] ?? $lockedInvoice->referencia_pagamento,
                 'centro_custo_id' => $data['centro_custo_id'] ?? null,
                 'tipo' => $data['tipo'],
-                'origem_tipo' => $data['origem_tipo'] ?? $lockedInvoice->origem_tipo ?? 'manual',
-                'origem_id' => $data['origem_id'] ?? $lockedInvoice->origem_id,
+                // A origem e identidade/proveniencia do documento e nao e editavel administrativamente.
+                'origem_tipo' => $lockedInvoice->origem_tipo,
+                'origem_id' => $lockedInvoice->origem_id,
                 'observacoes' => $data['observacoes'] ?? null,
             ]);
 
