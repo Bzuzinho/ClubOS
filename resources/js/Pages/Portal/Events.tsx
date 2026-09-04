@@ -310,14 +310,14 @@ export default function Events() {
                 activeNav="events"
                 hasFamily={has_family}
             >
-                <section className="rounded-[22px] border border-slate-200 bg-white p-4 shadow-[0_8px_22px_rgba(15,23,42,0.045)] sm:p-5">
-                    <div className="flex items-center justify-between gap-3">
-                        <div>
-                            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Agenda</p>
-                            <h1 className="mt-1 text-lg font-semibold text-slate-900">{selected_profile.name}</h1>
-                            <p className="mt-0.5 text-xs text-slate-500">{view_mode === 'family' ? 'Agenda familiar' : selected_profile.type}</p>
+                <section className="overflow-hidden rounded-[22px] bg-[linear-gradient(145deg,#0f62c8_0%,#0c4d9d_100%)] p-4 text-white shadow-[0_16px_32px_rgba(15,76,152,0.18)] sm:p-5">
+                    <div className="flex min-w-0 items-center justify-between gap-3">
+                        <div className="min-w-0">
+                            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-blue-100">Agenda</p>
+                            <h1 className="mt-1 line-clamp-2 break-words text-lg font-semibold text-white">{selected_profile.name}</h1>
+                            <p className="mt-1 break-words text-xs text-blue-100">{view_mode === 'family' ? 'Agenda familiar' : selected_profile.type}</p>
                         </div>
-                        <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50 text-blue-700">
+                        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-white/15 bg-white/10 text-white">
                             <CalendarDays className="h-5 w-5" />
                         </span>
                     </div>
