@@ -6,11 +6,11 @@ import {
     FileText,
     MapPin,
     Megaphone,
-    ShoppingBag,
+    Trophy,
 } from 'lucide-react';
 import PortalLayout from '@/Layouts/PortalLayout';
 import { amountToneClass, formatSignedCurrency } from '@/lib/financialDisplay';
-import { portalRoutes } from '@/lib/portalRoutes';
+import { getPortalBottomNavItems, portalRoutes } from '@/lib/portalRoutes';
 import type { ClubSettingsProps, PageProps as SharedPageProps } from '@/types';
 
 interface Athlete {
@@ -166,13 +166,14 @@ export default function Atleta() {
     const nextEvent = upcomingEvents[0] ?? null;
 
     const visit = (href: string) => router.visit(href);
-
+    const bottomNavKeys = new Set<string>(getPortalBottomNavItems(has_family).map((item) => item.key));
     const quickActions = [
         { key: 'payments', label: 'Pagamentos', icon: CreditCard, href: portalRoutes.payments },
-        { key: 'agenda', label: 'Agenda', icon: CalendarDays, href: portalRoutes.events },
         { key: 'documents', label: 'Documentos', icon: FileText, href: portalRoutes.documents },
-        { key: 'shop', label: 'Loja', icon: ShoppingBag, href: portalRoutes.shop },
-    ];
+        { key: 'communications', label: 'Comunicações', icon: Megaphone, href: portalRoutes.communications },
+        { key: 'trainings', label: 'Treinos', icon: CalendarDays, href: portalRoutes.trainings },
+        { key: 'results', label: 'Resultados', icon: Trophy, href: portalRoutes.results },
+    ].filter((action) => !bottomNavKeys.has(action.key));
 
     return (
         <>
@@ -276,7 +277,7 @@ export default function Atleta() {
                     <div className="mb-3 flex items-center justify-between gap-3">
                         <h2 className="text-base font-semibold text-slate-900">Ações rápidas</h2>
                     </div>
-                    <div className="grid grid-cols-4 gap-2.5">
+                    <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 xl:grid-cols-5">
                         {quickActions.map((action) => (
                             <button
                                 key={action.key}
