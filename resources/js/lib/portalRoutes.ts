@@ -28,7 +28,7 @@ export const portalRoutes = {
 export type PortalNavKey = keyof Omit<typeof portalRoutes, 'admin'>;
 
 export const portalNavLabels: Record<PortalNavKey, string> = {
-    dashboard: 'A Minha Área',
+    dashboard: 'Início',
     profile: 'Perfil',
     trainings: 'Treinos',
     events: 'Agenda',
