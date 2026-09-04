@@ -137,6 +137,7 @@ class PortalProfileController extends Controller
             'localidade' => ['nullable', 'string', 'max:255'],
             'nacionalidade' => ['nullable', 'string', 'max:255'],
             'sexo' => ['nullable', 'in:masculino,feminino'],
+            'estado_civil' => ['nullable', 'in:solteiro,casado,uniao_de_facto,divorciado,viuvo'],
             'contacto' => ['nullable', 'string', 'max:30'],
             'email_secundario' => ['nullable', 'email', 'max:255'],
             'num_federacao' => ['nullable', 'string', 'max:100'],
@@ -234,6 +235,7 @@ class PortalProfileController extends Controller
                 'localidade' => $personal['localidade'] ?? null,
                 'nacionalidade' => $personal['nacionalidade'] ?? null,
                 'sexo' => in_array($personal['sexo'] ?? null, ['masculino', 'feminino'], true) ? $personal['sexo'] : null,
+                'estado_civil' => $personal['estado_civil'] ?? null,
                 'contacto' => $personal['contacto'] ?? null,
                 'email_secundario' => $personal['email_secundario'] ?? null,
                 'num_federacao' => $profileDocuments['federacao']['numero'] ?? null,
@@ -256,6 +258,7 @@ class PortalProfileController extends Controller
                 ['label' => 'Localidade', 'value' => $this->displayValue($personal['localidade'] ?? null)],
                 ['label' => 'Nacionalidade', 'value' => $this->displayValue($personal['nacionalidade'] ?? null)],
                 ['label' => 'Sexo', 'value' => $this->displayValue($this->humanizeSex($personal['sexo'] ?? null))],
+                ['label' => 'Estado civil', 'value' => $this->displayValue($this->humanizeMaritalStatus($personal['estado_civil'] ?? null))],
                 ['label' => 'Contacto', 'value' => $this->displayValue($personal['contacto'] ?? null)],
                 ['label' => 'Email secundário', 'value' => $this->displayValue($personal['email_secundario'] ?? null)],
             ],
@@ -544,6 +547,18 @@ class PortalProfileController extends Controller
             'm', 'masculino', 'male' => 'Masculino',
             'f', 'feminino', 'female' => 'Feminino',
             default => $sex ? Str::headline($sex) : null,
+        };
+    }
+
+    private function humanizeMaritalStatus(?string $status): ?string
+    {
+        return match (Str::of((string) $status)->trim()->lower()->ascii()->replace(' ', '_')->value()) {
+            'solteiro' => 'Solteiro(a)',
+            'casado' => 'Casado(a)',
+            'uniao_de_facto' => 'União de facto',
+            'divorciado' => 'Divorciado(a)',
+            'viuvo' => 'Viúvo(a)',
+            default => $status ? Str::headline($status) : null,
         };
     }
 
