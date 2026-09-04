@@ -247,16 +247,24 @@ class FinanceiroController extends Controller
         try {
             $conciliacoes = Cache::remember('financeiro:conciliacoes', 60, function () {
                 try {
-                    // Try to select with all fields first, fallback if valor_conciliado doesn't exist
+                    // Expose the canonical reconciliation trace needed by Mensalidades/Banco.
                     return MapaConciliacao::select(
                         'id',
                         'extrato_id',
                         'lancamento_id',
                         'fatura_id',
                         'movimento_id',
+                        'payment_id',
+                        'payment_allocation_id',
+                        'bank_reconciliation_suggestion_id',
                         'estado_fatura_anterior',
                         'estado_movimento_anterior',
-                        'valor_conciliado'
+                        'valor_conciliado',
+                        'status',
+                        'regra_usada',
+                        'score',
+                        'metadata',
+                        'created_at'
                     )->get();
                 } catch (\Exception $e) {
                     \Log::warning('FinanceiroController::index - Conciliacoes with valor_conciliado failed, fallback: ' . $e->getMessage());

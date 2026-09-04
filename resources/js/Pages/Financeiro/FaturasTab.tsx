@@ -14,7 +14,7 @@ import { Badge } from '@/Components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/Components/ui/table';
 import { Textarea } from '@/Components/ui/textarea';
 import { Checkbox } from '@/Components/ui/checkbox';
-import { Plus, MagicWand, X, Check, Trash, PencilSimple, SquaresFour, ListBullets } from '@phosphor-icons/react';
+import { Plus, MagicWand, X, Check, Trash, PencilSimple, SquaresFour, ListBullets, Bank } from '@phosphor-icons/react';
 import { format, addMonths, isBefore, isAfter, startOfMonth } from 'date-fns';
 import { toast } from 'sonner';
 
@@ -299,6 +299,106 @@ export function FaturasTab({
   };
 
   const getInvoicePaidAmount = (invoice: Fatura) => Math.max(toNumber(invoice.valor_pago, 0), 0);
+
+  type InvoiceBankReconciliationTrace = {
+    reconciliation: ConciliacaoMapa;
+    statement: ExtratoBancario;
+  };
+
+  const bankReconciliationsByInvoiceId = useMemo(() => {
+    const statementsById = new Map<string, ExtratoBancario>(
+      (extratos || []).map((statement) => [statement.id, statement] as const),
+    );
+    const ignoredStatuses = new Set(['cancelled', 'cancelado', 'reversed', 'anulado']);
+    const grouped = new Map<string, InvoiceBankReconciliationTrace[]>();
+
+    (conciliacoes || []).forEach((reconciliation) => {
+      if (!reconciliation.fatura_id) {
+        return;
+      }
+
+      const normalizedStatus = String(reconciliation.status || '').trim().toLowerCase();
+      if (normalizedStatus && ignoredStatuses.has(normalizedStatus)) {
+        return;
+      }
+
+      const statement = statementsById.get(reconciliation.extrato_id);
+      if (!statement) {
+        return;
+      }
+
+      const traces = grouped.get(reconciliation.fatura_id) || [];
+      if (!traces.some(({ reconciliation: existing }) => existing.id === reconciliation.id)) {
+        traces.push({ reconciliation, statement });
+        grouped.set(reconciliation.fatura_id, traces);
+      }
+    });
+
+    grouped.forEach((traces) => {
+      traces.sort((left, right) => (
+        new Date(right.statement.data_movimento).getTime() - new Date(left.statement.data_movimento).getTime()
+      ));
+    });
+
+    return grouped;
+  }, [conciliacoes, extratos]);
+
+  const formatBankStatementDate = (value: string) => {
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? value : format(parsed, 'dd/MM/yyyy');
+  };
+
+  const renderBankReconciliationTrace = (invoiceId: string, compact = false) => {
+    const traces = bankReconciliationsByInvoiceId.get(invoiceId) || [];
+
+    if (traces.length === 0) {
+      return <span className="text-[10px] text-muted-foreground">Sem conciliação bancária</span>;
+    }
+
+    return (
+      <div className={compact ? 'space-y-1' : 'space-y-1.5'}>
+        {traces.map(({ reconciliation, statement }) => {
+          const statementAmount = Math.abs(toNumber(statement.valor, 0));
+          const reconciledAmount = Math.abs(toNumber(reconciliation.valor_conciliado, statementAmount));
+          const metadata = [
+            statement.referencia ? `Ref. ${statement.referencia}` : null,
+            statement.conta ? `Conta ${statement.conta}` : null,
+          ].filter(Boolean).join(' · ');
+          const title = [
+            formatBankStatementDate(statement.data_movimento),
+            statement.descricao,
+            statement.referencia ? `Ref. ${statement.referencia}` : null,
+            statement.conta ? `Conta ${statement.conta}` : null,
+            `Conciliado: €${reconciledAmount.toFixed(2)}`,
+            statementAmount > 0 && Math.abs(statementAmount - reconciledAmount) > 0.009
+              ? `Movimento bancário: €${statementAmount.toFixed(2)}`
+              : null,
+          ].filter(Boolean).join(' · ');
+
+          return (
+            <div
+              key={reconciliation.id}
+              className={compact
+                ? 'min-w-0 rounded border px-2 py-1 text-[10px] text-muted-foreground'
+                : 'min-w-0 rounded border bg-background/70 px-2 py-1.5 text-[10px] text-muted-foreground'}
+              title={title}
+            >
+              <div className="flex items-center gap-1 font-medium text-foreground">
+                <Bank size={12} className="shrink-0" />
+                <span>{formatBankStatementDate(statement.data_movimento)}</span>
+                <span>· €{reconciledAmount.toFixed(2)}</span>
+              </div>
+              <div className="truncate">{statement.descricao || 'Sem descrição'}</div>
+              {metadata && <div className="truncate">{metadata}</div>}
+              {statementAmount > 0 && Math.abs(statementAmount - reconciledAmount) > 0.009 && (
+                <div>Movimento bancário: €{statementAmount.toFixed(2)}</div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
 
   const resetPaymentDialog = () => {
     setPaymentDialogOpen(false);
@@ -1884,6 +1984,15 @@ export function FaturasTab({
                           <div className="text-[10px] text-muted-foreground mt-1">
                             Vence: {format(new Date(fatura.data_vencimento), 'dd/MM/yyyy')}
                           </div>
+                          {fatura.tipo === 'mensalidade' && (
+                            <div className="mt-2 rounded-md border bg-muted/30 p-2">
+                              <div className="mb-1 flex items-center gap-1 text-[10px] font-medium text-foreground">
+                                <Bank size={12} />
+                                <span>Conciliação bancária</span>
+                              </div>
+                              {renderBankReconciliationTrace(fatura.id)}
+                            </div>
+                          )}
                         </div>
                         <div className="flex flex-col gap-1">
                           {!['pago', 'cancelado'].includes(fatura.estado_pagamento) && (
@@ -1941,13 +2050,14 @@ export function FaturasTab({
                     <TableHead className="hidden lg:table-cell w-24 text-right">Pago</TableHead>
                     <TableHead className="hidden lg:table-cell w-28 text-right">Em Aberto</TableHead>
                     <TableHead className="hidden md:table-cell w-20">Estado</TableHead>
+                    <TableHead className="hidden xl:table-cell min-w-[220px]">Conciliação bancária</TableHead>
                     <TableHead className="w-48 text-right">Acoes</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {filteredFaturas.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={10} className="text-center text-muted-foreground py-8">
+                      <TableCell colSpan={11} className="text-center text-muted-foreground py-8">
                         Nenhuma fatura encontrada
                       </TableCell>
                     </TableRow>
@@ -1987,6 +2097,11 @@ export function FaturasTab({
                           <TableCell className="hidden lg:table-cell text-xs text-right">€{paidAmount.toFixed(2)}</TableCell>
                           <TableCell className="hidden lg:table-cell text-xs text-right">€{outstandingAmount.toFixed(2)}</TableCell>
                           <TableCell className="hidden md:table-cell text-xs">{getEstadoBadge(fatura.estado_pagamento)}</TableCell>
+                          <TableCell className="hidden xl:table-cell text-xs">
+                            {fatura.tipo === 'mensalidade'
+                              ? renderBankReconciliationTrace(fatura.id, true)
+                              : <span className="text-muted-foreground">—</span>}
+                          </TableCell>
                           <TableCell>
                             <div className="flex items-center justify-end gap-1">
                               <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => handleEditarFatura(fatura.id)} title="Editar">
