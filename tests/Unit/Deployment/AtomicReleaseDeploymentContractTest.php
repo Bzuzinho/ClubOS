@@ -51,8 +51,14 @@ final class AtomicReleaseDeploymentContractTest extends TestCase
         $rollback = $this->read('bin/remote-release-rollback.sh');
 
         self::assertStringContainsString('/up', $healthcheck);
-        self::assertStringContainsString('HTTP %s', $healthcheck);
+        self::assertStringContainsString('for canonical_path in / /login /up', $healthcheck);
+        self::assertStringContainsString('for alias_path in / /login /up', $healthcheck);
         self::assertStringContainsString('"${STATUS}" != "200"', $healthcheck);
+        self::assertStringContainsString('www.${TARGET_HOST}', $healthcheck);
+        self::assertStringContainsString('APP_URL não pode usar o alias www', $healthcheck);
+        self::assertStringContainsString("'%{http_code}|%{redirect_url}'", $healthcheck);
+        self::assertStringContainsString('"${STATUS}" != "301"', $healthcheck);
+        self::assertStringContainsString('"${LOCATION}" != "${EXPECTED_LOCATION}"', $healthcheck);
         self::assertStringContainsString('CURRENT_LINK="${DEPLOY_ROOT}/current"', $rollback);
         self::assertStringContainsString('PREVIOUS_LINK="${DEPLOY_ROOT}/previous"', $rollback);
         self::assertStringContainsString('clubmanager-healthcheck.sh', $rollback);
