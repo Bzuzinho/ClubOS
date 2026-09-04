@@ -36,7 +36,7 @@ url="${*: -1}"
 if [[ "$url" == "https://bscn.pt/" || "$url" == "https://bscn.pt/login" || "$url" == "https://bscn.pt/up" ]]; then printf '200'; exit 0; fi
 if [[ "$url" == "https://www.bscn.pt/" ]]; then printf '301|https://bscn.pt/'; exit 0; fi
 if [[ "$url" == "https://www.bscn.pt/login" ]]; then printf '301|https://bscn.pt/login'; exit 0; fi
-if [[ "$url" == "https://www.bscn.pt/up" ]]; then printf '301|https://bscn.pt/up'; exit 0; fi
+if [[ "$url" == "https://www.bscn.pt/up" ]]; then printf '200'; exit 0; fi
 exit 2
 BASH);
 
@@ -48,6 +48,7 @@ BASH);
         self::assertStringContainsString('canonical /up HTTP 200', $output);
         self::assertStringContainsString('alias www.bscn.pt/ HTTP 301 -> https://bscn.pt/', $output);
         self::assertStringContainsString('alias www.bscn.pt/login HTTP 301 -> https://bscn.pt/login', $output);
+        self::assertStringContainsString('alias health www.bscn.pt/up HTTP 200', $output);
     }
 
     public function test_it_rejects_a_www_redirect_that_keeps_www(): void

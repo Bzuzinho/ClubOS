@@ -85,7 +85,7 @@ if [[ -n "${ALIAS_HOSTS}" ]]; then
   for alias_host in ${ALIAS_HOSTS//,/ }; do
     [[ -n "${alias_host}" && "${alias_host}" != "${TARGET_HOST}" ]] || continue
 
-    for alias_path in / /login /up; do
+    for alias_path in / /login; do
       URL="https://${alias_host}${alias_path}"
       EXPECTED_LOCATION="https://${TARGET_HOST}${alias_path}"
       printf '[healthcheck] alias GET %s via 127.0.0.1:443 ...\n' "${URL}"
@@ -100,6 +100,16 @@ if [[ -n "${ALIAS_HOSTS}" ]]; then
         exit 1
       fi
     done
+
+    URL="https://${alias_host}/up"
+    printf '[healthcheck] alias health GET %s via 127.0.0.1:443 ...\n' "${URL}"
+    STATUS="$(request_local_https "${alias_host}" '/up' '%{http_code}')"
+    printf '[healthcheck] alias health %s/up HTTP %s\n' "${alias_host}" "${STATUS}"
+
+    if [[ "${STATUS}" != "200" ]]; then
+      printf '[healthcheck] ERROR: %s/up devolveu HTTP %s; esperado 200\n' "${alias_host}" "${STATUS}" >&2
+      exit 1
+    fi
   done
 fi
 

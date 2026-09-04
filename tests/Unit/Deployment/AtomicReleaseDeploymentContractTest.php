@@ -52,7 +52,8 @@ final class AtomicReleaseDeploymentContractTest extends TestCase
 
         self::assertStringContainsString('/up', $healthcheck);
         self::assertStringContainsString('for canonical_path in / /login /up', $healthcheck);
-        self::assertStringContainsString('for alias_path in / /login /up', $healthcheck);
+        self::assertStringContainsString('for alias_path in / /login', $healthcheck);
+        self::assertStringContainsString('alias health %s/up HTTP %s', $healthcheck);
         self::assertStringContainsString('"${STATUS}" != "200"', $healthcheck);
         self::assertStringContainsString('www.${TARGET_HOST}', $healthcheck);
         self::assertStringContainsString('APP_URL não pode usar o alias www', $healthcheck);
