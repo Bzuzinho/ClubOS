@@ -58,6 +58,31 @@ final class AdministratorAuthorityGovernanceTest extends TestCase
         $this->assertTrue((bool) $targetType->fresh()->menu_visibility_configured);
     }
 
+    public function test_editable_user_type_name_does_not_grant_administrator_authority(): void
+    {
+        $actor = User::factory()->create(['perfil' => 'tesouraria']);
+        $lookalikeType = UserType::query()->create([
+            'codigo' => 'tesouraria-admin-lookalike',
+            'nome' => 'Administrador',
+            'ativo' => true,
+        ]);
+        $actor->userTypes()->attach($lookalikeType->id);
+
+        $targetType = UserType::query()->create([
+            'codigo' => 'treinador-governance-target',
+            'nome' => 'Treinador Governance Target',
+            'ativo' => true,
+        ]);
+
+        $this->actingAs($actor)
+            ->putJson("/api/access-control/user-types/{$targetType->id}/menu-modules", [
+                'module_keys' => ['dashboard'],
+            ])
+            ->assertForbidden();
+
+        $this->assertFalse((bool) $targetType->fresh()->menu_visibility_configured);
+    }
+
     public function test_non_administrator_may_read_access_control_when_normal_view_policy_allows_it(): void
     {
         $actor = User::factory()->create(['perfil' => 'direcao']);
