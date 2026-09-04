@@ -67,7 +67,7 @@ final class MemberDataReadService
         'consentimento_rgpd'               => 'rgpd',
         'consentimento_rgpd_data'          => 'data_rgpd',
         'consentimento_imagem'             => 'consentimento',
-        'consentimento_imagem_data'        => 'consentimento_imagem_data',
+        'consentimento_imagem_data'        => 'data_consentimento',
         'declaracao_transporte'            => 'declaracao_de_transporte',
         'declaracao_transporte_data'       => null,
         'declaracao_transporte_ficheiro'   => null,
