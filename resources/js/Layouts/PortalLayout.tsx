@@ -1,5 +1,4 @@
 import type { ReactNode } from 'react';
-import { ArrowLeft } from 'lucide-react';
 import { router, usePage } from '@inertiajs/react';
 import PortalBottomNav from '@/Components/Portal/PortalBottomNav';
 import PortalHeader from '@/Components/Portal/PortalHeader';
@@ -71,29 +70,16 @@ export default function PortalLayout({
 
     return (
         <div className="min-h-screen bg-slate-50 text-slate-900">
-            <div className="mx-auto w-full max-w-screen-2xl px-4 pb-28 pt-4 sm:px-6 lg:px-8 lg:pb-10 xl:px-10">
+            <div className="mx-auto w-full max-w-7xl px-3 pb-28 pt-3 sm:px-4 sm:pt-4 lg:px-6 lg:pb-8 xl:px-8">
                 {resolvedHeader}
-                <div className="mt-5 lg:grid lg:grid-cols-[240px_minmax(0,1fr)] lg:items-start lg:gap-6">
+
+                <div className="mt-4 lg:grid lg:grid-cols-[220px_minmax(0,1fr)] lg:items-start lg:gap-5">
                     <PortalSidebarNav
                         activeKey={activeNav}
                         hasFamily={hasFamily}
                         onNavigate={(href) => router.visit(href)}
                     />
-                    <div className="min-w-0">
-                        {activeNav !== 'dashboard' ? (
-                            <div className="mb-4 hidden md:flex lg:hidden">
-                                <button
-                                    type="button"
-                                    onClick={() => router.visit(portalRoutes.dashboard)}
-                                    className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3.5 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-blue-200 hover:text-blue-700"
-                                >
-                                    <ArrowLeft className="h-4 w-4" />
-                                    Voltar ao dashboard
-                                </button>
-                            </div>
-                        ) : null}
-                        <main className="space-y-5">{children}</main>
-                    </div>
+                    <main className="min-w-0 space-y-4">{children}</main>
                 </div>
             </div>
 
