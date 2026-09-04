@@ -47,7 +47,7 @@ class PortalUserUxContractTest extends TestCase
         $this->assertStringContainsString("key: 'trainings', label: 'Treinos'", $dashboard);
         $this->assertStringContainsString("key: 'results', label: 'Resultados'", $dashboard);
         $this->assertStringContainsString('.filter((action) => !bottomNavKeys.has(action.key))', $dashboard);
-        $this->assertStringContainsString('grid grid-cols-2 gap-2.5 sm:grid-cols-3 xl:grid-cols-5', $dashboard);
+        $this->assertStringContainsString('grid grid-cols-3 gap-2.5 xl:grid-cols-5', $dashboard);
 
         $this->assertStringContainsString('className="divide-y divide-slate-100 lg:hidden"', $communications);
         $this->assertStringContainsString('className="hidden max-h-[420px] overflow-auto lg:block"', $communications);
