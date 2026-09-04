@@ -176,7 +176,7 @@ MAIL_PASSWORD='password_smtp' \
 MAIL_ENCRYPTION=tls \
 MAIL_FROM_ADDRESS=noreply@seudominio.com \
 MAIL_FROM_NAME='ClubOS' \
-APP_URL='https://www.bscn.pt' \
+APP_URL='https://bscn.pt' \
 npm run deploy:vm
 ```
 
@@ -232,12 +232,22 @@ sudo nano /etc/nginx/sites-available/bscn-club
 server {
     listen 80;
     server_name yourdomain.com www.yourdomain.com;
-    return 301 https://$server_name$request_uri;
+    return 301 https://yourdomain.com$request_uri;
 }
 
 server {
     listen 443 ssl http2;
-    server_name yourdomain.com www.yourdomain.com;
+    server_name www.yourdomain.com;
+
+    ssl_certificate /etc/letsencrypt/live/yourdomain.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/yourdomain.com/privkey.pem;
+
+    return 301 https://yourdomain.com$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name yourdomain.com;
     root /var/www/bscn-club/public;
 
     # SSL Certificates

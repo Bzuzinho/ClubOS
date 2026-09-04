@@ -130,7 +130,7 @@ GET /up → HTTP 200
 
 ### Pós-cutover
 
-`/usr/local/bin/clubmanager-healthcheck.sh` usa `APP_URL` e, quando a produção é HTTPS, faz resolução local do hostname para `127.0.0.1:443`.
+`/usr/local/bin/clubmanager-healthcheck.sh` usa `APP_URL` e, quando a produção é HTTPS, faz resolução local do hostname para `127.0.0.1:443`. Para um hostname canónico sem `www`, valida também automaticamente o alias `www`; aliases adicionais ou alternativos podem ser definidos em `HEALTHCHECK_ALIAS_HOSTS`, separados por vírgulas ou espaços.
 
 Isto testa efetivamente:
 
@@ -138,7 +138,9 @@ Isto testa efetivamente:
 Nginx → TLS → public/index.php → PHP-FPM → Laravel → /up
 ```
 
-Um simples redirect HTTP 301 já não conta como healthcheck válido.
+O hostname canónico tem de devolver `HTTP 200` em `/` (website público), `/login` (entrada ClubOS) e `/up` (saúde Laravel). Cada alias tem de devolver exatamente `HTTP 301` para o mesmo caminho no hostname canónico, sem seguir o redirect. Desta forma, um website público substituído por um redirect para login, um certificado sem o alias, um virtual host incorreto ou um redirect de `www` para si próprio fazem falhar o deploy.
+
+Para o BSCN, o contrato Nginx de referência está versionado em `docs/deploy/nginx-bscn-canonical.conf`: `bscn.pt` é canónico e `www.bscn.pt` redireciona sempre para `https://bscn.pt$request_uri`.
 
 ---
 
