@@ -67,7 +67,6 @@ final class MemberReportService
                 'id',
                 'numero_socio',
                 'name',
-                'nome_completo',
                 'email_utilizador',
                 'estado',
                 'tipo_membro',
@@ -77,7 +76,7 @@ final class MemberReportService
                 $selectedStatuses !== [],
                 fn (Builder $query): Builder => $query->whereIn('estado', $selectedStatuses)
             )
-            ->orderByRaw('COALESCE(nome_completo, name)')
+            ->orderBy('name')
             ->get();
 
         $canonicalAgeGroups = $this->canonicalAgeGroupsByMember($members->pluck('id')->map(
@@ -129,6 +128,7 @@ final class MemberReportService
 
                 return true;
             })
+            ->sortBy(static fn (array $row): string => mb_strtolower((string) $row['nome_completo']))
             ->values();
 
         return [
