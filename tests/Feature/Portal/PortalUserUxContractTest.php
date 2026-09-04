@@ -11,15 +11,19 @@ class PortalUserUxContractTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_portal_sources_keep_family_agenda_and_profile_ux_contract(): void
+    public function test_portal_sources_keep_family_agenda_profile_and_navigation_ux_contract(): void
     {
         $family = file_get_contents(resource_path('js/Pages/Portal/Family.tsx'));
         $agenda = file_get_contents(resource_path('js/Pages/Portal/Events.tsx'));
         $profile = file_get_contents(resource_path('js/Pages/Portal/Profile.tsx'));
+        $dashboard = file_get_contents(resource_path('js/Pages/Portal/Base.tsx'));
+        $communications = file_get_contents(resource_path('js/Pages/Membros/CommunicationsTab.tsx'));
 
         $this->assertIsString($family);
         $this->assertIsString($agenda);
         $this->assertIsString($profile);
+        $this->assertIsString($dashboard);
+        $this->assertIsString($communications);
 
         $heroGradient = 'bg-[linear-gradient(145deg,#0f62c8_0%,#0c4d9d_100%)]';
         $this->assertStringContainsString($heroGradient, $family);
@@ -35,6 +39,17 @@ class PortalUserUxContractTest extends TestCase
         $this->assertStringContainsString('Estado civil', $profile);
         $this->assertStringContainsString('Guardar', $profile);
         $this->assertStringNotContainsString('allowed_profiles.map', $profile);
+
+        $this->assertStringContainsString('getPortalBottomNavItems(has_family)', $dashboard);
+        $this->assertStringContainsString("key: 'payments', label: 'Pagamentos'", $dashboard);
+        $this->assertStringContainsString("key: 'documents', label: 'Documentos'", $dashboard);
+        $this->assertStringContainsString("key: 'communications', label: 'Comunicações'", $dashboard);
+        $this->assertStringContainsString('.filter((action) => !bottomNavKeys.has(action.key))', $dashboard);
+
+        $this->assertStringContainsString('className="divide-y divide-slate-100 lg:hidden"', $communications);
+        $this->assertStringContainsString('className="hidden max-h-[420px] overflow-auto lg:block"', $communications);
+        $this->assertStringContainsString('w-[calc(100vw-1.5rem)]', $communications);
+        $this->assertStringContainsString('w-[calc(100vw-2rem)] max-w-[340px]', $communications);
     }
 
     public function test_profile_marital_status_is_canonical_and_member_number_cannot_be_changed_from_portal(): void
