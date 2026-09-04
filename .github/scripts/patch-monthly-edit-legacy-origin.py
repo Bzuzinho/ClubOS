@@ -10,6 +10,15 @@ def replace_once(path: str, old: str, new: str) -> None:
     file.write_text(text.replace(old, new, 1), encoding='utf-8')
 
 
+def replace_exact_count(path: str, old: str, new: str, expected: int) -> None:
+    file = Path(path)
+    text = file.read_text(encoding='utf-8')
+    count = text.count(old)
+    if count != expected:
+        raise SystemExit(f'{path}: expected anchor {expected} times, found {count}')
+    file.write_text(text.replace(old, new), encoding='utf-8')
+
+
 faturas = 'resources/js/Pages/Financeiro/FaturasTab.tsx'
 replace_once(
     faturas,
@@ -32,15 +41,11 @@ replace_once(
 )
 
 monthly_test = 'tests/Feature/Financeiro/MonthlyInvoiceManualEditTest.php'
-replace_once(
+replace_exact_count(
     monthly_test,
     "            'origem_tipo' => 'monthly_fee',\n            'origem_id' => 'monthly-fee-plan-1',",
     "            'origem_tipo' => 'monthly_fee_legacy',\n            'origem_id' => null,",
-)
-replace_once(
-    monthly_test,
-    "            'origem_tipo' => 'monthly_fee',\n            'origem_id' => 'monthly-fee-plan-1',",
-    "            'origem_tipo' => 'monthly_fee_legacy',\n            'origem_id' => null,",
+    2,
 )
 replace_once(
     monthly_test,
