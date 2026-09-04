@@ -1,21 +1,16 @@
 import { Head, router, useForm, usePage } from '@inertiajs/react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-    CalendarClock,
+    Activity,
     Camera,
-    CreditCard,
+    ChevronRight,
     FileText,
-    FileUp,
-    Receipt,
-    ScrollText,
-    ShieldCheck,
-    Wallet,
+    Pencil,
+    Save,
+    UserRound,
+    X,
 } from 'lucide-react';
-import PortalCard from '@/Components/Portal/PortalCard';
-import PortalKpiCard from '@/Components/Portal/PortalKpiCard';
-import PortalSection from '@/Components/Portal/PortalSection';
 import PortalLayout from '@/Layouts/PortalLayout';
-import { amountToneClass, formatSignedCurrency } from '@/lib/financialDisplay';
 import { portalRoutes } from '@/lib/portalRoutes';
 import type { ClubSettingsProps, PageProps as SharedPageProps } from '@/types';
 
@@ -29,62 +24,12 @@ interface DetailItem {
     value: string;
 }
 
-interface RelatedMember {
-    id: string;
-    name: string;
-    member_number: string | null;
-    type: string;
-    state: string;
-    is_minor: boolean;
-    photo_url: string | null;
-    portal_href: string;
-}
-
 interface DocumentItem {
     label: string;
     status: 'valid' | 'expiring' | 'expired' | 'pending';
     state_label: string;
     helper: string;
     meta: string;
-}
-
-interface NextPayment {
-    label: string;
-    due_date: string | null;
-    amount: string;
-    state: string;
-}
-
-interface ProfilePayload {
-    id: string;
-    name: string;
-    member_number: string | null;
-    type: string;
-    state: string;
-    photo_url: string | null;
-    is_minor: boolean;
-    viewing_self: boolean;
-    can_edit: boolean;
-    portal_href: string;
-    editable: EditableProfileFields;
-    summary_badges: PortalBadge[];
-    personal: DetailItem[];
-    status: DetailItem[];
-    guardians: RelatedMember[];
-    documents: DocumentItem[];
-    sports: DetailItem[];
-    financial: {
-        account_balance: string;
-        outstanding_value: string;
-        next_payment: NextPayment | null;
-        plan: string;
-    };
-    flags: {
-        is_athlete: boolean;
-        is_socio: boolean;
-        is_guardian: boolean;
-        show_guardians: boolean;
-    };
 }
 
 interface EditableProfileFields {
@@ -104,60 +49,45 @@ interface EditableProfileFields {
     data_inscricao: string | null;
 }
 
-interface ViewerPayload {
+interface ProfilePayload {
     id: string;
     name: string;
+    member_number: string | null;
     type: string;
-}
-
-interface AlertItem {
-    id: string;
-    title: string;
-    message: string;
-    type: 'info' | 'warning' | 'success' | 'error';
-    link?: string | null;
-    is_read: boolean;
-    created_at: string;
+    state: string;
+    photo_url: string | null;
+    viewing_self: boolean;
+    can_edit: boolean;
+    editable: EditableProfileFields;
+    summary_badges: PortalBadge[];
+    personal: DetailItem[];
+    documents: DocumentItem[];
+    sports: DetailItem[];
+    flags: {
+        is_athlete: boolean;
+        is_socio: boolean;
+        is_guardian: boolean;
+        show_guardians: boolean;
+    };
 }
 
 interface PortalProfileProps {
     profile: ProfilePayload;
-    viewer: ViewerPayload;
-    viewer_dependents: RelatedMember[];
     allowed_profiles: Array<{ id: string; name: string; portal_href: string }>;
-    modulos_visiveis: string[];
     is_also_admin: boolean;
     has_family?: boolean;
     clubSettings?: ClubSettingsProps;
-    communicationAlerts?: {
-        unreadCount: number;
-        recent: AlertItem[];
-    };
 }
 
 type PageProps = SharedPageProps<PortalProfileProps>;
 
 function getInitials(name: string): string {
-    const parts = name.trim().split(' ').filter(Boolean);
-
-    if (parts.length >= 2) {
+    const parts = name.trim().split(/\s+/).filter(Boolean);
+    if (parts.length > 1) {
         return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
     }
 
-    return (parts[0]?.[0] ?? 'U').toUpperCase();
-}
-
-function badgeClasses(tone: PortalBadge['tone']): string {
-    switch (tone) {
-        case 'success':
-            return 'border-emerald-200 bg-emerald-50 text-emerald-700';
-        case 'warning':
-            return 'border-amber-200 bg-amber-50 text-amber-700';
-        case 'neutral':
-            return 'border-slate-200 bg-slate-100 text-slate-600';
-        default:
-            return 'border-blue-200 bg-blue-50 text-blue-700';
-    }
+    return (parts[0]?.slice(0, 2) || 'U').toUpperCase();
 }
 
 function documentClasses(status: DocumentItem['status']): string {
@@ -173,149 +103,44 @@ function documentClasses(status: DocumentItem['status']): string {
     }
 }
 
-function navigate(href: string) {
-    if (href.startsWith('#')) {
-        document.querySelector(href)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        return;
-    }
-
-    router.visit(href);
+function inputClass(hasError: boolean): string {
+    return `mt-1.5 w-full rounded-xl border bg-white px-3 py-2.5 text-sm text-slate-900 outline-none transition ${
+        hasError ? 'border-rose-300 focus:border-rose-400' : 'border-slate-200 focus:border-blue-300'
+    }`;
 }
 
-function InfoGrid({
-    items,
-    gridClassName = 'grid gap-3 sm:grid-cols-2',
-    getItemClassName,
-}: {
-    items: DetailItem[];
-    gridClassName?: string;
-    getItemClassName?: (item: DetailItem) => string;
-}) {
+function FieldError({ message }: { message?: string }) {
+    return message ? <p className="mt-1 text-xs font-medium text-rose-600">{message}</p> : null;
+}
+
+function SummaryList({ items }: { items: DetailItem[] }) {
+    if (items.length === 0) {
+        return <p className="text-sm text-slate-500">Sem informação disponível.</p>;
+    }
+
     return (
-        <div className={gridClassName}>
+        <div className="divide-y divide-slate-100">
             {items.map((item) => (
-                <div key={item.label} className={[
-                    'rounded-2xl border border-slate-200 bg-slate-50/70 px-4 py-3',
-                    getItemClassName ? getItemClassName(item) : '',
-                ].filter(Boolean).join(' ')}>
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">{item.label}</p>
-                    <p className="mt-2 text-sm font-medium text-slate-900">{item.value}</p>
+                <div key={item.label} className="flex items-start justify-between gap-4 py-2.5 first:pt-0 last:pb-0">
+                    <span className="text-xs text-slate-500">{item.label}</span>
+                    <span className="max-w-[60%] text-right text-sm font-medium text-slate-900">{item.value}</span>
                 </div>
             ))}
         </div>
     );
 }
 
-function CompactSummaryCard({
-    label,
-    value,
-    helper,
-    icon: Icon,
-    valueClassName,
-}: {
-    label: string;
-    value: string;
-    helper: string;
-    icon: typeof ShieldCheck;
-    valueClassName?: string;
-}) {
-    return (
-        <div className="rounded-[20px] border border-slate-200 bg-white px-4 py-3 shadow-[0_10px_24px_rgba(15,23,42,0.05)]">
-            <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">{label}</p>
-                    <p className={["mt-1.5 truncate text-xl font-semibold", valueClassName || 'text-slate-900'].join(' ')}>{value}</p>
-                    <p className="mt-1 text-[11px] text-slate-500">{helper}</p>
-                </div>
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-slate-50 text-slate-500">
-                    <Icon className="h-4 w-4" />
-                </div>
-            </div>
-        </div>
-    );
-}
-
-function personalItemClassName(item: DetailItem): string {
-    switch (item.label) {
-        case 'Nome completo':
-        case 'Morada':
-        case 'Email secundário':
-            return 'xl:col-span-2';
-        default:
-            return '';
-    }
-}
-
-function FieldError({ message }: { message?: string }) {
-    if (!message) {
-        return null;
-    }
-
-    return <p className="mt-1 text-xs font-medium text-rose-600">{message}</p>;
-}
-
-function inputClass(hasError: boolean): string {
-    return `mt-2 w-full rounded-2xl border bg-white px-3 py-2.5 text-sm text-slate-900 outline-none transition ${
-        hasError ? 'border-rose-300 focus:border-rose-400' : 'border-slate-200 focus:border-blue-300'
-    }`;
-}
-
-function RelatedCard({ member, onOpen }: { member: RelatedMember; onOpen: (href: string) => void }) {
-    return (
-        <div className="rounded-[24px] border border-slate-200 bg-slate-50/70 p-4">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
-                {member.photo_url ? (
-                    <img src={member.photo_url} alt={member.name} className="h-12 w-12 rounded-2xl object-cover" />
-                ) : (
-                    <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-200 text-sm font-semibold text-slate-700">
-                        {getInitials(member.name)}
-                    </div>
-                )}
-
-                <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-semibold text-slate-900">{member.name}</p>
-                    <p className="text-xs text-slate-500">{member.type} {member.member_number ? `· #${member.member_number}` : ''}</p>
-                    <div className="mt-2 flex flex-wrap gap-2">
-                        <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-600">{member.state}</span>
-                        {member.is_minor ? (
-                            <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-700">Menor</span>
-                        ) : null}
-                    </div>
-                </div>
-
-                <div className="sm:ml-auto">
-                    <button
-                        type="button"
-                        onClick={() => onOpen(member.portal_href)}
-                        className="w-full rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700 transition hover:bg-blue-100 sm:w-auto"
-                    >
-                        Abrir
-                    </button>
-                </div>
-            </div>
-        </div>
-    );
-}
-
 export default function Profile() {
     const { props } = usePage<PageProps>();
-    const { auth, clubSettings, has_family = false } = props;
     const {
+        auth,
         profile,
-        viewer,
-        viewer_dependents = [],
         allowed_profiles = [],
-        modulos_visiveis = [],
         is_also_admin,
-        communicationAlerts,
+        has_family = false,
+        clubSettings,
     } = props;
 
-    const visibleModules = new Set(modulos_visiveis);
-    const clubName = clubSettings?.nome_clube?.trim() || clubSettings?.display_name?.trim() || 'ClubOS';
-    const clubShortName = clubSettings?.sigla?.trim() || clubSettings?.short_name?.trim() || 'ClubOS';
-    const clubLogoUrl = clubSettings?.logo_url || null;
-    const unreadNotifications = communicationAlerts?.unreadCount ?? 0;
-    const recentAlert = communicationAlerts?.recent?.find((item) => !item.is_read && item.link) ?? communicationAlerts?.recent?.[0] ?? null;
     const [isEditing, setIsEditing] = useState(false);
     const photoInputRef = useRef<HTMLInputElement | null>(null);
     const form = useForm<EditableProfileFields & { photo: File | null }>({
@@ -326,19 +151,12 @@ export default function Profile() {
     useEffect(() => {
         setIsEditing(false);
         form.reset();
-        form.setData({
-            ...profile.editable,
-            photo: null,
-        });
+        form.setData({ ...profile.editable, photo: null });
         form.clearErrors();
     }, [profile.id]);
 
     const photoPreviewUrl = useMemo(() => {
-        if (!form.data.photo) {
-            return null;
-        }
-
-        return URL.createObjectURL(form.data.photo);
+        return form.data.photo ? URL.createObjectURL(form.data.photo) : null;
     }, [form.data.photo]);
 
     useEffect(() => {
@@ -349,66 +167,23 @@ export default function Profile() {
         };
     }, [photoPreviewUrl]);
 
-    const personalErrors = form.errors as Partial<Record<keyof (EditableProfileFields & { photo: File | null }), string>>;
-    const quickActions = [
-        {
-            key: 'upload-document',
-            title: 'Carregar documento',
-            description: 'Acede rapidamente ao bloco de documentos e validacoes.',
-            icon: FileUp,
-            href: '#documents',
-            accentClass: 'bg-blue-50 text-blue-700',
-        },
-        {
-            key: 'trainings',
-            title: 'Ver treinos',
-            description: 'Consulta o resumo desportivo ou abre o modulo de treinos.',
-            icon: CalendarClock,
-            href: '/portal/treinos',
-            accentClass: 'bg-cyan-50 text-cyan-700',
-        },
-        {
-            key: 'payments',
-            title: 'Ver pagamentos',
-            description: 'Segue para pagamentos se o modulo estiver disponivel.',
-            icon: Receipt,
-            href: portalRoutes.payments,
-            accentClass: 'bg-emerald-50 text-emerald-700',
-        },
-        {
-            key: 'communications',
-            title: 'Ver comunicados',
-            description: 'Abre a area de comunicacao ou regressa ao dashboard.',
-            icon: ScrollText,
-            href: portalRoutes.communications,
-            accentClass: 'bg-orange-50 text-orange-700',
-        },
-    ];
+    const errors = form.errors as Partial<Record<keyof (EditableProfileFields & { photo: File | null }), string>>;
+    const currentPhotoUrl = photoPreviewUrl || profile.photo_url;
+    const essentialPersonal = profile.personal.filter((item) => [
+        'Nome completo',
+        'Data de nascimento',
+        'Contacto',
+        'Email secundário',
+        'Localidade',
+        'Nacionalidade',
+    ].includes(item.label));
 
-    const handleStartEdit = () => {
-        if (!profile.can_edit) {
-            return;
-        }
-
-        setIsEditing(true);
-    };
-
-    const handleCancelEdit = () => {
-        form.reset();
-        form.clearErrors();
-        setIsEditing(false);
-    };
-
-    const handleSubmit = () => {
+    const submit = () => {
         const targetRoute = profile.viewing_self
             ? route('portal.profile.update')
             : route('portal.profile.update', { member: profile.id });
 
-        form.transform((data) => ({
-            ...data,
-            _method: 'patch',
-        }));
-
+        form.transform((data) => ({ ...data, _method: 'patch' }));
         form.post(targetRoute, {
             forceFormData: true,
             preserveScroll: true,
@@ -416,17 +191,13 @@ export default function Profile() {
                 setIsEditing(false);
                 form.reset('photo');
             },
-            onFinish: () => {
-                form.transform((data) => data);
-            },
+            onFinish: () => form.transform((data) => data),
         });
     };
 
-    const currentPhotoUrl = photoPreviewUrl || profile.photo_url;
-
     return (
         <>
-            <Head title={profile.viewing_self ? 'Os meus dados' : profile.name} />
+            <Head title="Perfil" />
 
             <PortalLayout
                 user={auth.user}
@@ -435,380 +206,244 @@ export default function Profile() {
                 activeNav="profile"
                 hasFamily={has_family}
             >
-                <div className="grid gap-5 lg:grid-cols-2 xl:grid-cols-[minmax(0,1.3fr)_minmax(320px,0.9fr)]">
-                    <div className="space-y-5">
-                        <section className="overflow-hidden rounded-[20px] bg-[linear-gradient(180deg,#1d5db6_0%,#184b91_100%)] px-3.5 py-3.5 text-white shadow-[0_14px_28px_rgba(24,75,145,0.18)] sm:px-4">
-                            <div className="relative">
-                                <div className="pointer-events-none absolute right-[-2rem] top-[-2rem] h-24 w-24 rounded-full bg-white/10" />
-                                <div className="relative flex flex-col gap-4">
-                                    <div className="flex flex-col items-start gap-3">
-                                        <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start">
-                                            {currentPhotoUrl ? (
-                                                <img src={currentPhotoUrl || undefined} alt={profile.name} className="h-14 w-14 rounded-xl border border-white/20 object-cover sm:h-16 sm:w-16" />
-                                            ) : (
-                                                <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-white/90 text-base font-bold text-[#184b91] sm:h-16 sm:w-16">
-                                                    {getInitials(profile.name)}
-                                                </div>
-                                            )}
-
-                                            <div className="min-w-0">
-                                                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-blue-100">Portal pessoal</p>
-                                                <h1 className="mt-1.5 truncate text-lg font-semibold leading-tight sm:text-xl">{profile.name}</h1>
-                                                <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-xs text-blue-100">
-                                                    <span>{profile.member_number ? `Socio #${profile.member_number}` : 'Sem numero de socio'}</span>
-                                                    <span>{profile.type}</span>
-                                                    <span>{profile.state}</span>
-                                                </div>
-                                            </div>
-                                        </div>
-
-                                        {!profile.viewing_self ? (
-                                            <button
-                                                type="button"
-                                                onClick={() => navigate(route('portal.profile'))}
-                                                className="rounded-xl border border-white/20 bg-white/10 px-3 py-1.5 text-[11px] font-semibold text-white transition hover:bg-white/20"
-                                            >
-                                                Voltar ao meu perfil
-                                            </button>
-                                        ) : null}
-                                    </div>
-
-                                    <div className="flex flex-wrap gap-2">
-                                        {profile.summary_badges.map((badge) => (
-                                            <span key={`${badge.label}-${badge.tone}`} className={`rounded-full border px-3 py-1 text-xs font-semibold ${badgeClasses(badge.tone)}`}>
-                                                {badge.label}
-                                            </span>
-                                        ))}
-
-                                        <button
-                                            type="button"
-                                            onClick={() => photoInputRef.current?.click()}
-                                            disabled={!profile.can_edit || form.processing}
-                                            className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3 py-1 text-xs font-semibold text-white transition hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-50"
-                                        >
-                                            <Camera className="h-3.5 w-3.5" />
-                                            Nova foto
-                                        </button>
-
-                                        <input
-                                            ref={photoInputRef}
-                                            type="file"
-                                            accept="image/*"
-                                            className="hidden"
-                                            disabled={!profile.can_edit || form.processing}
-                                            onChange={(event) => {
-                                                const file = event.target.files?.[0] ?? null;
-                                                form.setData('photo', file);
-                                            }}
-                                        />
-                                    </div>
-
-                                    <div className="flex flex-wrap gap-2">
-                                        {isEditing ? (
-                                            <>
-                                                <button
-                                                    type="button"
-                                                    onClick={handleSubmit}
-                                                    disabled={!profile.can_edit || form.processing}
-                                                    className="rounded-2xl bg-white px-3.5 py-2 text-xs font-semibold text-[#184b91] transition hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50"
-                                                >
-                                                    {form.processing ? 'A guardar...' : 'Guardar alteracoes'}
-                                                </button>
-                                                <button
-                                                    type="button"
-                                                    onClick={handleCancelEdit}
-                                                    disabled={form.processing}
-                                                    className="rounded-2xl border border-white/20 bg-white/10 px-3.5 py-2 text-xs font-semibold text-white transition hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-50"
-                                                >
-                                                    Cancelar
-                                                </button>
-                                            </>
-                                        ) : (
-                                            <button
-                                                type="button"
-                                                onClick={handleStartEdit}
-                                                disabled={!profile.can_edit}
-                                                className="rounded-2xl border border-white/20 bg-white/10 px-3.5 py-2 text-xs font-semibold text-white transition hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-50"
-                                            >
-                                                {profile.can_edit ? 'Editar campos' : 'Edicao indisponivel'}
-                                            </button>
-                                        )}
-                                    </div>
-
-                                    {!profile.can_edit ? (
-                                        <p className="text-xs text-blue-100">As opcoes de edicao estao visiveis mas desativadas porque este perfil nao tem permissao de edicao.</p>
-                                    ) : null}
-
-                                    <FieldError message={personalErrors.photo} />
-
-                                    {allowed_profiles.length > 1 ? (
-                                        <div className="rounded-2xl border border-white/15 bg-white/10 p-3">
-                                            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-blue-100">Perfis permitidos</p>
-                                            <div className="mt-3 flex flex-wrap gap-2">
-                                                {allowed_profiles.map((allowedProfile) => {
-                                                    const isActive = allowedProfile.id === profile.id;
-
-                                                    return (
-                                                        <button
-                                                            key={allowedProfile.id}
-                                                            type="button"
-                                                            onClick={() => navigate(allowedProfile.portal_href)}
-                                                            className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
-                                                                isActive
-                                                                    ? 'bg-white text-[#184b91]'
-                                                                    : 'border border-white/15 bg-white/10 text-white hover:bg-white/20'
-                                                            }`}
-                                                        >
-                                                            {allowedProfile.name}
-                                                        </button>
-                                                    );
-                                                })}
-                                            </div>
-                                        </div>
-                                    ) : null}
-                                </div>
-                            </div>
-                        </section>
-
-                        <PortalSection title="Dados pessoais" description="Informacao essencial da tua ficha pessoal.">
-                            {isEditing ? (
-                                <div className="grid gap-3 sm:grid-cols-2">
-                                    <div className="sm:col-span-2 rounded-2xl border border-slate-200 bg-slate-50/70 px-4 py-3">
-                                        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">Nome completo</p>
-                                        <input value={form.data.nome_completo || ''} onChange={(event) => form.setData('nome_completo', event.target.value)} disabled={!profile.can_edit || form.processing} className={inputClass(Boolean(personalErrors.nome_completo))} />
-                                        <FieldError message={personalErrors.nome_completo} />
-                                    </div>
-
-                                    <div className="rounded-2xl border border-slate-200 bg-slate-50/70 px-4 py-3">
-                                        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">Data de nascimento</p>
-                                        <input type="date" value={form.data.data_nascimento || ''} onChange={(event) => form.setData('data_nascimento', event.target.value || null)} disabled={!profile.can_edit || form.processing} className={inputClass(Boolean(personalErrors.data_nascimento))} />
-                                        <FieldError message={personalErrors.data_nascimento} />
-                                    </div>
-
-                                    <div className="rounded-2xl border border-slate-200 bg-slate-50/70 px-4 py-3">
-                                        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">Sexo</p>
-                                        <select value={form.data.sexo || ''} onChange={(event) => form.setData('sexo', (event.target.value || null) as EditableProfileFields['sexo'])} disabled={!profile.can_edit || form.processing} className={inputClass(Boolean(personalErrors.sexo))}>
-                                            <option value="">Selecionar</option>
-                                            <option value="masculino">Masculino</option>
-                                            <option value="feminino">Feminino</option>
-                                        </select>
-                                        <FieldError message={personalErrors.sexo} />
-                                    </div>
-
-                                    <div className="rounded-2xl border border-slate-200 bg-slate-50/70 px-4 py-3">
-                                        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">Contacto</p>
-                                        <input value={form.data.contacto || ''} onChange={(event) => form.setData('contacto', event.target.value)} disabled={!profile.can_edit || form.processing} className={inputClass(Boolean(personalErrors.contacto))} />
-                                        <FieldError message={personalErrors.contacto} />
-                                    </div>
-
-                                    <div className="rounded-2xl border border-slate-200 bg-slate-50/70 px-4 py-3">
-                                        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">Email secundario</p>
-                                        <input type="email" value={form.data.email_secundario || ''} onChange={(event) => form.setData('email_secundario', event.target.value)} disabled={!profile.can_edit || form.processing} className={inputClass(Boolean(personalErrors.email_secundario))} />
-                                        <FieldError message={personalErrors.email_secundario} />
-                                    </div>
-
-                                    <div className="rounded-2xl border border-slate-200 bg-slate-50/70 px-4 py-3">
-                                        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">NIF</p>
-                                        <input value={form.data.nif || ''} onChange={(event) => form.setData('nif', event.target.value)} disabled={!profile.can_edit || form.processing} className={inputClass(Boolean(personalErrors.nif))} />
-                                        <FieldError message={personalErrors.nif} />
-                                    </div>
-
-                                    <div className="rounded-2xl border border-slate-200 bg-slate-50/70 px-4 py-3">
-                                        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">CC</p>
-                                        <input value={form.data.cc || ''} onChange={(event) => form.setData('cc', event.target.value)} disabled={!profile.can_edit || form.processing} className={inputClass(Boolean(personalErrors.cc))} />
-                                        <FieldError message={personalErrors.cc} />
-                                    </div>
-
-                                    <div className="sm:col-span-2 rounded-2xl border border-slate-200 bg-slate-50/70 px-4 py-3">
-                                        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">Morada</p>
-                                        <textarea value={form.data.morada || ''} onChange={(event) => form.setData('morada', event.target.value)} disabled={!profile.can_edit || form.processing} className={`${inputClass(Boolean(personalErrors.morada))} min-h-[96px] resize-y`} />
-                                        <FieldError message={personalErrors.morada} />
-                                    </div>
-
-                                    <div className="rounded-2xl border border-slate-200 bg-slate-50/70 px-4 py-3">
-                                        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">Codigo postal</p>
-                                        <input value={form.data.codigo_postal || ''} onChange={(event) => form.setData('codigo_postal', event.target.value)} disabled={!profile.can_edit || form.processing} className={inputClass(Boolean(personalErrors.codigo_postal))} />
-                                        <FieldError message={personalErrors.codigo_postal} />
-                                    </div>
-
-                                    <div className="rounded-2xl border border-slate-200 bg-slate-50/70 px-4 py-3">
-                                        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">Localidade</p>
-                                        <input value={form.data.localidade || ''} onChange={(event) => form.setData('localidade', event.target.value)} disabled={!profile.can_edit || form.processing} className={inputClass(Boolean(personalErrors.localidade))} />
-                                        <FieldError message={personalErrors.localidade} />
-                                    </div>
-
-                                    <div className="rounded-2xl border border-slate-200 bg-slate-50/70 px-4 py-3">
-                                        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">Nacionalidade</p>
-                                        <input value={form.data.nacionalidade || ''} onChange={(event) => form.setData('nacionalidade', event.target.value)} disabled={!profile.can_edit || form.processing} className={inputClass(Boolean(personalErrors.nacionalidade))} />
-                                        <FieldError message={personalErrors.nacionalidade} />
-                                    </div>
-                                </div>
+                <section className="overflow-hidden rounded-[22px] bg-[linear-gradient(145deg,#0f62c8_0%,#0c4d9d_100%)] p-4 text-white shadow-[0_16px_32px_rgba(15,76,152,0.18)] sm:p-5">
+                    <div className="flex items-start gap-3">
+                        <button
+                            type="button"
+                            onClick={() => photoInputRef.current?.click()}
+                            disabled={!profile.can_edit || form.processing}
+                            className="group relative h-16 w-16 shrink-0 overflow-hidden rounded-2xl border border-white/20 bg-white/90 disabled:cursor-default"
+                            aria-label="Alterar fotografia de perfil"
+                        >
+                            {currentPhotoUrl ? (
+                                <img src={currentPhotoUrl} alt={profile.name} className="h-full w-full object-cover" />
                             ) : (
-                                <InfoGrid
-                                    items={profile.personal}
-                                    gridClassName="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"
-                                    getItemClassName={personalItemClassName}
-                                />
+                                <span className="flex h-full w-full items-center justify-center text-base font-bold text-blue-700">
+                                    {getInitials(profile.name)}
+                                </span>
                             )}
-                        </PortalSection>
+                            {profile.can_edit ? (
+                                <span className="absolute inset-x-0 bottom-0 flex justify-center bg-slate-950/45 py-1 text-white opacity-0 transition group-hover:opacity-100">
+                                    <Camera className="h-3.5 w-3.5" />
+                                </span>
+                            ) : null}
+                        </button>
+                        <input
+                            ref={photoInputRef}
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            disabled={!profile.can_edit || form.processing}
+                            onChange={(event) => form.setData('photo', event.target.files?.[0] ?? null)}
+                        />
 
-                        <PortalSection title="Família" description="Relações familiares disponíveis neste portal.">
-                            <div className="space-y-4">
-                                {profile.flags.show_guardians ? (
-                                    <div>
-                                        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Encarregado(s)</p>
-                                        <div className="mt-3 grid gap-3 md:grid-cols-2">
-                                            {profile.guardians.length > 0 ? (
-                                                profile.guardians.map((guardian) => <RelatedCard key={guardian.id} member={guardian} onOpen={navigate} />)
-                                            ) : (
-                                                <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-5 text-sm text-slate-500">
-                                                    Nenhum encarregado associado.
-                                                </div>
-                                            )}
-                                        </div>
-                                    </div>
-                                ) : null}
-
-                                {viewer_dependents.length > 0 ? (
-                                    <div>
-                                        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Educandos</p>
-                                        <div className="mt-3 grid gap-3 md:grid-cols-2">
-                                            {viewer_dependents.map((dependent) => <RelatedCard key={dependent.id} member={dependent} onOpen={navigate} />)}
-                                        </div>
-                                    </div>
-                                ) : null}
-
-                                {!profile.flags.show_guardians && viewer_dependents.length === 0 ? (
-                                    <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-5 text-sm text-slate-500">
-                                        Sem relacoes associadas a mostrar.
-                                    </div>
-                                ) : null}
+                        <div className="min-w-0 flex-1">
+                            <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                    <h1 className="truncate text-lg font-semibold leading-tight sm:text-xl">{profile.name}</h1>
+                                    <p className="mt-1 text-xs text-blue-100">
+                                        {profile.member_number ? `Sócio #${profile.member_number}` : 'Sem número de sócio'}
+                                    </p>
+                                </div>
+                                <span className="shrink-0 rounded-full bg-emerald-100 px-2.5 py-1 text-[10px] font-semibold text-emerald-700">
+                                    {profile.state}
+                                </span>
                             </div>
-                        </PortalSection>
-
-                        <PortalSection title="Acoes rapidas" description="Atalhos para as tarefas mais frequentes.">
-                            <div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-4">
-                                {quickActions.map((action) => (
-                                    <PortalCard
-                                        key={action.key}
-                                        title={action.title}
-                                        description={action.description}
-                                        icon={action.icon}
-                                        accentClass={action.accentClass}
-                                        onClick={() => navigate(action.href)}
-                                    />
-                                ))}
-                            </div>
-                        </PortalSection>
+                            <p className="mt-2 text-xs text-blue-100">{profile.type}</p>
+                        </div>
                     </div>
 
-                    <div className="space-y-5">
-                        <section id="status" className="grid gap-3 sm:grid-cols-2">
-                            <CompactSummaryCard label="Estado" value={profile.state} helper={profile.type} icon={ShieldCheck} />
-                            <CompactSummaryCard label="Conta corrente" value={formatSignedCurrency(profile.financial.account_balance)} valueClassName={amountToneClass(profile.financial.account_balance)} helper="saldo atual" icon={Wallet} />
-                        </section>
-
-                        <PortalSection title="Estado e permissoes" description="Resumo simplificado do estado do membro.">
-                            <InfoGrid items={profile.status} />
-                        </PortalSection>
-
-                        <PortalSection title="Dados desportivos resumidos" description="Informacao desportiva essencial deste perfil.">
-                            <div id="sports" className="space-y-3">
-                                {isEditing ? (
-                                    <div className="grid gap-3 sm:grid-cols-2">
-                                        <div className="rounded-2xl border border-slate-200 bg-slate-50/70 px-4 py-3">
-                                            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">N.º federacao</p>
-                                            <input value={form.data.num_federacao || ''} onChange={(event) => form.setData('num_federacao', event.target.value)} disabled={!profile.can_edit || form.processing} className={inputClass(Boolean(personalErrors.num_federacao))} />
-                                            <FieldError message={personalErrors.num_federacao} />
-                                        </div>
-
-                                        <div className="rounded-2xl border border-slate-200 bg-slate-50/70 px-4 py-3">
-                                            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">Numero PMB</p>
-                                            <input value={form.data.numero_pmb || ''} onChange={(event) => form.setData('numero_pmb', event.target.value)} disabled={!profile.can_edit || form.processing} className={inputClass(Boolean(personalErrors.numero_pmb))} />
-                                            <FieldError message={personalErrors.numero_pmb} />
-                                        </div>
-
-                                        <div className="rounded-2xl border border-slate-200 bg-slate-50/70 px-4 py-3">
-                                            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">Data de inscricao</p>
-                                            <input type="date" value={form.data.data_inscricao || ''} onChange={(event) => form.setData('data_inscricao', event.target.value || null)} disabled={!profile.can_edit || form.processing} className={inputClass(Boolean(personalErrors.data_inscricao))} />
-                                            <FieldError message={personalErrors.data_inscricao} />
-                                        </div>
-
-                                        <div className="rounded-2xl border border-slate-200 bg-slate-50/70 px-4 py-3">
-                                            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">Escalao</p>
-                                            <p className="mt-2 text-sm font-medium text-slate-900">{profile.sports.find((item) => item.label === 'Escalão')?.value || 'Sem informacao'}</p>
-                                        </div>
-
-                                        <div className="rounded-2xl border border-slate-200 bg-slate-50/70 px-4 py-3 sm:col-span-2">
-                                            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">Estado desportivo</p>
-                                            <p className="mt-2 text-sm font-medium text-slate-900">{profile.sports.find((item) => item.label === 'Estado desportivo')?.value || 'Sem informacao'}</p>
-                                        </div>
-                                    </div>
-                                ) : (
-                                    <InfoGrid items={profile.sports} />
-                                )}
-                            </div>
-                        </PortalSection>
-
-                        <PortalSection title="Resumo financeiro" description="Visao compacta da situacao financeira atual.">
-                            <div id="finance" className="space-y-3">
-                                <div className="rounded-[24px] border border-slate-200 bg-slate-50/70 p-4">
-                                    <div className="flex items-center justify-between gap-3">
-                                        <div>
-                                            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Valor em dívida</p>
-                                            <p className={`mt-2 text-xl font-semibold ${amountToneClass(profile.financial.outstanding_value, 'debt')}`}>{formatSignedCurrency(profile.financial.outstanding_value, 'debt')}</p>
-                                        </div>
-                                        <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white text-emerald-700 shadow-sm">
-                                            <CreditCard className="h-5 w-5" />
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
-                                    <div className="rounded-[24px] border border-slate-200 bg-slate-50/70 p-4">
-                                        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Proximo pagamento</p>
-                                        {profile.financial.next_payment ? (
-                                            <>
-                                                <p className="mt-2 text-sm font-semibold text-slate-900">{profile.financial.next_payment.label}</p>
-                                                <p className="mt-1 text-xs text-slate-500">{profile.financial.next_payment.due_date || 'Sem data'} · <span className={amountToneClass(profile.financial.next_payment.amount, 'debt')}>{formatSignedCurrency(profile.financial.next_payment.amount, 'debt')}</span></p>
-                                                <p className="mt-2 text-xs font-semibold text-slate-600">{profile.financial.next_payment.state}</p>
-                                            </>
-                                        ) : (
-                                            <p className="mt-2 text-sm text-slate-500">Sem pagamentos pendentes.</p>
-                                        )}
-                                    </div>
-
-                                    <div className="rounded-[24px] border border-slate-200 bg-slate-50/70 p-4">
-                                        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Mensalidade / plano</p>
-                                        <p className="mt-2 text-sm font-semibold text-slate-900">{profile.financial.plan}</p>
-                                    </div>
-                                </div>
-                            </div>
-                        </PortalSection>
-
-                        <PortalSection title="Documentos e validacoes" description="Situacao documental atual.">
-                            <div id="documents" className="space-y-3">
-                                {profile.documents.map((document) => (
-                                    <div key={document.label} className="rounded-[24px] border border-slate-200 bg-slate-50/70 p-4">
-                                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                                            <div>
-                                                <p className="text-sm font-semibold text-slate-900">{document.label}</p>
-                                                <p className="mt-1 text-xs text-slate-500">{document.helper}</p>
-                                            </div>
-                                            <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${documentClasses(document.status)}`}>
-                                                {document.state_label}
-                                            </span>
-                                        </div>
-                                        <div className="mt-3 flex items-center gap-2 text-xs text-slate-500">
-                                            <FileText className="h-3.5 w-3.5" />
-                                            <span>{document.meta}</span>
-                                        </div>
-                                    </div>
+                    <div className="mt-4 flex items-center justify-between gap-3">
+                        {allowed_profiles.length > 1 ? (
+                            <div className="flex min-w-0 gap-1.5 overflow-x-auto pb-1">
+                                {allowed_profiles.map((allowedProfile) => (
+                                    <button
+                                        key={allowedProfile.id}
+                                        type="button"
+                                        onClick={() => router.visit(allowedProfile.portal_href)}
+                                        className={`shrink-0 rounded-full px-2.5 py-1 text-[10px] font-semibold ${
+                                            allowedProfile.id === profile.id
+                                                ? 'bg-white text-blue-700'
+                                                : 'border border-white/20 bg-white/10 text-white'
+                                        }`}
+                                    >
+                                        {allowedProfile.name}
+                                    </button>
                                 ))}
                             </div>
-                        </PortalSection>
+                        ) : <span />}
+
+                        {profile.can_edit ? (
+                            <button
+                                type="button"
+                                onClick={() => setIsEditing((current) => !current)}
+                                className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-white/20 bg-white/10 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-white/20"
+                            >
+                                {isEditing ? <X className="h-3.5 w-3.5" /> : <Pencil className="h-3.5 w-3.5" />}
+                                {isEditing ? 'Cancelar' : 'Editar'}
+                            </button>
+                        ) : null}
                     </div>
-                </div>
+                </section>
+
+                {isEditing ? (
+                    <section className="rounded-[22px] border border-blue-200 bg-blue-50/40 p-4 sm:p-5">
+                        <div className="flex items-center justify-between gap-3">
+                            <div>
+                                <h2 className="text-base font-semibold text-slate-900">Editar dados pessoais</h2>
+                                <p className="mt-1 text-xs text-slate-500">Mantém aqui apenas a informação que precisas de atualizar.</p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={submit}
+                                disabled={form.processing}
+                                className="inline-flex items-center gap-1.5 rounded-xl bg-blue-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-blue-700 disabled:opacity-60"
+                            >
+                                <Save className="h-3.5 w-3.5" />
+                                {form.processing ? 'A guardar...' : 'Guardar'}
+                            </button>
+                        </div>
+
+                        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                            <label className="sm:col-span-2 text-xs font-semibold text-slate-600">
+                                Nome completo
+                                <input value={form.data.nome_completo || ''} onChange={(event) => form.setData('nome_completo', event.target.value)} className={inputClass(Boolean(errors.nome_completo))} />
+                                <FieldError message={errors.nome_completo} />
+                            </label>
+                            <label className="text-xs font-semibold text-slate-600">
+                                Data de nascimento
+                                <input type="date" value={form.data.data_nascimento || ''} onChange={(event) => form.setData('data_nascimento', event.target.value || null)} className={inputClass(Boolean(errors.data_nascimento))} />
+                                <FieldError message={errors.data_nascimento} />
+                            </label>
+                            <label className="text-xs font-semibold text-slate-600">
+                                Sexo
+                                <select value={form.data.sexo || ''} onChange={(event) => form.setData('sexo', (event.target.value || null) as EditableProfileFields['sexo'])} className={inputClass(Boolean(errors.sexo))}>
+                                    <option value="">Selecionar</option>
+                                    <option value="masculino">Masculino</option>
+                                    <option value="feminino">Feminino</option>
+                                </select>
+                                <FieldError message={errors.sexo} />
+                            </label>
+                            <label className="text-xs font-semibold text-slate-600">
+                                Contacto
+                                <input value={form.data.contacto || ''} onChange={(event) => form.setData('contacto', event.target.value)} className={inputClass(Boolean(errors.contacto))} />
+                                <FieldError message={errors.contacto} />
+                            </label>
+                            <label className="text-xs font-semibold text-slate-600">
+                                Email secundário
+                                <input type="email" value={form.data.email_secundario || ''} onChange={(event) => form.setData('email_secundario', event.target.value)} className={inputClass(Boolean(errors.email_secundario))} />
+                                <FieldError message={errors.email_secundario} />
+                            </label>
+                            <label className="sm:col-span-2 text-xs font-semibold text-slate-600">
+                                Morada
+                                <input value={form.data.morada || ''} onChange={(event) => form.setData('morada', event.target.value)} className={inputClass(Boolean(errors.morada))} />
+                                <FieldError message={errors.morada} />
+                            </label>
+                            <label className="text-xs font-semibold text-slate-600">
+                                Código postal
+                                <input value={form.data.codigo_postal || ''} onChange={(event) => form.setData('codigo_postal', event.target.value)} className={inputClass(Boolean(errors.codigo_postal))} />
+                                <FieldError message={errors.codigo_postal} />
+                            </label>
+                            <label className="text-xs font-semibold text-slate-600">
+                                Localidade
+                                <input value={form.data.localidade || ''} onChange={(event) => form.setData('localidade', event.target.value)} className={inputClass(Boolean(errors.localidade))} />
+                                <FieldError message={errors.localidade} />
+                            </label>
+                            <label className="text-xs font-semibold text-slate-600">
+                                NIF
+                                <input value={form.data.nif || ''} onChange={(event) => form.setData('nif', event.target.value)} className={inputClass(Boolean(errors.nif))} />
+                                <FieldError message={errors.nif} />
+                            </label>
+                            <label className="text-xs font-semibold text-slate-600">
+                                Cartão de Cidadão
+                                <input value={form.data.cc || ''} onChange={(event) => form.setData('cc', event.target.value)} className={inputClass(Boolean(errors.cc))} />
+                                <FieldError message={errors.cc} />
+                            </label>
+                        </div>
+                    </section>
+                ) : null}
+
+                <section className="grid gap-4 lg:grid-cols-2">
+                    <div className="rounded-[22px] border border-slate-200 bg-white p-4 shadow-[0_8px_22px_rgba(15,23,42,0.045)] sm:p-5">
+                        <div className="mb-3 flex items-center gap-2">
+                            <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-blue-50 text-blue-700">
+                                <UserRound className="h-4 w-4" />
+                            </span>
+                            <h2 className="text-base font-semibold text-slate-900">Dados pessoais</h2>
+                        </div>
+                        <SummaryList items={essentialPersonal.length > 0 ? essentialPersonal : profile.personal.slice(0, 6)} />
+                    </div>
+
+                    <button
+                        type="button"
+                        onClick={() => router.visit(portalRoutes.documents)}
+                        className="rounded-[22px] border border-slate-200 bg-white p-4 text-left shadow-[0_8px_22px_rgba(15,23,42,0.045)] transition hover:border-blue-200 sm:p-5"
+                    >
+                        <div className="mb-3 flex items-center justify-between gap-3">
+                            <div className="flex items-center gap-2">
+                                <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-blue-50 text-blue-700">
+                                    <FileText className="h-4 w-4" />
+                                </span>
+                                <h2 className="text-base font-semibold text-slate-900">Documentos</h2>
+                            </div>
+                            <ChevronRight className="h-4 w-4 text-slate-300" />
+                        </div>
+
+                        <div className="space-y-2.5">
+                            {profile.documents.slice(0, 4).map((document) => (
+                                <div key={document.label} className="flex items-center justify-between gap-3 rounded-xl bg-slate-50 px-3 py-2.5">
+                                    <div className="min-w-0">
+                                        <p className="truncate text-sm font-medium text-slate-900">{document.label}</p>
+                                        <p className="mt-0.5 truncate text-[11px] text-slate-500">{document.helper || document.meta}</p>
+                                    </div>
+                                    <span className={`shrink-0 rounded-full border px-2 py-1 text-[10px] font-semibold ${documentClasses(document.status)}`}>
+                                        {document.state_label}
+                                    </span>
+                                </div>
+                            ))}
+                        </div>
+                    </button>
+                </section>
+
+                {profile.flags.is_athlete ? (
+                    <section className="rounded-[22px] border border-slate-200 bg-white p-4 shadow-[0_8px_22px_rgba(15,23,42,0.045)] sm:p-5">
+                        <div className="flex items-center justify-between gap-3">
+                            <div className="flex items-center gap-2">
+                                <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-blue-50 text-blue-700">
+                                    <Activity className="h-4 w-4" />
+                                </span>
+                                <div>
+                                    <h2 className="text-base font-semibold text-slate-900">Desporto</h2>
+                                    <p className="mt-0.5 text-xs text-slate-500">Resumo da época atual.</p>
+                                </div>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => router.visit(portalRoutes.results)}
+                                className="text-xs font-semibold text-blue-700"
+                            >
+                                Ver resultados
+                            </button>
+                        </div>
+
+                        <div className="mt-4 grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
+                            {profile.sports.slice(0, 6).map((item) => (
+                                <div key={item.label} className="rounded-xl bg-slate-50 px-3 py-2.5">
+                                    <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">{item.label}</p>
+                                    <p className="mt-1 text-sm font-medium text-slate-900">{item.value}</p>
+                                </div>
+                            ))}
+                        </div>
+
+                        <button
+                            type="button"
+                            onClick={() => router.visit(portalRoutes.trainings)}
+                            className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-blue-700"
+                        >
+                            Ver treinos <ChevronRight className="h-3.5 w-3.5" />
+                        </button>
+                    </section>
+                ) : null}
             </PortalLayout>
         </>
     );
