@@ -7,7 +7,7 @@ test.describe('login shell', () => {
 
         await expect(page).toHaveTitle(/Entrar/i);
         await expect(page.getByLabel('Email')).toBeVisible();
-        await expect(page.getByLabel('Palavra-passe')).toBeVisible();
+        await expect(page.getByLabel('Palavra-passe', { exact: true })).toBeVisible();
         await expect(page.getByRole('button', { name: 'Entrar' })).toBeVisible();
 
         const hasHorizontalOverflow = await page.evaluate(() => {
