@@ -29,15 +29,33 @@ class SupplierPurchaseFinancialGuardService
             $reasons[] = 'legacy_parallel_financial_entry_reference';
         }
 
+        if ($this->hasSourceKeyedEntryForPurchase($purchase)) {
+            $reasons[] = 'legacy_source_keyed_financial_entry';
+        }
+
+        $originMovements = Movement::query()
+            ->where('origem_tipo', 'supplier_purchase')
+            ->where('origem_id', $purchase->id)
+            ->get();
         $movement = $this->resolveMovement($purchase);
+
         if (!$movement) {
+            if ($originMovements->isNotEmpty()) {
+                $reasons[] = 'unlinked_supplier_purchase_movement_exists';
+            }
+
             $reasons[] = 'movement_reference_missing_or_invalid';
 
             return array_values(array_unique($reasons));
         }
 
-        if ($this->hasSourceKeyedEntryForPurchase($purchase)) {
-            $reasons[] = 'legacy_source_keyed_financial_entry';
+        if ($originMovements->count() > 1) {
+            $reasons[] = 'multiple_supplier_purchase_movements_exist';
+        }
+
+        if ($originMovements->isNotEmpty()
+            && !$originMovements->contains(fn (Movement $originMovement): bool => (string) $originMovement->id === (string) $movement->id)) {
+            $reasons[] = 'conflicting_supplier_purchase_movement';
         }
 
         if (in_array((string) $movement->estado_pagamento, ['parcial', 'pago', 'pago_parcial'], true)) {
@@ -141,6 +159,37 @@ class SupplierPurchaseFinancialGuardService
     public function canDelete(SupplierPurchase $purchase): bool
     {
         return $this->blockingReasons($purchase) === [];
+    }
+
+    /**
+     * @param list<string> $reasons
+     */
+    public function deletionBlockMessage(array $reasons): string
+    {
+        if (array_intersect($reasons, ['issued_fiscal_document_exists', 'issued_movement_document_exists', 'movement_receipt_number_present'])) {
+            return 'Esta compra já possui documento fiscal/financeiro emitido. Deve ser anulada ou revertida, não apagada.';
+        }
+
+        if (array_intersect($reasons, ['movement_reconciled', 'reconciliation_map_exists', 'movement_reconciliation_map_exists'])) {
+            return 'Esta compra já está conciliada com o banco. Deve ser desconciliada/revertida antes de qualquer correção.';
+        }
+
+        if (array_intersect($reasons, ['movement_payment_state_locked', 'movement_financial_entry_settled', 'confirmed_payment_allocation_exists', 'confirmed_payment_exists'])) {
+            return 'Esta compra já possui liquidação total ou parcial. Deve ser revertida, não apagada diretamente.';
+        }
+
+        if (array_intersect($reasons, [
+            'legacy_parallel_financial_entry_reference',
+            'legacy_source_keyed_financial_entry',
+            'movement_reference_missing_or_invalid',
+            'unlinked_supplier_purchase_movement_exists',
+            'multiple_supplier_purchase_movements_exist',
+            'conflicting_supplier_purchase_movement',
+        ])) {
+            return 'Esta compra tem uma inconsistência histórica nas ligações financeiras. Requer limpeza/correção controlada; não serão criadas ligações retroativas automaticamente.';
+        }
+
+        return 'Esta compra possui dependências financeiras e não pode ser apagada diretamente.';
     }
 
     private function resolveMovement(SupplierPurchase $purchase): ?Movement
