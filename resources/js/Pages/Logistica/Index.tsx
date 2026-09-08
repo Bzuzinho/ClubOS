@@ -180,7 +180,7 @@ const movTypeLabel: Record<string, string> = {
 export default function LogisticaIndex({
   tab = 'dashboard', products, suppliers, users, userTypes, requests, loans, stockMovements, supplierPurchases, dashboard,
 }: Props) {
-  const [activeTab, setActiveTab] = useState(tab);
+  const [activeTab, setActiveTab] = useState(tab === 'fornecedores' ? 'compras' : tab);
 
   // ── Requisições state ──
   const [reqDialogOpen, setReqDialogOpen] = useState(false);
@@ -201,7 +201,7 @@ export default function LogisticaIndex({
   const [loanSearch, setLoanSearch] = useState('');
   const [loanStatusFilter, setLoanStatusFilter] = useState('all');
 
-  // ── Fornecedores state ──
+  // ── Compras state ──
   const [purchaseDialogOpen, setPurchaseDialogOpen] = useState(false);
   const [editingPurchaseId, setEditingPurchaseId] = useState<string | null>(null);
   const [purchaseSearch, setPurchaseSearch] = useState('');
@@ -421,7 +421,7 @@ export default function LogisticaIndex({
     e.preventDefault();
     purchaseForm.post(route('logistica.fornecedores.compras.store'), {
       preserveState: false,
-      onSuccess: () => { setPurchaseDialogOpen(false); purchaseForm.reset(); setActiveTab('stock'); },
+      onSuccess: () => { setPurchaseDialogOpen(false); purchaseForm.reset(); setActiveTab('compras'); },
     });
   };
 
@@ -448,13 +448,13 @@ export default function LogisticaIndex({
     if (!editingPurchaseId) return;
     purchaseEditForm.put(route('logistica.fornecedores.compras.update', editingPurchaseId), {
       preserveState: false,
-      onSuccess: () => { setPurchaseDialogOpen(false); setEditingPurchaseId(null); purchaseEditForm.reset(); setActiveTab('stock'); },
+      onSuccess: () => { setPurchaseDialogOpen(false); setEditingPurchaseId(null); purchaseEditForm.reset(); setActiveTab('compras'); },
     });
   };
 
   const deletePurchase = (id: string) => {
     if (!confirm('Apagar compra? O stock e o financeiro serão recalculados.')) return;
-    router.delete(route('logistica.fornecedores.compras.destroy', id), { preserveState: false, onSuccess: () => setActiveTab('stock') });
+    router.delete(route('logistica.fornecedores.compras.destroy', id), { preserveState: false, onSuccess: () => setActiveTab('compras') });
   };
 
   // ── Inline item list helpers ──
@@ -482,7 +482,7 @@ export default function LogisticaIndex({
       header={
         <div>
           <h1 className="text-lg sm:text-xl font-semibold tracking-tight">Logística</h1>
-          <p className="text-muted-foreground text-xs mt-0.5">Operações internas de materiais, stock, requisições e fornecedores</p>
+          <p className="text-muted-foreground text-xs mt-0.5">Operações internas de materiais, stock, requisições e compras</p>
         </div>
       }
     >
@@ -495,7 +495,7 @@ export default function LogisticaIndex({
             <TabsTrigger value="requisicoes">Requisições</TabsTrigger>
             <TabsTrigger value="stock">Stock</TabsTrigger>
             <TabsTrigger value="emprestimos">Empréstimos</TabsTrigger>
-            <TabsTrigger value="fornecedores">Fornecedores</TabsTrigger>
+            <TabsTrigger value="compras">Compras</TabsTrigger>
           </TabsList>
 
         {/* ── Dashboard ──────────────────────────────────────────────────── */}
@@ -1164,8 +1164,8 @@ export default function LogisticaIndex({
           </Card>
         </TabsContent>
 
-        {/* ── Fornecedores ───────────────────────────────────────────────── */}
-        <TabsContent value="fornecedores" className={`${moduleTabbedContentClass} space-y-3`}>
+        {/* ── Compras ────────────────────────────────────────────────────── */}
+        <TabsContent value="compras" className={`${moduleTabbedContentClass} space-y-3`}>
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle className="text-sm">Compras Registadas e Referência Financeira</CardTitle>
