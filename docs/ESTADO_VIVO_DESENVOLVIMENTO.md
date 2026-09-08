@@ -1061,7 +1061,7 @@ Primeiro lote do Portal/PWA/mobile, orientado a utilizadores jovens, idosos e po
 - `/app` é a entrada estável do manifest e `/instalar` mantém a ajuda acessível; ambos reiteram que `bscn.pt/login` funciona sempre sem instalação;
 - Membros apresenta estado, último envio e reenvio do convite; convites ficam limitados a membros ativos com tipo de utilizador resolvido;
 - o manifest passa a ser servido por Laravel com MIME próprio, evitando a resposta binária observada quando o Nginx intercetava o ficheiro estático;
-- o contract topológico é versionado de forma deliberada para `522` rotas, `496` nomes e hash `7da3930f6d37538fa30cabbc9ae65ea42a3aa9b1b5f204ced4258d4ed875d37d`, incluindo throttling de ativação e reenvio.
+- o contract topológico é versionado de forma deliberada para `522` rotas, `496` nomes e hash `2b841e74513ed3874e2eefae02033bbc3036693b69e6390b815fcb4325085a94`, incluindo throttling de ativação e reenvio.
 
 Validação local concluída: TypeScript, ESLint, Vitest e build Vite. O runtime PHP não está disponível neste ambiente; permanecem obrigatórios PHPUnit/migrations/route cache na CI, teste de envio real e QA em dispositivos físicos iOS/Android antes de marcar H7a como integrado/deployado.
 
