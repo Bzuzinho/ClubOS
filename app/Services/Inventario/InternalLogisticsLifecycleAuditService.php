@@ -37,6 +37,7 @@ final class InternalLogisticsLifecycleAuditService
             'schema_detected' => $this->schemaDetected(),
             'summary' => [
                 'supplier_purchase_count' => $this->tableCount('supplier_purchases'),
+                'supplier_purchase_deletion_audit_count' => $this->tableCount('supplier_purchase_deletion_audits'),
                 'logistics_request_count' => $this->tableCount('logistics_requests'),
                 'equipment_loan_count' => $this->tableCount('equipment_loans'),
                 'sports_linked_request_count' => $this->sportsLinkedRequestCount(),
@@ -79,6 +80,7 @@ final class InternalLogisticsLifecycleAuditService
                 'stock_movements',
                 'supplier_purchases',
                 'supplier_purchase_items',
+                'supplier_purchase_deletion_audits',
                 'logistics_requests',
                 'logistics_request_items',
                 'equipment_loans',
