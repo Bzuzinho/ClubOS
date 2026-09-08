@@ -49,6 +49,11 @@ class SupplierPurchaseFinancialGuardService
             return array_values(array_unique($reasons));
         }
 
+        if ((string) $movement->origem_tipo !== 'supplier_purchase'
+            || (string) $movement->origem_id !== (string) $purchase->id) {
+            $reasons[] = 'conflicting_supplier_purchase_movement';
+        }
+
         if ($originMovements->count() > 1) {
             $reasons[] = 'multiple_supplier_purchase_movements_exist';
         }
@@ -68,6 +73,10 @@ class SupplierPurchaseFinancialGuardService
             ->get();
 
         $entryIds = $canonicalEntries->pluck('id')->filter()->values();
+
+        if ($canonicalEntries->isNotEmpty()) {
+            $reasons[] = 'movement_financial_entry_exists';
+        }
 
         if ($canonicalEntries->contains(fn (FinancialEntry $entry): bool => in_array((string) $entry->estado, ['parcial', 'pago'], true)
             || (float) ($entry->valor_pago ?? 0) > 0.009)) {
@@ -176,6 +185,10 @@ class SupplierPurchaseFinancialGuardService
 
         if (array_intersect($reasons, ['movement_payment_state_locked', 'movement_financial_entry_settled', 'confirmed_payment_allocation_exists', 'confirmed_payment_exists'])) {
             return 'Esta compra já possui liquidação total ou parcial. Deve ser revertida, não apagada diretamente.';
+        }
+
+        if (in_array('movement_financial_entry_exists', $reasons, true)) {
+            return 'Esta compra já possui um lançamento financeiro canónico. A eliminação direta foi bloqueada para não deixar movimentos órfãos.';
         }
 
         if (array_intersect($reasons, [
