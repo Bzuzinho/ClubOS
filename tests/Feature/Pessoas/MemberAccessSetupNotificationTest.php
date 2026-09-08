@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Pessoas;
 
-use App\Models\DadosConfiguracao;
 use App\Models\User;
 use App\Notifications\MemberAccessSetupNotification;
 use App\Services\Pessoas\PlatformAccessService;
@@ -15,43 +14,41 @@ final class MemberAccessSetupNotificationTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_access_setup_invite_grants_explicit_platform_access_and_records_sender(): void
+    public function test_access_setup_email_uses_plain_language_and_does_not_mutate_access(): void
     {
-        $actor = User::factory()->create();
         $member = User::factory()->create([
+            'name' => 'Maria Ferreira',
             'email' => 'member-access@example.test',
             'email_utilizador' => 'member-access@example.test',
         ]);
 
-        $this->actingAs($actor);
+        $mail = (new MemberAccessSetupNotification('test-token'))->toMail($member);
 
-        (new MemberAccessSetupNotification('test-token'))->toMail($member);
-
-        $configuration = DadosConfiguracao::query()
-            ->where('user_id', $member->id)
-            ->firstOrFail();
-
-        $this->assertTrue((bool) $configuration->platform_access_enabled);
-        $this->assertSame((string) $actor->id, (string) $configuration->platform_access_granted_by);
-        $this->assertNotNull($configuration->platform_access_granted_at);
-        $this->assertNotNull($configuration->ultimo_envio_acessos_at);
-        $this->assertTrue(app(PlatformAccessService::class)->hasPlatformAccess($member));
+        $this->assertSame('O seu acesso ao BSCN está pronto', $mail->subject);
+        $this->assertSame('Criar o meu acesso', $mail->actionText);
+        $this->assertStringContainsString('/ativar-acesso/test-token', (string) $mail->actionUrl);
+        $this->assertStringContainsString('browser', implode(' ', $mail->introLines));
+        $this->assertDatabaseMissing('dados_configuracao', ['user_id' => $member->id]);
     }
 
-    public function test_resending_access_setup_invite_is_idempotent_for_platform_configuration(): void
+    public function test_recording_access_setup_invite_is_idempotent_for_platform_configuration(): void
     {
+        $actor = User::factory()->create();
         $member = User::factory()->create([
             'email' => 'member-resend@example.test',
             'email_utilizador' => 'member-resend@example.test',
         ]);
 
-        (new MemberAccessSetupNotification('first-token'))->toMail($member);
-        (new MemberAccessSetupNotification('second-token'))->toMail($member);
+        $service = app(PlatformAccessService::class);
+        $service->recordInvitationSent($member, $actor);
+        $service->recordInvitationSent($member, $actor);
 
         $this->assertSame(
             1,
-            DadosConfiguracao::query()->where('user_id', $member->id)->count(),
+            \App\Models\DadosConfiguracao::query()->where('user_id', $member->id)->count(),
         );
-        $this->assertTrue(app(PlatformAccessService::class)->hasPlatformAccess($member));
+        $this->assertFalse($service->hasPlatformAccess($member));
+        $this->assertTrue($service->canActivatePlatformAccess($member));
+        $this->assertSame('invited', $service->explainPlatformAccess($member)['state']);
     }
 }

@@ -2,7 +2,7 @@
 
 > Fonte de verdade funcional e técnica do projeto ClubOS.
 >
-> Estado consolidado em 2026-09-02.
+> Estado consolidado em 2026-09-08.
 >
 > O histórico detalhado anterior à consolidação está preservado em `docs/history/ESTADO_VIVO_DESENVOLVIMENTO_ATE_2026-08-20.md`.
 
@@ -41,9 +41,9 @@ Stack produtiva: Laravel 13, PHP 8.3, React 19 + TypeScript, Inertia 2, Vite, Po
 
 | Módulo / Área | Estado estimado | Estado atual / pendências principais |
 |---|---:|---|
-| Base técnica / arquitetura | 94% | H0.1a/H0.1b/H0.2 concluídos em produção. H1.1 e H1.4–H1.15 fecharam Composer/npm/TypeScript em zero; H1.16 colocou em produção os guard rails de least privilege/verification do R2; H1.17 tornou lint, unit/component, multi-browser/mobile E2E e acessibilidade gates canónicos de CI; H1.18 acrescentou autenticação real e navegação core nos cinco perfis Playwright. H2.5 fechou a modularização controlada de `routes/web.php`: 517 rotas, 491 nomes, 36/36 módulos, 23 redirects e fallback público isolado, sem alterar a topologia. Resta a ação operacional externa de rotação/locks R2 e expansão progressiva da cobertura profunda por fluxo. |
+| Base técnica / arquitetura | 94% | H0.1a/H0.1b/H0.2 concluídos em produção. H1.1 e H1.4–H1.15 fecharam Composer/npm/TypeScript em zero; H1.16 colocou em produção os guard rails de least privilege/verification do R2; H1.17 tornou lint, unit/component, multi-browser/mobile E2E e acessibilidade gates canónicos de CI; H1.18 acrescentou autenticação real e navegação core nos cinco perfis Playwright. H2.5 fechou a modularização controlada; H7a versiona deliberadamente o contract para 522 rotas e 496 nomes ao acrescentar cinco entradas de onboarding, mantendo 36/36 módulos, 23 redirects e fallback público isolado. Resta validar este lote na CI/produção, executar a ação operacional externa de rotação/locks R2 e expandir cobertura profunda por fluxo. |
 | Website público / construtor | 86% | Renderer, snapshots, publicação e dados dinâmicos avançados. Faltam header/footer globais, notícias completas e validação runtime multi-viewport. |
-| Autenticação / Access Control | 78% | Auditoria e gates produtivos ativos. Zero findings críticos e zero rotas mutáveis sem `module.access`. H1.18 cobre rota protegida, intended redirect, login válido/inválido, logout e recuperação de password em Chromium/Firefox/WebKit desktop e Pixel/iPhone. Permanecem 83 warnings de capability granular e falta matriz por perfis não-admin. |
+| Autenticação / Access Control | 82% | Auditoria e gates produtivos ativos. H7a prepara convite dedicado de 72 h, token isolado, ativação com critérios simples, login automático e estados `não enviado/convidado/expirado/ativo/revogado`. H1.18 mantém cobertura de login/logout/recuperação em desktop e mobile. Permanecem a validação Laravel/CI do lote, QA com entregabilidade real e os 83 warnings de capability granular. |
 | Dashboard / entrada por perfil | 70% | Funcional, com leituras canónicas financeiras. H1.18 valida Dashboard autenticado admin, overflow e WCAG A/AA; o gate foi estabilizado para auditar o estado final após desaparecer o progress transitório Inertia/NProgress, mantendo todas as regras axe. Falta QA final por restantes perfis e operações específicas. |
 | Portal atleta / família | 70% | H2.1–H2.3d fecharam a base relacional Família/EE e H3f colocou em produção agenda, treinos/presenças e resultados como projeções canónicas, sem writes em GET nem leakage entre clubes. Falta fecho mobile/PWA, UX e expansão sistemática do E2E do Portal. |
 | Membros / Pessoas | 91% | Normalização avançada. Família/EE está consolidada em `user_guardian` + `familias/familia_user`; H2.3d removeu fisicamente mirrors JSON, `user_relationships`, casts, rotas e classes legacy e deixou um gate produtivo permanente de schema final. |
@@ -59,7 +59,7 @@ Stack produtiva: Laravel 13, PHP 8.3, React 19 + TypeScript, Inertia 2, Vite, Po
 | Loja | 84% | H5a–H5d fecharam checkout, cancelamento pré-entrega, fatura, pagamento, fiscalidade e devolução integral pós-entrega. H5e fecha o lifecycle interno de Logística sobre o mesmo catálogo e ledger, sem criar uma fonte paralela. |
 | Comunicação | 87% | H6a–H6d estão em produção. Facebook/Instagram reutilizam o pipeline canónico com credenciais cifradas nas Definições, validação Graph API, publicação/agendamento assíncrono, IDs externos, retries e webhooks Meta assinados/minimizados. O audit v4 confirmou schema completo e zero críticos; o runtime fica fail-closed até serem adicionadas credenciais reais. H6e fecha QA operacional, métricas e SLA. |
 | Relatórios | 40% | Área menos madura; construir apenas depois de estabilizar fontes de verdade. |
-| PWA / Mobile | 62% | TypeScript permanece 0/0. H1.17 introduziu Playwright bloqueante em Chromium/Firefox/WebKit e perfis Pixel 7/iPhone 14; H1.18 acrescentou sessão autenticada, menu, navegação para Membros/Desportivo/Eventos/Financeiro/Configurações, overflow e axe no Dashboard. Falta ampliar a cobertura a workspaces/tabs, tablet, Portal e operações críticas por módulo. |
+| PWA / Mobile | 68% | H7a prepara `/app` e `/instalar`, manifest com entrada estável, captura do prompt nativo e instruções manuais iOS/Android, sempre como opção e com `bscn.pt/login` destacado. TypeScript, lint, unit e build locais estão verdes; o E2E público cobre conteúdo, overflow e axe. Faltam CI, teste Laravel local/produção e QA real em Safari iOS, Chrome Android e instalação standalone. |
 | Importação de recibos antigos | 60% | Falta corpus real representativo e regression dataset idempotente. |
 
 ---
@@ -1049,13 +1049,31 @@ O audit produtivo confirmou as sete tabelas e todos os campos H6d, `schema_ready
 
 ---
 
+### H7a — Onboarding de acesso e instalação opcional — em validação
+
+Primeiro lote do Portal/PWA/mobile, orientado a utilizadores jovens, idosos e pouco habituados a aplicações:
+
+- o email passa a explicar três passos, usa uma ação única, personaliza a saudação e informa que o link dura 72 horas;
+- o convite usa broker e tabela de tokens próprios, separados da recuperação normal de palavra-passe;
+- enviar um convite regista um estado pendente mas não ativa o login; a ativação só ocorre após token válido e criação da palavra-passe;
+- a página de ativação usa português simples, email não editável, mostrar/esconder palavra-passe, critérios visíveis e recuperação clara para links expirados ou usados;
+- a conclusão autentica a pessoa automaticamente e mostra uma escolha simples: continuar no browser ou, opcionalmente, colocar um ícone no telemóvel;
+- `/app` é a entrada estável do manifest e `/instalar` mantém a ajuda acessível; ambos reiteram que `bscn.pt/login` funciona sempre sem instalação;
+- Membros apresenta estado, último envio e reenvio do convite; convites ficam limitados a membros ativos com tipo de utilizador resolvido;
+- o manifest passa a ser servido por Laravel com MIME próprio, evitando a resposta binária observada quando o Nginx intercetava o ficheiro estático;
+- o contract topológico é versionado de forma deliberada para `522` rotas, `496` nomes e hash `7da3930f6d37538fa30cabbc9ae65ea42a3aa9b1b5f204ced4258d4ed875d37d`, incluindo throttling de ativação e reenvio.
+
+Validação local concluída: TypeScript, ESLint, Vitest e build Vite. O runtime PHP não está disponível neste ambiente; permanecem obrigatórios PHPUnit/migrations/route cache na CI, teste de envio real e QA em dispositivos físicos iOS/Android antes de marcar H7a como integrado/deployado.
+
+---
+
 ## 8. Dívida estrutural prioritária
 
 - Desportivo: H3 fechado ponta a ponta; preservar os contracts e expandir UX/E2E sem reabrir fontes legacy.
 - Eventos: remover estruturas de compatibilidade sem consumo e criar contract tests com Desportivo.
-- Rotas: modularização H2.5 fechada; manter o contract topológico e retirar redirects apenas com telemetria/prova de zero consumidores externos.
+- Rotas: modularização H2.5 fechada; H7a atualiza explicitamente o contract para 522/496 pelas cinco novas entradas de produto; validar o novo hash na CI e continuar a retirar redirects apenas com telemetria/prova de zero consumidores externos.
 - Fiscal: H4 fechado; preservar o gate `summary.ready=true` e tratar operacionalmente os 125 pedidos pendentes/126 warnings, começando pelos 108 já prontos para emissão externa.
-- Frontend QA: baseline automático H1.17/H1.18 ativo com autenticação e navegação core; expandir workspaces, operações críticas, perfis não-admin, tablet e Portal sem enfraquecer os gates.
+- Frontend QA: baseline automático H1.17/H1.18 ativo; H7a acrescenta E2E público de onboarding, mas ainda exige dispositivos reais, fluxo completo com email e matriz autenticada por perfil.
 - Access Control: resolver os 83 warnings de capability granular sem reabrir bypasses de módulo.
 
 ---
@@ -1065,11 +1083,11 @@ O audit produtivo confirmou as sete tabelas e todos os campos H6d, `schema_ready
 | Ordem | Sprint | Objetivo |
 |---:|---|---|
 | 1 | H6e | QA operacional profundo, métricas/SLA e fecho produtivo da Comunicação. |
-| 2 | H7 | Portal/PWA/mobile. |
+| 2 | H7 | Portal/PWA/mobile; H7a onboarding iniciado, fechar CI, email real e QA física. |
 | 3 | H8 | Reporting consolidado transversal. |
 | 4 | H9 | Website: header/footer, notícias e polish final. |
 
-Próximo passo: avançar para H6e, fazendo QA operacional profundo, métricas/SLA e fecho produtivo da Comunicação. A ativação Facebook/Instagram exige apenas introduzir nas Definições as credenciais Meta reais, validar as contas e registar os callbacks apresentados; o deploy não inventa nem transporta tokens. Em paralelo, a campanha legacy agendada/vencida deve ser revista explicitamente; o sistema não a enviará sozinho. Um eventual cutover da queue produtiva `database` para Redis só deve ocorrer depois de validar a configuração efetiva do Supervisor. H3, H4, H5, H2.5, stock por variante e Família/EE estão estruturalmente fechados. A fila fiscal produtiva e a ação operacional Cloudflare R2 permanecem pendências operacionais separadas.
+Próximo passo imediato: fechar H7a na CI e em dispositivos reais, incluindo entrega do convite, ativação, entrada automática, browser e instalação opcional. Depois, retomar H6e para QA operacional profundo, métricas/SLA e fecho produtivo da Comunicação. A ativação Facebook/Instagram exige apenas introduzir nas Definições as credenciais Meta reais, validar as contas e registar os callbacks apresentados; o deploy não inventa nem transporta tokens. Em paralelo, a campanha legacy agendada/vencida deve ser revista explicitamente; o sistema não a enviará sozinho. Um eventual cutover da queue produtiva `database` para Redis só deve ocorrer depois de validar a configuração efetiva do Supervisor. H3, H4, H5, H2.5, stock por variante e Família/EE estão estruturalmente fechados. A fila fiscal produtiva e a ação operacional Cloudflare R2 permanecem pendências operacionais separadas.
 
 ---
 
@@ -1077,6 +1095,7 @@ Próximo passo: avançar para H6e, fazendo QA operacional profundo, métricas/SL
 
 | Data | Módulo | Desenvolvimento / análise | Evidência | Estado / pendências |
 |---|---|---|---|---|
+| 2026-09-08 | Portal / Autenticação / PWA | H7a inicia onboarding acessível: convite dedicado de 72 h, ativação simples, login automático, estado de acesso em Membros, entrada `/app` e instalação do ícone apresentada como opção com browser sempre disponível. | `MemberAccessActivationController`; `PlatformAccessService`; `MemberAccessOnboardingTest`; `onboarding.spec.ts`; TypeScript/lint/Vitest/build locais verdes | Em validação; falta runtime Laravel/CI, migration PostgreSQL, entregabilidade real e QA em Safari iOS/Chrome Android antes de integração/deploy. |
 | 2026-09-04 | Website / Infraestrutura / Domínio / Deploy | Fixado o contrato de entrada pública: `bscn.pt` serve o website em `/`, `/login` mantém a entrada ClubOS e `www.bscn.pt` preserva os caminhos web por 301 para o canónico antes de renderizar Inertia, eliminando a página branca causada por módulos cross-origin. O healthcheck valida os três caminhos, TLS do alias e recusa `APP_URL` com `www`. O primeiro deploy reverteu porque exigia incorretamente 301 em `/up`; como esta rota técnica fica fora do middleware web, a validação foi corrigida para aceitar o seu `HTTP 200` direto no alias. | `ForceAppUrl`; `CanonicalDomainRedirectTest`; `bin/remote-healthcheck.sh`; `CanonicalDomainHealthcheckTest`; `docs/deploy/nginx-bscn-canonical.conf` | Defesa aplicacional preparada sem tocar em DNS/Cloudflare; funciona mesmo antes do hardening Nginx. A VM deve manter o certificado SAN para ambos os nomes e aplicar também o virtual host versionado. |
 | 2026-09-03 | Comunicação / Redes sociais / Segurança | H6d integra Facebook/Instagram como canais do pipeline canónico, acrescenta credenciais cifradas e validação nas Definições, compositor social, publicação/agendamento assíncrono, retries, IDs externos e webhooks Meta assinados/minimizados. | PR #315; CI #1117/#1118; merge `cbc879eb320a42a691b3fd1c1a14be50b2810c00`; artifact `communication-async-pipeline-readiness-cbc879eb320a42a691b3fd1c1a14be50b2810c00` | Integrado e deployado; schema H6d completo, 0 contas/prontas/campanhas/eventos sociais e 0 críticos. Credenciais reais e subscrição de callbacks permanecem ação operacional posterior; sem elas tudo fica fail-closed. Comunicação 80% → 87%; H6e é o próximo lote. |
 | 2026-09-03 | Comunicação / Segurança / Infraestrutura | H6c extrai adapters de email/SMS/push, exige referências externas rastreáveis e introduz callbacks HMAC anti-replay com eventos minimizados, idempotentes e transições monotónicas. | PR #313; CI #1113/#1114; merge `6cd2103e0897ac8f7909676e9e728e134826e709`; artifact `communication-async-pipeline-readiness-6cd2103e0897ac8f7909676e9e728e134826e709` | Integrado e deployado; schema H6c completo, 0 eventos/unmatched, 0 críticos/retries/esgotamentos/leases. Secrets dos três providers ausentes e callbacks fail-closed até ativação real. Comunicação 75% → 80%; H6d é o próximo lote. |

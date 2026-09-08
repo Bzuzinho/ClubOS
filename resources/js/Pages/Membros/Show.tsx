@@ -510,6 +510,7 @@ export default function Show({ member, family_context, permissions, allUsers, in
                     <TabsContent value="configuration" className={`${moduleTabbedContentClass} space-y-2 bg-white p-0 rounded-lg`}>
                         <ConfigurationTab 
                             user={user}
+                            platformAccess={(member as any).platform_access}
                             onChange={handleChange}
                             isAdmin={canEditMember}
                         />

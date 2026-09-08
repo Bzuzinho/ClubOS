@@ -87,9 +87,9 @@ test.describe('authenticated access', () => {
 
         await expect(page).toHaveURL(/\/forgot-password$/);
         await page.locator('#email').fill(emailForProject(testInfo));
-        await page.getByRole('button', { name: 'Email Password Reset Link' }).click();
+        await page.getByRole('button', { name: 'Enviar link de recuperação' }).click();
 
-        await expect(page.getByText('We have emailed your password reset link.', { exact: true })).toBeVisible();
+        await expect(page.getByText(/Enviámos um link para recuperar a palavra-passe/)).toBeVisible();
         await expectNoHorizontalOverflow(page);
     });
 

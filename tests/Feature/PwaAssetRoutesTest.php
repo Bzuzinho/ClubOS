@@ -13,7 +13,9 @@ class PwaAssetRoutesTest extends TestCase
     {
         $this->get('/site.webmanifest')
             ->assertOk()
-            ->assertHeader('Content-Type', 'application/manifest+json');
+            ->assertHeader('Content-Type', 'application/manifest+json')
+            ->assertJsonPath('id', '/app')
+            ->assertJsonPath('start_url', '/app');
     }
 
     public function test_favicon_route_is_public(): void

@@ -189,6 +189,7 @@ final class MemberModelAuditService
             'members',
             'dados_pessoais',
             'dados_configuracao',
+            'member_access_tokens',
             'dados_financeiros',
             'athletes',
             'athlete_sports_data',
@@ -213,11 +214,13 @@ final class MemberModelAuditService
             'member_profile_table' => $tables['members'] ? 'members' : ($tables['dados_pessoais'] ? 'dados_pessoais' : 'users'),
             'users_columns' => $this->columns('users', array_values(array_unique(array_merge(['id', 'name', 'email', 'email_utilizador', 'password', 'email_verified_at', 'last_login_at', 'perfil', 'estado', 'tipo_membro', 'menor', 'ativo_desportivo', 'data_nascimento', 'numero_socio'], self::ACCESS_GRANTED_COLUMNS, self::INVITE_COLUMNS, self::LOGIN_ACTIVITY_COLUMNS)))),
             'dados_pessoais_columns' => $this->columns('dados_pessoais', ['id', 'user_id', 'nome_completo', 'data_nascimento', 'nif', 'documento_identificacao', 'contacto', 'contacto_alternativo', 'tipo_utilizador']),
-            'dados_configuracao_columns' => $this->columns('dados_configuracao', array_values(array_unique(array_merge(['id', 'user_id', 'acesso_portal_ativo', 'ultimo_envio_acessos_at', 'platform_access_enabled', 'platform_access_granted_at', 'platform_access_granted_by', 'platform_access_revoked_at', 'platform_access_revoked_by', 'platform_access_notes'], self::ACCESS_GRANTED_COLUMNS, self::INVITE_COLUMNS, self::LOGIN_ACTIVITY_COLUMNS)))),
+            'dados_configuracao_columns' => $this->columns('dados_configuracao', array_values(array_unique(array_merge(['id', 'user_id', 'acesso_portal_ativo', 'ultimo_envio_acessos_at', 'platform_access_enabled', 'platform_access_granted_at', 'platform_access_activated_at', 'platform_access_granted_by', 'platform_access_revoked_at', 'platform_access_revoked_by', 'platform_access_notes'], self::ACCESS_GRANTED_COLUMNS, self::INVITE_COLUMNS, self::LOGIN_ACTIVITY_COLUMNS)))),
             'platform_access_schema' => [
                 'dados_configuracao_exists' => $tables['dados_configuracao'],
+                'member_access_tokens_exists' => $tables['member_access_tokens'],
                 'portal_access_active_column' => Schema::hasColumn('dados_configuracao', 'acesso_portal_ativo'),
                 'explicit_access_source_column' => Schema::hasColumn('dados_configuracao', 'platform_access_enabled') ? 'dados_configuracao.platform_access_enabled' : null,
+                'activation_tracking_column' => Schema::hasColumn('dados_configuracao', 'platform_access_activated_at') ? 'dados_configuracao.platform_access_activated_at' : null,
                 'access_grant_columns_detected' => array_values(array_unique(array_merge(
                     $this->existingColumns('dados_configuracao', self::ACCESS_GRANTED_COLUMNS),
                     $this->existingColumns('users', self::ACCESS_GRANTED_COLUMNS),

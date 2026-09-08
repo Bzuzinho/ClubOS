@@ -40,10 +40,10 @@ class PasswordResetLinkController extends Controller
         );
 
         if ($status == Password::RESET_LINK_SENT) {
-            return back()->with('status', __($status));
+            return back()->with('status', 'Enviámos um link para recuperar a palavra-passe. Verifique também a pasta de correio não solicitado.');
         }
 
         return back()->withInput($request->only('email'))
-                    ->withErrors(['email' => __($status)]);
+                    ->withErrors(['email' => 'Não foi possível enviar o link. Confirme o email ou contacte o clube.']);
     }
 }

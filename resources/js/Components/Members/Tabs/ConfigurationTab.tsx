@@ -16,13 +16,35 @@ import { useState } from 'react';
 
 interface ConfigurationTabProps {
   user: any;
+  platformAccess?: {
+    state?: 'not_sent' | 'invited' | 'active' | 'expired' | 'revoked';
+    last_invitation_sent_at?: string | null;
+    platform_access_activated_at?: string | null;
+    invitation_expires_at?: string | null;
+  } | null;
   onChange: (field: string, value: any) => void;
   isAdmin: boolean;
   isCreating?: boolean;
 }
 
-export function ConfigurationTab({ user, onChange, isAdmin, isCreating = false }: ConfigurationTabProps) {
+export function ConfigurationTab({ user, platformAccess, onChange, isAdmin, isCreating = false }: ConfigurationTabProps) {
   const [isSendingAccess, setIsSendingAccess] = useState(false);
+  const accessState = platformAccess?.state ?? 'not_sent';
+  const accessLabels = {
+    not_sent: 'Ainda não enviado',
+    invited: 'Convite enviado',
+    active: 'Acesso ativo',
+    expired: 'Convite expirado',
+    revoked: 'Acesso suspenso',
+  } as const;
+  const accessTone = accessState === 'active'
+    ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+    : accessState === 'expired' || accessState === 'revoked'
+      ? 'bg-amber-50 text-amber-800 border-amber-200'
+      : 'bg-blue-50 text-blue-800 border-blue-200';
+  const invitationDate = platformAccess?.last_invitation_sent_at
+    ? new Intl.DateTimeFormat('pt-PT', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(platformAccess.last_invitation_sent_at))
+    : null;
 
   const handlePasswordReset = () => {
     if (!user?.id) {
@@ -42,12 +64,12 @@ export function ConfigurationTab({ user, onChange, isAdmin, isCreating = false }
     }, {
       preserveScroll: true,
       onSuccess: () => {
-        toast.success('Email de acesso enviado com sucesso!', {
-          description: `Foi enviado um link para definir a palavra-passe para ${user.email_utilizador}`,
+        toast.success('Convite de acesso enviado!', {
+          description: `Foi enviado para ${user.email_utilizador} e é válido durante 72 horas.`,
         });
       },
       onError: (errors) => {
-        toast.error((errors.email_utilizador as string) || 'Não foi possível enviar o email de acesso.');
+        toast.error((errors.email_utilizador as string) || (errors.perfil as string) || 'Não foi possível enviar o convite de acesso.');
       },
       onFinish: () => setIsSendingAccess(false),
     });
@@ -68,6 +90,17 @@ export function ConfigurationTab({ user, onChange, isAdmin, isCreating = false }
           Acesso à Plataforma
         </h3>
         <div className="space-y-1">
+          {!isCreating && (
+            <div className="mb-2 flex flex-col gap-1.5 rounded-lg border border-slate-200 bg-slate-50 p-2.5 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${accessTone}`}>
+                  {accessLabels[accessState]}
+                </span>
+                {invitationDate && <p className="mt-1.5 text-xs text-slate-600">Último convite: {invitationDate}</p>}
+              </div>
+              <p className="text-xs text-slate-500">O ícone no telemóvel é opcional; o acesso funciona sempre no browser.</p>
+            </div>
+          )}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-1">
             <div>
               <Label htmlFor="email_utilizador" className="text-xs">Email de Autenticação</Label>
@@ -126,7 +159,11 @@ export function ConfigurationTab({ user, onChange, isAdmin, isCreating = false }
               <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
               </svg>
-              {isSendingAccess ? 'A enviar...' : 'Enviar link de acesso'}
+              {isSendingAccess
+                ? 'A enviar...'
+                : accessState === 'not_sent'
+                  ? 'Enviar convite de acesso'
+                  : 'Reenviar convite de acesso'}
             </Button>
           )}
         </div>

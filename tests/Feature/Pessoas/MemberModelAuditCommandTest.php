@@ -821,6 +821,8 @@ final class MemberModelAuditCommandTest extends TestCase
         $this->assertArrayHasKey('member_without_access_role_expected_count', $payload['summary']);
         $this->assertArrayHasKey('suspected_false_positive_reclassified_count', $payload['summary']);
         $this->assertArrayHasKey('platform_access_schema', $payload['schema_detected']);
+        $this->assertTrue($payload['schema_detected']['platform_access_schema']['member_access_tokens_exists']);
+        $this->assertSame('dados_configuracao.platform_access_activated_at', $payload['schema_detected']['platform_access_schema']['activation_tracking_column']);
         $this->assertArrayHasKey('portal_access_active_true_count', $payload['schema_detected']['platform_access_schema']);
         $this->assertArrayHasKey('access_grant_columns_detected', $payload['schema_detected']['platform_access_schema']);
         $this->assertArrayHasKey('invite_columns_detected', $payload['schema_detected']['platform_access_schema']);
