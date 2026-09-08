@@ -94,6 +94,37 @@ class SupplierPurchaseDeletionSafetyTest extends TestCase
         ]);
     }
 
+    public function test_any_canonical_financial_entry_blocks_hard_delete_even_when_still_pending(): void
+    {
+        [$purchase, , , $actor] = $this->createPurchase();
+        $movement = Movement::query()->findOrFail($purchase->financial_movement_id);
+
+        FinancialEntry::query()->create([
+            'data' => '2026-09-08',
+            'tipo' => 'despesa',
+            'categoria' => 'Fornecedor',
+            'descricao' => 'Entrada canónica pendente',
+            'valor' => 50,
+            'valor_pago' => 0,
+            'valor_em_aberto' => 50,
+            'estado' => 'pendente',
+            'origem_tipo' => 'movement',
+            'origem_modulo' => 'financeiro',
+            'origem_id' => $movement->id,
+        ]);
+
+        try {
+            app(DeleteSupplierPurchaseAction::class)->execute($purchase->fresh(), $actor);
+            $this->fail('Expected canonical financial entry to block hard deletion.');
+        } catch (ValidationException $exception) {
+            $this->assertStringContainsString('lançamento financeiro canónico', (string) data_get($exception->errors(), 'purchase.0'));
+        }
+
+        $this->assertDatabaseHas('supplier_purchases', ['id' => $purchase->id]);
+        $this->assertDatabaseHas('movements', ['id' => $movement->id]);
+        $this->assertDatabaseMissing('supplier_purchase_deletion_audits', ['supplier_purchase_id' => $purchase->id]);
+    }
+
     public function test_financial_guard_detects_legacy_entry_even_when_purchase_movement_reference_is_missing(): void
     {
         [$purchase] = $this->createPurchase();
