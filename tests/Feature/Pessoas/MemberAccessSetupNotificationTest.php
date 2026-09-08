@@ -27,7 +27,7 @@ final class MemberAccessSetupNotificationTest extends TestCase
         $this->assertSame('O seu acesso ao BSCN está pronto', $mail->subject);
         $this->assertSame('Criar o meu acesso', $mail->actionText);
         $this->assertStringContainsString('/ativar-acesso/test-token', (string) $mail->actionUrl);
-        $this->assertStringContainsString('browser', implode(' ', $mail->introLines));
+        $this->assertStringContainsString('browser', implode(' ', [...$mail->introLines, ...$mail->outroLines]));
         $this->assertDatabaseMissing('dados_configuracao', ['user_id' => $member->id]);
     }
 

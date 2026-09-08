@@ -66,7 +66,7 @@ final class MemberAccessActivationController extends Controller
             [
                 'email' => $validated['email'],
                 'password' => $validated['password'],
-                'password_confirmation' => $validated['password_confirmation'],
+                'password_confirmation' => (string) $request->input('password_confirmation'),
                 'token' => $validated['token'],
             ],
             function (User $user, string $password) use (&$activatedUser, $platformAccessService): void {
