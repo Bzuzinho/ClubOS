@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\File;
 use Tests\TestCase;
 
 class PwaAssetRoutesTest extends TestCase
@@ -14,6 +15,11 @@ class PwaAssetRoutesTest extends TestCase
         $this->get('/site.webmanifest')
             ->assertOk()
             ->assertHeader('Content-Type', 'application/manifest+json');
+
+        $manifest = json_decode(File::get(resource_path('pwa/site.webmanifest')), true, flags: JSON_THROW_ON_ERROR);
+
+        $this->assertSame('/app', $manifest['id']);
+        $this->assertSame('/app', $manifest['start_url']);
     }
 
     public function test_favicon_route_is_public(): void

@@ -27,6 +27,12 @@ return [
             'expire' => 60,
             'throttle' => 60,
         ],
+        'member_access' => [
+            'provider' => 'users',
+            'table' => env('MEMBER_ACCESS_TOKEN_TABLE', 'member_access_tokens'),
+            'expire' => (int) env('MEMBER_ACCESS_INVITE_EXPIRE_MINUTES', 4320),
+            'throttle' => 60,
+        ],
     ],
 
     'password_timeout' => env('AUTH_PASSWORD_TIMEOUT', 10800),

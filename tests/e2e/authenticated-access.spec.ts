@@ -22,7 +22,7 @@ const login = async (page: Page, testInfo: TestInfo, intendedPath = '/dashboard'
     await expect(page).toHaveURL(/\/login$/);
 
     await page.getByLabel('Email').fill(emailForProject(testInfo));
-    await page.getByLabel('Palavra-passe').fill(PASSWORD);
+    await page.getByLabel('Palavra-passe', { exact: true }).fill(PASSWORD);
     await page.getByRole('button', { name: 'Entrar' }).click();
 
     await expect(page).toHaveURL(pathPattern(intendedPath));
@@ -58,7 +58,7 @@ test.describe('authenticated access', () => {
     test('rejects invalid credentials without creating an authenticated session', async ({ page }, testInfo) => {
         await page.goto('/login');
         await page.getByLabel('Email').fill(emailForProject(testInfo));
-        await page.getByLabel('Palavra-passe').fill('invalid-password');
+        await page.getByLabel('Palavra-passe', { exact: true }).fill('invalid-password');
         await page.getByRole('button', { name: 'Entrar' }).click();
 
         await expect(page).toHaveURL(/\/login$/);
@@ -87,9 +87,9 @@ test.describe('authenticated access', () => {
 
         await expect(page).toHaveURL(/\/forgot-password$/);
         await page.locator('#email').fill(emailForProject(testInfo));
-        await page.getByRole('button', { name: 'Email Password Reset Link' }).click();
+        await page.getByRole('button', { name: 'Enviar link de recuperação' }).click();
 
-        await expect(page.getByText('We have emailed your password reset link.', { exact: true })).toBeVisible();
+        await expect(page.getByText(/Enviámos um link para recuperar a palavra-passe/)).toBeVisible();
         await expectNoHorizontalOverflow(page);
     });
 

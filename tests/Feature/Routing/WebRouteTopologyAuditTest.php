@@ -109,7 +109,7 @@ final class WebRouteTopologyAuditTest extends TestCase
         $publicRoutes = File::get(base_path('routes/web_public.php'));
 
         $this->assertTrue($routeFiles['routes/web_public.php']['loaded']);
-        $this->assertSame(7, $routeFiles['routes/web_public.php']['route_call_count']);
+        $this->assertSame(9, $routeFiles['routes/web_public.php']['route_call_count']);
         $this->assertStringContainsString("require __DIR__.'/web_public.php';", $webRoutes);
         $this->assertStringNotContainsString('PublicFormSubmissionController::class', $webRoutes);
         $this->assertStringNotContainsString('File::exists', $webRoutes);
@@ -117,6 +117,8 @@ final class WebRouteTopologyAuditTest extends TestCase
         $this->assertStringContainsString("->name('pwa.manifest');", $publicRoutes);
         $this->assertStringContainsString("->name('pwa.favicon');", $publicRoutes);
         $this->assertStringContainsString("->where('asset', '[A-Za-z0-9._-]+')->name('pwa.icon');", $publicRoutes);
+        $this->assertStringContainsString("->name('app.entry');", $publicRoutes);
+        $this->assertStringContainsString("->name('onboarding.install');", $publicRoutes);
         $this->assertStringContainsString("->name('public.home');", $publicRoutes);
         $this->assertStringContainsString("->name('public.page');", $publicRoutes);
         $this->assertStringContainsString("->name('public.contact.store');", $publicRoutes);

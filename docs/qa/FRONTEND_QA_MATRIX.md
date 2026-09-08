@@ -1,6 +1,6 @@
-# Frontend QA Matrix — H1.17 / H1.18
+# Frontend QA Matrix — H1.17 / H1.18 / H7a
 
-Estado: baseline automático obrigatório, expandido em 2026-08-28.
+Estado: baseline automático obrigatório, com expansão H7a preparada em 2026-09-08.
 
 ## Objetivo
 
@@ -96,6 +96,18 @@ O primeiro gate autenticado revelou uma dívida real de contraste: branco sobre 
 
 A matriz corre em ambiente Laravel real com SQLite efémero e assets Vite construídos. Não usa mocks do browser para substituir o fluxo HTTP.
 
+### H7a — onboarding público e acesso inicial
+
+A expansão acrescenta um contrato Playwright para `/instalar` nos cinco projetos existentes:
+
+- instalação explicitamente opcional e browser apresentado como acesso permanente;
+- ação principal para continuar para a área pessoal;
+- link visível para `bscn.pt/login`;
+- ausência de overflow horizontal;
+- ausência de findings axe `serious`/`critical` WCAG A/AA.
+
+O backend cobre separação dos tokens de convite, estado pendente sem login antecipado, ativação, sessão automática, bloqueio após revogação e recuperação para links inválidos. A execução Laravel desta expansão fica a cargo da CI por indisponibilidade de PHP no ambiente local; continua também obrigatória a validação física do prompt/atalho em Safari iOS e Chrome Android.
+
 ## Integração CI
 
 A CI canónica executa:
@@ -118,7 +130,7 @@ A CI #894 validou a expansão H1.18 no head `f083fe74258eec42e443e81fac1169e6926
 Sem enfraquecer este baseline:
 
 1. Dashboard por perfil e permissões não-admin;
-2. Portal atleta/família mobile-first;
+2. Portal atleta/família mobile-first depois do fecho físico do onboarding H7a;
 3. workspaces/tabs e operações críticas de Membros;
 4. Financeiro crítico;
 5. Desportivo Planeamento/Treinos/Cais/Live;

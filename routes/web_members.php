@@ -55,6 +55,6 @@ Route::prefix('membros/{member}')->middleware('module.access:membros')->group(fu
         ->name('membros.documentos.destroy');
 
     Route::post('send-access-email', [MembrosController::class, 'sendAccessEmail'])
-        ->middleware('permission.access:membros.ficha,edit')
+        ->middleware(['permission.access:membros.ficha,edit', 'throttle:6,1'])
         ->name('membros.send-access-email');
 });

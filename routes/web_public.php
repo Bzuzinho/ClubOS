@@ -4,11 +4,12 @@ declare(strict_types=1);
 
 use App\Http\Controllers\PublicFormSubmissionController;
 use App\Http\Controllers\PublicSiteController;
+use App\Http\Controllers\OnboardingController;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/site.webmanifest', function () {
-    return response()->file(public_path('site.webmanifest'), [
+    return response()->file(resource_path('pwa/site.webmanifest'), [
         'Content-Type' => 'application/manifest+json',
         'Cache-Control' => 'public, max-age=3600',
     ]);
@@ -41,6 +42,9 @@ Route::get('/icons/{asset}', function (string $asset) {
         'Cache-Control' => 'public, max-age=3600',
     ]);
 })->where('asset', '[A-Za-z0-9._-]+')->name('pwa.icon');
+
+Route::get('/app', [OnboardingController::class, 'appEntry'])->name('app.entry');
+Route::get('/instalar', [OnboardingController::class, 'install'])->name('onboarding.install');
 
 Route::get('/', [PublicSiteController::class, 'home'])->name('public.home');
 Route::get('/{page}', [PublicSiteController::class, 'show'])

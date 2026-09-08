@@ -5,9 +5,9 @@ test.describe('login shell', () => {
     test('is usable without horizontal overflow across the viewport matrix', async ({ page }) => {
         await page.goto('/login');
 
-        await expect(page).toHaveTitle(/Login/i);
+        await expect(page).toHaveTitle(/Entrar/i);
         await expect(page.getByLabel('Email')).toBeVisible();
-        await expect(page.getByLabel('Palavra-passe')).toBeVisible();
+        await expect(page.getByLabel('Palavra-passe', { exact: true })).toBeVisible();
         await expect(page.getByRole('button', { name: 'Entrar' })).toBeVisible();
 
         const hasHorizontalOverflow = await page.evaluate(() => {

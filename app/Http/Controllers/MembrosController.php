@@ -15,6 +15,7 @@ use App\Models\Invoice;
 use App\Models\Movement;
 use App\Models\PaymentAllocation;
 use App\Services\Communication\InternalCommunicationService;
+use App\Services\AccessControl\ResolveCurrentUserType;
 use App\Services\AccessControl\UserTypeAccessControlService;
 use App\Services\Family\FamilyRelationshipService;
 use App\Services\Family\FamilyService;
@@ -30,6 +31,7 @@ use App\Services\Members\MemberDocumentDataResolver;
 use App\Services\Members\MemberIdentityDisplayResolver;
 use App\Services\Members\MemberTypeResolver;
 use App\Services\Members\MemberDataWriteService;
+use App\Services\Pessoas\PlatformAccessService;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -434,6 +436,7 @@ class MembrosController extends Controller
         // Canonical member data and relationships are read from relational sources.
         $member->loadMissing(['dadosPessoais', 'dadosConfiguracao']);
         $memberData = app(MemberDataReadService::class)->mergedMemberPayload($member, $memberData);
+        $memberData['platform_access'] = app(PlatformAccessService::class)->explainPlatformAccess($member);
         $memberData = array_merge($memberData, $this->memberDocumentDataResolver->memberDocumentPayload($member));
         $memberData['memberTypes'] = $this->memberTypeResolver->typesFor($member);
 
@@ -972,6 +975,18 @@ class MembrosController extends Controller
             'email_utilizador.unique' => 'Este email já está em uso por outro utilizador.',
         ]);
 
+        if ($member->estado !== 'ativo') {
+            return back()->withErrors([
+                'email_utilizador' => 'O acesso só pode ser enviado a um membro ativo.',
+            ]);
+        }
+
+        if (app(ResolveCurrentUserType::class)($member) === null) {
+            return back()->withErrors([
+                'perfil' => 'Defina primeiro um tipo de utilizador ativo para garantir que a pessoa entra na área correta.',
+            ]);
+        }
+
         $member->forceFill(
             $this->syncAuthIdentityFields([
                 'nome_completo' => $this->memberIdentityDisplayResolver->displayNameOrFallback($member, 'Membro'),
@@ -979,10 +994,14 @@ class MembrosController extends Controller
             ], $member)
         )->save();
 
-        $token = Password::broker()->createToken($member);
+        $token = Password::broker('member_access')->createToken($member);
         $member->notify(new MemberAccessSetupNotification($token));
+        app(PlatformAccessService::class)->recordInvitationSent(
+            $member,
+            $request->user() instanceof User ? $request->user() : null,
+        );
 
-        return back()->with('success', 'Email de acesso enviado com sucesso.');
+        return back()->with('success', 'Convite de acesso enviado com sucesso. O link é válido durante 72 horas.');
     }
     
     // Helper methods

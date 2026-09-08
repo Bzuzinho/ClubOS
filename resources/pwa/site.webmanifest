@@ -1,7 +1,10 @@
 {
+  "id": "/app",
   "name": "Benedita Sport Club Natação",
   "short_name": "BSCN",
-  "start_url": "/",
+  "description": "Área pessoal do Benedita Sport Club Natação",
+  "start_url": "/app",
+  "scope": "/",
   "display": "standalone",
   "background_color": "#ffffff",
   "theme_color": "#0f57b3",
