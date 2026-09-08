@@ -4,7 +4,6 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
-use RuntimeException;
 
 return new class extends Migration
 {
@@ -34,7 +33,7 @@ return new class extends Migration
             }
 
             if ($candidates->count() !== 1) {
-                throw new RuntimeException('legacy_supplier_purchase_cleanup_expected_exactly_one_orphan');
+                throw new \RuntimeException('legacy_supplier_purchase_cleanup_expected_exactly_one_orphan');
             }
 
             $purchase = $candidates->first();
@@ -86,7 +85,7 @@ return new class extends Migration
                     ->exists();
 
             if ($hasFinancialMovement || $hasLegacyEntry || $hasStockEvidence || $hasDocumentEvidence) {
-                throw new RuntimeException('legacy_supplier_purchase_cleanup_found_linked_evidence');
+                throw new \RuntimeException('legacy_supplier_purchase_cleanup_found_linked_evidence');
             }
 
             if (Schema::hasTable('supplier_purchase_deletion_audits')) {
