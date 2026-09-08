@@ -144,7 +144,8 @@ class DeleteSupplierPurchaseAction
 
         $expectedByProduct = $items
             ->groupBy(fn ($item): string => (string) $item->article_id)
-            ->map(fn (Collection $productItems): int => (int) $productItems->sum('quantity'));
+            ->map(fn (Collection $productItems): int => (int) $productItems->sum('quantity'))
+            ->sortKeys();
         $itemIds = $items->pluck('id')->map('strval')->values()->all();
 
         $currentUpdateEntries = StockMovement::query()
@@ -156,7 +157,8 @@ class DeleteSupplierPurchaseAction
         if ($currentUpdateEntries->isNotEmpty()) {
             $actualByProduct = $currentUpdateEntries
                 ->groupBy(fn (StockMovement $movement): string => (string) $movement->article_id)
-                ->map(fn (Collection $movements): int => (int) $movements->sum('quantity'));
+                ->map(fn (Collection $movements): int => (int) $movements->sum('quantity'))
+                ->sortKeys();
         } else {
             $initialEntries = StockMovement::query()
                 ->where('reference_type', 'supplier_purchase')
@@ -166,7 +168,8 @@ class DeleteSupplierPurchaseAction
 
             $actualByProduct = $initialEntries
                 ->groupBy(fn (StockMovement $movement): string => (string) $movement->article_id)
-                ->map(fn (Collection $movements): int => (int) $movements->sum('quantity'));
+                ->map(fn (Collection $movements): int => (int) $movements->sum('quantity'))
+                ->sortKeys();
         }
 
         $hasExistingDeleteMovement = StockMovement::query()
