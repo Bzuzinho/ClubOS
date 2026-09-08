@@ -26,6 +26,11 @@ class DeleteSupplierPurchaseAction
 
     public function execute(SupplierPurchase $purchase, ?User $actor = null, ?string $reason = null): void
     {
+        if (!$actor) {
+            $authenticatedUser = auth()->user();
+            $actor = $authenticatedUser instanceof User ? $authenticatedUser : null;
+        }
+
         DB::transaction(function () use ($purchase, $actor, $reason): void {
             $purchase = SupplierPurchase::query()
                 ->whereKey($purchase->id)
