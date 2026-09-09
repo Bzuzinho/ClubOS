@@ -37,6 +37,7 @@ class SupplierPurchaseFinancialLifecycleTest extends TestCase
         $this->assertSame('supplier_purchase', $movement->origem_tipo);
         $this->assertSame((string) $purchase->id, (string) $movement->origem_id);
         $this->assertSame(15, (int) $product->fresh()->stock);
+        $this->assertSame(10.0, (float) $product->fresh()->ultimo_custo);
 
         $this->assertDatabaseHas('movement_items', [
             'movimento_id' => $movement->id,
@@ -100,6 +101,7 @@ class SupplierPurchaseFinancialLifecycleTest extends TestCase
         $this->assertSame(1, Movement::query()->where('origem_tipo', 'supplier_purchase')->where('origem_id', $purchase->id)->count());
         $this->assertSame(1, MovementItem::query()->where('movimento_id', $movement->id)->count());
         $this->assertSame(14, (int) $product->fresh()->stock);
+        $this->assertSame(12.5, (float) $product->fresh()->ultimo_custo);
         $this->assertDatabaseHas('stock_movements', [
             'article_id' => $product->id,
             'movement_type' => 'exit',
@@ -138,6 +140,7 @@ class SupplierPurchaseFinancialLifecycleTest extends TestCase
             'reference_type' => 'supplier_purchase_delete',
         ]);
         $this->assertSame(10, (int) $product->fresh()->stock);
+        $this->assertNull($product->fresh()->ultimo_custo);
     }
 
     public function test_update_is_blocked_when_movement_is_partial(): void

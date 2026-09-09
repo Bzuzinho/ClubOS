@@ -33,11 +33,7 @@ class AdminStoreCanonicalCatalogTest extends TestCase
                 'descricao' => 'Produto canónico criado no admin.',
                 'preco' => 29.90,
                 'imagem_principal_path' => '/storage/polo.png',
-                'ativo' => true,
-                'destaque' => true,
-                'gere_stock' => true,
-                'stock_atual' => 14,
-                'stock_minimo' => 3,
+                'publicado' => true,
                 'ordem' => 5,
                 'variantes' => [
                     [
@@ -46,7 +42,6 @@ class AdminStoreCanonicalCatalogTest extends TestCase
                         'cor' => 'Branco',
                         'sku' => 'ADM-CAN-001-L',
                         'preco_extra' => 2.5,
-                        'stock_atual' => 6,
                         'ativo' => true,
                     ],
                 ],
@@ -57,8 +52,8 @@ class AdminStoreCanonicalCatalogTest extends TestCase
             ->assertJsonPath('slug', 'polo-staff')
             ->assertJsonPath('preco', 29.9)
             ->assertJsonPath('imagem_principal_path', '/storage/polo.png')
-            ->assertJsonPath('stock_atual', 6)
-            ->assertJsonPath('variantes.0.stock_atual', 6);
+            ->assertJsonPath('stock_atual', 0)
+            ->assertJsonPath('variantes.0.stock_atual', 0);
 
         $product = Product::query()->where('codigo', 'ADM-CAN-001')->firstOrFail();
 
@@ -71,21 +66,15 @@ class AdminStoreCanonicalCatalogTest extends TestCase
             'allow_sale' => true,
             'visible_in_store' => true,
             'track_stock' => true,
-            'stock' => 6,
+            'stock' => 0,
         ]);
 
         $this->assertDatabaseHas('product_variants', [
             'product_id' => $product->id,
             'sku' => 'ADM-CAN-001-L',
-            'stock' => 6,
+            'stock' => 0,
         ]);
-        $this->assertDatabaseHas('stock_movements', [
-            'article_id' => $product->id,
-            'product_variant_id' => $product->variants()->firstOrFail()->id,
-            'movement_type' => 'adjustment',
-            'quantity' => 6,
-            'reference_type' => 'catalog_manual_adjustment',
-        ]);
+        $this->assertDatabaseCount('stock_movements', 0);
     }
 
     public function test_admin_delete_removes_product_from_store_without_deleting_canonical_row(): void
@@ -144,11 +133,11 @@ class AdminStoreCanonicalCatalogTest extends TestCase
                 'descricao' => null,
                 'preco' => 16,
                 'imagem_principal_path' => null,
-                'ativo' => true,
-                'destaque' => false,
-                'gere_stock' => true,
-                'stock_atual' => 5,
-                'stock_minimo' => 0,
+                'publicado' => true,
+                // Stale clients may still send these fields; Store must ignore them.
+                'ativo' => false,
+                'gere_stock' => false,
+                'stock_atual' => 99,
                 'ordem' => null,
                 'variantes' => [],
             ])
@@ -160,7 +149,10 @@ class AdminStoreCanonicalCatalogTest extends TestCase
             'allow_request' => true,
             'allow_loan' => true,
             'track_stock' => true,
+            'ativo' => true,
+            'stock' => 5,
         ]);
+        $this->assertDatabaseCount('stock_movements', 0);
     }
 
     public function test_admin_hero_accepts_canonical_product_id_and_lists_it_back(): void

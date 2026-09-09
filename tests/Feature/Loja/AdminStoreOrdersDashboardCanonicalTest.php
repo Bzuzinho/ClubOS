@@ -33,6 +33,20 @@ class AdminStoreOrdersDashboardCanonicalTest extends TestCase
         ]);
 
         Product::query()->create([
+            'codigo' => 'DASH-SEM-GESTAO',
+            'slug' => 'sem-gestao-stock',
+            'nome' => 'Serviço sem stock',
+            'preco' => 15,
+            'preco_venda' => 15,
+            'stock' => 0,
+            'stock_reservado' => 0,
+            'ativo' => true,
+            'visible_in_store' => true,
+            'allow_sale' => true,
+            'track_stock' => false,
+        ]);
+
+        Product::query()->create([
             'codigo' => 'DASH-002',
             'slug' => 'interno',
             'nome' => 'Interno',
@@ -61,11 +75,36 @@ class AdminStoreOrdersDashboardCanonicalTest extends TestCase
         $this->actingAs($admin)
             ->getJson('/api/admin/loja/dashboard')
             ->assertOk()
-            ->assertJsonPath('total_produtos_ativos', 1)
+            ->assertJsonPath('total_produtos_ativos', 2)
             ->assertJsonPath('produtos_sem_stock', 1)
             ->assertJsonPath('encomendas_pendentes', 1)
             ->assertJsonPath('ultimos_pedidos.0.id', $order->id)
             ->assertJsonPath('ultimos_pedidos.0.user', 'Comprador Canonico');
+    }
+
+    public function test_admin_order_rejects_skipping_operational_states(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $buyer = User::factory()->create();
+        $order = LojaEncomenda::query()->create([
+            'numero' => 'LJ-SEQUENCE-001',
+            'user_id' => $buyer->id,
+            'estado' => LojaEncomenda::ESTADO_PENDENTE,
+            'subtotal' => 10,
+            'total' => 10,
+            'origem' => 'portal',
+            'created_by' => $buyer->id,
+            'updated_by' => $buyer->id,
+        ]);
+
+        $this->actingAs($admin)
+            ->patchJson('/api/admin/loja/encomendas/'.$order->id.'/estado', [
+                'estado' => LojaEncomenda::ESTADO_ENTREGUE,
+            ])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('estado');
+
+        $this->assertSame(LojaEncomenda::ESTADO_PENDENTE, $order->fresh()->estado);
     }
 
     public function test_admin_order_detail_uses_canonical_order_item_relations(): void

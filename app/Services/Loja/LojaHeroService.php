@@ -6,6 +6,7 @@ use App\Models\LojaHeroItem;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Validation\ValidationException;
 
 class LojaHeroService
 {
@@ -37,6 +38,12 @@ class LojaHeroService
 
     public function toggle(LojaHeroItem $item): LojaHeroItem
     {
+        if (! $item->ativo && $item->article_id && ! $item->article()->sellable()->exists()) {
+            throw ValidationException::withMessages([
+                'produto_id' => 'Publique primeiro o artigo na Loja antes de ativar este destaque.',
+            ]);
+        }
+
         $item->update([
             'ativo' => ! $item->ativo,
         ]);

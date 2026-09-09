@@ -5,6 +5,7 @@ namespace App\Services\Logistica;
 use App\Exceptions\Inventario\InsufficientStockException;
 use App\Exceptions\Inventario\InvalidStockMovementException;
 use App\Models\Product;
+use App\Models\ProductVariant;
 use App\Models\StockMovement;
 use App\Models\User;
 use App\Services\Catalog\CanonicalProductStockService;
@@ -22,14 +23,22 @@ class RegisterStockMovementAction
     public function execute(array $data, ?User $actor = null): StockMovement
     {
         $product = Product::query()->findOrFail($data['article_id']);
+        $variant = filled($data['product_variant_id'] ?? null)
+            ? ProductVariant::query()->whereKey($data['product_variant_id'])->firstOrFail()
+            : null;
         if (empty($data['reference_type'])) {
-            $this->stockService->ensureStockManaged($product);
+            $this->stockService->ensureStockManaged($product, 'article_id', $variant);
+        } elseif ($variant) {
+            $this->stockService->ensureStockManaged($product, 'article_id', $variant);
+        } else {
+            $this->stockService->ensureProductLevelOperationIsUnambiguous($product);
         }
         $movementType = (string) $data['movement_type'];
         $quantity = (int) $data['quantity'];
         $context = [
             'source_type' => $data['reference_type'] ?? null,
             'source_id' => $data['reference_id'] ?? null,
+            'product_variant_id' => $variant?->id,
             'notes' => $data['notes'] ?? null,
             'unit_cost' => $data['unit_cost'] ?? null,
             'created_by' => $actor?->id ?? ($data['created_by'] ?? null),

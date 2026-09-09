@@ -21,6 +21,7 @@ class RegisterSupplierPurchaseAction
         private RegisterStockMovementAction $registerStockMovementAction,
         private MovementDocumentControlService $movementDocumentControlService,
         private readonly CanonicalProductStockService $stockService,
+        private readonly ProductProcurementCostService $procurementCostService,
     ) {
     }
 
@@ -46,8 +47,10 @@ class RegisterSupplierPurchaseAction
             ]);
 
             $total = 0;
+            $productIds = collect();
             foreach ($items as $item) {
                 $product = Product::query()->lockForUpdate()->findOrFail($item['article_id']);
+                $productIds->push((string) $product->id);
                 $this->stockService->ensureStockManaged($product, 'items');
                 $quantity = (int) $item['quantity'];
                 $unitCost = (float) $item['unit_cost'];
@@ -71,11 +74,13 @@ class RegisterSupplierPurchaseAction
                     'reference_id' => $purchase->id,
                     'notes' => 'Entrada de stock por compra a fornecedor',
                 ], $actor);
-
                 $total += $lineTotal;
             }
 
             $purchase->update(['total_amount' => $total]);
+            $productIds
+                ->unique()
+                ->each(fn (string $productId) => $this->procurementCostService->refreshFromLatestPurchase($productId));
 
             $movement = Movement::create([
                 'supplier_id' => $supplier->id,

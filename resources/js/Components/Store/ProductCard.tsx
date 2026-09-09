@@ -10,6 +10,10 @@ interface ProductCardProps {
 }
 
 function stockLabel(product: StoreProduct): { label: string; className: string } {
+    if (!product.gere_stock) {
+        return { label: 'Disponível', className: 'bg-emerald-50 text-emerald-700' };
+    }
+
     if (product.stock_atual <= 0) {
         return { label: 'Sem stock', className: 'bg-rose-50 text-rose-700' };
     }

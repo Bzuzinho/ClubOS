@@ -24,6 +24,7 @@ class UpdateSupplierPurchaseAction
         private readonly SupplierPurchaseFinancialGuardService $financialGuardService,
         private readonly StockLedgerService $stockLedger,
         private readonly CanonicalProductStockService $stockService,
+        private readonly ProductProcurementCostService $procurementCostService,
     ) {
     }
 
@@ -35,6 +36,12 @@ class UpdateSupplierPurchaseAction
                 ->lockForUpdate()
                 ->with('items')
                 ->firstOrFail();
+            $previousProductIds = $purchase->items
+                ->pluck('article_id')
+                ->filter()
+                ->map('strval')
+                ->unique()
+                ->values();
 
             $items = $data['items'] ?? [];
             if (empty($items)) {
@@ -67,6 +74,8 @@ class UpdateSupplierPurchaseAction
                     continue;
                 }
 
+                $this->stockService->ensureProductLevelOperationIsUnambiguous($product, 'items');
+
                 try {
                     $this->stockLedger->registerExit($product, (int) $existingItem->quantity, [
                         'source_type' => 'supplier_purchase_update_reversal',
@@ -87,9 +96,11 @@ class UpdateSupplierPurchaseAction
 
             $supplier = Supplier::query()->findOrFail($data['supplier_id']);
             $total = 0.0;
+            $currentProductIds = collect();
 
             foreach ($items as $item) {
                 $product = Product::query()->lockForUpdate()->findOrFail($item['article_id']);
+                $currentProductIds->push((string) $product->id);
                 $this->stockService->ensureStockManaged($product, 'items');
                 $quantity = (int) $item['quantity'];
                 $unitCost = (float) $item['unit_cost'];
@@ -114,7 +125,6 @@ class UpdateSupplierPurchaseAction
                     'notes' => 'Entrada de stock por atualização de compra a fornecedor',
                     'idempotency_key' => 'supplier-purchase-update-entry-'.$purchase->id.'-'.$purchaseItem->id,
                 ], $actor);
-
                 $total += $lineTotal;
             }
 
@@ -126,6 +136,11 @@ class UpdateSupplierPurchaseAction
                 'total_amount' => $total,
                 'notes' => $data['notes'] ?? null,
             ]);
+
+            $previousProductIds
+                ->merge($currentProductIds)
+                ->unique()
+                ->each(fn (string $productId) => $this->procurementCostService->refreshFromLatestPurchase($productId));
 
             $movement->update([
                 'supplier_id' => $supplier->id,

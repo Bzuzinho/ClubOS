@@ -38,6 +38,7 @@ class StorefrontCatalogReadControllerTest extends TestCase
             'imagem' => '/storage/camisola.png',
             'ativo' => true,
             'visible_in_store' => true,
+            'allow_sale' => true,
             'destaque' => true,
             'track_stock' => true,
         ]);
@@ -61,6 +62,16 @@ class StorefrontCatalogReadControllerTest extends TestCase
             'preco' => 10.00,
             'ativo' => true,
             'visible_in_store' => false,
+        ]);
+
+        Product::query()->create([
+            'codigo' => 'CAN-STORE-003',
+            'slug' => 'venda-desativada',
+            'nome' => 'Venda Desativada',
+            'preco' => 10.00,
+            'ativo' => true,
+            'visible_in_store' => true,
+            'allow_sale' => false,
         ]);
 
         $this->actingAs($user)
@@ -91,6 +102,7 @@ class StorefrontCatalogReadControllerTest extends TestCase
             'stock_reservado' => 1,
             'ativo' => true,
             'visible_in_store' => true,
+            'allow_sale' => true,
             'track_stock' => true,
         ]);
 
@@ -103,13 +115,13 @@ class StorefrontCatalogReadControllerTest extends TestCase
             ->assertJsonPath('stock_atual', 5);
     }
 
-    public function test_categories_endpoint_uses_canonical_store_visibility(): void
+    public function test_categories_endpoint_uses_canonical_store_visibility_regardless_of_legacy_context(): void
     {
         $user = User::factory()->create();
         $visibleCategory = ItemCategory::query()->create([
             'codigo' => 'EQUIP',
             'nome' => 'Equipamento',
-            'contexto' => 'loja',
+            'contexto' => 'logistica',
             'ativo' => true,
         ]);
         $hiddenCategory = ItemCategory::query()->create([
@@ -127,6 +139,7 @@ class StorefrontCatalogReadControllerTest extends TestCase
             'preco' => 10,
             'ativo' => true,
             'visible_in_store' => true,
+            'allow_sale' => true,
         ]);
 
         Product::query()->create([
@@ -157,6 +170,7 @@ class StorefrontCatalogReadControllerTest extends TestCase
             'preco' => 12,
             'ativo' => true,
             'visible_in_store' => true,
+            'allow_sale' => true,
         ]);
 
         LojaHeroItem::query()->create([

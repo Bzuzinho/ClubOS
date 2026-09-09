@@ -69,10 +69,12 @@ class StoreOrderDeliveredReturnReversalTest extends TestCase
         $invoice = Invoice::query()->findOrFail($order->fatura_id);
         $orderItem = $order->itens()->sole();
 
-        $this->actingAs($admin)
-            ->patchJson('/api/admin/loja/encomendas/'.$orderId.'/estado', ['estado' => 'entregue'])
-            ->assertOk()
-            ->assertJsonPath('estado', 'entregue');
+        foreach (['aprovado', 'preparado', 'entregue'] as $nextState) {
+            $this->actingAs($admin)
+                ->patchJson('/api/admin/loja/encomendas/'.$orderId.'/estado', ['estado' => $nextState])
+                ->assertOk()
+                ->assertJsonPath('estado', $nextState);
+        }
 
         $payment = app(FinancialSettlementService::class)->settleInvoices([
             ['invoice_id' => $invoice->id, 'amount' => 50],

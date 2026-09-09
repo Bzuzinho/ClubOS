@@ -14,7 +14,7 @@ interface AdminProductListProps {
     filters: {
         search?: string;
         categoria_id?: string;
-        ativo?: string;
+        publicado?: string;
         stock_baixo?: string;
     };
 }
@@ -26,7 +26,7 @@ export default function AdminProductList() {
     const { products, categories, filters } = props;
     const [search, setSearch] = useState(filters.search || '');
     const [categoriaId, setCategoriaId] = useState(filters.categoria_id || 'all');
-    const [ativo, setAtivo] = useState(filters.ativo || 'all');
+    const [publicado, setPublicado] = useState(filters.publicado || 'all');
     const [stockBaixo, setStockBaixo] = useState(filters.stock_baixo === '1');
 
     const filteredCount = useMemo(() => products.length, [products]);
@@ -35,7 +35,7 @@ export default function AdminProductList() {
         router.get('/admin/loja/produtos', {
             search: search || undefined,
             categoria_id: categoriaId === 'all' ? undefined : categoriaId,
-            ativo: ativo === 'all' ? undefined : ativo,
+            publicado: publicado === 'all' ? undefined : publicado,
             stock_baixo: stockBaixo ? 1 : undefined,
         }, {
             preserveState: true,
@@ -46,7 +46,7 @@ export default function AdminProductList() {
     return (
         <StoreAdminShell
             title="Produtos da Loja"
-            description="Gestão do catálogo, categorias existentes, stock e destaques."
+            description="Publicação, preço comercial e apresentação dos artigos do catálogo canónico."
             activeTab="produtos"
             actions={
                 <Button type="button" size="sm" onClick={() => router.visit('/admin/loja/produtos/criar')}>
@@ -59,7 +59,7 @@ export default function AdminProductList() {
             <div className="space-y-3">
                 <Card>
                     <CardHeader className="pb-2">
-                        <SectionTitle title="Filtros" subtitle="Catálogo, categoria, estado e controlo de stock." />
+                        <SectionTitle title="Filtros" subtitle="Catálogo, categoria, publicação e alertas de stock." />
                     </CardHeader>
                     <CardContent>
                         <div className="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
@@ -89,13 +89,13 @@ export default function AdminProductList() {
                             <div>
                                 <label className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Estado</label>
                                 <select
-                                    value={ativo}
-                                    onChange={(event) => setAtivo(event.target.value)}
+                                    value={publicado}
+                                    onChange={(event) => setPublicado(event.target.value)}
                                     className="mt-2 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none"
                                 >
                                     <option value="all">Todos</option>
-                                    <option value="1">Ativos</option>
-                                    <option value="0">Inativos</option>
+                                    <option value="1">Publicados</option>
+                                    <option value="0">Não publicados</option>
                                 </select>
                             </div>
                             <label className="flex items-center gap-3 rounded-md border border-border px-3 py-2.5 text-sm font-medium text-slate-700 xl:mt-7">
@@ -108,7 +108,7 @@ export default function AdminProductList() {
                                 <Button type="button" variant="outline" size="sm" onClick={applyFilters}>
                                 Aplicar filtros
                                 </Button>
-                                <Button type="button" variant="outline" size="sm" onClick={() => router.visit('/configuracoes')}>
+                                <Button type="button" variant="outline" size="sm" onClick={() => router.visit('/configuracoes?tab=logistica&subtab=logistica-categorias')}>
                                     Gerir categorias
                                 </Button>
                             </div>
@@ -155,10 +155,10 @@ export default function AdminProductList() {
                                         </td>
                                         <td className="px-5 py-4">
                                             <div className="flex flex-wrap gap-2">
-                                                <span className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${product.ativo ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-100 text-slate-700'}`}>
-                                                    {product.ativo ? 'Ativo' : 'Inativo'}
+                                                <span className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${product.publicado ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-100 text-slate-700'}`}>
+                                                    {product.publicado ? 'Publicado' : 'Não publicado'}
                                                 </span>
-                                                {product.destaque ? <span className="rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-[11px] font-semibold text-blue-700">Destaque</span> : null}
+                                                {!product.ativo ? <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-700">Artigo inativo</span> : null}
                                             </div>
                                         </td>
                                         <td className="px-5 py-4">

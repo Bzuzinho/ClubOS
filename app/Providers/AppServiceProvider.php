@@ -23,6 +23,7 @@ use App\Models\Invoice;
 use App\Models\LogisticsRequest;
 use App\Models\Movement;
 use App\Models\MovementDocument;
+use App\Models\Product;
 use App\Models\SupplierPurchase;
 use App\Observers\ConvocationGroupPublicationObserver;
 use App\Observers\EventConvocationObserver;
@@ -31,6 +32,7 @@ use App\Observers\InvoiceObserver;
 use App\Observers\LogisticsRequestObserver;
 use App\Observers\MovementDocumentObserver;
 use App\Observers\MovementObserver;
+use App\Observers\ProductObserver;
 use App\Observers\SupplierPurchaseObserver;
 use App\Services\AccessControl\UserTypeAccessControlService;
 use App\Services\Communication\SportsCommunicationGatewayService;
@@ -115,6 +117,7 @@ class AppServiceProvider extends ServiceProvider
         LogisticsRequest::observe(LogisticsRequestObserver::class);
         Movement::observe(MovementObserver::class);
         MovementDocument::observe(MovementDocumentObserver::class);
+        Product::observe(ProductObserver::class);
         SupplierPurchase::observe(SupplierPurchaseObserver::class);
     }
 }

@@ -53,12 +53,14 @@ class StoreOrderRevenueMovementTest extends TestCase
             ->where('origem_id', $orderId)
             ->firstOrFail();
 
-        $this->actingAs($admin)
-            ->patchJson('/api/admin/loja/encomendas/' . $orderId . '/estado', [
-                'estado' => 'entregue',
-            ])
-            ->assertOk()
-            ->assertJsonPath('estado', 'entregue');
+        foreach (['aprovado', 'preparado', 'entregue'] as $nextState) {
+            $this->actingAs($admin)
+                ->patchJson('/api/admin/loja/encomendas/' . $orderId . '/estado', [
+                    'estado' => $nextState,
+                ])
+                ->assertOk()
+                ->assertJsonPath('estado', $nextState);
+        }
 
         $this->assertSame($buyer->id, $invoice->user_id);
         $this->assertSame('material', $invoice->tipo);

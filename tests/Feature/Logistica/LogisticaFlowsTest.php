@@ -148,6 +148,7 @@ class LogisticaFlowsTest extends TestCase
         $product->refresh();
 
         $this->assertSame(7, (int) $product->stock);
+        $this->assertSame(12.4, (float) $product->ultimo_custo);
         $this->assertNotNull($purchase->financial_movement_id);
         $this->assertNull($purchase->financial_entry_id);
 

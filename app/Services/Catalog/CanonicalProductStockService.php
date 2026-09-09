@@ -36,6 +36,8 @@ class CanonicalProductStockService
 
     public function ensureRequestable(Product $product, string $errorKey = 'article_id'): void
     {
+        $this->ensureProductLevelOperationIsUnambiguous($product, $errorKey);
+
         if (! $product->ativo || ! $product->allow_request || ! $product->tracks_stock) {
             throw ValidationException::withMessages([
                 $errorKey => 'O artigo selecionado não está disponível para requisição.',
@@ -45,6 +47,8 @@ class CanonicalProductStockService
 
     public function ensureLoanable(Product $product, string $errorKey = 'article_id'): void
     {
+        $this->ensureProductLevelOperationIsUnambiguous($product, $errorKey);
+
         if (! $product->ativo || ! $product->allow_loan || ! $product->tracks_stock) {
             throw ValidationException::withMessages([
                 $errorKey => 'O artigo selecionado não está disponível para empréstimo.',
@@ -52,13 +56,25 @@ class CanonicalProductStockService
         }
     }
 
-    public function ensureStockManaged(Product $product, string $errorKey = 'article_id'): void
+    public function ensureStockManaged(Product $product, string $errorKey = 'article_id', ?ProductVariant $variant = null): void
     {
         if (! $product->ativo || ! $product->tracks_stock) {
             throw ValidationException::withMessages([
                 $errorKey => 'O artigo selecionado não está ativo com gestão de stock.',
             ]);
         }
+
+        if ($variant) {
+            if ($variant->product_id !== $product->id || ! $variant->ativo) {
+                throw ValidationException::withMessages([
+                    'product_variant_id' => 'A variante selecionada não pertence ao artigo ou está inativa.',
+                ]);
+            }
+
+            return;
+        }
+
+        $this->ensureProductLevelOperationIsUnambiguous($product, $errorKey);
     }
 
     public function ensureAvailableForStore(Product $product, ?ProductVariant $variant, int $quantity): void
@@ -90,9 +106,21 @@ class CanonicalProductStockService
             ]);
         }
 
-        if ($variant && ! $variant->ativo) {
+        if (! $product->allow_sale) {
             throw ValidationException::withMessages([
-                'product_variant_id' => 'A variante selecionada esta inativa.',
+                'article_id' => 'A venda deste produto está desativada.',
+            ]);
+        }
+
+        if ($variant && ($variant->product_id !== $product->id || ! $variant->ativo)) {
+            throw ValidationException::withMessages([
+                'product_variant_id' => 'A variante selecionada não pertence ao produto ou está inativa.',
+            ]);
+        }
+
+        if (! $variant && $product->variants()->active()->exists()) {
+            throw ValidationException::withMessages([
+                'product_variant_id' => 'Escolha uma variante antes de adicionar este produto.',
             ]);
         }
 
@@ -124,6 +152,15 @@ class CanonicalProductStockService
     public function defaultUnitPrice(Product $product): float
     {
         return (float) ($product->preco ?? $product->sale_price);
+    }
+
+    public function ensureProductLevelOperationIsUnambiguous(Product $product, string $errorKey = 'article_id'): void
+    {
+        if ($product->variants()->active()->exists()) {
+            throw ValidationException::withMessages([
+                $errorKey => 'Este artigo tem variantes. Selecione uma variante para movimentar stock; requisições, compras e empréstimos por variante ainda não estão disponíveis.',
+            ]);
+        }
     }
 
     /**

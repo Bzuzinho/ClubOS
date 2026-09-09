@@ -202,9 +202,11 @@ class CrossModuleFinancialIntegrationTest extends TestCase
         $this->assertSame(1, $storeInvoice->items()->count());
         $this->assertSame(0, FinancialEntry::query()->where('fatura_id', $storeInvoice->id)->count());
 
-        $this->actingAs($admin)
-            ->patchJson('/api/admin/loja/encomendas/'.$storeOrderId.'/estado', ['estado' => 'entregue'])
-            ->assertOk();
+        foreach (['aprovado', 'preparado', 'entregue'] as $estado) {
+            $this->actingAs($admin)
+                ->patchJson('/api/admin/loja/encomendas/'.$storeOrderId.'/estado', compact('estado'))
+                ->assertOk();
+        }
 
         $this->assertSame(0, Movement::query()->where('origem_tipo', 'stock')->where('origem_id', $storeOrderId)->count());
         $this->assertSame(0, Sale::query()->count());
