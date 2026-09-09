@@ -67,6 +67,56 @@ class EventosLifecycleAndMemberSyncTest extends TestCase
         $this->assertSame(0, Competition::query()->count());
     }
 
+    public function test_web_create_accepts_the_non_recurring_browser_payload_with_empty_optional_fields(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $eventDate = now()->addDay()->toDateString();
+
+        $response = $this->actingAs($admin)->post(route('eventos.store'), [
+            'titulo' => 'Evento criado no formulário',
+            'descricao' => '',
+            'data_inicio' => $eventDate,
+            'hora_inicio' => '',
+            'data_fim' => '',
+            'hora_fim' => '',
+            'local' => '',
+            'local_detalhes' => '',
+            'tipo' => 'evento',
+            'tipo_piscina' => '',
+            'visibilidade' => 'privado',
+            'escaloes_elegiveis' => [],
+            'transporte_necessario' => false,
+            'transporte_detalhes' => '',
+            'hora_partida' => '',
+            'local_partida' => '',
+            'taxa_inscricao' => '',
+            'custo_inscricao_por_prova' => '',
+            'custo_inscricao_por_salto' => '',
+            'custo_inscricao_estafeta' => '',
+            'centro_custo_id' => '',
+            'observacoes' => '',
+            'estado' => 'rascunho',
+            'recorrente' => false,
+            'recorrencia_data_inicio' => null,
+            'recorrencia_data_fim' => null,
+            'recorrencia_dias_semana' => [],
+        ]);
+
+        $response->assertRedirect(route('eventos.index'))->assertSessionHasNoErrors();
+
+        $this->assertDatabaseHas('events', [
+            'titulo' => 'Evento criado no formulário',
+            'tipo' => 'evento',
+            'visibilidade' => 'privado',
+            'estado' => 'rascunho',
+            'criado_por' => $admin->id,
+        ]);
+        $event = Event::query()->where('titulo', 'Evento criado no formulário')->sole();
+
+        $this->assertSame($eventDate, $event->data_inicio?->toDateString());
+        $this->assertNull($event->recorrencia_dias_semana);
+    }
+
     public function test_eventos_index_returns_every_editable_field_and_canonical_age_groups(): void
     {
         $admin = User::factory()->admin()->create();
