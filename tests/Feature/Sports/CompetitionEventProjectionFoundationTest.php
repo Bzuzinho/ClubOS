@@ -84,6 +84,7 @@ class CompetitionEventProjectionFoundationTest extends TestCase
         $this->assertSame((string) $eventId, (string) $projection->event_id);
         $this->assertSame(1, CompetitionEventProjection::query()->where('competition_id', $competition->id)->count());
         $this->assertSame(1, Event::query()->whereKey($eventId)->count());
+        $this->assertSame(['atletas'], Event::query()->findOrFail($eventId)->targetAudiences());
         $this->assertDatabaseHas('events', [
             'id' => $eventId,
             'titulo' => 'Regional F4 Atualizado',

@@ -67,6 +67,7 @@ final class CompetitionEventProjectionService
                     'local' => $lockedCompetition->local,
                     'tipo' => 'competicao',
                     'visibilidade' => 'publico',
+                    'publicos_alvo' => ['atletas'],
                     'estado' => $this->eventStateFor($lockedCompetition),
                     'criado_por' => $creatorId,
                     'recorrente' => false,
@@ -89,6 +90,9 @@ final class CompetitionEventProjectionService
                     'recorrencia_dias_semana' => null,
                     'evento_pai_id' => null,
                 ]);
+                if ($event->publicos_alvo === null) {
+                    $event->publicos_alvo = ['atletas'];
+                }
                 $event->save();
             }
 

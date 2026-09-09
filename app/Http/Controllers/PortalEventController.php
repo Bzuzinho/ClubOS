@@ -10,6 +10,7 @@ use App\Services\Desportivo\SportsClubContext;
 use App\Services\Family\FamilyService;
 use App\Services\Loja\StoreProfileResolver;
 use App\Services\Members\MemberIdentityDisplayResolver;
+use App\Services\Eventos\EventAudienceResolver;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -23,6 +24,7 @@ class PortalEventController extends Controller
     public function __construct(
         private readonly MemberIdentityDisplayResolver $memberIdentityDisplayResolver,
         private readonly SportsClubContext $clubContext,
+        private readonly EventAudienceResolver $eventAudienceResolver,
     ) {
     }
 
@@ -203,36 +205,17 @@ class PortalEventController extends Controller
             ->values();
 
         $convocationEventIds = $convocations->pluck('evento_id')->filter()->unique()->values()->all();
-        $member->loadMissing('athleteSportsData:id,user_id,escalao_id');
-        $memberAgeGroupIds = collect(is_array($member->escalao) ? $member->escalao : (array) $member->escalao)
-            ->push($member->athleteSportsData?->escalao_id)
-            ->filter()
-            ->map(fn ($id) => (string) $id)
-            ->unique()
-            ->values()
-            ->all();
-
         $informativeEvents = Event::query()
             ->with(['ageGroups:id,nome', 'competitionProjection:id,event_id,competition_id,club_id,status'])
             ->where(fn ($query) => $this->scopeVisibleEvent($query))
             ->where('estado', '!=', 'cancelado')
             ->whereIn('visibilidade', ['publico', 'restrito'])
             ->whereNotIn('id', $convocationEventIds)
-            ->where(function ($query) use ($memberAgeGroupIds) {
-                $query->where(function ($publicQuery) {
-                    $publicQuery->where('visibilidade', 'publico')
-                        ->whereDoesntHave('ageGroups');
-                });
-
-                if (! empty($memberAgeGroupIds)) {
-                    foreach ($memberAgeGroupIds as $ageGroupId) {
-                        $query->orWhereHas('ageGroups', fn ($ageGroupQuery) => $ageGroupQuery->where('age_groups.id', $ageGroupId));
-                    }
-                }
-            })
             ->orderBy('data_inicio')
             ->orderBy('hora_inicio')
-            ->get();
+            ->get()
+            ->filter(fn (Event $event): bool => $this->eventAudienceResolver->includes($event, $member))
+            ->values();
 
         $eventIds = array_values(array_unique(array_filter([
             ...$convocationEventIds,

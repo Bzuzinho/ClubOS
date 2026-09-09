@@ -21,6 +21,7 @@ use App\Services\Members\MinorWithoutGuardianService;
 use App\Services\Performance\AuthenticatedModuleWarmupService;
 use App\Services\AccessControl\UserTypeAccessControlService;
 use App\Services\Family\FamilyService;
+use App\Services\Eventos\EventAudienceResolver;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -591,29 +592,18 @@ class DashboardController extends Controller
             ->values();
 
         $convocationEventIds = $convocations->pluck('evento_id')->filter()->unique()->values()->all();
-        $memberAgeGroupIds = collect(is_array($user->escalao) ? $user->escalao : [$user->escalao])
-            ->push($user->athleteSportsData?->escalao_id)
-            ->filter(fn ($value) => filled($value))
-            ->map(fn ($value) => (string) $value)
-            ->unique()
-            ->values()
-            ->all();
-
-        $informativeEvents = empty($memberAgeGroupIds)
-            ? collect()
-            : Event::query()
-                ->with(['ageGroups:id,nome'])
-                ->where('estado', '!=', 'cancelado')
-                ->whereDate('data_inicio', '>=', $today)
-                ->whereNotIn('id', $convocationEventIds)
-                ->where(function ($query) use ($memberAgeGroupIds) {
-                    foreach ($memberAgeGroupIds as $ageGroupId) {
-                        $query->orWhereHas('ageGroups', fn ($ageGroupQuery) => $ageGroupQuery->where('age_groups.id', $ageGroupId));
-                    }
-                })
-                ->orderBy('data_inicio')
-                ->orderBy('hora_inicio')
-                ->get();
+        $audienceResolver = app(EventAudienceResolver::class);
+        $informativeEvents = Event::query()
+            ->with(['ageGroups:id,nome'])
+            ->where('estado', '!=', 'cancelado')
+            ->whereDate('data_inicio', '>=', $today)
+            ->whereIn('visibilidade', ['publico', 'restrito'])
+            ->whereNotIn('id', $convocationEventIds)
+            ->orderBy('data_inicio')
+            ->orderBy('hora_inicio')
+            ->get()
+            ->filter(fn (Event $event): bool => $audienceResolver->includes($event, $user))
+            ->values();
 
         return collect($convocations
             ->map(fn (EventConvocation $convocation) => [
