@@ -154,6 +154,49 @@ test.describe('authenticated access', () => {
         await expectNoHorizontalOverflow(page);
     });
 
+    test('keeps stock actions visible and long article selections inside the viewport', async ({ page }, testInfo) => {
+        await login(page, testInfo, '/logistica');
+
+        await page.getByRole('tab', { name: 'Stock', exact: true }).click();
+
+        const scrollArea = page.getByTestId('stock-tab-scroll-area');
+        const actionsHeader = page.getByTestId('stock-actions-header');
+        const registerButton = page.getByTestId('register-stock-movement-button');
+        await expect(registerButton).toBeVisible();
+
+        const canScroll = await scrollArea.evaluate((element) => element.scrollHeight > element.clientHeight);
+        expect(canScroll).toBe(true);
+        await scrollArea.evaluate((element) => {
+            element.scrollTop = Math.min(500, element.scrollHeight - element.clientHeight);
+        });
+
+        await expect(registerButton).toBeInViewport();
+        const scrollAreaBox = await scrollArea.boundingBox();
+        const actionsHeaderBox = await actionsHeader.boundingBox();
+        expect(scrollAreaBox).not.toBeNull();
+        expect(actionsHeaderBox).not.toBeNull();
+        expect(Math.abs(actionsHeaderBox!.y - scrollAreaBox!.y)).toBeLessThanOrEqual(2);
+
+        await registerButton.click();
+        const dialog = page.getByTestId('stock-movement-dialog');
+        await expect(dialog).toBeVisible();
+        await page.getByRole('combobox', { name: 'Artigo' }).click();
+
+        const options = page.getByTestId('stock-article-options');
+        await expect(options).toBeVisible();
+        await expect(page.getByRole('option', { name: 'Artigo E2E 32' })).toHaveCount(1);
+
+        const viewport = page.viewportSize();
+        const optionsBox = await options.boundingBox();
+        expect(viewport).not.toBeNull();
+        expect(optionsBox).not.toBeNull();
+        expect(optionsBox!.y).toBeGreaterThanOrEqual(0);
+        expect(optionsBox!.y + optionsBox!.height).toBeLessThanOrEqual(viewport!.height + 1);
+        expect(optionsBox!.height).toBeLessThanOrEqual(289);
+        expect(await options.evaluate((element) => getComputedStyle(element).overflowY)).toBe('auto');
+        await expectNoHorizontalOverflow(page);
+    });
+
     test('has no serious or critical WCAG A/AA violations on the authenticated dashboard', async ({ page }, testInfo) => {
         await login(page, testInfo);
 

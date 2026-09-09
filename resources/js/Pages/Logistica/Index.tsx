@@ -10,7 +10,7 @@ import { Button } from '@/Components/ui/button';
 import { Label } from '@/Components/ui/label';
 import { Badge } from '@/Components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/Components/ui/select';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/Components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/Components/ui/dialog';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -773,49 +773,68 @@ export default function LogisticaIndex({
         </TabsContent>
 
         {/* ── Stock ──────────────────────────────────────────────────────── */}
-        <TabsContent value="stock" className={`${moduleTabbedContentClass} space-y-3`}>
+        <TabsContent value="stock" className={`${moduleTabbedContentClass} space-y-3`} data-testid="stock-tab-scroll-area">
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
+            <CardHeader
+              className="sticky top-0 z-20 flex flex-row items-center justify-between gap-3 rounded-t-xl border-b bg-card/95 py-4 backdrop-blur supports-[backdrop-filter]:bg-card/90"
+              data-testid="stock-actions-header"
+            >
               <CardTitle className="text-sm">Mapa de Stock</CardTitle>
               <Dialog open={stockDialogOpen} onOpenChange={(open) => { setStockDialogOpen(open); if (!open) stockForm.reset(); }}>
                 <DialogTrigger asChild>
-                  <Button>Registar Movimento</Button>
+                  <Button className="shrink-0" data-testid="register-stock-movement-button">Registar Movimento</Button>
                 </DialogTrigger>
-                <DialogContent className="max-w-lg">
-                  <DialogHeader>
+                <DialogContent
+                  className="flex max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-lg flex-col gap-0 overflow-hidden p-0 sm:max-h-[90dvh] sm:w-full sm:max-w-lg"
+                  data-testid="stock-movement-dialog"
+                >
+                  <DialogHeader className="shrink-0 border-b py-4 pl-4 pr-12 text-left sm:pl-6 sm:pr-12">
                     <DialogTitle>Registar Movimento de Stock</DialogTitle>
+                    <DialogDescription>
+                      Selecione o artigo e indique a alteração a aplicar ao stock.
+                    </DialogDescription>
                   </DialogHeader>
-                  <form onSubmit={submitStock} className="space-y-3">
-                    <div>
-                      <Label>Artigo</Label>
-                      <Select value={stockForm.data.article_id} onValueChange={(v) => stockForm.setData('article_id', v)}>
-                        <SelectTrigger className={ws}><SelectValue placeholder="Selecionar" /></SelectTrigger>
-                        <SelectContent>{stockManagedProducts.map((p) => <SelectItem value={p.id} key={p.id}>{p.nome}</SelectItem>)}</SelectContent>
-                      </Select>
+                  <form onSubmit={submitStock} className="flex min-h-0 flex-1 flex-col overflow-hidden">
+                    <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-4 py-5 sm:px-6" data-testid="stock-movement-form-scroll-area">
+                      <div className="space-y-2">
+                        <Label htmlFor="stock-article">Artigo</Label>
+                        <Select value={stockForm.data.article_id} onValueChange={(v) => stockForm.setData('article_id', v)}>
+                          <SelectTrigger id="stock-article" className={`${ws} w-full`}><SelectValue placeholder="Selecionar" /></SelectTrigger>
+                          <SelectContent
+                            position="popper"
+                            data-testid="stock-article-options"
+                            style={{ maxHeight: 'min(18rem, var(--radix-select-content-available-height))' }}
+                          >
+                            {stockManagedProducts.map((p) => <SelectItem value={p.id} key={p.id}>{p.nome}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="stock-movement-type">Tipo de movimento</Label>
+                        <Select value={stockForm.data.movement_type} onValueChange={(v) => stockForm.setData('movement_type', v)}>
+                          <SelectTrigger id="stock-movement-type" className={`${ws} w-full`}><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="entry">Entrada</SelectItem>
+                            <SelectItem value="exit">Saída</SelectItem>
+                            <SelectItem value="reservation">Reserva</SelectItem>
+                            <SelectItem value="cancel_reservation">Anula Reserva</SelectItem>
+                            <SelectItem value="deliver_reservation">Entrega Reserva</SelectItem>
+                            <SelectItem value="return">Devolução</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="stock-quantity">Quantidade</Label>
+                        <Input id="stock-quantity" className={`${wi} w-full`} type="number" value={stockForm.data.quantity} onChange={(e) => stockForm.setData('quantity', Number(e.target.value || 0))} />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="stock-notes">Notas</Label>
+                        <Input id="stock-notes" className={`${wi} w-full`} value={stockForm.data.notes} onChange={(e) => stockForm.setData('notes', e.target.value)} />
+                      </div>
                     </div>
-                    <div>
-                      <Label>Tipo de movimento</Label>
-                      <Select value={stockForm.data.movement_type} onValueChange={(v) => stockForm.setData('movement_type', v)}>
-                        <SelectTrigger className={ws}><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="entry">Entrada</SelectItem>
-                          <SelectItem value="exit">Saída</SelectItem>
-                          <SelectItem value="reservation">Reserva</SelectItem>
-                          <SelectItem value="cancel_reservation">Anula Reserva</SelectItem>
-                          <SelectItem value="deliver_reservation">Entrega Reserva</SelectItem>
-                          <SelectItem value="return">Devolução</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div>
-                      <Label>Quantidade</Label>
-                      <Input className={wi} type="number" value={stockForm.data.quantity} onChange={(e) => stockForm.setData('quantity', Number(e.target.value || 0))} />
-                    </div>
-                    <div>
-                      <Label>Notas</Label>
-                      <Input className={wi} value={stockForm.data.notes} onChange={(e) => stockForm.setData('notes', e.target.value)} />
-                    </div>
-                    <Button type="submit" disabled={stockForm.processing}>Registar</Button>
+                    <DialogFooter className="shrink-0 border-t bg-background px-4 py-4 sm:px-6">
+                      <Button type="submit" className="w-full sm:w-auto" disabled={stockForm.processing}>Registar</Button>
+                    </DialogFooter>
                   </form>
                 </DialogContent>
               </Dialog>

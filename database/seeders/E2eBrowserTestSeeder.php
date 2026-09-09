@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Database\Seeders;
 
+use App\Models\Product;
 use App\Models\User;
 use App\Services\Pessoas\PlatformAccessService;
 use Illuminate\Database\Seeder;
@@ -62,6 +63,25 @@ final class E2eBrowserTestSeeder extends Seeder
             $platformAccessService->grantPlatformAccess(
                 $user,
                 notes: 'Deterministic browser QA fixture.',
+            );
+        }
+
+        foreach (range(1, 32) as $index) {
+            Product::query()->updateOrCreate(
+                ['codigo' => sprintf('E2E-%02d', $index)],
+                [
+                    'nome' => sprintf('Artigo E2E %02d', $index),
+                    'descricao' => 'Artigo determinístico para validar listas e formulários no browser.',
+                    'categoria' => 'Browser QA',
+                    'preco' => 10 + $index,
+                    'stock' => $index,
+                    'stock_reservado' => 0,
+                    'stock_minimo' => 2,
+                    'ativo' => true,
+                    'allow_request' => true,
+                    'allow_loan' => true,
+                    'track_stock' => true,
+                ],
             );
         }
     }
