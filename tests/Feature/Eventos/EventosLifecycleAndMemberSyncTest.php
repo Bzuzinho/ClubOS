@@ -106,13 +106,15 @@ class EventosLifecycleAndMemberSyncTest extends TestCase
 
         $this->assertDatabaseHas('events', [
             'titulo' => 'Evento criado no formulário',
-            'data_inicio' => $eventDate,
             'tipo' => 'evento',
             'visibilidade' => 'privado',
             'estado' => 'rascunho',
             'criado_por' => $admin->id,
         ]);
-        $this->assertNull(Event::query()->where('titulo', 'Evento criado no formulário')->sole()->recorrencia_dias_semana);
+        $event = Event::query()->where('titulo', 'Evento criado no formulário')->sole();
+
+        $this->assertSame($eventDate, $event->data_inicio?->toDateString());
+        $this->assertNull($event->recorrencia_dias_semana);
     }
 
     public function test_eventos_index_returns_every_editable_field_and_canonical_age_groups(): void
