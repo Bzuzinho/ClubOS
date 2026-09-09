@@ -19,6 +19,7 @@ import { toast } from 'sonner';
 import { AccessControlBootstrap } from '@/types/access-control';
 import { BankReconciliationManagementTab } from '@/Components/Configuracoes/Financeiro/BankReconciliationManagementTab';
 import SocialNetworkSettings, { SocialAccountConfiguration } from '@/Components/Configuracoes/SocialNetworkSettings';
+import { cn } from '@/lib/utils';
 
 const UserTypePermissionSettings = lazy(() => import('@/Components/Configuracoes/Permissions/UserTypePermissionSettings').then((module) => ({ default: module.UserTypePermissionSettings })));
 const ConfiguracoesDesportivoIndex = lazy(() => import('@/Pages/Configuracoes/Desportivo/Index'));
@@ -3085,8 +3086,18 @@ export default function SettingsIndex({
 
             {/* Edit/Add Dialog */}
             <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-                <DialogContent>
-                    <DialogHeader>
+                <DialogContent
+                    className={cn(
+                        editingItem?.type === 'product'
+                            && 'flex max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-4xl flex-col gap-0 overflow-hidden p-0 sm:max-h-[90dvh] sm:w-full sm:max-w-4xl',
+                    )}
+                    data-testid={editingItem?.type === 'product' ? 'product-dialog' : undefined}
+                >
+                    <DialogHeader
+                        className={cn(
+                            editingItem?.type === 'product' && 'shrink-0 border-b py-4 pl-4 pr-12 text-left sm:pl-6 sm:pr-12',
+                        )}
+                    >
                         <DialogTitle>
                             {editingItem?.id ? 'Editar' : 'Adicionar'}{' '}
                             {editingItem?.type === 'age-group' && 'Escalão'}
@@ -3105,9 +3116,24 @@ export default function SettingsIndex({
                             {editingItem?.type === 'athlete-status' && 'Estado'}
                             {editingItem?.type === 'absence-reason' && 'Motivo de Ausência'}
                         </DialogTitle>
+                        {editingItem?.type === 'product' && (
+                            <DialogDescription>
+                                Preencha os dados principais e defina onde o artigo pode ser utilizado.
+                            </DialogDescription>
+                        )}
                     </DialogHeader>
-                    <form onSubmit={handleSubmit}>
-                        <div className="space-y-4 py-4">
+                    <form
+                        onSubmit={handleSubmit}
+                        className={cn(editingItem?.type === 'product' && 'flex min-h-0 flex-1 flex-col overflow-hidden')}
+                    >
+                        <div
+                            className={cn(
+                                'space-y-4 py-4',
+                                editingItem?.type === 'product'
+                                    && 'min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-5 sm:px-6',
+                            )}
+                            data-testid={editingItem?.type === 'product' ? 'product-dialog-scroll-area' : undefined}
+                        >
                             {editingItem?.type === 'cost-center' && Object.keys(errors).length > 0 && (
                                 <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
                                     Verifique os campos obrigatórios antes de guardar.
@@ -3730,178 +3756,217 @@ export default function SettingsIndex({
                             )}
 
                             {editingItem?.type === 'product' && (
-                                <>
-                                    <div className="space-y-2">
-                                        <Label htmlFor="codigo">Codigo *</Label>
-                                        <Input
-                                            id="codigo"
-                                            value={data.codigo || ''}
-                                            onChange={e => setData('codigo', e.target.value)}
-                                            required
-                                        />
-                                    </div>
-                                    <div className="space-y-2">
-                                        <Label htmlFor="nome">Nome *</Label>
-                                        <Input
-                                            id="nome"
-                                            value={data.nome || ''}
-                                            onChange={e => setData('nome', e.target.value)}
-                                            required
-                                        />
-                                    </div>
-                                    <div className="space-y-2">
-                                        <Label htmlFor="categoria">Categoria</Label>
-                                        <Select
-                                            value={data.categoria || ''}
-                                            onValueChange={(value) => setData('categoria', value === '__none__' ? '' : value)}
-                                        >
-                                            <SelectTrigger id="categoria">
-                                                <SelectValue placeholder="Selecionar categoria" />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                <SelectItem value="__none__">— Sem categoria —</SelectItem>
-                                                {itemCategories.map((cat) => (
-                                                    <SelectItem key={cat.id} value={cat.nome}>
-                                                        {cat.nome}
-                                                    </SelectItem>
-                                                ))}
-                                            </SelectContent>
-                                        </Select>
-                                    </div>
-                                    <div className="space-y-2">
-                                        <Label htmlFor="preco">Preço de Venda (€) *</Label>
-                                        <Input
-                                            id="preco"
-                                            type="number"
-                                            step="0.01"
-                                            value={data.preco ?? ''}
-                                            onChange={e => setData('preco', e.target.value ? parseFloat(e.target.value) : '')}
-                                            required
-                                        />
-                                    </div>
-                                    <div className="space-y-2">
-                                        <Label htmlFor="stock_minimo">Stock Mínimo</Label>
-                                        <Input
-                                            id="stock_minimo"
-                                            type="number"
-                                            min="0"
-                                            step="1"
-                                            value={data.stock_minimo ?? 0}
-                                            onChange={e => setData('stock_minimo', e.target.value ? parseInt(e.target.value, 10) : 0)}
-                                        />
-                                    </div>
-                                    <div className="space-y-2">
-                                        <Label htmlFor="area_armazenamento">Área de armazenamento</Label>
-                                        <Input
-                                            id="area_armazenamento"
-                                            value={data.area_armazenamento || ''}
-                                            onChange={e => setData('area_armazenamento', e.target.value)}
-                                            placeholder="Ex: Prateleira A3"
-                                        />
-                                    </div>
-                                    <div className="space-y-2">
-                                        <Label htmlFor="visible_in_store">Visível na Loja</Label>
-                                        <Select
-                                            value={(data.visible_in_store ?? false) ? 'sim' : 'nao'}
-                                            onValueChange={(value) => setData('visible_in_store', value === 'sim')}
-                                        >
-                                            <SelectTrigger id="visible_in_store">
-                                                <SelectValue placeholder="Selecionar" />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                <SelectItem value="sim">Sim</SelectItem>
-                                                <SelectItem value="nao">Não</SelectItem>
-                                            </SelectContent>
-                                        </Select>
-                                    </div>
-                                    <div className="space-y-2">
-                                        <Label htmlFor="allow_request">Disponível para requisição</Label>
-                                        <Select
-                                            value={(data.allow_request ?? true) ? 'sim' : 'nao'}
-                                            onValueChange={(value) => setData('allow_request', value === 'sim')}
-                                        >
-                                            <SelectTrigger id="allow_request"><SelectValue placeholder="Selecionar" /></SelectTrigger>
-                                            <SelectContent>
-                                                <SelectItem value="sim">Sim</SelectItem>
-                                                <SelectItem value="nao">Não</SelectItem>
-                                            </SelectContent>
-                                        </Select>
-                                    </div>
-                                    <div className="space-y-2">
-                                        <Label htmlFor="allow_loan">Disponível para empréstimo</Label>
-                                        <Select
-                                            value={(data.allow_loan ?? false) ? 'sim' : 'nao'}
-                                            onValueChange={(value) => setData('allow_loan', value === 'sim')}
-                                        >
-                                            <SelectTrigger id="allow_loan"><SelectValue placeholder="Selecionar" /></SelectTrigger>
-                                            <SelectContent>
-                                                <SelectItem value="sim">Sim</SelectItem>
-                                                <SelectItem value="nao">Não</SelectItem>
-                                            </SelectContent>
-                                        </Select>
-                                    </div>
-                                    <div className="space-y-2">
-                                        <Label htmlFor="track_stock">Gerir stock</Label>
-                                        <Select
-                                            value={(data.track_stock ?? true) ? 'sim' : 'nao'}
-                                            onValueChange={(value) => setData('track_stock', value === 'sim')}
-                                        >
-                                            <SelectTrigger id="track_stock"><SelectValue placeholder="Selecionar" /></SelectTrigger>
-                                            <SelectContent>
-                                                <SelectItem value="sim">Sim</SelectItem>
-                                                <SelectItem value="nao">Não</SelectItem>
-                                            </SelectContent>
-                                        </Select>
-                                    </div>
-                                    <div className="space-y-2">
-                                        <Label htmlFor="ativo">Ativo</Label>
-                                        <Select
-                                            value={(data.ativo ?? true) ? 'sim' : 'nao'}
-                                            onValueChange={(value) => setData('ativo', value === 'sim')}
-                                        >
-                                            <SelectTrigger id="ativo">
-                                                <SelectValue placeholder="Selecionar" />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                <SelectItem value="sim">Sim</SelectItem>
-                                                <SelectItem value="nao">Não</SelectItem>
-                                            </SelectContent>
-                                        </Select>
-                                    </div>
-                                    <div className="space-y-2">
-                                        <Label htmlFor="descricao">Descrição</Label>
-                                        <Textarea
-                                            id="descricao"
-                                            value={data.descricao || ''}
-                                            onChange={e => setData('descricao', e.target.value)}
-                                        />
-                                    </div>
-                                    <div className="space-y-2">
-                                        <Label htmlFor="imagem_file">Imagem do Artigo</Label>
-                                        <input
-                                            id="imagem_file"
-                                            type="file"
-                                            accept="image/*"
-                                            className="block w-full text-sm text-muted-foreground file:mr-4 file:py-1 file:px-3 file:rounded file:border-0 file:text-sm file:font-medium file:bg-secondary file:text-secondary-foreground hover:file:bg-secondary/80 cursor-pointer"
-                                            onChange={(e) => {
-                                                const file = e.target.files?.[0] || null;
-                                                setData('imagem_file', file);
-                                                if (file) {
-                                                    setProductImagePreview(URL.createObjectURL(file));
-                                                }
-                                            }}
-                                        />
-                                        {productImagePreview && (
-                                            <div className="mt-2">
-                                                <img
-                                                    src={productImagePreview}
-                                                    alt="Preview"
-                                                    className="h-24 w-24 object-cover rounded border"
+                                <div className="space-y-6">
+                                    <section className="space-y-3" aria-labelledby="product-identification-heading">
+                                        <div>
+                                            <h3 id="product-identification-heading" className="text-sm font-semibold">Identificação</h3>
+                                            <p className="text-xs text-muted-foreground">Dados usados para localizar e vender o artigo.</p>
+                                        </div>
+                                        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                                            <div className="space-y-2 sm:col-span-1">
+                                                <Label htmlFor="codigo">Código *</Label>
+                                                <Input
+                                                    id="codigo"
+                                                    value={data.codigo || ''}
+                                                    onChange={e => setData('codigo', e.target.value)}
+                                                    required
                                                 />
                                             </div>
-                                        )}
-                                    </div>
-                                </>
+                                            <div className="space-y-2 sm:col-span-1 lg:col-span-3">
+                                                <Label htmlFor="nome">Nome *</Label>
+                                                <Input
+                                                    id="nome"
+                                                    value={data.nome || ''}
+                                                    onChange={e => setData('nome', e.target.value)}
+                                                    required
+                                                />
+                                            </div>
+                                            <div className="space-y-2 sm:col-span-1 lg:col-span-2">
+                                                <Label htmlFor="categoria">Categoria</Label>
+                                                <Select
+                                                    value={data.categoria || ''}
+                                                    onValueChange={(value) => setData('categoria', value === '__none__' ? '' : value)}
+                                                >
+                                                    <SelectTrigger id="categoria">
+                                                        <SelectValue placeholder="Selecionar categoria" />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        <SelectItem value="__none__">— Sem categoria —</SelectItem>
+                                                        {itemCategories.map((cat) => (
+                                                            <SelectItem key={cat.id} value={cat.nome}>
+                                                                {cat.nome}
+                                                            </SelectItem>
+                                                        ))}
+                                                    </SelectContent>
+                                                </Select>
+                                            </div>
+                                            <div className="space-y-2 sm:col-span-1 lg:col-span-2">
+                                                <Label htmlFor="preco">Preço de venda (€) *</Label>
+                                                <Input
+                                                    id="preco"
+                                                    type="number"
+                                                    min="0"
+                                                    step="0.01"
+                                                    inputMode="decimal"
+                                                    value={data.preco ?? ''}
+                                                    onChange={e => setData('preco', e.target.value ? parseFloat(e.target.value) : '')}
+                                                    required
+                                                />
+                                            </div>
+                                        </div>
+                                    </section>
+
+                                    <Separator />
+
+                                    <section className="space-y-3" aria-labelledby="product-logistics-heading">
+                                        <div>
+                                            <h3 id="product-logistics-heading" className="text-sm font-semibold">Stock e localização</h3>
+                                            <p className="text-xs text-muted-foreground">Defina como o artigo é controlado e onde está guardado.</p>
+                                        </div>
+                                        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                                            <div className="space-y-2">
+                                                <Label htmlFor="track_stock">Gerir stock</Label>
+                                                <Select
+                                                    value={(data.track_stock ?? true) ? 'sim' : 'nao'}
+                                                    onValueChange={(value) => setData('track_stock', value === 'sim')}
+                                                >
+                                                    <SelectTrigger id="track_stock"><SelectValue placeholder="Selecionar" /></SelectTrigger>
+                                                    <SelectContent>
+                                                        <SelectItem value="sim">Sim</SelectItem>
+                                                        <SelectItem value="nao">Não</SelectItem>
+                                                    </SelectContent>
+                                                </Select>
+                                            </div>
+                                            <div className="space-y-2">
+                                                <Label htmlFor="stock_minimo">Stock mínimo</Label>
+                                                <Input
+                                                    id="stock_minimo"
+                                                    type="number"
+                                                    min="0"
+                                                    step="1"
+                                                    inputMode="numeric"
+                                                    value={data.stock_minimo ?? 0}
+                                                    onChange={e => setData('stock_minimo', e.target.value ? parseInt(e.target.value, 10) : 0)}
+                                                />
+                                            </div>
+                                            <div className="space-y-2 sm:col-span-1">
+                                                <Label htmlFor="area_armazenamento">Área de armazenamento</Label>
+                                                <Input
+                                                    id="area_armazenamento"
+                                                    value={data.area_armazenamento || ''}
+                                                    onChange={e => setData('area_armazenamento', e.target.value)}
+                                                    placeholder="Ex.: Prateleira A3"
+                                                />
+                                            </div>
+                                        </div>
+                                    </section>
+
+                                    <Separator />
+
+                                    <section className="space-y-3" aria-labelledby="product-availability-heading">
+                                        <div>
+                                            <h3 id="product-availability-heading" className="text-sm font-semibold">Disponibilidade</h3>
+                                            <p className="text-xs text-muted-foreground">Escolha os fluxos em que este artigo pode aparecer.</p>
+                                        </div>
+                                        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                                            <div className="space-y-2">
+                                                <Label htmlFor="visible_in_store">Visível na loja</Label>
+                                                <Select
+                                                    value={(data.visible_in_store ?? false) ? 'sim' : 'nao'}
+                                                    onValueChange={(value) => setData('visible_in_store', value === 'sim')}
+                                                >
+                                                    <SelectTrigger id="visible_in_store"><SelectValue placeholder="Selecionar" /></SelectTrigger>
+                                                    <SelectContent>
+                                                        <SelectItem value="sim">Sim</SelectItem>
+                                                        <SelectItem value="nao">Não</SelectItem>
+                                                    </SelectContent>
+                                                </Select>
+                                            </div>
+                                            <div className="space-y-2">
+                                                <Label htmlFor="allow_request">Permitir requisição</Label>
+                                                <Select
+                                                    value={(data.allow_request ?? true) ? 'sim' : 'nao'}
+                                                    onValueChange={(value) => setData('allow_request', value === 'sim')}
+                                                >
+                                                    <SelectTrigger id="allow_request"><SelectValue placeholder="Selecionar" /></SelectTrigger>
+                                                    <SelectContent>
+                                                        <SelectItem value="sim">Sim</SelectItem>
+                                                        <SelectItem value="nao">Não</SelectItem>
+                                                    </SelectContent>
+                                                </Select>
+                                            </div>
+                                            <div className="space-y-2">
+                                                <Label htmlFor="allow_loan">Permitir empréstimo</Label>
+                                                <Select
+                                                    value={(data.allow_loan ?? false) ? 'sim' : 'nao'}
+                                                    onValueChange={(value) => setData('allow_loan', value === 'sim')}
+                                                >
+                                                    <SelectTrigger id="allow_loan"><SelectValue placeholder="Selecionar" /></SelectTrigger>
+                                                    <SelectContent>
+                                                        <SelectItem value="sim">Sim</SelectItem>
+                                                        <SelectItem value="nao">Não</SelectItem>
+                                                    </SelectContent>
+                                                </Select>
+                                            </div>
+                                            <div className="space-y-2">
+                                                <Label htmlFor="ativo">Estado</Label>
+                                                <Select
+                                                    value={(data.ativo ?? true) ? 'sim' : 'nao'}
+                                                    onValueChange={(value) => setData('ativo', value === 'sim')}
+                                                >
+                                                    <SelectTrigger id="ativo"><SelectValue placeholder="Selecionar" /></SelectTrigger>
+                                                    <SelectContent>
+                                                        <SelectItem value="sim">Ativo</SelectItem>
+                                                        <SelectItem value="nao">Inativo</SelectItem>
+                                                    </SelectContent>
+                                                </Select>
+                                            </div>
+                                        </div>
+                                    </section>
+
+                                    <Separator />
+
+                                    <section className="space-y-3" aria-labelledby="product-details-heading">
+                                        <div>
+                                            <h3 id="product-details-heading" className="text-sm font-semibold">Detalhes</h3>
+                                            <p className="text-xs text-muted-foreground">Informação adicional e imagem do artigo.</p>
+                                        </div>
+                                        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                                            <div className="space-y-2">
+                                                <Label htmlFor="descricao">Descrição</Label>
+                                                <Textarea
+                                                    id="descricao"
+                                                    className="min-h-28 resize-y"
+                                                    value={data.descricao || ''}
+                                                    onChange={e => setData('descricao', e.target.value)}
+                                                />
+                                            </div>
+                                            <div className="space-y-2">
+                                                <Label htmlFor="imagem_file">Imagem do artigo</Label>
+                                                <input
+                                                    id="imagem_file"
+                                                    type="file"
+                                                    accept="image/*"
+                                                    className="block w-full cursor-pointer text-sm text-muted-foreground file:mr-4 file:rounded file:border-0 file:bg-secondary file:px-3 file:py-2 file:text-sm file:font-medium file:text-secondary-foreground hover:file:bg-secondary/80"
+                                                    onChange={(e) => {
+                                                        const file = e.target.files?.[0] || null;
+                                                        setData('imagem_file', file);
+                                                        if (file) {
+                                                            setProductImagePreview(URL.createObjectURL(file));
+                                                        }
+                                                    }}
+                                                />
+                                                {productImagePreview && (
+                                                    <img
+                                                        src={productImagePreview}
+                                                        alt="Pré-visualização do artigo"
+                                                        className="h-24 w-24 rounded border object-cover"
+                                                    />
+                                                )}
+                                            </div>
+                                        </div>
+                                    </section>
+                                </div>
                             )}
 
                             {editingItem?.type === 'sponsor' && (
@@ -4269,11 +4334,24 @@ export default function SettingsIndex({
                                 </>
                             )}
                         </div>
-                        <DialogFooter>
-                            <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>
+                        <DialogFooter
+                            className={cn(
+                                editingItem?.type === 'product' && 'shrink-0 border-t bg-background px-4 py-4 sm:px-6',
+                            )}
+                        >
+                            <Button
+                                type="button"
+                                variant="outline"
+                                className={cn(editingItem?.type === 'product' && 'w-full sm:w-auto')}
+                                onClick={() => setDialogOpen(false)}
+                            >
                                 Cancelar
                             </Button>
-                            <Button type="submit" disabled={processing}>
+                            <Button
+                                type="submit"
+                                className={cn(editingItem?.type === 'product' && 'w-full sm:w-auto')}
+                                disabled={processing}
+                            >
                                 {processing ? 'A guardar...' : 'Guardar'}
                             </Button>
                         </DialogFooter>
