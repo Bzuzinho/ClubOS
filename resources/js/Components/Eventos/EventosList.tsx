@@ -157,6 +157,7 @@ export function EventosList({
   const [editingEvent, setEditingEvent] = useState<Event | null>(null);
   const [viewMode, setViewMode] = useState<'card' | 'table'>('card');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [selectedEvents, setSelectedEvents] = useState<Set<string>>(new Set());
   const [isBulkDeleteDialogOpen, setIsBulkDeleteDialogOpen] = useState(false);
   const [isBulkDeleting, setIsBulkDeleting] = useState(false);
@@ -257,23 +258,83 @@ export function EventosList({
       .sort((a, b) => new Date(b.data_inicio).getTime() - new Date(a.data_inicio).getTime());
   }, [events, searchTerm, typeFilter, statusFilter]);
 
-  const validationErrorMessage = (errors: Record<string, unknown>, fallback: string) => {
-    const message = Object.values(errors).flat().find((value) => typeof value === 'string');
+  const normalizeValidationErrors = (errors: Record<string, unknown>): Record<string, string> =>
+    Object.fromEntries(
+      Object.entries(errors).flatMap(([field, value]) => {
+        const message = Array.isArray(value)
+          ? value.find((item) => typeof item === 'string')
+          : value;
 
-    return typeof message === 'string' ? message : fallback;
+        return typeof message === 'string' ? [[field, message]] : [];
+      })
+    );
+
+  const validationErrorMessage = (errors: Record<string, unknown>, fallback: string) => {
+    const message = Object.values(normalizeValidationErrors(errors))[0];
+
+    return message || fallback;
   };
 
-  const handleSave = () => {
+  const focusFirstInvalidField = (errors: Record<string, string>) => {
+    const firstField = Object.keys(errors)[0]?.replace(/\.\d+$/, '');
+
+    if (!firstField) return;
+
+    window.requestAnimationFrame(() => {
+      document.getElementById(firstField)?.focus();
+    });
+  };
+
+  const clientValidationErrors = (): Record<string, string> => {
+    const errors: Record<string, string> = {};
+
     if (!formData.titulo.trim()) {
-      toast.error('Preencha o título do evento');
-      return;
+      errors.titulo = 'Preencha o título do evento.';
     }
 
     if (!formData.data_inicio) {
-      toast.error('Preencha a data do evento');
+      errors.data_inicio = 'Preencha a data de início do evento.';
+    }
+
+    if (formData.data_inicio && formData.data_fim && formData.data_fim < formData.data_inicio) {
+      errors.data_fim = 'A data de fim não pode ser anterior à data de início.';
+    }
+
+    if (formData.recorrente) {
+      if (!formData.recorrencia_data_inicio) {
+        errors.recorrencia_data_inicio = 'Preencha a data de início da recorrência.';
+      } else if (formData.data_inicio && formData.recorrencia_data_inicio < formData.data_inicio) {
+        errors.recorrencia_data_inicio = 'A recorrência não pode começar antes do evento.';
+      }
+
+      if (!formData.recorrencia_data_fim) {
+        errors.recorrencia_data_fim = 'Preencha a data de fim da recorrência.';
+      } else if (
+        formData.recorrencia_data_inicio &&
+        formData.recorrencia_data_fim < formData.recorrencia_data_inicio
+      ) {
+        errors.recorrencia_data_fim = 'A recorrência não pode terminar antes de começar.';
+      }
+
+      if (formData.recorrencia_dias_semana.length === 0) {
+        errors.recorrencia_dias_semana = 'Selecione pelo menos um dia da semana.';
+      }
+    }
+
+    return errors;
+  };
+
+  const handleSave = () => {
+    const validationErrors = clientValidationErrors();
+
+    if (Object.keys(validationErrors).length > 0) {
+      setFormErrors(validationErrors);
+      focusFirstInvalidField(validationErrors);
+      toast.error('Corrija os campos assinalados antes de guardar.');
       return;
     }
 
+    setFormErrors({});
     setIsSubmitting(true);
 
     const payload = {
@@ -291,8 +352,11 @@ export function EventosList({
             setDialogOpen(false);
             resetForm();
           },
-          onError: (err: any) => {
-            toast.error(validationErrorMessage(err, 'Erro ao atualizar evento'));
+          onError: (err: Record<string, unknown>) => {
+            const errors = normalizeValidationErrors(err);
+            setFormErrors(errors);
+            focusFirstInvalidField(errors);
+            toast.error(validationErrorMessage(err, 'Não foi possível atualizar o evento.'));
             console.error(err);
           },
           onFinish: () => setIsSubmitting(false),
@@ -304,8 +368,11 @@ export function EventosList({
             setDialogOpen(false);
             resetForm();
           },
-          onError: (err: any) => {
-            toast.error(validationErrorMessage(err, 'Erro ao criar evento'));
+          onError: (err: Record<string, unknown>) => {
+            const errors = normalizeValidationErrors(err);
+            setFormErrors(errors);
+            focusFirstInvalidField(errors);
+            toast.error(validationErrorMessage(err, 'Não foi possível criar o evento.'));
             console.error(err);
           },
           onFinish: () => setIsSubmitting(false),
@@ -327,6 +394,7 @@ export function EventosList({
   };
 
   const resetForm = () => {
+    setFormErrors({});
     setFormData({
       titulo: '',
       descricao: '',
@@ -509,6 +577,21 @@ export function EventosList({
                   </p>
                 </div>
 
+                {Object.keys(formErrors).length > 0 ? (
+                  <div
+                    role="alert"
+                    aria-live="assertive"
+                    className="mt-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800"
+                  >
+                    <p className="font-semibold">Não foi possível guardar o evento.</p>
+                    <ul className="mt-1 list-disc space-y-0.5 pl-5">
+                      {Object.entries(formErrors).map(([field, message]) => (
+                        <li key={field}>{message}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+
             <div className="space-y-6">
               {/* Informações Básicas */}
               <div className="space-y-4">
@@ -518,6 +601,8 @@ export function EventosList({
                   <Label htmlFor="titulo">Título *</Label>
                   <Input
                     id="titulo"
+                    aria-invalid={Boolean(formErrors.titulo)}
+                    aria-describedby={formErrors.titulo ? 'titulo-error' : undefined}
                     value={formData.titulo}
                     onChange={(e) =>
                       setFormData({ ...formData, titulo: e.target.value })
@@ -525,9 +610,12 @@ export function EventosList({
                     placeholder="Nome do evento"
                     className="bg-white"
                   />
+                  {formErrors.titulo ? (
+                    <p id="titulo-error" className="text-sm text-red-700">{formErrors.titulo}</p>
+                  ) : null}
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
                     <Label htmlFor="tipo">Tipo *</Label>
                     <select
@@ -599,12 +687,14 @@ export function EventosList({
               <div className="space-y-4">
                 <h3 className="text-sm font-semibold border-b pb-2">Data e Hora</h3>
                 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
                     <Label htmlFor="data_inicio">Data Início *</Label>
                     <Input
                       id="data_inicio"
                       type="date"
+                      aria-invalid={Boolean(formErrors.data_inicio)}
+                      aria-describedby={formErrors.data_inicio ? 'data_inicio-error' : undefined}
                       value={formData.data_inicio}
                       onChange={(e) =>
                         setFormData({ ...formData, data_inicio: e.target.value })
@@ -612,6 +702,9 @@ export function EventosList({
                       placeholder="dd/mm/aaaa"
                       className="bg-white"
                     />
+                    {formErrors.data_inicio ? (
+                      <p id="data_inicio-error" className="text-sm text-red-700">{formErrors.data_inicio}</p>
+                    ) : null}
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="hora_inicio">Hora Início</Label>
@@ -628,12 +721,14 @@ export function EventosList({
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
                     <Label htmlFor="data_fim">Data Fim</Label>
                     <Input
                       id="data_fim"
                       type="date"
+                      aria-invalid={Boolean(formErrors.data_fim)}
+                      aria-describedby={formErrors.data_fim ? 'data_fim-error' : undefined}
                       value={formData.data_fim}
                       onChange={(e) =>
                         setFormData({ ...formData, data_fim: e.target.value })
@@ -641,6 +736,9 @@ export function EventosList({
                       placeholder="dd/mm/aaaa"
                       className="bg-white"
                     />
+                    {formErrors.data_fim ? (
+                      <p id="data_fim-error" className="text-sm text-red-700">{formErrors.data_fim}</p>
+                    ) : null}
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="hora_fim">Hora Fim</Label>
@@ -662,7 +760,7 @@ export function EventosList({
               <div className="space-y-4">
                 <h3 className="text-sm font-semibold border-b pb-2">Local</h3>
                 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
                     <Label htmlFor="local">Local</Label>
                     <Input
@@ -720,7 +818,7 @@ export function EventosList({
                     Nenhum escalão configurado. Configure em Configurações → Escalões.
                   </div>
                 ) : (
-                  <div className="grid grid-cols-3 gap-3">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
                     {ageGroups
                       .filter((group) => group.ativo !== false)
                       .map((escalao) => (
@@ -777,7 +875,7 @@ export function EventosList({
 
                 {formData.transporte_necessario && (
                   <div className="space-y-4 bg-slate-50 p-3 rounded-md">
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                       <div className="space-y-2">
                         <Label htmlFor="hora_partida">Hora de Partida</Label>
                         <Input
@@ -825,7 +923,7 @@ export function EventosList({
                 <div className="space-y-4">
                   <h3 className="text-sm font-semibold border-b pb-2">Custos de Inscrição</h3>
                   
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                     <div className="space-y-2">
                       <Label htmlFor="taxa_inscricao">Taxa de Inscrição (€)</Label>
                       <Input
@@ -855,7 +953,7 @@ export function EventosList({
                       />
                     </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                     <div className="space-y-2">
                       <Label htmlFor="custo_inscricao_por_salto">Custo por Salto (€)</Label>
                       <Input
@@ -904,7 +1002,7 @@ export function EventosList({
                   />
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
                     <Label htmlFor="visibilidade">Visibilidade</Label>
                     <select
@@ -957,7 +1055,7 @@ export function EventosList({
 
                 {formData.recorrente && (
                   <div className="space-y-4 bg-slate-50 p-3 rounded-md">
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                       <div className="space-y-2">
                         <Label htmlFor="recorrencia_data_inicio">
                           Data Início Recorrência *
@@ -965,6 +1063,8 @@ export function EventosList({
                         <Input
                           id="recorrencia_data_inicio"
                           type="date"
+                          aria-invalid={Boolean(formErrors.recorrencia_data_inicio)}
+                          aria-describedby={formErrors.recorrencia_data_inicio ? 'recorrencia_data_inicio-error' : undefined}
                           value={formData.recorrencia_data_inicio}
                           onChange={(e) =>
                             setFormData({
@@ -973,6 +1073,11 @@ export function EventosList({
                             })
                           }
                         />
+                        {formErrors.recorrencia_data_inicio ? (
+                          <p id="recorrencia_data_inicio-error" className="text-sm text-red-700">
+                            {formErrors.recorrencia_data_inicio}
+                          </p>
+                        ) : null}
                       </div>
                       <div className="space-y-2">
                         <Label htmlFor="recorrencia_data_fim">
@@ -981,6 +1086,8 @@ export function EventosList({
                         <Input
                           id="recorrencia_data_fim"
                           type="date"
+                          aria-invalid={Boolean(formErrors.recorrencia_data_fim)}
+                          aria-describedby={formErrors.recorrencia_data_fim ? 'recorrencia_data_fim-error' : undefined}
                           value={formData.recorrencia_data_fim}
                           onChange={(e) =>
                             setFormData({
@@ -989,12 +1096,21 @@ export function EventosList({
                             })
                           }
                         />
+                        {formErrors.recorrencia_data_fim ? (
+                          <p id="recorrencia_data_fim-error" className="text-sm text-red-700">
+                            {formErrors.recorrencia_data_fim}
+                          </p>
+                        ) : null}
                       </div>
                     </div>
 
                     <div className="space-y-2">
                       <Label>Dias da Semana *</Label>
-                      <div className="grid grid-cols-4 gap-3">
+                      <div
+                        id="recorrencia_dias_semana"
+                        tabIndex={-1}
+                        className="grid grid-cols-2 gap-3 sm:grid-cols-4"
+                      >
                         {daysOfWeek.map((day) => (
                           <div key={day.id} className="flex items-center gap-2">
                             <Checkbox
@@ -1027,6 +1143,9 @@ export function EventosList({
                           </div>
                         ))}
                       </div>
+                      {formErrors.recorrencia_dias_semana ? (
+                        <p className="text-sm text-red-700">{formErrors.recorrencia_dias_semana}</p>
+                      ) : null}
                     </div>
                   </div>
                 )}
