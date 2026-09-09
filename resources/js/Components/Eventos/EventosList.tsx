@@ -342,7 +342,7 @@ export function EventosList({
       visibilidade: formData.visibilidade === 'interno' ? 'restrito' : formData.visibilidade,
       recorrencia_data_inicio: formData.recorrente ? formData.recorrencia_data_inicio : null,
       recorrencia_data_fim: formData.recorrente ? formData.recorrencia_data_fim : null,
-      recorrencia_dias_semana: formData.recorrente ? formData.recorrencia_dias_semana : [],
+      recorrencia_dias_semana: formData.recorrente ? formData.recorrencia_dias_semana : null,
     };
 
     if (editingEvent) {

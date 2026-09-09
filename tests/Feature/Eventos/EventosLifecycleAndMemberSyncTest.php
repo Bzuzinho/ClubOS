@@ -112,6 +112,7 @@ class EventosLifecycleAndMemberSyncTest extends TestCase
             'estado' => 'rascunho',
             'criado_por' => $admin->id,
         ]);
+        $this->assertNull(Event::query()->where('titulo', 'Evento criado no formulário')->sole()->recorrencia_dias_semana);
     }
 
     public function test_eventos_index_returns_every_editable_field_and_canonical_age_groups(): void
