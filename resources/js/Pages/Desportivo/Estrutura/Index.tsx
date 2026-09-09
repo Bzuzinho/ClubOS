@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { formatStructureDate as formatDate } from './formatStructureDate';
 import type { ReactNode } from 'react';
 import { Head, router } from '@inertiajs/react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
@@ -34,7 +35,6 @@ type DialogKind = 'modality'|'program'|'season'|'seasonProgram'|'ageGroup'|'ageR
 const selectClass = 'h-9 w-full rounded-md border border-input bg-background px-3 text-sm';
 const textareaClass = 'min-h-20 w-full rounded-md border border-input bg-background px-3 py-2 text-sm';
 function StateBadge({active}:{active:boolean}) { return <Badge variant={active?'default':'secondary'}>{active?'Ativo':'Arquivado'}</Badge>; }
-function formatDate(value?:string|null) { if(!value)return '—'; return new Intl.DateTimeFormat('pt-PT').format(new Date(`${value}T00:00:00`)); }
 
 export default function SportsStructureIndex(props:Props) {
   const { modalities, programs, seasons, ageGroups, ageGroupRules, activeAgeGroupOverridesCount, groups, groupSeasons, memberships, coachRoles, coachAssignments, athletes, locations } = props;
