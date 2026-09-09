@@ -7,9 +7,11 @@ namespace Tests\Feature\Logistica;
 use App\Contracts\Logistica\SportsLogisticsGateway;
 use App\Contracts\Logistica\SportsLogisticsRequest;
 use App\Models\EquipmentLoan;
+use App\Models\ItemCategory;
 use App\Models\LogisticsRequest;
 use App\Models\Product;
 use App\Models\StockMovement;
+use App\Models\Supplier;
 use App\Models\User;
 use App\Services\Logistica\ApproveLogisticsRequestAction;
 use App\Services\Logistica\CreateEquipmentLoanAction;
@@ -172,6 +174,44 @@ final class InternalLogisticsLifecycleTest extends TestCase
             'allow_loan' => false,
         ]);
         $this->assertDatabaseHas('stock_movements', ['id' => $movementId, 'article_id' => $product->id]);
+    }
+
+    public function test_configuration_creates_canonical_product_category_without_publishing_to_store(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $category = ItemCategory::query()->create([
+            'codigo' => 'EQUIP-CAN',
+            'nome' => 'Equipamento canónico',
+            'ativo' => true,
+        ]);
+        $supplier = Supplier::query()->create([
+            'nome' => 'Fornecedor canónico',
+            'ativo' => true,
+        ]);
+
+        $this->actingAs($admin)
+            ->post(route('configuracoes.artigos.store'), [
+                'codigo' => 'CONF-CAN-001',
+                'nome' => 'Artigo canónico',
+                'categoria_id' => $category->id,
+                'supplier_id' => $supplier->id,
+                'preco' => 12.5,
+                'stock_minimo' => 2,
+                'ativo' => true,
+                'allow_request' => true,
+                'allow_loan' => false,
+                'track_stock' => true,
+            ])
+            ->assertRedirect(route('configuracoes'));
+
+        $this->assertDatabaseHas('products', [
+            'codigo' => 'CONF-CAN-001',
+            'categoria_id' => $category->id,
+            'categoria' => 'Equipamento canónico',
+            'supplier_id' => $supplier->id,
+            'visible_in_store' => false,
+            'allow_sale' => false,
+        ]);
     }
 
     /** @param array<string,mixed> $overrides */

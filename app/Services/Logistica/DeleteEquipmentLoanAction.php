@@ -4,6 +4,7 @@ namespace App\Services\Logistica;
 
 use App\Models\EquipmentLoan;
 use App\Models\Product;
+use App\Services\Catalog\CanonicalProductStockService;
 use App\Services\Inventario\StockLedgerService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -12,6 +13,7 @@ class DeleteEquipmentLoanAction
 {
     public function __construct(
         private readonly StockLedgerService $stockLedger,
+        private readonly CanonicalProductStockService $stockService,
     ) {
     }
 
@@ -32,6 +34,7 @@ class DeleteEquipmentLoanAction
             if ($loan->article_id) {
                 $product = Product::query()->lockForUpdate()->find($loan->article_id);
                 if ($product) {
+                    $this->stockService->ensureProductLevelOperationIsUnambiguous($product);
                     $this->stockLedger->registerReturn($product, (int) $loan->quantity, [
                         'source_type' => 'equipment_loan_delete',
                         'source_id' => $loan->id,

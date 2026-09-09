@@ -72,6 +72,11 @@ export default function StoreHomePage() {
     };
 
     const handleAddToCart = async (product: StoreProduct) => {
+        if (product.variantes.length > 0) {
+            visitStoreProduct(product.slug);
+            return;
+        }
+
         try {
             setBusyProductId(product.id);
             const nextCart = await storeRequest<StoreCart>('/api/loja/carrinho/itens', {

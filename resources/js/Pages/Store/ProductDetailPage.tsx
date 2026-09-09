@@ -1,5 +1,5 @@
 import { Head, router, usePage } from '@inertiajs/react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, ShoppingBag } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/Components/ui/button';
@@ -31,7 +31,17 @@ export default function ProductDetailPage() {
     );
 
     const unitPrice = product.preco + (selectedVariant?.preco_extra || 0);
+    const availableStock = selectedVariant?.stock_atual ?? product.stock_atual;
+    const requiresVariant = product.variantes.length > 0;
+    const canAddToCart = (!requiresVariant || Boolean(selectedVariant))
+        && (!product.gere_stock || availableStock >= quantity);
     const isAlsoAdmin = Boolean(accessControl?.visibleMenuModules?.includes('loja'));
+
+    useEffect(() => {
+        if (product.gere_stock && quantity > availableStock) {
+            setQuantity(Math.max(1, availableStock));
+        }
+    }, [availableStock, product.gere_stock, quantity]);
 
     const addToCart = async () => {
         try {
@@ -87,7 +97,7 @@ export default function ProductDetailPage() {
                         <div className="mt-5 grid gap-4 sm:grid-cols-2">
                             <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
                                 <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Stock</p>
-                                <p className="mt-2 text-sm font-semibold text-slate-900">{product.gere_stock ? `${selectedVariant?.stock_atual ?? product.stock_atual} unidades` : 'Disponibilidade sob consulta'}</p>
+                                <p className="mt-2 text-sm font-semibold text-slate-900">{product.gere_stock ? `${availableStock} unidades` : 'Disponível sob consulta'}</p>
                             </div>
                             <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
                                 <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Codigo</p>
@@ -105,7 +115,7 @@ export default function ProductDetailPage() {
                                     <SelectContent>
                                         {product.variantes.map((variant) => (
                                             <SelectItem key={variant.id} value={variant.id}>
-                                                {variant.etiqueta || variant.nome || 'Variante'}
+                                                {variant.etiqueta || variant.nome || 'Variante'} · {variant.stock_atual} disponíveis
                                             </SelectItem>
                                         ))}
                                     </SelectContent>
@@ -116,13 +126,13 @@ export default function ProductDetailPage() {
                         <div className="mt-5 flex items-center gap-2">
                             <Button type="button" variant="outline" size="icon" className="h-10 w-10 rounded-xl" disabled={quantity <= 1} onClick={() => setQuantity((current) => Math.max(1, current - 1))}>-</Button>
                             <div className="flex h-10 min-w-14 items-center justify-center rounded-xl border border-slate-200 px-3 text-sm font-semibold text-slate-900">{quantity}</div>
-                            <Button type="button" variant="outline" size="icon" className="h-10 w-10 rounded-xl" onClick={() => setQuantity((current) => current + 1)}>+</Button>
+                            <Button type="button" variant="outline" size="icon" className="h-10 w-10 rounded-xl" disabled={product.gere_stock && quantity >= availableStock} onClick={() => setQuantity((current) => current + 1)}>+</Button>
                         </div>
 
                         <div className="mt-6 grid gap-2">
-                            <Button type="button" className="h-11 rounded-2xl bg-blue-600 hover:bg-blue-700" disabled={loading} onClick={addToCart}>
+                            <Button type="button" className="h-11 rounded-2xl bg-blue-600 hover:bg-blue-700" disabled={loading || !canAddToCart} onClick={addToCart}>
                                 <ShoppingBag className="mr-2 h-4 w-4" />
-                                {loading ? 'A adicionar...' : 'Adicionar ao carrinho'}
+                                {loading ? 'A adicionar...' : canAddToCart ? 'Adicionar ao carrinho' : 'Sem stock disponível'}
                             </Button>
                             <Button type="button" variant="outline" className="h-11 rounded-2xl" onClick={() => router.visit('/loja/carrinho')}>
                                 Abrir carrinho

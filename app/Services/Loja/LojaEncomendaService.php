@@ -162,6 +162,31 @@ class LojaEncomendaService
                 return $encomenda->fresh(['itens.article.category', 'itens.productVariant', 'user', 'targetUser']);
             }
 
+            if ($estado === $encomenda->estado) {
+                return $encomenda->fresh(['itens.article.category', 'itens.productVariant', 'user', 'targetUser', 'invoice.fiscalDocumentRequests']);
+            }
+
+            $allowedTransitions = [
+                LojaEncomenda::ESTADO_PENDENTE => [
+                    LojaEncomenda::ESTADO_APROVADO,
+                    LojaEncomenda::ESTADO_CANCELADO,
+                ],
+                LojaEncomenda::ESTADO_APROVADO => [
+                    LojaEncomenda::ESTADO_PREPARADO,
+                    LojaEncomenda::ESTADO_CANCELADO,
+                ],
+                LojaEncomenda::ESTADO_PREPARADO => [
+                    LojaEncomenda::ESTADO_ENTREGUE,
+                    LojaEncomenda::ESTADO_CANCELADO,
+                ],
+            ];
+
+            if (! in_array($estado, $allowedTransitions[$encomenda->estado] ?? [], true)) {
+                throw ValidationException::withMessages([
+                    'estado' => 'A encomenda deve seguir a sequência Pendente → Aprovada → Preparada → Entregue.',
+                ]);
+            }
+
             if ($estado === LojaEncomenda::ESTADO_CANCELADO) {
                 $this->financeiroService->cancelPristineInvoiceForOrder($encomenda);
                 $this->cancelStockAction->execute($encomenda, $actor);
@@ -197,8 +222,8 @@ class LojaEncomendaService
     public function dashboardMetrics(): array
     {
         return [
-            'total_produtos_ativos' => Product::query()->active()->visibleInStore()->count(),
-            'produtos_sem_stock' => Product::query()->active()->visibleInStore()->whereRaw('(stock - COALESCE(stock_reservado, 0)) <= 0')->count(),
+            'total_produtos_ativos' => Product::query()->sellable()->count(),
+            'produtos_sem_stock' => Product::query()->sellable()->where('track_stock', true)->whereRaw('(stock - COALESCE(stock_reservado, 0)) <= 0')->count(),
             'encomendas_pendentes' => LojaEncomenda::query()->where('estado', LojaEncomenda::ESTADO_PENDENTE)->count(),
             'encomendas_preparadas' => LojaEncomenda::query()->where('estado', LojaEncomenda::ESTADO_PREPARADO)->count(),
             'ultimos_pedidos' => LojaEncomenda::query()->with(['user:id,nome_completo', 'targetUser:id,nome_completo'])->ordered()->limit(5)->get(),

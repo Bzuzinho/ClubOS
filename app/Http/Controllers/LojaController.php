@@ -31,10 +31,9 @@ class LojaController extends Controller
         $user = $request->user();
 
         return Inertia::render('Store/StoreHomePage', [
-            'heroItems' => $this->heroItemsPayload(),
             'categories' => $this->categoriesPayload(),
             'featuredProducts' => $this->highlightedProductsPayload($request),
-            'products' => $this->productsPayload($request, false),
+            'products' => $this->productsPayload($request),
             'filters' => [
                 'search' => trim((string) $request->query('search', '')),
                 'categoria' => $request->query('categoria'),
@@ -56,14 +55,17 @@ class LojaController extends Controller
 
     public function produtos(Request $request): JsonResponse
     {
-        return response()->json($this->productsPayload($request, false));
+        return response()->json($this->productsPayload($request));
     }
 
     private function heroItemsPayload(): array
     {
         return $this->heroService->activeItems()
             ->map(function ($item) {
-                $product = $item->article && $item->article->ativo && $item->article->visible_in_store
+                $product = $item->article
+                    && $item->article->ativo
+                    && $item->article->visible_in_store
+                    && $item->article->allow_sale
                     ? $item->article
                     : null;
 
@@ -99,12 +101,11 @@ class LojaController extends Controller
         return $this->catalogService->categoriesPayload();
     }
 
-    private function productsPayload(Request $request, bool $onlyFeatured): array
+    private function productsPayload(Request $request): array
     {
         return $this->catalogService->productsPayload(
             trim((string) $request->query('search', '')),
             $request->query('categoria'),
-            $onlyFeatured,
         );
     }
 

@@ -8,7 +8,9 @@ use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Models\StockMovement;
 use App\Services\Catalog\CanonicalProductStockService;
+use App\Services\Logistica\RegisterStockMovementAction;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Validation\ValidationException;
 use Tests\TestCase;
 
 final class CanonicalProductStockServiceTest extends TestCase
@@ -71,6 +73,83 @@ final class CanonicalProductStockServiceTest extends TestCase
             ->where('reference_type', 'store_order_item')
             ->where('reference_id', $sourceId)
             ->count());
+    }
+
+    public function test_store_rejects_product_when_sale_capability_is_disabled(): void
+    {
+        $product = $this->product(['allow_sale' => false, 'stock' => 5]);
+
+        $this->expectException(ValidationException::class);
+
+        app(CanonicalProductStockService::class)->ensureAvailableForStore($product, null, 1);
+    }
+
+    public function test_manual_variant_movement_updates_variant_and_aggregate_atomically(): void
+    {
+        $product = $this->product();
+        $variant = ProductVariant::query()->create([
+            'product_id' => $product->id,
+            'nome' => 'Adulto',
+            'sku' => 'CAN-MOVEMENT-M',
+            'stock' => 0,
+            'stock_reservado' => 0,
+            'ativo' => true,
+        ]);
+
+        app(RegisterStockMovementAction::class)->execute([
+            'article_id' => $product->id,
+            'product_variant_id' => $variant->id,
+            'movement_type' => 'entry',
+            'quantity' => 3,
+            'notes' => 'Entrada manual por variante',
+        ]);
+
+        $this->assertSame(3, (int) $product->fresh()->stock);
+        $this->assertSame(3, (int) $variant->fresh()->stock);
+        $this->assertDatabaseHas('stock_movements', [
+            'article_id' => $product->id,
+            'product_variant_id' => $variant->id,
+            'movement_type' => 'entry',
+            'quantity' => 3,
+        ]);
+    }
+
+    public function test_product_level_logistics_operation_is_rejected_when_variants_exist(): void
+    {
+        $product = $this->product();
+        ProductVariant::query()->create([
+            'product_id' => $product->id,
+            'nome' => 'Junior',
+            'sku' => 'CAN-GUARD-JR',
+            'stock' => 0,
+            'stock_reservado' => 0,
+            'ativo' => true,
+        ]);
+
+        $this->expectException(ValidationException::class);
+
+        app(RegisterStockMovementAction::class)->execute([
+            'article_id' => $product->id,
+            'movement_type' => 'entry',
+            'quantity' => 1,
+        ]);
+    }
+
+    public function test_store_requires_variant_for_product_with_active_variants(): void
+    {
+        $product = $this->product(['stock' => 3]);
+        ProductVariant::query()->create([
+            'product_id' => $product->id,
+            'nome' => 'Senior',
+            'sku' => 'CAN-STORE-VARIANT-SR',
+            'stock' => 3,
+            'stock_reservado' => 0,
+            'ativo' => true,
+        ]);
+
+        $this->expectException(ValidationException::class);
+
+        app(CanonicalProductStockService::class)->ensureAvailableForStore($product, null, 1);
     }
 
     /**

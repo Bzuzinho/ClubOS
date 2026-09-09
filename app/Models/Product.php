@@ -38,7 +38,6 @@ class Product extends Model
         'allow_loan',
         'track_stock',
         'ordem',
-        'variant_options',
     ];
 
     protected $casts = [
@@ -56,7 +55,6 @@ class Product extends Model
         'allow_loan' => 'boolean',
         'track_stock' => 'boolean',
         'ordem' => 'integer',
-        'variant_options' => 'array',
     ];
 
     protected $appends = [
@@ -76,6 +74,10 @@ class Product extends Model
     // Accessor: is_low_stock
     public function getIsLowStockAttribute(): bool
     {
+        if (! $this->tracks_stock) {
+            return false;
+        }
+
         return $this->available_stock <= $this->stock_minimo;
     }
 
@@ -105,11 +107,6 @@ class Product extends Model
         return $query->where('visible_in_store', true);
     }
 
-    public function scopeFeatured(Builder $query): Builder
-    {
-        return $query->where('destaque', true);
-    }
-
     public function scopeOrdered(Builder $query): Builder
     {
         return $query->orderByRaw('COALESCE(ordem, 999999) asc')->orderBy('nome');
@@ -118,6 +115,11 @@ class Product extends Model
     public function scopeAllowSale(Builder $query): Builder
     {
         return $query->where('allow_sale', true);
+    }
+
+    public function scopeSellable(Builder $query): Builder
+    {
+        return $query->active()->visibleInStore()->allowSale();
     }
 
     public function scopeAllowRequest(Builder $query): Builder
@@ -133,7 +135,9 @@ class Product extends Model
     // Scope: low stock products
     public function scopeLowStock(Builder $query): Builder
     {
-        return $query->whereColumn('stock', '<=', 'stock_minimo');
+        return $query
+            ->where('track_stock', true)
+            ->whereRaw('(stock - COALESCE(stock_reservado, 0)) <= stock_minimo');
     }
 
     public function sales(): HasMany

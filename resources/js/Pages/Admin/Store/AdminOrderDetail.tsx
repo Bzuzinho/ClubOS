@@ -1,5 +1,5 @@
 import { Head, router, usePage } from '@inertiajs/react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { Badge } from '@/Components/ui/badge';
 import { Button } from '@/Components/ui/button';
@@ -15,7 +15,11 @@ interface AdminOrderDetailProps {
 
 type PageProps = SharedPageProps<AdminOrderDetailProps>;
 
-const statusOptions: StoreOrder['estado'][] = ['pendente', 'aprovado', 'preparado', 'entregue', 'cancelado'];
+const nextStatuses: Partial<Record<StoreOrder['estado'], StoreOrder['estado'][]>> = {
+    pendente: ['aprovado', 'cancelado'],
+    aprovado: ['preparado', 'cancelado'],
+    preparado: ['entregue', 'cancelado'],
+};
 
 export default function AdminOrderDetail() {
     const { props } = usePage<PageProps>();
@@ -25,7 +29,11 @@ export default function AdminOrderDetail() {
     const [returnReason, setReturnReason] = useState(order.devolucao?.motivo || 'Devolução integral da encomenda entregue.');
     const [returning, setReturning] = useState(false);
     const isTerminal = order.estado === 'cancelado' || order.estado === 'entregue' || order.estado === 'devolvido';
-    const availableStatusOptions = isTerminal ? [order.estado] : statusOptions;
+    const availableStatusOptions = isTerminal ? [order.estado] : [order.estado, ...(nextStatuses[order.estado] || [])];
+
+    useEffect(() => {
+        setEstado(order.estado);
+    }, [order.estado]);
 
     const updateStatus = async () => {
         try {

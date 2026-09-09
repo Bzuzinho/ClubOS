@@ -33,6 +33,7 @@ class StorefrontCartOrderCanonicalTest extends TestCase
             'stock_reservado' => 2,
             'ativo' => true,
             'visible_in_store' => true,
+            'allow_sale' => true,
             'track_stock' => true,
         ]);
         $variant = ProductVariant::query()->create([
@@ -80,6 +81,7 @@ class StorefrontCartOrderCanonicalTest extends TestCase
             'stock_minimo' => 1,
             'ativo' => true,
             'visible_in_store' => true,
+            'allow_sale' => true,
             'track_stock' => true,
         ]);
 
@@ -202,6 +204,7 @@ class StorefrontCartOrderCanonicalTest extends TestCase
             'stock_reservado' => 0,
             'ativo' => true,
             'visible_in_store' => true,
+            'allow_sale' => true,
             'track_stock' => true,
         ]);
 
@@ -244,6 +247,7 @@ class StorefrontCartOrderCanonicalTest extends TestCase
             'stock_minimo' => 1,
             'ativo' => true,
             'visible_in_store' => true,
+            'allow_sale' => true,
             'track_stock' => true,
         ]);
         $variant = ProductVariant::query()->create([
@@ -297,6 +301,7 @@ class StorefrontCartOrderCanonicalTest extends TestCase
             'stock_reservado' => 0,
             'ativo' => true,
             'visible_in_store' => true,
+            'allow_sale' => true,
             'track_stock' => true,
         ]);
         $variant = ProductVariant::query()->create([
@@ -378,6 +383,7 @@ class StorefrontCartOrderCanonicalTest extends TestCase
             'stock_reservado' => 0,
             'ativo' => true,
             'visible_in_store' => true,
+            'allow_sale' => true,
             'track_stock' => true,
         ]);
 

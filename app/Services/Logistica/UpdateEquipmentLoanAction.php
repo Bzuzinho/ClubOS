@@ -65,6 +65,7 @@ class UpdateEquipmentLoanAction
                 }
             } else {
                 $oldProduct = Product::query()->lockForUpdate()->findOrFail($oldArticleId);
+                $this->stockService->ensureProductLevelOperationIsUnambiguous($oldProduct);
                 $this->stockLedger->registerReturn($oldProduct, $oldQuantity, [
                     'source_type' => 'equipment_loan_update',
                     'source_id' => $loan->id,
@@ -113,6 +114,8 @@ class UpdateEquipmentLoanAction
         string $insufficientMessage,
         string $notes,
     ): void {
+        $this->stockService->ensureProductLevelOperationIsUnambiguous($product);
+
         try {
             if ($quantityDelta > 0) {
                 $this->stockLedger->registerExit($product, $quantityDelta, [

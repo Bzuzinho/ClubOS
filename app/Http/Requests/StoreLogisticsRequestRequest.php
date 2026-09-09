@@ -22,7 +22,7 @@ class StoreLogisticsRequestRequest extends FormRequest
             'allow_overdraw' => ['nullable', 'boolean'],
             'notes' => ['nullable', 'string'],
             'items' => ['required', 'array', 'min:1'],
-            'items.*.article_id' => ['required', 'exists:products,id'],
+            'items.*.article_id' => ['required', 'distinct', 'exists:products,id'],
             'items.*.quantity' => ['required', 'integer', 'min:1'],
             'items.*.unit_price' => ['nullable', 'numeric', 'min:0'],
         ];

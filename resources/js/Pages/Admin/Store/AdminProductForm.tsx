@@ -28,11 +28,7 @@ interface ProductFormState {
     descricao: string;
     preco: string;
     imagem_principal_path: string;
-    ativo: boolean;
-    destaque: boolean;
-    gere_stock: boolean;
-    stock_atual: string;
-    stock_minimo: string;
+    publicado: boolean;
     ordem: string;
     variantes: ProductVariantInput[];
 }
@@ -64,21 +60,12 @@ export default function AdminProductForm() {
         descricao: product?.descricao || '',
         preco: product ? String(product.preco) : '',
         imagem_principal_path: product?.imagem_principal_path || '',
-        ativo: product?.ativo ?? true,
-        destaque: product?.destaque ?? false,
-        gere_stock: product?.gere_stock ?? true,
-        stock_atual: product ? String(product.stock_atual) : '0',
-        stock_minimo: product?.stock_minimo != null ? String(product.stock_minimo) : '',
+        publicado: product?.publicado ?? false,
         ordem: product?.ordem != null ? String(product.ordem) : '',
         variantes: product?.variantes?.map((variant) => ({ ...variant, ativo: variant.ativo ?? true })) || [],
     });
 
     const pageTitle = useMemo(() => (editing ? `Editar ${product?.nome}` : 'Novo produto da Loja'), [editing, product?.nome]);
-    const variantStockTotal = useMemo(
-        () => form.variantes.reduce((total, variant) => total + Number(variant.stock_atual || 0), 0),
-        [form.variantes],
-    );
-
     const updateVariant = (index: number, field: keyof ProductVariantInput, value: string | number | boolean) => {
         setForm((current) => ({
             ...current,
@@ -104,11 +91,7 @@ export default function AdminProductForm() {
                 descricao: form.descricao || null,
                 preco: Number(form.preco || 0),
                 imagem_principal_path: form.imagem_principal_path || null,
-                ativo: form.ativo,
-                destaque: form.destaque,
-                gere_stock: form.gere_stock,
-                stock_atual: form.variantes.length > 0 ? variantStockTotal : Number(form.stock_atual || 0),
-                stock_minimo: form.stock_minimo === '' ? null : Number(form.stock_minimo),
+                publicado: form.publicado,
                 ordem: form.ordem === '' ? null : Number(form.ordem),
                 variantes: form.variantes.map((variant) => ({
                     id: product?.variantes?.some((item) => item.id === variant.id) ? variant.id : undefined,
@@ -117,7 +100,6 @@ export default function AdminProductForm() {
                     cor: variant.cor || null,
                     sku: variant.sku || null,
                     preco_extra: Number(variant.preco_extra || 0),
-                    stock_atual: Number(variant.stock_atual || 0),
                     ativo: variant.ativo,
                 })),
             };
@@ -153,13 +135,13 @@ export default function AdminProductForm() {
                 <div className="grid gap-3 xl:grid-cols-[minmax(0,1.25fr)_360px]">
                     <Card>
                         <CardHeader className="pb-2">
-                            <SectionTitle title="Ficha do produto" subtitle="Dados principais, categoria, preço e controlo de stock." />
+                            <SectionTitle title="Publicação na Loja" subtitle="Dados comerciais do artigo. O inventário é gerido exclusivamente na Logística." />
                         </CardHeader>
                         <CardContent>
                         <div className="grid gap-4 md:grid-cols-2">
                             <div>
                                 <label className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Categoria</label>
-                                <select value={form.categoria_id} onChange={(event) => setForm((current) => ({ ...current, categoria_id: event.target.value }))} className="mt-2 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none">
+                                <select disabled={editing} value={form.categoria_id} onChange={(event) => setForm((current) => ({ ...current, categoria_id: event.target.value }))} className="mt-2 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none disabled:bg-slate-100">
                                     <option value="">Sem categoria</option>
                                     {categories.map((category) => (
                                         <option key={category.id} value={category.id}>{category.nome}</option>
@@ -168,11 +150,11 @@ export default function AdminProductForm() {
                             </div>
                             <div>
                                 <label className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Código</label>
-                                <Input value={form.codigo} onChange={(event) => setForm((current) => ({ ...current, codigo: event.target.value }))} className="mt-2" />
+                                <Input disabled={editing} value={form.codigo} onChange={(event) => setForm((current) => ({ ...current, codigo: event.target.value }))} className="mt-2 disabled:bg-slate-100" />
                             </div>
                             <div>
                                 <label className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Nome</label>
-                                <Input value={form.nome} onChange={(event) => setForm((current) => ({ ...current, nome: event.target.value }))} className="mt-2" />
+                                <Input disabled={editing} value={form.nome} onChange={(event) => setForm((current) => ({ ...current, nome: event.target.value }))} className="mt-2 disabled:bg-slate-100" />
                             </div>
                             <div>
                                 <label className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Slug</label>
@@ -187,45 +169,43 @@ export default function AdminProductForm() {
                                 <Input value={form.imagem_principal_path} onChange={(event) => setForm((current) => ({ ...current, imagem_principal_path: event.target.value }))} placeholder="/storage/... ou URL" className="mt-2" />
                             </div>
                             <div>
-                                <label className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Stock atual</label>
-                                <Input type="number" min="0" value={form.variantes.length > 0 ? String(variantStockTotal) : form.stock_atual} disabled={form.variantes.length > 0} onChange={(event) => setForm((current) => ({ ...current, stock_atual: event.target.value }))} className="mt-2" />
-                                {form.variantes.length > 0 && <p className="mt-1 text-xs text-slate-500">Calculado pela soma das variantes.</p>}
-                            </div>
-                            <div>
-                                <label className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Stock mínimo</label>
-                                <Input type="number" min="0" value={form.stock_minimo} onChange={(event) => setForm((current) => ({ ...current, stock_minimo: event.target.value }))} className="mt-2" />
-                            </div>
-                            <div>
                                 <label className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Ordem</label>
                                 <Input type="number" value={form.ordem} onChange={(event) => setForm((current) => ({ ...current, ordem: event.target.value }))} className="mt-2" />
                             </div>
                         </div>
+
+                        {editing ? <p className="mt-3 text-xs text-slate-500">Nome, código e categoria são identidade partilhada e devem ser alterados em Configurações → Logística.</p> : null}
 
                         <div className="mt-4">
                             <label className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Descrição</label>
                             <textarea value={form.descricao} onChange={(event) => setForm((current) => ({ ...current, descricao: event.target.value }))} className="mt-2 min-h-[140px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none" />
                         </div>
 
-                        <div className="mt-5 grid gap-3 sm:grid-cols-3">
+                        {product ? (
+                            <div className="mt-5 rounded-md border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-900">
+                                <div className="flex flex-wrap items-center justify-between gap-3">
+                                    <div>
+                                        <p className="font-semibold">Stock disponível: {product.stock_atual} un.</p>
+                                        <p className="mt-1 text-xs text-blue-700">Qualquer entrada, saída ou correção deve ser registada no ledger da Logística.</p>
+                                    </div>
+                                    <Button type="button" variant="outline" size="sm" onClick={() => router.visit('/logistica?tab=stock')}>Abrir Logística</Button>
+                                </div>
+                            </div>
+                        ) : null}
+
+                        <div className="mt-5 grid gap-3">
                             <label className="flex items-center gap-3 rounded-md border border-border px-3 py-2.5 text-sm font-medium text-slate-700">
-                                <input type="checkbox" checked={form.ativo} onChange={(event) => setForm((current) => ({ ...current, ativo: event.target.checked }))} className="h-4 w-4 rounded border-slate-300 text-blue-600" />
-                                Produto ativo
+                                <input type="checkbox" checked={form.publicado} disabled={product ? !product.ativo : false} onChange={(event) => setForm((current) => ({ ...current, publicado: event.target.checked }))} className="h-4 w-4 rounded border-slate-300 text-blue-600" />
+                                Publicado e disponível para venda na Loja
                             </label>
-                            <label className="flex items-center gap-3 rounded-md border border-border px-3 py-2.5 text-sm font-medium text-slate-700">
-                                <input type="checkbox" checked={form.destaque} onChange={(event) => setForm((current) => ({ ...current, destaque: event.target.checked }))} className="h-4 w-4 rounded border-slate-300 text-blue-600" />
-                                Destacar na home
-                            </label>
-                            <label className="flex items-center gap-3 rounded-md border border-border px-3 py-2.5 text-sm font-medium text-slate-700">
-                                <input type="checkbox" checked={form.gere_stock} onChange={(event) => setForm((current) => ({ ...current, gere_stock: event.target.checked }))} className="h-4 w-4 rounded border-slate-300 text-blue-600" />
-                                Gerir stock
-                            </label>
+                            {product && !product.ativo ? <p className="text-xs text-amber-700">Este artigo está globalmente inativo. Ative-o primeiro no catálogo da Logística.</p> : null}
                         </div>
                         </CardContent>
                     </Card>
 
                     <Card>
                         <CardHeader className="pb-2">
-                            <SectionTitle title="Variantes" subtitle="Tamanho, cor, SKU e stock por variante." />
+                            <SectionTitle title="Variantes" subtitle="Tamanho, cor e SKU. O stock de cada variante é movimentado na Logística." />
                         </CardHeader>
                         <CardContent>
                             <div className="flex items-center justify-between gap-3">
@@ -242,11 +222,11 @@ export default function AdminProductForm() {
                                                 <Input value={variant.tamanho || ''} onChange={(event) => updateVariant(index, 'tamanho', event.target.value)} placeholder="Tamanho" />
                                                 <Input value={variant.cor || ''} onChange={(event) => updateVariant(index, 'cor', event.target.value)} placeholder="Cor" />
                                             </div>
-                                            <div className="grid gap-3 sm:grid-cols-3">
+                                            <div className="grid gap-3 sm:grid-cols-2">
                                                 <Input value={variant.sku || ''} onChange={(event) => updateVariant(index, 'sku', event.target.value)} placeholder="SKU" />
                                                 <Input type="number" min="0" step="0.01" value={String(variant.preco_extra || 0)} onChange={(event) => updateVariant(index, 'preco_extra', Number(event.target.value))} placeholder="Extra" />
-                                                <Input type="number" min="0" value={String(variant.stock_atual || 0)} onChange={(event) => updateVariant(index, 'stock_atual', Number(event.target.value))} placeholder="Stock" />
                                             </div>
+                                            <p className="rounded-md bg-white px-3 py-2 text-xs text-slate-600">Stock disponível: {variant.stock_disponivel ?? variant.stock_atual ?? 0} un.</p>
                                             <div className="flex items-center justify-between gap-3">
                                                 <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
                                                     <input type="checkbox" checked={variant.ativo} onChange={(event) => updateVariant(index, 'ativo', event.target.checked)} className="h-4 w-4 rounded border-slate-300 text-blue-600" />

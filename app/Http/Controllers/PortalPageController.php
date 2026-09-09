@@ -6,9 +6,7 @@ use App\Http\Requests\Communication\StoreInternalMessageRequest;
 use App\Models\InternalMessage;
 use App\Models\InternalMessageRecipient;
 use App\Models\Invoice;
-use App\Models\LogisticsRequest;
 use App\Models\Movement;
-use App\Models\Product;
 use App\Models\Result;
 use App\Models\User;
 use App\Services\Communication\InAppAlertService;
@@ -272,103 +270,6 @@ class PortalPageController extends Controller
         $internalCommunicationService->deleteSent($message);
 
         return back()->with('success', 'Comunicação removida dos enviados.');
-    }
-
-    public function shop(Request $request, FamilyService $familyService): Response
-    {
-        /** @var User $user */
-        $user = $request->user();
-
-        $products = Product::query()
-            ->active()
-            ->visibleInStore()
-            ->orderBy('nome')
-            ->get()
-            ->map(function (Product $product) {
-                $availableStock = $product->available_stock;
-                $variantOptions = array_values(array_filter((array) ($product->variant_options ?? [])));
-
-                $availability = 'available';
-                $availabilityLabel = 'Disponível';
-
-                if ($availableStock <= 0) {
-                    $availability = $product->ativo ? 'on_order' : 'unavailable';
-                    $availabilityLabel = $product->ativo ? 'Por encomenda' : 'Indisponível';
-                } elseif ($product->is_low_stock) {
-                    $availability = 'limited';
-                    $availabilityLabel = 'Stock limitado';
-                }
-
-                return [
-                    'id' => $product->id,
-                    'name' => $product->nome,
-                    'description' => $product->descricao,
-                    'price' => $product->preco !== null ? (float) $product->preco : null,
-                    'category' => $product->categoria ?: 'Geral',
-                    'availability' => $availability,
-                    'availability_label' => $availabilityLabel,
-                    'stock_available' => $availableStock,
-                    'sizes' => $variantOptions,
-                    'has_price' => $product->preco !== null && (float) $product->preco > 0,
-                ];
-            })
-            ->values();
-
-        $requests = LogisticsRequest::query()
-            ->where(function (Builder $query) use ($user) {
-                $query->where('requester_user_id', $user->id)
-                    ->orWhere('created_by', $user->id);
-            })
-            ->with('items:id,logistics_request_id,article_name_snapshot')
-            ->latest()
-            ->limit(20)
-            ->get()
-            ->map(function (LogisticsRequest $request) {
-                return [
-                    'id' => $request->id,
-                    'article' => $request->items->first()?->article_name_snapshot ?: 'Pedido sem artigo associado',
-                    'requested_at' => $request->created_at?->format('Y-m-d H:i:s'),
-                    'status' => $request->status,
-                    'status_label' => match ($request->status) {
-                        'approved' => 'Aprovado',
-                        'delivered' => 'Entregue',
-                        'cancelled' => 'Rejeitado',
-                        default => 'Pendente',
-                    },
-                    'has_invoice' => ! empty($request->financial_invoice_id),
-                    'total_amount' => (float) $request->total_amount,
-                ];
-            })
-            ->values();
-
-        $categories = $products
-            ->pluck('category')
-            ->filter()
-            ->unique()
-            ->values();
-
-        $summary = [
-            'available_articles' => $products->count(),
-            'pending_requests' => $requests->where('status', 'pending')->count(),
-            'delivered_requests' => $requests->where('status', 'delivered')->count(),
-            'low_stock_articles' => $products->where('availability', 'limited')->count(),
-        ];
-
-        return Inertia::render('Portal/Shop', [
-            'is_also_admin' => $familyService->userHasAdministratorProfile($user),
-            'has_family' => $familyService->userHasFamily($user),
-            'shop' => [
-                'summary' => $summary,
-                'products' => $products,
-                'requests' => $requests,
-                'categories' => $categories,
-                'notes' => [
-                    'Os pedidos dependem sempre de confirmação de stock pelo clube.',
-                    'A submissão da encomenda gera a obrigação financeira correspondente.',
-                    'Requisições e empréstimos podem exigir aprovação antes da entrega.',
-                ],
-            ],
-        ]);
     }
 
     private function renderPage(string $component, Request $request, FamilyService $familyService): Response

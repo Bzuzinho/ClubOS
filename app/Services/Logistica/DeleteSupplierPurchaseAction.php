@@ -10,6 +10,7 @@ use App\Models\StockMovement;
 use App\Models\SupplierPurchase;
 use App\Models\SupplierPurchaseDeletionAudit;
 use App\Models\User;
+use App\Services\Catalog\CanonicalProductStockService;
 use App\Services\Inventario\StockLedgerService;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -21,6 +22,8 @@ class DeleteSupplierPurchaseAction
     public function __construct(
         private readonly SupplierPurchaseFinancialGuardService $financialGuardService,
         private readonly StockLedgerService $stockLedger,
+        private readonly ProductProcurementCostService $procurementCostService,
+        private readonly CanonicalProductStockService $stockService,
     ) {
     }
 
@@ -37,6 +40,12 @@ class DeleteSupplierPurchaseAction
                 ->lockForUpdate()
                 ->with('items')
                 ->firstOrFail();
+            $affectedProductIds = $purchase->items
+                ->pluck('article_id')
+                ->filter()
+                ->map('strval')
+                ->unique()
+                ->values();
 
             $blockingReasons = $this->financialGuardService->blockingReasons($purchase);
             if ($blockingReasons !== []) {
@@ -81,6 +90,8 @@ class DeleteSupplierPurchaseAction
                     continue;
                 }
 
+                $this->stockService->ensureProductLevelOperationIsUnambiguous($product, 'purchase');
+
                 try {
                     $this->stockLedger->registerExit($product, (int) $item->quantity, [
                         'source_type' => 'supplier_purchase_delete',
@@ -123,6 +134,8 @@ class DeleteSupplierPurchaseAction
 
             $purchase->items()->delete();
             $purchase->delete();
+
+            $affectedProductIds->each(fn (string $productId) => $this->procurementCostService->refreshFromLatestPurchase($productId));
 
             if ($storedPaths !== []) {
                 DB::afterCommit(function () use ($storedPaths): void {

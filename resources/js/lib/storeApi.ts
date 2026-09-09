@@ -38,6 +38,7 @@ export interface StoreVariant {
     sku?: string | null;
     preco_extra: number;
     stock_atual: number;
+    stock_disponivel?: number;
     etiqueta?: string | null;
     ativo?: boolean;
 }
@@ -52,7 +53,7 @@ export interface StoreProduct {
     preco: number;
     imagem_principal_path?: string | null;
     ativo: boolean;
-    destaque: boolean;
+    publicado?: boolean;
     gere_stock: boolean;
     stock_atual: number;
     stock_minimo?: number | null;

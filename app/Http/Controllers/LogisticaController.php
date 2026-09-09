@@ -45,29 +45,40 @@ class LogisticaController extends Controller
         $identityResolver = app(MemberIdentityDisplayResolver::class);
 
         $products = Product::query()
-            ->with('supplier:id,nome')
+            ->with(['category:id,nome', 'supplier:id,nome', 'variants' => fn ($query) => $query->active()->orderBy('nome')])
             ->orderBy('nome')
             ->get()
             ->map(function (Product $product) {
                 $stock = (int) $product->stock;
                 $reserved = (int) ($product->stock_reservado ?? 0);
                 $available = $stock - $reserved;
+                $tracksStock = (bool) $product->tracks_stock;
 
                 return [
                     'id' => $product->id,
                     'codigo' => $product->codigo,
                     'nome' => $product->nome,
-                    'categoria' => $product->categoria,
+                    'categoria' => $product->category?->nome ?? $product->categoria,
+                    'categoria_id' => $product->categoria_id,
                     'preco' => (float) $product->preco,
+                    'ultimo_custo' => (float) ($product->ultimo_custo ?? 0),
                     'stock' => $stock,
                     'stock_reservado' => $reserved,
                     'stock_disponivel' => $available,
                     'stock_minimo' => (int) $product->stock_minimo,
-                    'status' => $available <= (int) $product->stock_minimo ? 'baixo' : 'ok',
+                    'status' => ! $tracksStock ? 'sem_gestao' : ($available <= (int) $product->stock_minimo ? 'baixo' : 'ok'),
                     'ativo' => (bool) $product->ativo,
                     'allow_request' => (bool) $product->allow_request,
                     'allow_loan' => (bool) $product->allow_loan,
-                    'tracks_stock' => (bool) $product->tracks_stock,
+                    'tracks_stock' => $tracksStock,
+                    'variants' => $product->variants->map(fn ($variant) => [
+                        'id' => $variant->id,
+                        'label' => $variant->label ?: ($variant->sku ?: 'Variante'),
+                        'sku' => $variant->sku,
+                        'stock' => (int) $variant->stock,
+                        'stock_reservado' => (int) $variant->stock_reservado,
+                        'stock_disponivel' => (int) $variant->available_stock,
+                    ])->values(),
                     'supplier' => $product->supplier ? [
                         'id' => $product->supplier->id,
                         'nome' => $product->supplier->nome,
@@ -101,8 +112,8 @@ class LogisticaController extends Controller
             ->limit(200)
             ->get();
 
-        $lowStockCount = $products->filter(fn ($p) => $p['status'] === 'baixo')->count();
-        $stockValuation = $products->sum(fn ($p) => ((float) $p['preco']) * ((int) $p['stock']));
+        $lowStockCount = $products->filter(fn ($p) => $p['ativo'] && $p['tracks_stock'] && $p['status'] === 'baixo')->count();
+        $stockValuation = $products->filter(fn ($p) => $p['tracks_stock'])->sum(fn ($p) => ((float) $p['ultimo_custo']) * ((int) $p['stock']));
         $pendingRequests = $requests->whereIn('status', ['pending', 'approved', 'invoiced'])->count();
         $activeLoans = $loans->whereIn('status', ['active', 'overdue'])->count();
 
@@ -145,7 +156,7 @@ class LogisticaController extends Controller
                 ->values(),
             'userTypes' => UserType::query()->where('ativo', true)->orderBy('nome')->get(['id', 'nome']),
             'requests' => $requests,
-            'stockMovements' => StockMovement::query()->with('article:id,nome')->latest()->limit(200)->get(),
+            'stockMovements' => StockMovement::query()->with(['article:id,nome', 'productVariant:id,nome,tamanho,cor,sku'])->latest()->limit(200)->get(),
             'loans' => $loans,
             'supplierPurchases' => $supplierPurchases,
             'dashboard' => [

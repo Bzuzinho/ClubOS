@@ -5,39 +5,42 @@ namespace App\Http\Controllers;
 use App\Models\ItemCategory;
 use App\Models\Product;
 use App\Models\ProductVariant;
-use App\Services\Inventario\StockLedgerService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
 
 class AdminLojaProdutoController extends Controller
 {
-    public function __construct(
-        private readonly StockLedgerService $stockLedger,
-    ) {
-    }
-
     public function index(Request $request): Response|JsonResponse
     {
         $query = Product::query()
             ->with(['category:id,nome', 'variants'])
-            ->allowSale()
             ->ordered();
 
         if ($request->filled('categoria_id')) {
             $query->where('categoria_id', $request->string('categoria_id')->value());
         }
 
-        if ($request->filled('ativo')) {
-            $query->where('ativo', $request->boolean('ativo'));
+        if ($request->filled('publicado')) {
+            $published = $request->boolean('publicado');
+            if ($published) {
+                $query->where('ativo', true)->where('visible_in_store', true)->where('allow_sale', true);
+            } else {
+                $query->where(function ($subQuery) {
+                    $subQuery->where('ativo', false)
+                        ->orWhere('visible_in_store', false)
+                        ->orWhere('allow_sale', false);
+                });
+            }
         }
 
         if ($request->boolean('stock_baixo')) {
-            $query->whereRaw('(stock - COALESCE(stock_reservado, 0)) <= stock_minimo');
+            $query->active()->lowStock();
         }
 
         if ($request->filled('search')) {
@@ -58,7 +61,7 @@ class AdminLojaProdutoController extends Controller
         return Inertia::render('Admin/Store/AdminProductList', [
             'products' => $products,
             'categories' => $this->categoriesPayload(),
-            'filters' => $request->only(['search', 'categoria_id', 'ativo', 'stock_baixo']),
+            'filters' => $request->only(['search', 'categoria_id', 'publicado', 'stock_baixo']),
         ]);
     }
 
@@ -73,20 +76,15 @@ class AdminLojaProdutoController extends Controller
     public function store(Request $request): JsonResponse
     {
         $input = $this->validatePayload($request);
-        $desiredStock = (int) $input['stock_atual'];
         $variants = is_array($request->input('variantes')) ? $request->input('variantes') : [];
 
-        $product = DB::transaction(function () use ($input, $desiredStock, $variants, $request): Product {
+        $product = DB::transaction(function () use ($input, $variants): Product {
             $product = Product::create([
                 ...$this->normalizePayload($input),
                 'stock' => 0,
                 'stock_reservado' => 0,
             ]);
-            $hasVariants = $this->syncVariants($product, $variants, (string) $request->user()?->id);
-
-            if (! $hasVariants) {
-                $this->stockLedger->adjustProductToStock($product, $desiredStock, $this->catalogAdjustmentContext($product));
-            }
+            $this->syncVariants($product, $variants);
 
             return $product;
         });
@@ -110,21 +108,19 @@ class AdminLojaProdutoController extends Controller
     public function update(Request $request, Product $produto): JsonResponse
     {
         $input = $this->validatePayload($request, $produto);
-        $desiredStock = (int) $input['stock_atual'];
         $variants = is_array($request->input('variantes')) ? $request->input('variantes') : [];
+        $shouldSyncVariants = $request->has('variantes');
 
-        DB::transaction(function () use ($input, $desiredStock, $variants, $produto, $request): void {
+        if ((bool) $input['publicado'] && ! $produto->ativo) {
+            throw ValidationException::withMessages([
+                'publicado' => 'O artigo está globalmente inativo. Ative-o primeiro no catálogo da Logística.',
+            ]);
+        }
+
+        DB::transaction(function () use ($input, $variants, $produto, $shouldSyncVariants): void {
             $produto->update($this->normalizePayload($input, $produto));
-            $hadVariants = $produto->variants()->exists();
-
-            if ($variants !== [] && ! $hadVariants) {
-                $this->stockLedger->adjustProductToStock($produto, 0, $this->catalogAdjustmentContext($produto));
-            }
-
-            $hasVariants = $this->syncVariants($produto, $variants, (string) $request->user()?->id);
-
-            if (! $hasVariants) {
-                $this->stockLedger->adjustProductToStock($produto, $desiredStock, $this->catalogAdjustmentContext($produto));
+            if ($shouldSyncVariants) {
+                $this->syncVariants($produto, $variants);
             }
         });
 
@@ -152,66 +148,75 @@ class AdminLojaProdutoController extends Controller
             'descricao' => ['nullable', 'string'],
             'preco' => ['required', 'numeric', 'min:0'],
             'imagem_principal_path' => ['nullable', 'string', 'max:255'],
-            'ativo' => ['required', 'boolean'],
-            'destaque' => ['required', 'boolean'],
-            'gere_stock' => ['required', 'boolean'],
-            'stock_atual' => ['required', 'integer', 'min:0'],
-            'stock_minimo' => ['nullable', 'integer', 'min:0'],
+            'publicado' => ['required', 'boolean'],
             'ordem' => ['nullable', 'integer'],
+            'variantes' => ['sometimes', 'array'],
         ]);
     }
 
     private function normalizePayload(array $validated, ?Product $produto = null): array
     {
         $salePrice = (float) $validated['preco'];
+        $published = (bool) $validated['publicado'];
 
         return [
-            'categoria_id' => $validated['categoria_id'] ?? null,
-            'codigo' => $validated['codigo'] ?? null,
-            'nome' => $validated['nome'],
+            'categoria_id' => $produto?->categoria_id ?? ($validated['categoria_id'] ?? null),
+            'codigo' => $produto?->codigo ?? ($validated['codigo'] ?? null),
+            'nome' => $produto?->nome ?? $validated['nome'],
             'slug' => $this->resolveSlug($validated['slug'] ?? $produto?->slug, $validated['nome']),
             'descricao' => $validated['descricao'] ?? null,
             'preco' => $produto?->preco ?? $salePrice,
             'preco_venda' => $salePrice,
-            'stock_minimo' => $validated['stock_minimo'] ?? 0,
             'imagem' => $validated['imagem_principal_path'] ?? null,
-            'ativo' => (bool) $validated['ativo'],
-            'visible_in_store' => (bool) $validated['ativo'],
-            'destaque' => (bool) $validated['destaque'],
-            'allow_sale' => true,
-            'allow_request' => (bool) ($produto?->allow_request ?? false),
-            'allow_loan' => (bool) ($produto?->allow_loan ?? false),
-            'track_stock' => (bool) $validated['gere_stock'],
+            'visible_in_store' => $published,
+            'allow_sale' => $published,
             'ordem' => $validated['ordem'] ?? null,
+            ...($produto ? [] : [
+                'ativo' => true,
+                'destaque' => false,
+                'allow_request' => false,
+                'allow_loan' => false,
+                'track_stock' => true,
+                'stock_minimo' => 0,
+            ]),
         ];
     }
 
-    private function syncVariants(Product $produto, array $variantes, ?string $actorId = null): bool
+    private function syncVariants(Product $produto, array $variantes): void
     {
+        $createsFirstVariant = collect($variantes)->contains(fn ($variant) => blank($variant['id'] ?? null))
+            && ! $produto->variants()->exists();
+
+        if ($createsFirstVariant && ((int) $produto->stock !== 0 || (int) $produto->stock_reservado !== 0)) {
+            throw ValidationException::withMessages([
+                'variantes' => 'Antes de criar variantes, regularize o stock agregado deste artigo para zero na Logística.',
+            ]);
+        }
+
         $existingIds = collect($variantes)->pluck('id')->filter()->all();
         $retired = $produto->variants()
             ->when($existingIds !== [], fn ($query) => $query->whereNotIn('id', $existingIds))
             ->get();
 
         foreach ($retired as $variant) {
-            $this->stockLedger->adjustVariantToStock(
-                $produto,
-                $variant,
-                0,
-                $this->catalogAdjustmentContext($produto, $variant, $actorId),
-            );
+            if ((int) $variant->stock !== 0 || (int) $variant->stock_reservado !== 0) {
+                throw ValidationException::withMessages([
+                    'variantes' => "A variante {$variant->label} ainda tem stock. Regularize-o na Logística antes de a remover.",
+                ]);
+            }
+
             $variant->update(['ativo' => false]);
         }
 
         foreach ($variantes as $variant) {
+            $variantId = $variant['id'] ?? null;
             $payload = validator($variant, [
                 'id' => ['nullable', 'uuid'],
                 'nome' => ['nullable', 'string', 'max:255'],
                 'tamanho' => ['nullable', 'string', 'max:80'],
                 'cor' => ['nullable', 'string', 'max:80'],
-                'sku' => ['nullable', 'string', 'max:120'],
+                'sku' => ['nullable', 'string', 'max:120', Rule::unique('product_variants', 'sku')->ignore($variantId)],
                 'preco_extra' => ['nullable', 'numeric', 'min:0'],
-                'stock_atual' => ['nullable', 'integer', 'min:0'],
                 'ativo' => ['required', 'boolean'],
             ])->validate();
 
@@ -225,7 +230,12 @@ class AdminLojaProdutoController extends Controller
                     'stock_reservado' => 0,
                 ]);
 
-            $desiredStock = (int) ($payload['stock_atual'] ?? 0);
+            if (! (bool) $payload['ativo']
+                && ((int) $variantModel->stock !== 0 || (int) $variantModel->stock_reservado !== 0)) {
+                throw ValidationException::withMessages([
+                    'variantes' => "A variante {$variantModel->label} ainda tem stock. Regularize-o na Logística antes de a desativar.",
+                ]);
+            }
 
             $variantModel->fill([
                 'nome' => $payload['nome'] ?? null,
@@ -237,37 +247,13 @@ class AdminLojaProdutoController extends Controller
             ]);
             $variantModel->product_id = $produto->id;
             $variantModel->save();
-
-            $this->stockLedger->adjustVariantToStock(
-                $produto,
-                $variantModel,
-                $desiredStock,
-                $this->catalogAdjustmentContext($produto, $variantModel, $actorId),
-            );
         }
-
-        return $variantes !== [];
-    }
-
-    /** @return array<string,mixed> */
-    private function catalogAdjustmentContext(Product $product, ?ProductVariant $variant = null, ?string $actorId = null): array
-    {
-        return [
-            'source_type' => 'catalog_manual_adjustment',
-            'source_id' => $variant?->id ?? $product->id,
-            'idempotency_key' => 'catalog-adjustment-'.Str::uuid(),
-            'notes' => $variant
-                ? 'Ajuste manual de stock de variante no catálogo'
-                : 'Ajuste manual de stock de produto no catálogo',
-            'created_by' => filled($actorId) ? $actorId : null,
-        ];
     }
 
     private function categoriesPayload(): array
     {
         return ItemCategory::query()
             ->active()
-            ->forContext('loja')
             ->orderBy('nome')
             ->get(['id', 'codigo', 'nome', 'contexto'])
             ->toArray();
@@ -290,9 +276,9 @@ class AdminLojaProdutoController extends Controller
             'preco' => (float) $produto->sale_price,
             'imagem_principal_path' => $produto->imagem,
             'ativo' => (bool) $produto->ativo,
-            'destaque' => (bool) $produto->destaque,
+            'publicado' => (bool) ($produto->ativo && $produto->visible_in_store && $produto->allow_sale),
             'gere_stock' => (bool) $produto->tracks_stock,
-            'stock_atual' => (int) $produto->stock,
+            'stock_atual' => (int) $produto->available_stock,
             'stock_minimo' => $produto->stock_minimo,
             'tem_stock_baixo' => $produto->is_low_stock,
             'ordem' => $produto->ordem,
@@ -308,6 +294,7 @@ class AdminLojaProdutoController extends Controller
                 'sku' => $variante->sku,
                 'preco_extra' => (float) $variante->preco_extra,
                 'stock_atual' => (int) $variante->stock,
+                'stock_disponivel' => (int) $variante->available_stock,
                 'ativo' => (bool) $variante->ativo,
             ])->values(),
         ];

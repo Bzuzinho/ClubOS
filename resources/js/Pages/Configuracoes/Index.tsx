@@ -136,13 +136,16 @@ interface Product {
     codigo: string;
     nome: string;
     categoria?: string | null;
+    categoria_id?: string | null;
+    supplier_id?: string | null;
+    category?: { id: string; nome: string } | null;
+    supplier?: { id: string; nome: string } | null;
     preco: number;
     stock_minimo?: number;
     area_armazenamento?: string | null;
     descricao?: string | null;
     imagem?: string | null;
     ativo: boolean;
-    visible_in_store?: boolean;
     allow_request?: boolean;
     allow_loan?: boolean;
     track_stock?: boolean;
@@ -660,12 +663,18 @@ export default function SettingsIndex({
         return 'geral-tipos-utilizador';
     });
     const [currentFinanceiroTab, setCurrentFinanceiroTab] = useState('financeiro-mensalidades');
-    const [currentLogisticaTab, setCurrentLogisticaTab] = useState('logistica-artigos');
+    const [currentLogisticaTab, setCurrentLogisticaTab] = useState(() => {
+        if (typeof window !== 'undefined') {
+            const requested = new URLSearchParams(window.location.search).get('subtab');
+            return requested?.startsWith('logistica-') ? requested : 'logistica-artigos';
+        }
+
+        return 'logistica-artigos';
+    });
     const [currentNotificacoesTab, setCurrentNotificacoesTab] = useState('fontes-dinamicas');
     const [loadingRootTab, setLoadingRootTab] = useState<string | null>(null);
     const [dialogOpen, setDialogOpen] = useState(false);
     const [editingItem, setEditingItem] = useState<any>(null);
-    const [productImagePreview, setProductImagePreview] = useState<string | null>(null);
     const [sponsorLogoPreview, setSponsorLogoPreview] = useState<string | null>(null);
     const [dynamicSourceDialogOpen, setDynamicSourceDialogOpen] = useState(false);
     const [editingDynamicSource, setEditingDynamicSource] = useState<CommunicationDynamicSource | null>(null);
@@ -928,14 +937,14 @@ export default function SettingsIndex({
         }
         if (type === 'product') {
             setData('ativo', true);
-            setData('visible_in_store', false);
+            setData('categoria_id', '');
+            setData('supplier_id', '');
             setData('allow_request', true);
             setData('allow_loan', false);
             setData('track_stock', true);
             setData('stock_minimo', 0);
             setData('area_armazenamento', '');
         }
-        if (type === 'product') setProductImagePreview(null);
         if (type === 'item-category') {
             setData('ativo', true);
         }
@@ -972,9 +981,6 @@ export default function SettingsIndex({
             setData(item);
         }
         setEditingItem({ ...item, type });
-        if (type === 'product') {
-            setProductImagePreview(item.imagem || null);
-        }
         setDialogOpen(true);
     };
 
@@ -985,11 +991,6 @@ export default function SettingsIndex({
 
         const type = editingItem.type;
         const isEditing = !!editingItem.id;
-        const shouldUseMethodSpoofing = type === 'product' && isEditing;
-
-        if (shouldUseMethodSpoofing) {
-            setData('_method', 'put');
-        }
 
         const routes: Record<string, string> = {
             'age-group': isEditing 
@@ -1040,12 +1041,11 @@ export default function SettingsIndex({
         };
 
         const options = {
-            ...((type === 'product' || type === 'sponsor') && { forceFormData: true }),
+            ...(type === 'sponsor' && { forceFormData: true }),
             onSuccess: () => {
                 setDialogOpen(false);
                 reset();
                 setEditingItem(null);
-                if (type === 'product') setProductImagePreview(null);
                 if (type === 'sponsor') setSponsorLogoPreview(null);
                 toast.success(isEditing ? 'Atualizado com sucesso!' : 'Criado com sucesso!');
             },
@@ -1055,9 +1055,7 @@ export default function SettingsIndex({
             },
         };
 
-        if (shouldUseMethodSpoofing) {
-            post(routes[type], options);
-        } else if (isEditing) {
+        if (isEditing) {
             put(routes[type], options);
         } else {
             post(routes[type], options);
@@ -2298,10 +2296,10 @@ export default function SettingsIndex({
                                             <TableHead>Imagem</TableHead>
                                             <TableHead>Nome</TableHead>
                                             <TableHead>Categoria</TableHead>
-                                            <TableHead>Preco</TableHead>
+                                            <TableHead>Preço base</TableHead>
                                             <TableHead>Stock Mínimo</TableHead>
                                             <TableHead>Área de armazenamento</TableHead>
-                                            <TableHead>Visível na Loja</TableHead>
+                                            <TableHead>Fornecedor</TableHead>
                                             <TableHead>Requisição</TableHead>
                                             <TableHead>Empréstimo</TableHead>
                                             <TableHead>Gere Stock</TableHead>
@@ -2328,15 +2326,11 @@ export default function SettingsIndex({
                                                         )}
                                                     </TableCell>
                                                     <TableCell>{product.nome}</TableCell>
-                                                    <TableCell>{product.categoria || '-'}</TableCell>
+                                                    <TableCell>{product.category?.nome || product.categoria || '-'}</TableCell>
                                                     <TableCell>€{Number(product.preco).toFixed(2)}</TableCell>
                                                     <TableCell>{product.stock_minimo ?? 0}</TableCell>
                                                     <TableCell>{product.area_armazenamento || '-'}</TableCell>
-                                                    <TableCell>
-                                                        <Badge variant={product.visible_in_store ? 'secondary' : 'outline'}>
-                                                            {product.visible_in_store ? 'Sim' : 'Não'}
-                                                        </Badge>
-                                                    </TableCell>
+                                                    <TableCell>{product.supplier?.nome || '-'}</TableCell>
                                                     <TableCell>
                                                         <Badge variant={product.allow_request ? 'secondary' : 'outline'}>
                                                             {product.allow_request ? 'Sim' : 'Não'}
@@ -3782,18 +3776,18 @@ export default function SettingsIndex({
                                                 />
                                             </div>
                                             <div className="space-y-2 sm:col-span-1 lg:col-span-2">
-                                                <Label htmlFor="categoria">Categoria</Label>
+                                                <Label htmlFor="categoria_id">Categoria</Label>
                                                 <Select
-                                                    value={data.categoria || ''}
-                                                    onValueChange={(value) => setData('categoria', value === '__none__' ? '' : value)}
+                                                    value={data.categoria_id || '__none__'}
+                                                    onValueChange={(value) => setData('categoria_id', value === '__none__' ? '' : value)}
                                                 >
-                                                    <SelectTrigger id="categoria">
+                                                    <SelectTrigger id="categoria_id">
                                                         <SelectValue placeholder="Selecionar categoria" />
                                                     </SelectTrigger>
                                                     <SelectContent>
                                                         <SelectItem value="__none__">— Sem categoria —</SelectItem>
                                                         {itemCategories.map((cat) => (
-                                                            <SelectItem key={cat.id} value={cat.nome}>
+                                                            <SelectItem key={cat.id} value={cat.id}>
                                                                 {cat.nome}
                                                             </SelectItem>
                                                         ))}
@@ -3801,7 +3795,7 @@ export default function SettingsIndex({
                                                 </Select>
                                             </div>
                                             <div className="space-y-2 sm:col-span-1 lg:col-span-2">
-                                                <Label htmlFor="preco">Preço de venda (€) *</Label>
+                                                <Label htmlFor="preco">Preço base / valor de referência (€) *</Label>
                                                 <Input
                                                     id="preco"
                                                     type="number"
@@ -3823,7 +3817,7 @@ export default function SettingsIndex({
                                             <h3 id="product-logistics-heading" className="text-sm font-semibold">Stock e localização</h3>
                                             <p className="text-xs text-muted-foreground">Defina como o artigo é controlado e onde está guardado.</p>
                                         </div>
-                                        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                                        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
                                             <div className="space-y-2">
                                                 <Label htmlFor="track_stock">Gerir stock</Label>
                                                 <Select
@@ -3858,6 +3852,21 @@ export default function SettingsIndex({
                                                     placeholder="Ex.: Prateleira A3"
                                                 />
                                             </div>
+                                            <div className="space-y-2">
+                                                <Label htmlFor="supplier_id">Fornecedor preferencial</Label>
+                                                <Select
+                                                    value={data.supplier_id || '__none__'}
+                                                    onValueChange={(value) => setData('supplier_id', value === '__none__' ? '' : value)}
+                                                >
+                                                    <SelectTrigger id="supplier_id"><SelectValue placeholder="Selecionar fornecedor" /></SelectTrigger>
+                                                    <SelectContent>
+                                                        <SelectItem value="__none__">— Sem fornecedor —</SelectItem>
+                                                        {suppliers.filter((supplier) => supplier.ativo).map((supplier) => (
+                                                            <SelectItem key={supplier.id} value={supplier.id}>{supplier.nome}</SelectItem>
+                                                        ))}
+                                                    </SelectContent>
+                                                </Select>
+                                            </div>
                                         </div>
                                     </section>
 
@@ -3868,20 +3877,7 @@ export default function SettingsIndex({
                                             <h3 id="product-availability-heading" className="text-sm font-semibold">Disponibilidade</h3>
                                             <p className="text-xs text-muted-foreground">Escolha os fluxos em que este artigo pode aparecer.</p>
                                         </div>
-                                        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                                            <div className="space-y-2">
-                                                <Label htmlFor="visible_in_store">Visível na loja</Label>
-                                                <Select
-                                                    value={(data.visible_in_store ?? false) ? 'sim' : 'nao'}
-                                                    onValueChange={(value) => setData('visible_in_store', value === 'sim')}
-                                                >
-                                                    <SelectTrigger id="visible_in_store"><SelectValue placeholder="Selecionar" /></SelectTrigger>
-                                                    <SelectContent>
-                                                        <SelectItem value="sim">Sim</SelectItem>
-                                                        <SelectItem value="nao">Não</SelectItem>
-                                                    </SelectContent>
-                                                </Select>
-                                            </div>
+                                        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
                                             <div className="space-y-2">
                                                 <Label htmlFor="allow_request">Permitir requisição</Label>
                                                 <Select
@@ -3922,6 +3918,9 @@ export default function SettingsIndex({
                                                 </Select>
                                             </div>
                                         </div>
+                                        <p className="rounded-md border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-800">
+                                            A publicação, o preço de venda, as imagens comerciais e os destaques são geridos no módulo Loja.
+                                        </p>
                                     </section>
 
                                     <Separator />
@@ -3929,9 +3928,9 @@ export default function SettingsIndex({
                                     <section className="space-y-3" aria-labelledby="product-details-heading">
                                         <div>
                                             <h3 id="product-details-heading" className="text-sm font-semibold">Detalhes</h3>
-                                            <p className="text-xs text-muted-foreground">Informação adicional e imagem do artigo.</p>
+                                            <p className="text-xs text-muted-foreground">Informação interna adicional sobre o artigo.</p>
                                         </div>
-                                        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                                        <div className="grid grid-cols-1 gap-4">
                                             <div className="space-y-2">
                                                 <Label htmlFor="descricao">Descrição</Label>
                                                 <Textarea
@@ -3940,29 +3939,6 @@ export default function SettingsIndex({
                                                     value={data.descricao || ''}
                                                     onChange={e => setData('descricao', e.target.value)}
                                                 />
-                                            </div>
-                                            <div className="space-y-2">
-                                                <Label htmlFor="imagem_file">Imagem do artigo</Label>
-                                                <input
-                                                    id="imagem_file"
-                                                    type="file"
-                                                    accept="image/*"
-                                                    className="block w-full cursor-pointer text-sm text-muted-foreground file:mr-4 file:rounded file:border-0 file:bg-secondary file:px-3 file:py-2 file:text-sm file:font-medium file:text-secondary-foreground hover:file:bg-secondary/80"
-                                                    onChange={(e) => {
-                                                        const file = e.target.files?.[0] || null;
-                                                        setData('imagem_file', file);
-                                                        if (file) {
-                                                            setProductImagePreview(URL.createObjectURL(file));
-                                                        }
-                                                    }}
-                                                />
-                                                {productImagePreview && (
-                                                    <img
-                                                        src={productImagePreview}
-                                                        alt="Pré-visualização do artigo"
-                                                        className="h-24 w-24 rounded border object-cover"
-                                                    />
-                                                )}
                                             </div>
                                         </div>
                                     </section>

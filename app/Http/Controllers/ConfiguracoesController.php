@@ -185,7 +185,10 @@ class ConfiguracoesController extends Controller
         }
 
         return [
-            'products' => Product::all(),
+            'products' => Product::query()
+                ->with(['category:id,nome', 'supplier:id,nome'])
+                ->orderBy('nome')
+                ->get(),
             'sponsors' => Sponsor::orderBy('nome')->get(),
             'suppliers' => Supplier::all(),
             'itemCategories' => ItemCategory::orderBy('nome')->get(),
@@ -720,26 +723,26 @@ class ConfiguracoesController extends Controller
         $data = $request->validate([
             'codigo' => 'required|string|max:50|unique:products,codigo',
             'nome' => 'required|string|max:255',
-            'categoria' => 'nullable|string|max:100',
+            'categoria_id' => 'nullable|uuid|exists:item_categories,id',
+            'supplier_id' => 'nullable|uuid|exists:suppliers,id',
             'preco' => 'required|numeric|min:0',
             'stock_minimo' => 'nullable|integer|min:0',
             'area_armazenamento' => 'nullable|string|max:120',
             'descricao' => 'nullable|string',
             'ativo' => 'boolean',
-            'visible_in_store' => 'boolean',
             'allow_request' => 'boolean',
             'allow_loan' => 'boolean',
             'track_stock' => 'boolean',
         ]);
 
-        if ($request->hasFile('imagem_file')) {
-            $path = $request->file('imagem_file')->store('products', 'public');
-            $data['imagem'] = Storage::url($path);
-        }
-        unset($data['imagem_file']);
+        $data['categoria'] = filled($data['categoria_id'] ?? null)
+            ? ItemCategory::query()->whereKey($data['categoria_id'])->value('nome')
+            : null;
 
         $data['stock'] = $data['stock'] ?? 0;
         $data['stock_minimo'] = $data['stock_minimo'] ?? 0;
+        $data['visible_in_store'] = false;
+        $data['allow_sale'] = false;
 
         Product::create($data);
         $this->forgetLogisticaCaches();
@@ -753,23 +756,21 @@ class ConfiguracoesController extends Controller
         $data = $request->validate([
             'codigo' => 'required|string|max:50|unique:products,codigo,' . $product->id,
             'nome' => 'required|string|max:255',
-            'categoria' => 'nullable|string|max:100',
+            'categoria_id' => 'nullable|uuid|exists:item_categories,id',
+            'supplier_id' => 'nullable|uuid|exists:suppliers,id',
             'preco' => 'required|numeric|min:0',
             'stock_minimo' => 'nullable|integer|min:0',
             'area_armazenamento' => 'nullable|string|max:120',
             'descricao' => 'nullable|string',
             'ativo' => 'boolean',
-            'visible_in_store' => 'boolean',
             'allow_request' => 'boolean',
             'allow_loan' => 'boolean',
             'track_stock' => 'boolean',
         ]);
 
-        if ($request->hasFile('imagem_file')) {
-            $path = $request->file('imagem_file')->store('products', 'public');
-            $data['imagem'] = Storage::url($path);
-        }
-        unset($data['imagem_file']);
+        $data['categoria'] = filled($data['categoria_id'] ?? null)
+            ? ItemCategory::query()->whereKey($data['categoria_id'])->value('nome')
+            : null;
 
         $product->update($data);
         $this->forgetLogisticaCaches();
@@ -945,7 +946,18 @@ class ConfiguracoesController extends Controller
             'ativo' => 'boolean',
         ]);
 
-        $itemCategory->update($data);
+        if (! ($data['ativo'] ?? $itemCategory->ativo) && ($itemCategory->products()->exists() || $itemCategory->lojaHeroItems()->exists())) {
+            return back()->withErrors([
+                'ativo' => 'Reatribua primeiro os artigos e destaques desta categoria antes de a desativar.',
+            ]);
+        }
+
+        DB::transaction(function () use ($itemCategory, $data): void {
+            $itemCategory->update($data);
+            Product::query()
+                ->where('categoria_id', $itemCategory->id)
+                ->update(['categoria' => $itemCategory->nome]);
+        });
         $this->forgetLogisticaCaches();
 
         return redirect()->route('configuracoes')
@@ -954,6 +966,12 @@ class ConfiguracoesController extends Controller
 
     public function destroyItemCategory(ItemCategory $itemCategory): RedirectResponse
     {
+        if ($itemCategory->products()->exists() || $itemCategory->lojaHeroItems()->exists()) {
+            return back()->withErrors([
+                'categoria' => 'Reatribua primeiro os artigos e destaques antes de eliminar esta categoria.',
+            ]);
+        }
+
         $itemCategory->delete();
         $this->forgetLogisticaCaches();
 

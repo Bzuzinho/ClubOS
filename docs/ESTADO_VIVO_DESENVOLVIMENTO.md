@@ -2,7 +2,7 @@
 
 > Fonte de verdade funcional e técnica do projeto ClubOS.
 >
-> Estado consolidado em 2026-09-08.
+> Estado consolidado em 2026-09-09.
 >
 > O histórico detalhado anterior à consolidação está preservado em `docs/history/ESTADO_VIVO_DESENVOLVIMENTO_ATE_2026-08-20.md`.
 
@@ -1007,6 +1007,16 @@ O novo comando read-only `inventory:audit-internal-logistics-lifecycle` agrega o
 
 PR #307 foi integrada no merge `c030d44e53987b098eca3d5a7b61fff8d0f5269e`. CI #1099 validou a PR e CI #1100 repetiu Laravel, PostgreSQL concorrente e browser QA em `main`, fez o deploy atómico na Oracle VM e recolheu o audit H5e. O artifact `internal-logistics-lifecycle-readiness-c030d44e53987b098eca3d5a7b61fff8d0f5269e` (ID `9886764812`, `sha256:500b9ad2988bb320860ebefde00a7d5ca42fd01b1f0b523b6fae5272f5d10c4c`) confirmou todas as nove tabelas e capacidades esperadas, uma compra histórica, zero requisições/empréstimos, zero origens financeiras divergentes e zero críticos, warnings ou ações pendentes. A compra histórica sem `financial_movement_id` foi apenas medida (`1`) e permanece não acionável; não existiu backfill nem mutação (`read_only=true`, `no_data_changed=true`).
 
+### H5f — Fronteiras canónicas entre Logística e Loja — implementado localmente
+
+A decisão arquitetural mantém Logística e Loja como experiências separadas, com permissões e tarefas próprias, sobre `products`, `item_categories`, `product_variants` e `stock_movements` partilhados. A matriz de ownership está registada em `docs/architecture/logistica_loja_canonical_boundaries.md`.
+
+A Loja deixa de editar estado global, gestão/mínimo/quantidade de stock e capacidades logísticas. Publicação passa a representar conjuntamente `visible_in_store + allow_sale`, e catálogo, detalhe, carrinho, checkout, destaques e métricas aplicam a mesma elegibilidade. O fluxo de encomendas torna-se monotónico e a fonte de destaques é exclusivamente `loja_hero_items`.
+
+Configurações grava `categoria_id` e fornecedor canónicos, mantém apenas um mirror textual transitório e separa preço base de preço de venda. Compras atualizam `ultimo_custo`; a valorização logística usa custo, e não preço comercial. Movimentos manuais suportam `product_variant_id`; os restantes fluxos sem dimensão de variante ficam fail-closed. A migration prepara o backfill de categorias e custos existentes, e o observer de produto invalida caches transversais e desativa destaques quando o artigo deixa de ser vendável.
+
+Foram retirados a página legacy `Portal/Shop`, o método de controller já inacessível, os Form Requests antigos de produto e o carousel sem consumidores. Lint, TypeScript, Vitest e build de produção estão verdes localmente; Laravel/PostgreSQL, E2E, CI e deploy permanecem obrigatórios antes de marcar H5f como integrado ou produtivo.
+
 ### H6a — Pipeline assíncrono persistente de Comunicação — integrado e deployado
 
 `communication_campaigns`, `communication_deliveries` e `communication_delivery_recipients` permanecem a outbox canónica e passam a ter chaves idempotentes estruturadas. A nova `communication_delivery_attempts` conserva cada tentativa, provider, referência externa, erro e próxima retentativa. Uma execução repetida reutiliza campanha, entrega e destinatário; sucessos concluídos são no-op.
@@ -1087,7 +1097,7 @@ Validação local concluída: TypeScript, ESLint, Vitest e build Vite. O runtime
 | 3 | H8 | Reporting consolidado transversal. |
 | 4 | H9 | Website: header/footer, notícias e polish final. |
 
-Próximo passo imediato: fechar H7a na CI e em dispositivos reais, incluindo entrega do convite, ativação, entrada automática, browser e instalação opcional. Depois, retomar H6e para QA operacional profundo, métricas/SLA e fecho produtivo da Comunicação. A ativação Facebook/Instagram exige apenas introduzir nas Definições as credenciais Meta reais, validar as contas e registar os callbacks apresentados; o deploy não inventa nem transporta tokens. Em paralelo, a campanha legacy agendada/vencida deve ser revista explicitamente; o sistema não a enviará sozinho. Um eventual cutover da queue produtiva `database` para Redis só deve ocorrer depois de validar a configuração efetiva do Supervisor. H3, H4, H5, H2.5, stock por variante e Família/EE estão estruturalmente fechados. A fila fiscal produtiva e a ação operacional Cloudflare R2 permanecem pendências operacionais separadas.
+Próximo passo imediato: validar H5f e H7a na CI e em dispositivos reais. H5f exige migrations PostgreSQL, testes Laravel/E2E e audit pós-deploy; H7a exige entrega do convite, ativação, entrada automática, browser e instalação opcional. Depois, retomar H6e para QA operacional profundo, métricas/SLA e fecho produtivo da Comunicação. A ativação Facebook/Instagram exige apenas introduzir nas Definições as credenciais Meta reais, validar as contas e registar os callbacks apresentados; o deploy não inventa nem transporta tokens. Em paralelo, a campanha legacy agendada/vencida deve ser revista explicitamente; o sistema não a enviará sozinho. Um eventual cutover da queue produtiva `database` para Redis só deve ocorrer depois de validar a configuração efetiva do Supervisor. H3, H4, H2.5, o ledger de stock por variante e Família/EE estão estruturalmente fechados. A fila fiscal produtiva e a ação operacional Cloudflare R2 permanecem pendências operacionais separadas.
 
 ---
 
@@ -1095,6 +1105,7 @@ Próximo passo imediato: fechar H7a na CI e em dispositivos reais, incluindo ent
 
 | Data | Módulo | Desenvolvimento / análise | Evidência | Estado / pendências |
 |---|---|---|---|---|
+| 2026-09-09 | Logística / Loja / Catálogo / Inventário | H5f fixa duas experiências sobre uma fonte de verdade: ownership explícito de campos, elegibilidade única de venda, stock apenas por ledger, categorias/custos canónicos, destaques únicos, estados de encomenda monotónicos e proteção fail-closed para variantes. Remove implementações legacy sem consumidores. | `docs/architecture/logistica_loja_canonical_boundaries.md`; migration de backfill; services/controllers/UI e testes H5f | Implementado localmente; lint, TypeScript, Vitest e build verdes. Pendente Laravel/PostgreSQL, E2E, CI e deploy; não integrado em produção. |
 | 2026-09-09 | Logística / Stock / UX | O registo manual de movimentos passa a manter a ação visível durante o scroll do mapa de artigos, contém o modal no viewport e limita listas Select ao espaço disponível com scroll próprio. | `resources/js/Pages/Logistica/Index.tsx`; `resources/js/Components/ui/select.tsx`; cenário Playwright `keeps stock actions visible and long article selections inside the viewport` | Implementado localmente com fixtures determinísticas para listas longas; pendente de validação runtime multi-browser na CI. |
 | 2026-09-08 | Configurações / Logística / UX | O formulário de criação e edição de Artigos passa a usar um modal limitado ao viewport, com cabeçalho e ações sempre acessíveis, scroll interno e campos agrupados responsivamente por identificação, stock, disponibilidade e detalhes. | `resources/js/Pages/Configuracoes/Index.tsx`; cenário Playwright `keeps the logistics article form usable inside every viewport` | TypeScript, lint e build locais verdes; cenário registado para Chrome/Firefox/Safari desktop e Pixel 7/iPhone 14, pendente de execução runtime na CI por ausência de PHP local. |
 | 2026-09-08 | Portal / Autenticação / PWA | H7a inicia onboarding acessível: convite dedicado de 72 h, ativação simples, login automático, estado de acesso em Membros, entrada `/app` e instalação do ícone apresentada como opção com browser sempre disponível. | `MemberAccessActivationController`; `PlatformAccessService`; `MemberAccessOnboardingTest`; `onboarding.spec.ts`; TypeScript/lint/Vitest/build locais verdes | Em validação; falta runtime Laravel/CI, migration PostgreSQL, entregabilidade real e QA em Safari iOS/Chrome Android antes de integração/deploy. |

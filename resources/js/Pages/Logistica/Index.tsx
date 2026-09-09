@@ -24,11 +24,19 @@ type Product = {
   stock_reservado: number;
   stock_disponivel: number;
   stock_minimo: number;
-  status: 'ok' | 'baixo';
+  status: 'ok' | 'baixo' | 'sem_gestao';
   ativo: boolean;
   allow_request: boolean;
   allow_loan: boolean;
   tracks_stock: boolean;
+  variants: Array<{
+    id: string;
+    label: string;
+    sku?: string | null;
+    stock: number;
+    stock_reservado: number;
+    stock_disponivel: number;
+  }>;
   supplier?: { id: string; nome: string } | null;
 };
 
@@ -92,6 +100,7 @@ type StockMovement = {
   notes?: string | null;
   created_at: string;
   article?: { id: string; nome: string } | null;
+  product_variant?: { id: string; nome?: string | null; tamanho?: string | null; cor?: string | null; sku?: string | null } | null;
 };
 
 type SupplierPurchase = {
@@ -156,6 +165,18 @@ function euro(value: number): string {
 function formatDateYmd(value?: string | null): string {
   if (!value) return '-';
   return value.slice(0, 10);
+}
+
+function stockStatusLabel(status: Product['status']): string {
+  if (status === 'baixo') return 'Baixo';
+  if (status === 'sem_gestao') return 'Sem gestão';
+  return 'OK';
+}
+
+function movementVariantLabel(movement: StockMovement): string {
+  const variant = movement.product_variant;
+  if (!variant) return '';
+  return [variant.nome, variant.tamanho, variant.cor].filter(Boolean).join(' / ') || variant.sku || 'Variante';
 }
 
 const wi = 'bg-white';
@@ -230,10 +251,16 @@ export default function LogisticaIndex({
 
   const stockForm = useForm({
     article_id: '',
+    product_variant_id: '',
     movement_type: 'entry',
     quantity: 1,
     notes: '',
   });
+
+  const selectedStockProduct = useMemo(
+    () => products.find((product) => product.id === stockForm.data.article_id),
+    [products, stockForm.data.article_id],
+  );
 
   const loanForm = useForm({
     borrower_user_id: '',
@@ -274,8 +301,9 @@ export default function LogisticaIndex({
   // ── Derived data ──
   const selectableProducts = useMemo(() => products.filter((p) => p.ativo), [products]);
   const stockManagedProducts = useMemo(() => selectableProducts.filter((p) => p.tracks_stock), [selectableProducts]);
-  const requestableProducts = useMemo(() => stockManagedProducts.filter((p) => p.allow_request), [stockManagedProducts]);
-  const loanableProducts = useMemo(() => stockManagedProducts.filter((p) => p.allow_loan), [stockManagedProducts]);
+  const productLevelStockProducts = useMemo(() => stockManagedProducts.filter((p) => p.variants.length === 0), [stockManagedProducts]);
+  const requestableProducts = useMemo(() => productLevelStockProducts.filter((p) => p.allow_request), [productLevelStockProducts]);
+  const loanableProducts = useMemo(() => productLevelStockProducts.filter((p) => p.allow_loan), [productLevelStockProducts]);
 
   const productCategories = useMemo(
     () => [...new Set(products.map((p) => p.categoria).filter(Boolean) as string[])],
@@ -501,7 +529,7 @@ export default function LogisticaIndex({
         {/* ── Dashboard ──────────────────────────────────────────────────── */}
         <TabsContent value="dashboard" className={`${moduleTabbedContentClass} space-y-3`}>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-            <Card><CardHeader><CardTitle className="text-sm">Valorização de Stock</CardTitle></CardHeader><CardContent className="text-xl font-semibold">{euro(dashboard.stock_valuation)}</CardContent></Card>
+            <Card><CardHeader><CardTitle className="text-sm">Valorização ao último custo</CardTitle></CardHeader><CardContent className="text-xl font-semibold">{euro(dashboard.stock_valuation)}</CardContent></Card>
             <Card><CardHeader><CardTitle className="text-sm">Alertas de Stock</CardTitle></CardHeader><CardContent className="text-xl font-semibold">{dashboard.low_stock_alerts}</CardContent></Card>
             <Card><CardHeader><CardTitle className="text-sm">Requisições Pendentes</CardTitle></CardHeader><CardContent className="text-xl font-semibold">{dashboard.pending_requests}</CardContent></Card>
             <Card><CardHeader><CardTitle className="text-sm">Empréstimos Ativos</CardTitle></CardHeader><CardContent className="text-xl font-semibold">{dashboard.active_loans}</CardContent></Card>
@@ -798,7 +826,7 @@ export default function LogisticaIndex({
                     <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-4 py-5 sm:px-6" data-testid="stock-movement-form-scroll-area">
                       <div className="space-y-2">
                         <Label htmlFor="stock-article">Artigo</Label>
-                        <Select value={stockForm.data.article_id} onValueChange={(v) => stockForm.setData('article_id', v)}>
+                        <Select value={stockForm.data.article_id} onValueChange={(v) => stockForm.setData((current) => ({ ...current, article_id: v, product_variant_id: '' }))}>
                           <SelectTrigger id="stock-article" className={`${ws} w-full`}><SelectValue placeholder="Selecionar" /></SelectTrigger>
                           <SelectContent
                             position="popper"
@@ -809,6 +837,20 @@ export default function LogisticaIndex({
                           </SelectContent>
                         </Select>
                       </div>
+                      {selectedStockProduct && selectedStockProduct.variants.length > 0 ? (
+                        <div className="space-y-2">
+                          <Label htmlFor="stock-variant">Variante</Label>
+                          <Select value={stockForm.data.product_variant_id} onValueChange={(v) => stockForm.setData('product_variant_id', v)}>
+                            <SelectTrigger id="stock-variant" className={`${ws} w-full`}><SelectValue placeholder="Selecionar variante" /></SelectTrigger>
+                            <SelectContent position="popper" style={{ maxHeight: 'min(18rem, var(--radix-select-content-available-height))' }}>
+                              {selectedStockProduct.variants.map((variant) => (
+                                <SelectItem value={variant.id} key={variant.id}>{variant.label} · {variant.stock_disponivel} disponíveis</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <p className="text-xs text-muted-foreground">Obrigatório: o ledger atualiza a variante e o total do artigo na mesma transação.</p>
+                        </div>
+                      ) : null}
                       <div className="space-y-2">
                         <Label htmlFor="stock-movement-type">Tipo de movimento</Label>
                         <Select value={stockForm.data.movement_type} onValueChange={(v) => stockForm.setData('movement_type', v)}>
@@ -863,6 +905,7 @@ export default function LogisticaIndex({
                       <SelectItem value="all">Todos</SelectItem>
                       <SelectItem value="ok">OK</SelectItem>
                       <SelectItem value="baixo">Stock Baixo</SelectItem>
+                      <SelectItem value="sem_gestao">Sem gestão</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -881,7 +924,7 @@ export default function LogisticaIndex({
                         <div className="text-xs text-muted-foreground">{p.codigo}</div>
                       </div>
                       <Badge variant={p.status === 'baixo' ? 'destructive' : 'secondary'}>
-                        {p.status === 'baixo' ? 'Baixo' : 'OK'}
+                        {stockStatusLabel(p.status)}
                       </Badge>
                     </div>
                     <div className="grid grid-cols-2 gap-2 text-sm">
@@ -930,7 +973,7 @@ export default function LogisticaIndex({
                         <TableCell>{p.stock_minimo}</TableCell>
                         <TableCell>
                           <Badge variant={p.status === 'baixo' ? 'destructive' : 'secondary'}>
-                            {p.status === 'baixo' ? 'Baixo' : 'OK'}
+                            {stockStatusLabel(p.status)}
                           </Badge>
                         </TableCell>
                       </TableRow>
@@ -949,7 +992,7 @@ export default function LogisticaIndex({
                   {stockMovements.map((m) => (
                     <div key={m.id} className="rounded-lg border p-3 space-y-2">
                       <div className="flex items-start justify-between gap-3">
-                        <div className="font-medium">{m.article?.nome ?? '-'}</div>
+                        <div className="font-medium">{m.article?.nome ?? '-'}{movementVariantLabel(m) ? ` · ${movementVariantLabel(m)}` : ''}</div>
                         <div className="text-xs text-muted-foreground">{formatDateYmd(m.created_at)}</div>
                       </div>
                       <div className="grid grid-cols-2 gap-2 text-sm">
@@ -984,7 +1027,7 @@ export default function LogisticaIndex({
                     <TableBody>
                       {stockMovements.map((m) => (
                         <TableRow key={m.id}>
-                          <TableCell>{m.article?.nome ?? '-'}</TableCell>
+                          <TableCell>{m.article?.nome ?? '-'}{movementVariantLabel(m) ? ` · ${movementVariantLabel(m)}` : ''}</TableCell>
                           <TableCell>{movTypeLabel[m.movement_type] ?? m.movement_type}</TableCell>
                           <TableCell>{m.quantity}</TableCell>
                           <TableCell>{formatDateYmd(m.created_at)}</TableCell>
@@ -1236,7 +1279,7 @@ export default function LogisticaIndex({
                           <div className="col-span-6">
                             <Select value={item.article_id} onValueChange={(v) => setPurchaseItems(!!editingPurchaseId, purchaseItems(!!editingPurchaseId).map((l, i) => i === idx ? { ...l, article_id: v } : l))}>
                               <SelectTrigger className={ws}><SelectValue placeholder="Artigo" /></SelectTrigger>
-                              <SelectContent>{stockManagedProducts.map((p) => <SelectItem key={p.id} value={p.id}>{p.nome}</SelectItem>)}</SelectContent>
+                              <SelectContent>{productLevelStockProducts.map((p) => <SelectItem key={p.id} value={p.id}>{p.nome}</SelectItem>)}</SelectContent>
                             </Select>
                           </div>
                           <div className="col-span-2">
