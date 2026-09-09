@@ -181,6 +181,7 @@ class EventosKeyValueService
                     'tipo_config_id' => $event->tipo_config_id,
                     'tipo_piscina' => $event->tipo_piscina,
                     'visibilidade' => $event->visibilidade,
+                    'publicos_alvo' => $event->targetAudiences(),
                     'escaloes_elegiveis' => $event->escaloes_elegiveis,
                     'transporte_necessario' => $event->transporte_necessario,
                     'transporte_detalhes' => $event->transporte_detalhes,

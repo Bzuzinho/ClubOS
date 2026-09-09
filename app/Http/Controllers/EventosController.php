@@ -153,6 +153,7 @@ class EventosController extends Controller
             ->select(
                 'id', 'titulo', 'descricao', 'data_inicio', 'hora_inicio',
                 'data_fim', 'hora_fim', 'estado', 'local', 'tipo', 'visibilidade',
+                'publicos_alvo',
                 'local_detalhes', 'tipo_piscina', 'transporte_necessario',
                 'transporte_detalhes', 'hora_partida', 'local_partida',
                 'taxa_inscricao', 'custo_inscricao_por_prova',

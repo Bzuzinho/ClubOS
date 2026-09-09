@@ -51,6 +51,7 @@ interface Event {
   estado: string;
   criado_por?: string;
   escaloes_elegiveis?: string[];
+  publicos_alvo?: EventAudience[];
   descricao?: string;
   centro_custo_id?: string;
   transporte_necessario?: boolean;
@@ -67,6 +68,38 @@ interface Event {
   recorrencia_data_fim?: string;
   recorrencia_dias_semana?: string[];
 }
+
+type EventAudience = 'todos' | 'atletas' | 'encarregados_educacao' | 'outros_utilizadores';
+
+const eventAudienceOptions: Array<{ value: EventAudience; label: string; description: string }> = [
+  {
+    value: 'todos',
+    label: 'Todos os utilizadores',
+    description: 'Atletas, encarregados de educação e restantes utilizadores ativos.',
+  },
+  {
+    value: 'atletas',
+    label: 'Atletas',
+    description: 'Pode limitar a um ou mais escalões abaixo.',
+  },
+  {
+    value: 'encarregados_educacao',
+    label: 'Encarregados de educação',
+    description: 'Pais e responsáveis; com escalões, apenas os EE desses atletas.',
+  },
+  {
+    value: 'outros_utilizadores',
+    label: 'Outros utilizadores',
+    description: 'Sócios, treinadores e direção que não sejam atletas nem EE.',
+  },
+];
+
+const eventAudienceShortLabels: Record<EventAudience, string> = {
+  todos: 'Todos',
+  atletas: 'Atletas',
+  encarregados_educacao: 'EE',
+  outros_utilizadores: 'Outros',
+};
 
 interface CostCenter {
   id: string;
@@ -150,6 +183,24 @@ export function EventosList({
       .map((value) => byId.get(value) || byName.get(value.toLowerCase()) || value)
       .filter(Boolean);
   };
+  const resolveEventAudiences = (event: Event): EventAudience[] => {
+    if (Array.isArray(event.publicos_alvo) && event.publicos_alvo.length > 0) {
+      return event.publicos_alvo;
+    }
+
+    return event.escaloes_elegiveis && event.escaloes_elegiveis.length > 0
+      ? ['atletas']
+      : event.visibilidade === 'publico'
+        ? ['todos']
+        : [];
+  };
+  const eventAudienceSummary = (event: Event) => {
+    const audiences = resolveEventAudiences(event);
+
+    return audiences.length > 0
+      ? audiences.map((audience) => eventAudienceShortLabels[audience]).join(' · ')
+      : 'Sem público definido';
+  };
   const [searchTerm, setSearchTerm] = useState('');
   const [typeFilter, setTypeFilter] = useState('todos');
   const [statusFilter, setStatusFilter] = useState('todos');
@@ -211,6 +262,7 @@ export function EventosList({
     tipo_piscina: '',
     visibilidade: defaultEventType?.visibilidade_default || 'publico',
     escaloes_elegiveis: [] as string[],
+    publicos_alvo: [] as EventAudience[],
     transporte_necessario: defaultEventType?.requer_transporte || false,
     transporte_detalhes: '',
     hora_partida: '',
@@ -298,6 +350,10 @@ export function EventosList({
 
     if (formData.data_inicio && formData.data_fim && formData.data_fim < formData.data_inicio) {
       errors.data_fim = 'A data de fim não pode ser anterior à data de início.';
+    }
+
+    if (formData.publicos_alvo.length === 0) {
+      errors.publicos_alvo = 'Selecione quem deve receber e visualizar este evento.';
     }
 
     if (formData.recorrente) {
@@ -408,6 +464,7 @@ export function EventosList({
       tipo_piscina: '',
       visibilidade: defaultEventType?.visibilidade_default || 'publico',
       escaloes_elegiveis: [],
+      publicos_alvo: [],
       transporte_necessario: defaultEventType?.requer_transporte || false,
       transporte_detalhes: '',
       hora_partida: '',
@@ -809,51 +866,126 @@ export function EventosList({
                 </div>
               </div>
 
-              {/* Escalões Elegíveis */}
+              {/* Público-alvo */}
               <div className="space-y-4">
-                <h3 className="text-sm font-semibold border-b pb-2">Escalões Elegíveis</h3>
-                
-                {ageGroups.length === 0 ? (
-                  <div className="text-sm text-muted-foreground">
-                    Nenhum escalão configurado. Configure em Configurações → Escalões.
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                    {ageGroups
-                      .filter((group) => group.ativo !== false)
-                      .map((escalao) => (
-                        <div key={escalao.id} className="flex items-center gap-2">
-                          <Checkbox
-                            id={`escalao-${escalao.id}`}
-                            checked={
-                              formData.escaloes_elegiveis.includes(escalao.id) ||
-                              formData.escaloes_elegiveis.includes(escalao.nome)
+                <div className="border-b pb-2">
+                  <h3 className="text-sm font-semibold">Público do evento</h3>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Esta seleção define quem vê o evento e será usada nos alertas associados.
+                  </p>
+                </div>
+
+                <div
+                  id="publicos_alvo"
+                  tabIndex={-1}
+                  aria-invalid={Boolean(formErrors.publicos_alvo)}
+                  aria-describedby={formErrors.publicos_alvo ? 'publicos_alvo-error' : undefined}
+                  className="grid grid-cols-1 gap-3 sm:grid-cols-2"
+                >
+                  {eventAudienceOptions.map((audience) => (
+                    <div
+                      key={audience.value}
+                      className={`flex items-start gap-3 rounded-md border p-3 ${
+                        formData.publicos_alvo.includes(audience.value) ? 'border-primary bg-primary/5' : 'bg-white'
+                      }`}
+                    >
+                      <Checkbox
+                        id={`publico-${audience.value}`}
+                        checked={formData.publicos_alvo.includes(audience.value)}
+                        onCheckedChange={(checked) => {
+                          setFormData((current) => {
+                            if (audience.value === 'todos') {
+                              return {
+                                ...current,
+                                publicos_alvo: checked ? ['todos'] : [],
+                                escaloes_elegiveis: checked ? [] : current.escaloes_elegiveis,
+                              };
                             }
-                            onCheckedChange={(checked) => {
-                              const updated = resolveEscalaoIds([...formData.escaloes_elegiveis]);
-                              const current = updated.includes(escalao.id);
-                              if (checked && !current) {
-                                updated.push(escalao.id);
-                              }
-                              if (!checked && current) {
-                                updated.splice(updated.indexOf(escalao.id), 1);
-                              }
-                              setFormData({
-                                ...formData,
-                                escaloes_elegiveis: updated,
-                              });
-                            }}
-                          />
-                          <Label
-                            htmlFor={`escalao-${escalao.id}`}
-                            className="cursor-pointer text-sm"
-                          >
-                            {escalao.nome}
-                          </Label>
-                        </div>
-                      ))}
+
+                            const withoutAll = current.publicos_alvo.filter((value) => value !== 'todos');
+                            const publicos_alvo = checked
+                              ? [...withoutAll, audience.value]
+                              : withoutAll.filter((value) => value !== audience.value);
+
+                            return {
+                              ...current,
+                              publicos_alvo,
+                              escaloes_elegiveis:
+                                audience.value === 'atletas' && !checked ? [] : current.escaloes_elegiveis,
+                            };
+                          });
+                          setFormErrors((current) => {
+                            const next = { ...current };
+                            delete next.publicos_alvo;
+                            return next;
+                          });
+                        }}
+                      />
+                      <Label htmlFor={`publico-${audience.value}`} className="cursor-pointer leading-tight">
+                        <span className="block text-sm font-medium">{audience.label}</span>
+                        <span className="mt-1 block text-xs font-normal text-muted-foreground">
+                          {audience.description}
+                        </span>
+                      </Label>
+                    </div>
+                  ))}
+                </div>
+                {formErrors.publicos_alvo ? (
+                  <p id="publicos_alvo-error" className="text-sm text-red-700">{formErrors.publicos_alvo}</p>
+                ) : null}
+
+                {formData.publicos_alvo.includes('atletas') ? (
+                  <div className="space-y-3 rounded-md border bg-slate-50 p-3">
+                    <div>
+                      <h4 className="text-sm font-medium">Escalões dos atletas</h4>
+                      <p className="text-xs text-muted-foreground">
+                        Sem escalões selecionados, o evento destina-se a todos os atletas ativos.
+                      </p>
+                    </div>
+
+                    {ageGroups.length === 0 ? (
+                      <div className="text-sm text-muted-foreground">
+                        Nenhum escalão configurado. Configure em Configurações → Escalões.
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                        {ageGroups
+                          .filter((group) => group.ativo !== false)
+                          .map((escalao) => (
+                            <div key={escalao.id} className="flex items-center gap-2">
+                              <Checkbox
+                                id={`escalao-${escalao.id}`}
+                                checked={
+                                  formData.escaloes_elegiveis.includes(escalao.id) ||
+                                  formData.escaloes_elegiveis.includes(escalao.nome)
+                                }
+                                onCheckedChange={(checked) => {
+                                  const updated = resolveEscalaoIds([...formData.escaloes_elegiveis]);
+                                  const current = updated.includes(escalao.id);
+                                  if (checked && !current) {
+                                    updated.push(escalao.id);
+                                  }
+                                  if (!checked && current) {
+                                    updated.splice(updated.indexOf(escalao.id), 1);
+                                  }
+                                  setFormData({
+                                    ...formData,
+                                    escaloes_elegiveis: updated,
+                                  });
+                                }}
+                              />
+                              <Label
+                                htmlFor={`escalao-${escalao.id}`}
+                                className="cursor-pointer text-sm"
+                              >
+                                {escalao.nome}
+                              </Label>
+                            </div>
+                          ))}
+                      </div>
+                    )}
                   </div>
-                )}
+                ) : null}
               </div>
 
               {/* Transporte */}
@@ -1296,6 +1428,10 @@ export function EventosList({
 
                 <div className="flex flex-wrap items-center gap-1 pt-0.5">
                   <Badge className={`${getEventStatusClass(event.estado)} text-xs`}>{getEventStatusLabel(event.estado)}</Badge>
+                  <Badge variant="outline" className="text-[11px]">
+                    <Users size={11} className="mr-1" />
+                    {eventAudienceSummary(event)}
+                  </Badge>
                   {event.escaloes_elegiveis && event.escaloes_elegiveis.length > 0 && (
                     <Badge variant="outline" className="text-[11px]">
                       <Users size={11} className="mr-1" />
@@ -1324,6 +1460,7 @@ export function EventosList({
                         tipo_piscina: (event as any).tipo_piscina || '',
                         visibilidade: (event as any).visibilidade || 'publico',
                         escaloes_elegiveis: resolveEscalaoIds(event.escaloes_elegiveis || []),
+                        publicos_alvo: resolveEventAudiences(event),
                         transporte_necessario: (event as any).transporte_necessario || false,
                         transporte_detalhes: (event as any).transporte_detalhes || '',
                         hora_partida: (event as any).hora_partida || '',
@@ -1420,6 +1557,7 @@ export function EventosList({
                               tipo_piscina: (event as any).tipo_piscina || '',
                               visibilidade: (event as any).visibilidade || 'publico',
                               escaloes_elegiveis: resolveEscalaoIds(event.escaloes_elegiveis || []),
+                              publicos_alvo: resolveEventAudiences(event),
                               transporte_necessario: (event as any).transporte_necessario || false,
                               transporte_detalhes: (event as any).transporte_detalhes || '',
                               hora_partida: (event as any).hora_partida || '',

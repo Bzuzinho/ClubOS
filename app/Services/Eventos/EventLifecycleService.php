@@ -6,6 +6,7 @@ use App\Models\CompetitionEventProjection;
 use App\Models\Event;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 class EventLifecycleService
 {
@@ -48,6 +49,8 @@ class EventLifecycleService
      */
     public function create(array $data, array $ageGroupIds): Event
     {
+        $data['publicos_alvo'] ??= $this->defaultAudiences($data, $ageGroupIds);
+
         return DB::transaction(function () use ($data, $ageGroupIds): Event {
             $event = Event::query()->create($data);
             $event->syncAgeGroups($ageGroupIds);
@@ -66,6 +69,7 @@ class EventLifecycleService
         return DB::transaction(function () use ($event, $data, $ageGroupIds): Event {
             $lockedEvent = Event::query()->lockForUpdate()->findOrFail($event->id);
             $data = $this->preserveCompetitionOwnedProjectionFields($lockedEvent, $data);
+            $this->guardAthleteAudienceRemoval($lockedEvent, $data);
 
             $this->deleteRecurringChildren($lockedEvent);
 
@@ -197,5 +201,39 @@ class EventLifecycleService
         $projection->manual_review_reason = 'event_deleted_from_events';
         $projection->projected_at = null;
         $projection->save();
+    }
+
+    /** @param array<string, mixed> $data */
+    private function guardAthleteAudienceRemoval(Event $event, array $data): void
+    {
+        if (! array_key_exists('publicos_alvo', $data)
+            || array_intersect(['todos', 'atletas'], (array) $data['publicos_alvo']) !== []) {
+            return;
+        }
+
+        $hasAthleteRecords = $event->convocations()->exists()
+            || $event->attendances()->exists()
+            || $event->results()->exists()
+            || $event->convocationGroups()->exists();
+
+        if ($hasAthleteRecords) {
+            throw ValidationException::withMessages([
+                'publicos_alvo' => 'Não pode retirar os atletas enquanto o evento tiver convocatórias, presenças ou resultados associados.',
+            ]);
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $data
+     * @param list<string> $ageGroupIds
+     * @return list<string>
+     */
+    private function defaultAudiences(array $data, array $ageGroupIds): array
+    {
+        if ($ageGroupIds !== [] || in_array($data['tipo'] ?? null, ['treino', 'prova', 'competicao', 'estagio'], true)) {
+            return ['atletas'];
+        }
+
+        return ($data['visibilidade'] ?? 'publico') === 'publico' ? ['todos'] : [];
     }
 }
