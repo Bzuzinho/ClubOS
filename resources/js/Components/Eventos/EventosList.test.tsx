@@ -36,4 +36,27 @@ describe('EventosList creation form', () => {
         expect(screen.getByLabelText('Data Início *')).toHaveAttribute('aria-invalid', 'true');
         expect(inertiaRouter.post).not.toHaveBeenCalled();
     });
+
+    it('classifies an event for guardians without requiring an athlete age group', () => {
+        render(<EventosList events={[]} canEdit />);
+
+        fireEvent.click(screen.getByRole('button', { name: 'Novo Evento' }));
+        fireEvent.click(screen.getByRole('checkbox', { name: /^Encarregados de educação/ }));
+        fireEvent.change(screen.getByLabelText('Título *'), {
+            target: { value: 'Reunião de pais' },
+        });
+        fireEvent.change(screen.getByLabelText('Data Início *'), {
+            target: { value: '2026-10-10' },
+        });
+        fireEvent.click(screen.getByRole('button', { name: 'Guardar' }));
+
+        expect(inertiaRouter.post).toHaveBeenCalledWith(
+            '/eventos',
+            expect.objectContaining({
+                publicos_alvo: ['encarregados_educacao'],
+                escaloes_elegiveis: [],
+            }),
+            expect.any(Object),
+        );
+    });
 });

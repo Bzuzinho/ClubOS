@@ -11,6 +11,8 @@ use App\Models\CompetitionEventProjection;
 use App\Models\Event;
 use App\Models\Prova;
 use App\Models\Result;
+use App\Models\SportsAthleteParticipation;
+use App\Models\SportsModality;
 use App\Models\Training;
 use App\Models\TrainingAthlete;
 use App\Models\User;
@@ -112,6 +114,21 @@ final class PortalSportsProjectionContractTest extends TestCase
     public function test_agenda_keeps_the_canonical_competition_id_and_hides_foreign_projections(): void
     {
         $athlete = User::factory()->athlete()->create(['tipo_membro' => ['atleta']]);
+        $modality = SportsModality::query()->create([
+            'club_id' => 'bscn',
+            'code' => 'NAT-AGENDA',
+            'name' => 'Natação — agenda',
+            'active' => true,
+        ]);
+        SportsAthleteParticipation::query()->create([
+            'club_id' => 'bscn',
+            'user_id' => $athlete->id,
+            'sports_modality_id' => $modality->id,
+            'active' => true,
+            'current_slot' => 'current',
+            'starts_at' => now()->subMonth()->toDateString(),
+            'source' => 'test',
+        ]);
         $localCompetition = $this->competition('bscn', 'Agenda local H3f');
         $foreignCompetition = $this->competition('other-club', 'Agenda externa H3f');
         $localEvent = $this->event($athlete, 'Agenda local H3f');

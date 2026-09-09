@@ -17,6 +17,12 @@ class EventParticipantEligibilityService
 
     public function assertEligible(Event $event, User $user): void
     {
+        if (array_intersect(['todos', 'atletas'], $event->targetAudiences()) === []) {
+            throw ValidationException::withMessages([
+                'user_id' => 'Este evento não está classificado para atletas.',
+            ]);
+        }
+
         $this->assertActiveAthlete($user);
 
         if (EventConvocation::query()

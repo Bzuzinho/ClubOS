@@ -6,12 +6,14 @@ use App\Contracts\Desportivo\SportsAudienceProvider;
 use App\Models\AgeGroup;
 use App\Models\CommunicationDynamicSource;
 use App\Models\CommunicationSegment;
+use App\Models\Event;
 use App\Models\EventAttendance;
 use App\Models\InAppAlert;
 use App\Models\Invoice;
 use App\Models\User;
 use App\Services\Members\MemberDataReadService;
 use App\Services\Members\MemberIdentityDisplayResolver;
+use App\Services\Eventos\EventAudienceResolver;
 use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
@@ -23,6 +25,7 @@ class SegmentResolverService
         private readonly MemberIdentityDisplayResolver $memberIdentityDisplayResolver,
         private readonly MemberDataReadService $memberDataReadService,
         private readonly SportsAudienceProvider $sportsAudienceProvider,
+        private readonly EventAudienceResolver $eventAudienceResolver,
     ) {
     }
 
@@ -82,6 +85,7 @@ class SegmentResolverService
             'age_group_members' => $this->usersFromAgeGroups($rules),
             'overdue_payments' => $this->usersWithOverduePayments(),
             'event_participants' => $this->usersFromEvent($rules),
+            'event_audience' => $this->usersFromEventAudience($rules),
             'users_with_unread_alerts' => $this->usersWithUnreadAlerts(),
             default => User::query()->where('estado', 'ativo')->orWhereNull('estado')->get(),
         };
@@ -255,6 +259,21 @@ class SegmentResolverService
         $userIds = EventAttendance::where('evento_id', $eventId)->distinct()->pluck('user_id');
 
         return User::whereIn('id', $userIds)->get();
+    }
+
+    private function usersFromEventAudience(array $rules): Collection
+    {
+        $eventId = $this->nullableString($rules['event_id'] ?? null);
+        if ($eventId === null) {
+            return collect();
+        }
+
+        $event = Event::query()->find($eventId);
+        if ($event === null) {
+            return collect();
+        }
+
+        return $this->usersByIds($this->eventAudienceResolver->recipientUserIds($event));
     }
 
     private function usersWithUnreadAlerts(): Collection

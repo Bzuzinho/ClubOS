@@ -29,6 +29,7 @@ class Event extends Model
         'tipo_config_id',
         'tipo_piscina',
         'visibilidade',
+        'publicos_alvo',
         // 'escaloes_elegiveis', // Removido - usar ageGroups() relationship
         'transporte_necessario',
         'transporte_detalhes',
@@ -60,6 +61,7 @@ class Event extends Model
         'recorrencia_data_fim' => 'date',
         // 'escaloes_elegiveis' => 'array', // Removido - usar ageGroups() relationship
         'recorrencia_dias_semana' => 'array',
+        'publicos_alvo' => 'array',
         'taxa_inscricao' => 'decimal:2',
         'custo_inscricao_por_prova' => 'decimal:2',
         'custo_inscricao_por_salto' => 'decimal:2',
@@ -197,6 +199,38 @@ class Event extends Model
         }
         
         return $this->ageGroups()->pluck('age_groups.id')->toArray();
+    }
+
+    /**
+     * Classificação canónica dos destinatários do evento.
+     *
+     * @return list<string>
+     */
+    public function targetAudiences(): array
+    {
+        $audiences = $this->publicos_alvo;
+
+        // Compatibilidade segura para registos criados por integrações antigas
+        // antes da coluna canónica existir. A migration materializa esta regra.
+        if ($audiences === null) {
+            $isSportsEvent = in_array($this->tipo, ['treino', 'prova', 'competicao', 'estagio'], true);
+            $audiences = $this->ageGroups()->exists() || $isSportsEvent
+                ? ['atletas']
+                : ($this->visibilidade === 'publico' ? ['todos'] : []);
+        }
+
+        $normalized = collect($audiences)
+            ->filter(fn ($audience): bool => is_string($audience) && in_array($audience, [
+                'todos',
+                'atletas',
+                'encarregados_educacao',
+                'outros_utilizadores',
+            ], true))
+            ->unique()
+            ->values()
+            ->all();
+
+        return in_array('todos', $normalized, true) ? ['todos'] : $normalized;
     }
 
     /**

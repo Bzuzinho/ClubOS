@@ -3,9 +3,22 @@
 namespace App\Http\Requests;
 
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Validator;
 
 class StoreEventRequest extends FormRequest
 {
+    protected function prepareForValidation(): void
+    {
+        if (! $this->has('publicos_alvo')) {
+            $isSportsEvent = in_array($this->input('tipo'), ['treino', 'prova', 'competicao', 'estagio'], true);
+            $this->merge([
+                'publicos_alvo' => (count((array) $this->input('escaloes_elegiveis', [])) > 0 || $isSportsEvent)
+                    ? ['atletas']
+                    : ['todos'],
+            ]);
+        }
+    }
+
     public function authorize(): bool
     {
         return true;
@@ -26,6 +39,8 @@ class StoreEventRequest extends FormRequest
             'tipo_config_id' => ['nullable', 'exists:event_type_configs,id'],
             'tipo_piscina' => ['nullable', 'in:piscina_25m,piscina_50m,aguas_abertas'],
             'visibilidade' => ['nullable', 'in:publico,privado,restrito'],
+            'publicos_alvo' => ['required', 'array', 'min:1'],
+            'publicos_alvo.*' => ['string', 'distinct', 'in:todos,atletas,encarregados_educacao,outros_utilizadores'],
             'escaloes_elegiveis' => ['nullable', 'array'],
             'escaloes_elegiveis.*' => ['uuid', 'exists:age_groups,id'],
             'transporte_necessario' => ['nullable', 'boolean'],
@@ -61,6 +76,9 @@ class StoreEventRequest extends FormRequest
             'hora_inicio.date_format' => 'A hora de início não é válida.',
             'hora_fim.date_format' => 'A hora de fim não é válida.',
             'tipo.required' => 'Selecione o tipo de evento.',
+            'publicos_alvo.required' => 'Selecione quem deve receber e visualizar este evento.',
+            'publicos_alvo.min' => 'Selecione pelo menos um público para o evento.',
+            'publicos_alvo.*.in' => 'Um dos públicos selecionados não é válido.',
             'escaloes_elegiveis.*.exists' => 'Um dos escalões selecionados deixou de estar disponível.',
             'centro_custo_id.exists' => 'O centro de custo selecionado deixou de estar disponível.',
             'recorrencia_data_inicio.required' => 'Preencha a data de início da recorrência.',
@@ -70,5 +88,20 @@ class StoreEventRequest extends FormRequest
             'recorrencia_dias_semana.required' => 'Selecione pelo menos um dia da semana.',
             'recorrencia_dias_semana.min' => 'Selecione pelo menos um dia da semana.',
         ];
+    }
+
+    public function after(): array
+    {
+        return [function (Validator $validator): void {
+            $audiences = (array) $this->input('publicos_alvo', []);
+
+            if (in_array('todos', $audiences, true) && count($audiences) > 1) {
+                $validator->errors()->add('publicos_alvo', '“Todos os utilizadores” não pode ser combinado com outros públicos.');
+            }
+
+            if (! in_array('atletas', $audiences, true) && count((array) $this->input('escaloes_elegiveis', [])) > 0) {
+                $validator->errors()->add('escaloes_elegiveis', 'Só pode selecionar escalões quando o público inclui atletas.');
+            }
+        }];
     }
 }
