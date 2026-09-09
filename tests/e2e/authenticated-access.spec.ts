@@ -111,6 +111,49 @@ test.describe('authenticated access', () => {
         });
     }
 
+    test('keeps the logistics article form usable inside every viewport', async ({ page }, testInfo) => {
+        await login(page, testInfo, '/configuracoes');
+
+        await page.getByRole('tab', { name: 'Logistica', exact: true }).click();
+        const addArticleButton = page.getByRole('button', { name: 'Adicionar Artigo' });
+        await expect(addArticleButton).toBeVisible();
+        await addArticleButton.click();
+
+        const dialog = page.getByTestId('product-dialog');
+        const scrollArea = page.getByTestId('product-dialog-scroll-area');
+        await expect(dialog).toBeVisible();
+        await expect(page.getByRole('heading', { name: 'Identificação' })).toBeVisible();
+        await expect(page.getByRole('button', { name: 'Guardar', exact: true })).toBeVisible();
+
+        const viewport = page.viewportSize();
+        const dialogBox = await dialog.boundingBox();
+        expect(viewport).not.toBeNull();
+        expect(dialogBox).not.toBeNull();
+        expect(dialogBox!.y).toBeGreaterThanOrEqual(0);
+        expect(dialogBox!.y + dialogBox!.height).toBeLessThanOrEqual(viewport!.height + 1);
+
+        const overflowY = await scrollArea.evaluate((element) => getComputedStyle(element).overflowY);
+        expect(overflowY).toBe('auto');
+
+        const codeBox = await page.getByLabel('Código *').boundingBox();
+        const nameBox = await page.getByLabel('Nome *').boundingBox();
+        expect(codeBox).not.toBeNull();
+        expect(nameBox).not.toBeNull();
+
+        if (viewport!.width < 640) {
+            expect(nameBox!.y).toBeGreaterThan(codeBox!.y);
+        } else {
+            expect(Math.abs(nameBox!.y - codeBox!.y)).toBeLessThanOrEqual(1);
+        }
+
+        await scrollArea.evaluate((element) => {
+            element.scrollTop = element.scrollHeight;
+        });
+        await expect(page.getByRole('heading', { name: 'Detalhes' })).toBeVisible();
+        await expect(page.getByRole('button', { name: 'Cancelar' })).toBeVisible();
+        await expectNoHorizontalOverflow(page);
+    });
+
     test('has no serious or critical WCAG A/AA violations on the authenticated dashboard', async ({ page }, testInfo) => {
         await login(page, testInfo);
 
