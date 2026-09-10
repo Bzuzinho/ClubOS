@@ -74,6 +74,6 @@ Cada fase deve manter contratos canónicos, permissões e histórico existentes.
 
 ## Conceito visual aprovado
 
-O mockup é conceptual, não um novo design system. Reutilizar cores, tipografia, cards, botões, tabelas e tabs atuais. Navegação com quebra de linha, sem grelha fixa de seis colunas nem scroll horizontal. Maximizar amplia a área de trabalho com recuperação explícita do menu. Não ocultar campos ou ações no móvel para fazer caber conteúdo.
+O mockup é conceptual, não um novo design system. Reutilizar cores, tipografia, cards, botões, tabelas e tabs atuais. Navegação com quebra de linha, sem grelha fixa de seis colunas nem scroll horizontal. A área administrativa ocupa toda a largura disponível por defeito no computador, com o menu principal acessível. Não existe botão nem estado manual de Maximizar/Repor menu. A adaptação ao telemóvel é automática. Não ocultar campos ou ações no móvel para fazer caber conteúdo.
 
 Preservar acesso a Biblioteca, Convocatórias, Resultados, Recordes e Configuração na reorganização. Modalidade/época só podem ser contexto global quando os consumidores filtrarem efetivamente esses parâmetros. Nunca transportar dados ilustrativos do mockup para produção.
