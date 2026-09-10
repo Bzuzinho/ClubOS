@@ -2,8 +2,9 @@ import { Suspense, lazy } from 'react';
 import { Head } from '@inertiajs/react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { ModuleHeader } from '@/Components/layout/ModuleHeader';
+import { ModuleTabsList } from '@/Components/layout/ModuleTabsList';
 import { moduleTabbedContentClass, moduleTabsClass, moduleViewportClass } from '@/lib/module-layout';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/Components/ui/tabs';
+import { Tabs, TabsContent, TabsTrigger } from '@/Components/ui/tabs';
 import { ChartBar, ChartLineUp, Users as UsersIcon } from '@phosphor-icons/react';
 import { useUrlTab } from '@/hooks/useUrlTab';
 
@@ -105,20 +106,20 @@ export default function MembrosIndex({ members, membersPagination, filters, user
 
             <div className={moduleViewportClass}>
                 <Tabs value={activeTab} onValueChange={setActiveTab} className={moduleTabsClass}>
-                    <TabsList className="grid h-auto w-full shrink-0 grid-cols-3">
+                    <ModuleTabsList label="Áreas de Membros">
                         <TabsTrigger value="dashboard" className="flex items-center gap-1.5 py-1.5 text-xs">
                             <ChartLineUp size={14} weight="duotone" />
-                            <span>Dashboard</span>
+                            <span>Visão geral</span>
                         </TabsTrigger>
                         <TabsTrigger value="list" className="flex items-center gap-1.5 py-1.5 text-xs">
                             <UsersIcon size={14} weight="duotone" />
-                            <span>Lista de Membros</span>
+                            <span>Membros</span>
                         </TabsTrigger>
                         <TabsTrigger value="reports" className="flex items-center gap-1.5 py-1.5 text-xs">
                             <ChartBar size={14} weight="duotone" />
                             <span>Relatórios</span>
                         </TabsTrigger>
-                    </TabsList>
+                    </ModuleTabsList>
 
                     <TabsContent value="dashboard" className={moduleTabbedContentClass}>
                         <Suspense fallback={<TabLoadingState />}>
