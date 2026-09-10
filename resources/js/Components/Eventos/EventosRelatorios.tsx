@@ -489,8 +489,8 @@ export function EventosRelatorios({
         <TabsContent value="evento">
           <Card className="p-4">
             <h3 className="text-lg font-semibold mb-4">Resumo por Evento</h3>
-            <div className="overflow-x-auto">
-              <Table>
+            <div className="min-w-0">
+              <Table responsive>
                 <TableHeader>
                   <TableRow>
                     <TableHead>Evento</TableHead>
@@ -507,14 +507,14 @@ export function EventosRelatorios({
                 <TableBody>
                   {relatorioPorEvento.map((evento) => (
                     <TableRow key={evento.id}>
-                      <TableCell className="font-medium">{evento.titulo}</TableCell>
-                      <TableCell>
+                      <TableCell label="Evento" className="font-medium">{evento.titulo}</TableCell>
+                      <TableCell label="Tipo">
                         <Badge variant="outline" className="capitalize">
                           {evento.tipo}
                         </Badge>
                       </TableCell>
-                      <TableCell>{evento.data}</TableCell>
-                      <TableCell>
+                      <TableCell label="Data">{evento.data}</TableCell>
+                      <TableCell label="Estado">
                         <Badge
                           variant={
                             evento.estado === 'concluido'
@@ -527,17 +527,17 @@ export function EventosRelatorios({
                           {evento.estado === 'em_curso' ? 'A decorrer' : evento.estado}
                         </Badge>
                       </TableCell>
-                      {canViewConvocations ? <TableCell className="text-center">{evento.convocatorias}</TableCell> : null}
-                      <TableCell className="text-center text-green-600 font-medium">
+                      {canViewConvocations ? <TableCell label="Convocatórias" className="text-center">{evento.convocatorias}</TableCell> : null}
+                      <TableCell label="Presentes" className="text-center text-green-600 font-medium">
                         {evento.presentes}
                       </TableCell>
-                      <TableCell className="text-center text-red-600 font-medium">
+                      <TableCell label="Ausentes" className="text-center text-red-600 font-medium">
                         {evento.ausentes}
                       </TableCell>
-                      <TableCell className="text-center text-yellow-600 font-medium">
+                      <TableCell label="Justificados" className="text-center text-yellow-600 font-medium">
                         {evento.justificados}
                       </TableCell>
-                      <TableCell className="text-center font-semibold">
+                      <TableCell label="Taxa Presença" className="text-center font-semibold">
                         {evento.taxaPresenca}%
                       </TableCell>
                     </TableRow>
@@ -552,8 +552,8 @@ export function EventosRelatorios({
         <TabsContent value="atleta">
           <Card className="p-4">
             <h3 className="text-lg font-semibold mb-4">Resumo por Atleta</h3>
-            <div className="overflow-x-auto">
-              <Table>
+            <div className="min-w-0">
+              <Table responsive>
                 <TableHeader>
                   <TableRow>
                     <TableHead>Atleta</TableHead>
@@ -570,23 +570,23 @@ export function EventosRelatorios({
                 <TableBody>
                   {relatorioPorAtleta.map((atleta) => (
                     <TableRow key={atleta.id}>
-                      <TableCell className="font-medium">{atleta.nome}</TableCell>
-                      <TableCell>{atleta.escalao}</TableCell>
-                      {canViewConvocations ? <TableCell className="text-center">{atleta.convocatorias}</TableCell> : null}
-                      <TableCell className="text-center text-green-600 font-medium">
+                      <TableCell label="Atleta" className="font-medium">{atleta.nome}</TableCell>
+                      <TableCell label="Escalão">{atleta.escalao}</TableCell>
+                      {canViewConvocations ? <TableCell label="Convocatórias" className="text-center">{atleta.convocatorias}</TableCell> : null}
+                      <TableCell label="Presentes" className="text-center text-green-600 font-medium">
                         {atleta.presentes}
                       </TableCell>
-                      <TableCell className="text-center text-red-600 font-medium">
+                      <TableCell label="Ausentes" className="text-center text-red-600 font-medium">
                         {atleta.ausentes}
                       </TableCell>
-                      <TableCell className="text-center text-yellow-600 font-medium">
+                      <TableCell label="Justificados" className="text-center text-yellow-600 font-medium">
                         {atleta.justificados}
                       </TableCell>
-                      <TableCell className="text-center font-semibold">
+                      <TableCell label="Taxa Presença" className="text-center font-semibold">
                         {atleta.taxaPresenca}%
                       </TableCell>
-                      <TableCell className="text-center">{atleta.resultados}</TableCell>
-                      <TableCell className="text-center">
+                      <TableCell label="Resultados" className="text-center">{atleta.resultados}</TableCell>
+                      <TableCell label="Pódios" className="text-center">
                         {atleta.podios > 0 ? (
                           <Badge variant="secondary" className="bg-yellow-100 text-yellow-700">
                             {atleta.podios}

@@ -768,7 +768,7 @@ export default function SettingsIndex({
         { value: 11, label: 'Novembro' },
         { value: 12, label: 'Dezembro' },
     ];
-    const settingsViewportClass = 'flex h-[calc(100dvh-10rem)] min-h-0 w-full flex-col sm:h-[calc(100dvh-11rem)]';
+    const settingsViewportClass = 'flex min-h-0 min-w-0 w-full flex-1 flex-col';
     const rootTabsClass = 'flex h-full min-h-0 flex-col space-y-3';
     const sectionTabsClass = 'flex h-full min-h-0 flex-col space-y-4';
     const scrollableTabContentClass = 'mt-0 min-h-0 flex-1 overflow-auto pr-1';

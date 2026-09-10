@@ -424,14 +424,14 @@ export function EventosResultados({
         )}
 
         {/* Tabela de Resultados */}
-        <div className="overflow-x-auto">
+        <div className="min-w-0">
           {filteredResults.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
               <MagnifyingGlass size={48} className="mx-auto mb-2 opacity-50" />
               <p>Nenhum resultado encontrado</p>
             </div>
           ) : (
-            <Table>
+            <Table responsive>
               <TableHeader>
                 <TableRow>
                   <TableHead>Evento</TableHead>
@@ -448,25 +448,25 @@ export function EventosResultados({
               <TableBody>
                 {filteredResults.map((result) => (
                   <TableRow key={result.id}>
-                    <TableCell className="font-medium">
+                    <TableCell label="Evento" className="font-medium">
                       {result.event?.titulo || 'N/A'}
                       <div className="text-xs text-muted-foreground">{result.event?.tipo}</div>
                     </TableCell>
-                    <TableCell>{result.athlete?.nome_completo || 'N/A'}</TableCell>
-                    <TableCell>{result.prova}</TableCell>
-                    <TableCell className="font-mono">{result.tempo || '-'}</TableCell>
-                    <TableCell>{getClassificacaoBadge(result.classificacao)}</TableCell>
-                    <TableCell>
+                    <TableCell label="Atleta">{result.athlete?.nome_completo || 'N/A'}</TableCell>
+                    <TableCell label="Prova">{result.prova}</TableCell>
+                    <TableCell label="Tempo" className="font-mono">{result.tempo || '-'}</TableCell>
+                    <TableCell label="Classificação">{getClassificacaoBadge(result.classificacao)}</TableCell>
+                    <TableCell label="Piscina">
                       {result.piscina ? (
                         <Badge variant="outline">{result.piscina}</Badge>
                       ) : (
                         '-'
                       )}
                     </TableCell>
-                    <TableCell>{getEscalaoLabel(result.age_group_id)}</TableCell>
-                    <TableCell>{result.epoca || '-'}</TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex justify-end gap-2">
+                    <TableCell label="Escalão">{getEscalaoLabel(result.age_group_id)}</TableCell>
+                    <TableCell label="Época">{result.epoca || '-'}</TableCell>
+                    <TableCell label="Ações" className="text-right">
+                      <div className="flex flex-wrap justify-end gap-2">
                         <Button
                           variant="ghost"
                           size="sm"

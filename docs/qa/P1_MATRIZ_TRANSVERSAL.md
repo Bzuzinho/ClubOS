@@ -10,7 +10,7 @@ A aprovação do mockup é conceptual: conservar componentes, cores e tipografia
 |---|---|---|---|
 | Membros | Lista, criação simples/completa, edição, ficha; relatórios e mensagens no lote anterior | Lista sem colunas ocultas por tamanho; separadores comuns nas fichas | Entrada e separadores do índice na CI; operações de gravação fora desta alteração |
 | Financeiro | Faturas, ficha, conciliação bancária | Campos da lista disponíveis; conciliação adaptável com inputs e alocações preservados | Entrada/separadores na CI; conciliação com dados reais ainda por validar visualmente |
-| Eventos | Índice e separadores | Fundação comum já aplicada | Percurso de entrada e alternância na CI |
+| Eventos | Índice e separadores | Lista, relatórios e resultados com tabelas adaptáveis | Percurso de entrada e alternância na CI |
 | Comunicação | Índice e separadores | Fundação comum já aplicada | Percurso de entrada e alternância na CI |
 | Logística | Índice, stock, requisições, empréstimos, compras | Tabelas e navegação do lote #342 | Entrada/separadores e testes existentes de diálogo/stock na CI |
 | Loja | Administração, catálogo, encomendas, histórico público | Lotes #342/#343; filtros públicos agora quebram linha | Entradas e navegação administrativa na CI |
@@ -34,6 +34,6 @@ A aprovação do mockup é conceptual: conservar componentes, cores e tipografia
 1. CI verde sobre o commit final e revisão dos percursos cobertos.
 2. Validar visualmente conciliação preenchida, planeamento com ciclos, Cais/Live em operação e editor Website. Não marcar estes fluxos como concluídos pelo simples teste de uma página vazia.
 3. Expandir o mesmo controlo aos componentes internos que ainda impõem overflow horizontal e confirmar quais têm consumidores ativos.
-4. Rever scrolls verticais concorrentes e altura útil: o shell legado ainda calcula alturas por offsets fixos, que podem variar quando os separadores quebram linha.
+4. Confirmar a altura útil em percursos reais: o shell administrativo passa a distribuir a altura disponível por flex, sem subtrair offsets fixos. Cais/Live preservam o shell operacional.
 
 As redundâncias de propriedade funcional pertencem a P2. O histórico consolidado pertence a P3. O contexto global real de modalidade/época e o assistente de época pertencem a P4. Permanecem no plano; não são substituídos por ajustes de CSS.
