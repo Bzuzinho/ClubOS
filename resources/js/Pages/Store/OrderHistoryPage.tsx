@@ -42,7 +42,7 @@ export default function OrderHistoryPage() {
                             <h1 className="text-xl font-semibold text-slate-900">Historico de encomendas</h1>
                             <p className="text-sm text-slate-500">Consulta apenas as encomendas do utilizador autenticado e dos perfis autorizados.</p>
                         </div>
-                        <div className="flex gap-2 overflow-x-auto pb-1">
+                        <div className="flex flex-wrap gap-2 pb-1">
                             {statusFilters.map((item) => (
                                 <button
                                     key={item.value}

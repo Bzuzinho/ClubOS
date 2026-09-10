@@ -1,3 +1,4 @@
+import { ModuleTabsList } from '@/Components/layout/ModuleTabsList';
 import { FormEventHandler } from 'react';
 import { Head, Link, useForm } from '@inertiajs/react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
@@ -10,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/Components/ui/textarea';
 import { Switch } from '@/Components/ui/switch';
 import { Avatar, AvatarFallback, AvatarImage } from '@/Components/ui/avatar';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/Components/ui/tabs';
+import { Tabs, TabsContent, TabsTrigger } from '@/Components/ui/tabs';
 import { ArrowLeft, Save, X } from 'lucide-react';
 import { getInitials } from '@/lib/user-helpers';
 
@@ -289,12 +290,12 @@ export default function MembrosEdit({
 
                         {/* Tabs */}
                         <Tabs defaultValue="pessoal" className="w-full">
-                            <TabsList className={`grid w-full h-auto gap-1 p-1 ${isAtleta ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-2 sm:grid-cols-3'}`}>
+                            <ModuleTabsList label="Secções disponíveis">
                                 <TabsTrigger value="pessoal" className="text-xs px-2 py-1.5 whitespace-normal leading-tight text-center min-h-8">Dados Pessoais</TabsTrigger>
                                 <TabsTrigger value="financeiro" className="text-xs px-2 py-1.5 whitespace-normal leading-tight text-center min-h-8">Financeiro</TabsTrigger>
                                 {isAtleta && <TabsTrigger value="desportivo" className="text-xs px-2 py-1.5 whitespace-normal leading-tight text-center min-h-8">Desportivo</TabsTrigger>}
                                 <TabsTrigger value="configuracao" className="text-xs px-2 py-1.5 whitespace-normal leading-tight text-center min-h-8">Configuração</TabsTrigger>
-                            </TabsList>
+                            </ModuleTabsList>
 
                             {/* TAB: Dados Pessoais */}
                             <TabsContent value="pessoal" className="space-y-4">

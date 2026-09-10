@@ -1,10 +1,11 @@
+import { ModuleTabsList } from '@/Components/layout/ModuleTabsList';
 import { useState, FormEventHandler, useEffect } from 'react';
 import { Head, router } from '@inertiajs/react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { moduleTabbedContentClass, moduleTabsClass, moduleViewportClass } from '@/lib/module-layout';
 import { Button } from '@/Components/ui/button';
 import { Card } from '@/Components/ui/card';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/Components/ui/tabs';
+import { Tabs, TabsContent, TabsTrigger } from '@/Components/ui/tabs';
 import { toast } from 'sonner';
 import { PersonalTab } from '@/Components/Members/Tabs/PersonalTab';
 import { FinancialTab } from '@/Components/Members/Tabs/FinancialTab';
@@ -113,7 +114,7 @@ export default function Create({ allUsers, userTypes, ageGroups, nextMemberNumbe
             <div className={moduleViewportClass}>
             <Card className="flex min-h-0 flex-1 flex-col p-2 sm:p-3">
                 <Tabs defaultValue="personal" className={moduleTabsClass}>
-                    <TabsList className={`grid w-full shrink-0 h-auto gap-1 p-1 ${showSportsTab ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-2 sm:grid-cols-3'}`}>
+                    <ModuleTabsList label="Secções disponíveis">
                             <TabsTrigger value="personal" className="text-xs px-2 py-1.5 whitespace-normal leading-tight text-center min-h-8">
                                 Pessoal
                             </TabsTrigger>
@@ -128,7 +129,7 @@ export default function Create({ allUsers, userTypes, ageGroups, nextMemberNumbe
                             <TabsTrigger value="configuration" className="text-xs px-2 py-1.5 whitespace-normal leading-tight text-center min-h-8">
                                 Configuração
                             </TabsTrigger>
-                        </TabsList>
+                        </ModuleTabsList>
 
                     <TabsContent value="personal" className={`${moduleTabbedContentClass} space-y-2 bg-white p-0 rounded-lg`}>
                         <PersonalTab 

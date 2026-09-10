@@ -1,3 +1,4 @@
+import { ModuleTabsList } from '@/Components/layout/ModuleTabsList';
 import { Head, router } from '@inertiajs/react';
 import { useEffect, useMemo, useState } from 'react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
@@ -6,7 +7,7 @@ import { moduleScrollableContentClass, moduleTabbedContentClass, moduleTabsClass
 import { Button } from '@/Components/ui/button';
 import { Card } from '@/Components/ui/card';
 import { Badge } from '@/Components/ui/badge';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/Components/ui/tabs';
+import { Tabs, TabsContent, TabsTrigger } from '@/Components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/Components/ui/table';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/Components/ui/dialog';
 import { Input } from '@/Components/ui/input';
@@ -501,13 +502,13 @@ export default function FinanceiroShowPage({
                             </div>
                         </div>
 
-                        <TabsList className="grid h-auto w-full grid-cols-2 gap-1 p-1 text-[11px] sm:h-9 sm:grid-cols-5 sm:text-xs">
+                        <ModuleTabsList label="Secções disponíveis">
                             <TabsTrigger value="resumo">Resumo</TabsTrigger>
                             <TabsTrigger value="linhas">Linhas</TabsTrigger>
                             <TabsTrigger value="documentos">Documentos</TabsTrigger>
                             <TabsTrigger value="conciliacao">Conciliação</TabsTrigger>
                             <TabsTrigger value="historico">Histórico / Notas</TabsTrigger>
-                        </TabsList>
+                        </ModuleTabsList>
                     </div>
 
                     <div className={moduleScrollableContentClass}>

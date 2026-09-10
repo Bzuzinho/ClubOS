@@ -3,7 +3,7 @@ import { lazy, Suspense, useState, useEffect, FormEventHandler } from 'react';
 import { Head, router, useForm, usePage } from '@inertiajs/react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/Components/ui/card';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/Components/ui/tabs';
+import { Tabs, TabsContent, TabsTrigger } from '@/Components/ui/tabs';
 import { Button } from '@/Components/ui/button';
 import { Input } from '@/Components/ui/input';
 import { Label } from '@/Components/ui/label';
@@ -1351,13 +1351,13 @@ export default function SettingsIndex({
                     <TabsContent value="geral" className="mt-0 min-h-0 flex-1 overflow-hidden">
                         {currentTab === 'geral' ? (
                         <Tabs value={currentGeneralTab} onValueChange={setCurrentGeneralTab} className={sectionTabsClass}>
-                            <TabsList className="w-full shrink-0 flex flex-wrap h-auto gap-1 justify-start">
+                            <ModuleTabsList label="Secções disponíveis">
                                 <TabsTrigger value="geral-tipos-utilizador">Tipos de Utilizador</TabsTrigger>
                                 <TabsTrigger value="geral-tipos-evento">Tipos de Evento</TabsTrigger>
                                 <TabsTrigger value="geral-permissoes">Permissões</TabsTrigger>
                                 <TabsTrigger value="geral-estados">Estados</TabsTrigger>
                                 <TabsTrigger value="geral-motivos-ausencia">Motivos Ausência</TabsTrigger>
-                            </TabsList>
+                            </ModuleTabsList>
 
 
                         <TabsContent value="geral-tipos-utilizador" className={nestedScrollableTabContentClass}>
@@ -1810,7 +1810,7 @@ export default function SettingsIndex({
                         <TabFallback />
                         ) : (
                         <Tabs value={currentFinanceiroTab} onValueChange={setCurrentFinanceiroTab} className={sectionTabsClass}>
-                            <TabsList className="w-full shrink-0 flex flex-wrap h-auto gap-1 justify-start">
+                            <ModuleTabsList label="Secções disponíveis">
                                 <TabsTrigger value="financeiro-mensalidades">Mensalidades</TabsTrigger>
                                 <TabsTrigger value="financeiro-tipos-fatura">Itens de Fatura</TabsTrigger>
                                 <TabsTrigger value="financeiro-centros-custos">Centros de Custos</TabsTrigger>
@@ -1822,7 +1822,7 @@ export default function SettingsIndex({
                                     <TabsTrigger value="financeiro-importacao-recibos">Importar Recibos</TabsTrigger>
                                 ) : null}
                                 <TabsTrigger value="financeiro-ciclo">Ciclo Financeiro</TabsTrigger>
-                            </TabsList>
+                            </ModuleTabsList>
 
                         <TabsContent value="financeiro-mensalidades" className={nestedScrollableTabContentClass}>
                         {currentFinanceiroTab === 'financeiro-mensalidades' ? (
@@ -2267,12 +2267,12 @@ export default function SettingsIndex({
                         <TabFallback />
                         ) : (
                         <Tabs value={currentLogisticaTab} onValueChange={setCurrentLogisticaTab} className={sectionTabsClass}>
-                            <TabsList className="w-full shrink-0 flex flex-wrap h-auto gap-1 justify-start">
+                            <ModuleTabsList label="Secções disponíveis">
                                 <TabsTrigger value="logistica-artigos">Artigos</TabsTrigger>
                                 <TabsTrigger value="logistica-categorias">Categorias de Itens</TabsTrigger>
                                 <TabsTrigger value="logistica-patrocinadores">Patrocinadores</TabsTrigger>
                                 <TabsTrigger value="logistica-fornecedores">Fornecedores</TabsTrigger>
-                            </TabsList>
+                            </ModuleTabsList>
 
                         <TabsContent value="logistica-artigos" className={nestedScrollableTabContentClass}>
                         {currentLogisticaTab === 'logistica-artigos' ? (
@@ -2627,12 +2627,12 @@ export default function SettingsIndex({
                         <TabFallback />
                         ) : (
                         <Tabs value={currentNotificacoesTab} onValueChange={setCurrentNotificacoesTab} className={sectionTabsClass}>
-                            <TabsList className="w-full shrink-0 flex flex-wrap h-auto gap-1 justify-start">
+                            <ModuleTabsList label="Secções disponíveis">
                                 <TabsTrigger value="automacoes">Automações</TabsTrigger>
                                 <TabsTrigger value="fontes-dinamicas">Fontes Dinâmicas</TabsTrigger>
                                 <TabsTrigger value="categorias-alerta">Categoria do Alerta</TabsTrigger>
                                 <TabsTrigger value="redes">Redes sociais</TabsTrigger>
-                            </TabsList>
+                            </ModuleTabsList>
 
                             <TabsContent value="automacoes" className={nestedScrollableTabContentClass}>
                                 {currentNotificacoesTab === 'automacoes' ? (
