@@ -1079,7 +1079,7 @@ Validação local concluída: TypeScript, ESLint, Vitest e build Vite. O runtime
 
 ## 8. Dívida estrutural prioritária
 
-- Requisito obrigatório de UX: nenhuma deslocação horizontal em páginas, menus, separadores ou tabelas, em desktop e mobile. PR #341 corrigida para grelha multilinha; validação visual de toda a plataforma permanece pendente.
+- Requisito obrigatório de UX: nenhuma deslocação horizontal em páginas, menus, separadores ou tabelas, em desktop e mobile. PR #341 alinhada com tabs existentes e quebra flexível; validação visual de toda a plataforma permanece pendente.
 
 - Frontend / UX transversal: a auditoria de 2026-09-10 confirmou navegação interna fragmentada, estado de tabs não persistente, componentes monolíticos, ownership visual concorrente e ausência de recuperação global de erros. O contrato alvo está em `docs/architecture/admin_ui_navigation_foundation.md`; P0 inicia a fundação sem alterar dados ou regras de negócio.
 - Desportivo: H3 fechado ponta a ponta; preservar os contracts e expandir UX/E2E sem reabrir fontes legacy.
@@ -1109,6 +1109,7 @@ Próximo passo imediato: validar H7a em dispositivos reais, incluindo entrega do
 
 | Data | Módulo | Desenvolvimento / análise | Evidência | Estado / pendências |
 |---|---|---|---|---|
+| 2026-09-10 | Frontend / Conceito visual | Mockup conceptual aprovado; preservar linguagem visual do ClubOS. PR #341 substitui grelha fixa por tabs flexíveis sem scroll horizontal. | `ModuleTabsList`; contrato visual | CI e QA visual pendentes. Navegação desportiva comum, contexto global real e maximização por implementar; percentagens inalteradas. |
 | 2026-09-10 | Frontend / Navegação | Corrige a proposta de scroll horizontal da PR #341: separadores em grelha responsiva, altura automática, rótulos com quebra e alvos de 44 px. | `ModuleTabsList.tsx`; `ModuleTabsList.test.tsx`; contrato de arquitetura | Sem alterações funcionais de backend; nova CI e QA visual pendentes. Percentagens inalteradas. |
 | 2026-09-10 | Frontend / UX transversal | UX-P0 inicia a normalização administrativa: limite global de erros, diálogos contidos no viewport, deteção correta do módulo ativo e tabs com URL/back-forward em Membros, Eventos, Financeiro e Comunicação. Regista também o contrato de ownership, navegação e sequência da refatoração global. | PR #339; CI #1192; `ApplicationErrorBoundary`; `useUrlTab`; `AuthenticatedLayout`; `dialog.tsx`; `docs/architecture/admin_ui_navigation_foundation.md` | CI integral verde em Laravel, PostgreSQL concorrente, TypeScript, lint, Vitest, build e Playwright multi-browser/mobile. Merge e deploy pendentes; sem migrations, dados ou alteração de regras de negócio. |
 | 2026-09-09 | Desportivo / Estrutura | Corrige RangeError no render de datas ISO serializadas pelo Laravel: normalização de data civil, sem conversão de fuso e fallback para datas inválidas. | `Estrutura/formatStructureDate.ts`; teste Vitest de regressão | Erro original reproduzido em Node; 30 verificações em 3 fusos passaram. CI/build e validação autenticada em produção pendentes; sem alterações de dados. |
