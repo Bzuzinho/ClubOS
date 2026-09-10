@@ -119,8 +119,9 @@ export default function AuthenticatedLayout({
     hideMobileHeader?: boolean;
 }>) {
     const [sportsMaximized, setSportsMaximized] = useState(false);
-    const collapseSidebarDesktop = collapseSidebarRequested || sportsMaximized;
     const page = usePage<PageProps & Record<string, unknown>>();
+    const hasSportsNavigation = Array.isArray(page.props.sportsNavigation) && page.props.sportsNavigation.length > 0;
+    const collapseSidebarDesktop = collapseSidebarRequested || (hasSportsNavigation && sportsMaximized);
     const { auth, accessControl, communicationAlerts } = page.props;
     const { clubDisplayName, clubLogoUrl, clubName, clubShortName } = useClubSettings();
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
