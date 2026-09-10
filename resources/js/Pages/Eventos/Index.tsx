@@ -4,6 +4,7 @@ import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { moduleTabbedContentClass, moduleTabsClass, moduleViewportClass } from '@/lib/module-layout';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/Components/ui/tabs';
 import { ListChecks, CalendarBlank, ChartBar } from '@phosphor-icons/react';
+import { useUrlTab } from '@/hooks/useUrlTab';
 
 const EventosDashboard = lazy(() =>
   import('@/Components/Eventos/EventosDashboard').then((module) => ({
@@ -25,6 +26,9 @@ const EventosRelatorios = lazy(() =>
     default: module.EventosRelatorios,
   }))
 );
+
+const EVENT_TABS = ['dashboard', 'calendario', 'eventos', 'relatorios'] as const;
+const EVENT_TABS_WITHOUT_REPORTS = ['dashboard', 'calendario', 'eventos'] as const;
 
 function TabFallback() {
   return <div className="py-8 text-sm text-muted-foreground">A carregar...</div>;
@@ -118,7 +122,8 @@ export default function EventosIndex({
   permissions,
 }: Props) {
   const page = usePage<EventosPageProps>();
-  const [activeTab, setActiveTab] = useState('dashboard');
+  const availableTabs = permissions.resultados ? EVENT_TABS : EVENT_TABS_WITHOUT_REPORTS;
+  const [activeTab, setActiveTab] = useUrlTab(availableTabs, 'dashboard');
   const [loadingTab, setLoadingTab] = useState<string | null>(null);
   const [attendances, setAttendances] = useState(initialAttendances);
   const hasUsers = Object.prototype.hasOwnProperty.call(page.props, 'users');

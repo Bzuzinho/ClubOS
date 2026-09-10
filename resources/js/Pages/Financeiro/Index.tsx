@@ -4,6 +4,7 @@ import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { moduleTabbedContentClass, moduleTabsClass, moduleViewportClass } from '@/lib/module-layout';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/Components/ui/tabs';
 import { ChartLineUp, Receipt, ArrowsDownUp, Bank, ChartBar, FileText } from '@phosphor-icons/react';
+import { useUrlTab } from '@/hooks/useUrlTab';
 import {
   Fatura,
   FaturaItem,
@@ -31,6 +32,8 @@ const MovimentosTab = lazy(() => import('./MovimentosTab').then((module) => ({ d
 const BancoTab = lazy(() => import('./BancoTab').then((module) => ({ default: module.BancoTab })));
 const RelatoriosTab = lazy(() => import('./RelatoriosTab').then((module) => ({ default: module.RelatoriosTab })));
 const FiscalDocumentsTab = lazy(() => import('./FiscalDocumentsTab').then((module) => ({ default: module.FiscalDocumentsTab })));
+
+const FINANCE_TABS = ['dashboard', 'mensalidades', 'movimentos', 'banco', 'relatorios', 'emissao-fiscal'] as const;
 
 function TabFallback() {
   return <div className="py-8 text-sm text-muted-foreground">A carregar...</div>;
@@ -79,7 +82,7 @@ export default function FinanceiroIndex({
   dashboardData,
   fiscalRequests,
 }: Props) {
-  const [activeTab, setActiveTab] = useState('dashboard');
+  const [activeTab, setActiveTab] = useUrlTab(FINANCE_TABS, 'dashboard');
   const [faturasState, setFaturas] = useState<Fatura[]>(faturas || []);
   const [mensalidadesFaturasState, setMensalidadesFaturas] = useState<Fatura[]>(mensalidadesFaturas || []);
   const [faturaItensState, setFaturaItens] = useState<FaturaItem[]>(faturaItens || []);

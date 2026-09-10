@@ -8,6 +8,7 @@ import { createInertiaApp } from '@inertiajs/react';
 import { resolvePageComponent } from 'laravel-vite-plugin/inertia-helpers';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from 'sonner';
+import { ApplicationErrorBoundary } from '@/Components/ApplicationErrorBoundary';
 
 const appName = import.meta.env.VITE_APP_NAME || 'ClubOS';
 const Devtools = import.meta.env.DEV
@@ -35,15 +36,17 @@ createInertiaApp({
     setup({ el, App, props }) {
         const root = createRoot(el);
         root.render(
-            <QueryClientProvider client={queryClient}>
-                <App {...props} />
-                <Toaster position="top-center" richColors closeButton />
-                {Devtools ? (
-                    <Suspense fallback={null}>
-                        <Devtools initialIsOpen={false} />
-                    </Suspense>
-                ) : null}
-            </QueryClientProvider>
+            <ApplicationErrorBoundary>
+                <QueryClientProvider client={queryClient}>
+                    <App {...props} />
+                    <Toaster position="top-center" richColors closeButton />
+                    {Devtools ? (
+                        <Suspense fallback={null}>
+                            <Devtools initialIsOpen={false} />
+                        </Suspense>
+                    ) : null}
+                </QueryClientProvider>
+            </ApplicationErrorBoundary>
         );
     },
     progress: {

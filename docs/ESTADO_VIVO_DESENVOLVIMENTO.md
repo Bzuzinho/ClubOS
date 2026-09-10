@@ -1079,6 +1079,7 @@ Validação local concluída: TypeScript, ESLint, Vitest e build Vite. O runtime
 
 ## 8. Dívida estrutural prioritária
 
+- Frontend / UX transversal: a auditoria de 2026-09-10 confirmou navegação interna fragmentada, estado de tabs não persistente, componentes monolíticos, ownership visual concorrente e ausência de recuperação global de erros. O contrato alvo está em `docs/architecture/admin_ui_navigation_foundation.md`; P0 inicia a fundação sem alterar dados ou regras de negócio.
 - Desportivo: H3 fechado ponta a ponta; preservar os contracts e expandir UX/E2E sem reabrir fontes legacy.
 - Eventos: remover estruturas de compatibilidade sem consumo e criar contract tests com Desportivo.
 - Rotas: modularização H2.5 fechada; H7a atualiza explicitamente o contract para 522/496 pelas cinco novas entradas de produto; validar o novo hash na CI e continuar a retirar redirects apenas com telemetria/prova de zero consumidores externos.
@@ -1092,10 +1093,11 @@ Validação local concluída: TypeScript, ESLint, Vitest e build Vite. O runtime
 
 | Ordem | Sprint | Objetivo |
 |---:|---|---|
-| 1 | H6e | QA operacional profundo, métricas/SLA e fecho produtivo da Comunicação. |
-| 2 | H7 | Portal/PWA/mobile; H7a onboarding iniciado, fechar CI, email real e QA física. |
-| 3 | H8 | Reporting consolidado transversal. |
-| 4 | H9 | Website: header/footer, notícias e polish final. |
+| 1 | UX-P0/P1 | Fundação transversal da administração: resiliência, navegação persistente, shell e visualização normalizada. |
+| 2 | H6e | QA operacional profundo, métricas/SLA e fecho produtivo da Comunicação. |
+| 3 | H7 | Portal/PWA/mobile; H7a onboarding iniciado, fechar CI, email real e QA física. |
+| 4 | H8 | Reporting consolidado transversal. |
+| 5 | H9 | Website: header/footer, notícias e polish final. |
 
 Próximo passo imediato: validar H7a em dispositivos reais, incluindo entrega do convite, ativação, entrada automática, browser e instalação opcional. H5f e o bugfix de criação de Eventos já estão integrados e deployados. Depois, retomar H6e para QA operacional profundo, métricas/SLA e fecho produtivo da Comunicação. A ativação Facebook/Instagram exige apenas introduzir nas Definições as credenciais Meta reais, validar as contas e registar os callbacks apresentados; o deploy não inventa nem transporta tokens. Em paralelo, a campanha legacy agendada/vencida deve ser revista explicitamente; o sistema não a enviará sozinho. Um eventual cutover da queue produtiva `database` para Redis só deve ocorrer depois de validar a configuração efetiva do Supervisor. H3, H4, H2.5, o ledger de stock por variante e Família/EE estão estruturalmente fechados. A fila fiscal produtiva e a ação operacional Cloudflare R2 permanecem pendências operacionais separadas.
 
@@ -1105,6 +1107,7 @@ Próximo passo imediato: validar H7a em dispositivos reais, incluindo entrega do
 
 | Data | Módulo | Desenvolvimento / análise | Evidência | Estado / pendências |
 |---|---|---|---|---|
+| 2026-09-10 | Frontend / UX transversal | UX-P0 inicia a normalização administrativa: limite global de erros, diálogos contidos no viewport, deteção correta do módulo ativo e tabs com URL/back-forward em Membros, Eventos, Financeiro e Comunicação. Regista também o contrato de ownership, navegação e sequência da refatoração global. | `ApplicationErrorBoundary`; `useUrlTab`; `AuthenticatedLayout`; `dialog.tsx`; `docs/architecture/admin_ui_navigation_foundation.md` | Implementado em branch; CI, browser QA e deploy pendentes. Sem migrations, dados ou alteração de regras de negócio. |
 | 2026-09-09 | Desportivo / Estrutura | Corrige RangeError no render de datas ISO serializadas pelo Laravel: normalização de data civil, sem conversão de fuso e fallback para datas inválidas. | `Estrutura/formatStructureDate.ts`; teste Vitest de regressão | Erro original reproduzido em Node; 30 verificações em 3 fusos passaram. CI/build e validação autenticada em produção pendentes; sem alterações de dados. |
 | 2026-09-09 | Eventos / Portal / Comunicação / Família | Separa público-alvo de escalão e materializa uma classificação explícita e combinável para todos, atletas, encarregados de educação e outros utilizadores. A mesma resolução canónica alimenta a visibilidade no Portal e o source técnico `event_audience` da Comunicação; eventos recorrentes herdam a classificação e os registos existentes recebem backfill conservador. | PR #337; CI #1187/#1188; merge `c8940e65229b05072a4c9a2b554df950c913fe0e`; `EventAudienceResolver`; `EventAudienceTargetingTest`; migration `2026_09_09_150000` | Integrado e deployado na Oracle VM; 1906 testes Laravel, PostgreSQL concorrente, TypeScript/lint/Vitest/build, Playwright multi-browser/mobile/acessibilidade, migration, audits produtivos e healthchecks verdes. Eventos 76% → 80%. |
 | 2026-09-09 | Eventos / UX / Validação | Corrige o silêncio no popup de criação/edição e o bloqueio real de eventos simples: monta notificações globais, mantém erros legíveis no modal, valida datas/recorrência antes do POST, exclui metadados de recorrência quando desligada, foca o primeiro campo inválido e reorganiza as grelhas para mobile. | PR #336; CI #1181/#1182/#1183; merge `179f613f28641a89ad78603ad426e38e4dec4151`; testes frontend e payload browser backend | Integrado e deployado na Oracle VM; 1901 testes Laravel, PostgreSQL concorrente, TypeScript/lint/Vitest/build, Playwright multi-browser/mobile/acessibilidade e healthchecks produtivos verdes. |

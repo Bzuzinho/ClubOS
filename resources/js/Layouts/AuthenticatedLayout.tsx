@@ -83,21 +83,21 @@ interface PageProps {
 }
 
 const mainMenuItems = [
-    { id: 'dashboard', moduleKey: 'inicio', label: 'Início', icon: House, route: '/dashboard' },
-    { id: 'membros', moduleKey: 'membros', label: 'Membros', icon: Users, route: '/membros' },
-    { id: 'desportivo', moduleKey: 'desportivo', label: 'Desportivo', icon: Trophy, route: '/desportivo' },
-    { id: 'eventos', moduleKey: 'eventos', label: 'Eventos', icon: CalendarBlank, route: '/eventos' },
-    { id: 'financeiro', moduleKey: 'financeiro', label: 'Financeiro', icon: CurrencyCircleDollar, route: '/financeiro' },
-    { id: 'logistica', moduleKey: 'logistica', label: 'Logística', icon: Package, route: '/logistica' },
-    { id: 'loja', moduleKey: 'loja', label: 'Loja', icon: ShoppingCart, route: '/admin/loja' },
-    { id: 'patrocinios', moduleKey: 'patrocinios', label: 'Patrocínios', icon: Handshake, route: '/patrocinios' },
-    { id: 'comunicacao', moduleKey: 'comunicacao', label: 'Comunicação', icon: Envelope, route: '/comunicacao' },
-    { id: 'marketing', moduleKey: 'marketing', label: 'Marketing', icon: MegaphoneSimple, route: '/campanhas-marketing' },
-    { id: 'website', moduleKey: 'website', label: 'Website', icon: GlobeHemisphereWest, route: '/website' },
+    { id: 'dashboard', moduleKey: 'inicio', label: 'Início', icon: House, route: '/dashboard', routeName: 'dashboard' },
+    { id: 'membros', moduleKey: 'membros', label: 'Membros', icon: Users, route: '/membros', routeName: 'membros' },
+    { id: 'desportivo', moduleKey: 'desportivo', label: 'Desportivo', icon: Trophy, route: '/desportivo', routeName: 'desportivo' },
+    { id: 'eventos', moduleKey: 'eventos', label: 'Eventos', icon: CalendarBlank, route: '/eventos', routeName: 'eventos' },
+    { id: 'financeiro', moduleKey: 'financeiro', label: 'Financeiro', icon: CurrencyCircleDollar, route: '/financeiro', routeName: 'financeiro' },
+    { id: 'logistica', moduleKey: 'logistica', label: 'Logística', icon: Package, route: '/logistica', routeName: 'logistica' },
+    { id: 'loja', moduleKey: 'loja', label: 'Loja', icon: ShoppingCart, route: '/admin/loja', routeName: 'admin.loja' },
+    { id: 'patrocinios', moduleKey: 'patrocinios', label: 'Patrocínios', icon: Handshake, route: '/patrocinios', routeName: 'patrocinios' },
+    { id: 'comunicacao', moduleKey: 'comunicacao', label: 'Comunicação', icon: Envelope, route: '/comunicacao', routeName: 'comunicacao' },
+    { id: 'marketing', moduleKey: 'marketing', label: 'Marketing', icon: MegaphoneSimple, route: '/campanhas-marketing', routeName: 'campanhas-marketing' },
+    { id: 'website', moduleKey: 'website', label: 'Website', icon: GlobeHemisphereWest, route: '/website', routeName: 'website' },
 ];
 
 const settingsMenuItems = [
-    { id: 'configuracoes', moduleKey: 'configuracoes', label: 'Configurações', icon: Gear, route: '/configuracoes' },
+    { id: 'configuracoes', moduleKey: 'configuracoes', label: 'Configurações', icon: Gear, route: '/configuracoes', routeName: 'configuracoes' },
 ];
 
 const defaultVisibleMenuModules = [...mainMenuItems, ...settingsMenuItems].map((item) => item.moduleKey);
@@ -325,9 +325,10 @@ export default function AuthenticatedLayout({
         error: 'bg-rose-100 text-rose-800 border-rose-200',
     };
 
-    const isActive = (itemId: string) => {
-        if (itemId === 'dashboard') return currentRoute === 'dashboard';
-        return currentRoute?.startsWith(itemId) || false;
+    const isActive = (routeName: string) => {
+        if (!currentRoute) return false;
+
+        return currentRoute === routeName || currentRoute.startsWith(`${routeName}.`);
     };
 
     return (
@@ -378,7 +379,7 @@ export default function AuthenticatedLayout({
                         <div className="space-y-1 flex-1">
                             {filteredMainMenuItems.map((item) => {
                                 const Icon = item.icon;
-                                const active = isActive(item.id);
+                                const active = isActive(item.routeName);
 
                                 return (
                                     <Button
@@ -407,7 +408,7 @@ export default function AuthenticatedLayout({
                         <div className="space-y-1">
                             {filteredSettingsMenuItems.map((item) => {
                                 const Icon = item.icon;
-                                const active = isActive(item.id);
+                                const active = isActive(item.routeName);
 
                                 return (
                                     <Button
