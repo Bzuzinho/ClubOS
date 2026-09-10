@@ -13,7 +13,7 @@ class SportsNavigation
     {
         $user = $request->user();
         if (! $user instanceof User || ! $request->routeIs('desportivo.*')
-            || $request->routeIs('desportivo.cais*', 'desportivo.live*', 'desportivo.treinos.cais*', 'desportivo.treinos.live*')) {
+            || $request->routeIs('desportivo.presencas', 'desportivo.cais*', 'desportivo.live*', 'desportivo.treinos.cais*', 'desportivo.treinos.live*')) {
             return [];
         }
 
@@ -29,7 +29,7 @@ class SportsNavigation
             ['Planeamento', 'desportivo.planeamento', ['desportivo.planeamento*']],
             ['Treinos', 'desportivo.treinos', ['desportivo.treinos*', 'desportivo.biblioteca*']],
             ['Competições', 'desportivo.competicoes', ['desportivo.competicoes*', 'desportivo.convocatorias.*', 'desportivo.resultados*']],
-            ['Análise', 'desportivo.analise.index', ['desportivo.analise.*', 'desportivo.registos.*']],
+            ['Análise', 'desportivo.analise.index', ['desportivo.analise.*', 'desportivo.registos.*', 'desportivo.relatorios']],
         ];
 
         $result = [];
