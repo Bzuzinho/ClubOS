@@ -2,6 +2,7 @@ import { Head, router, useForm, usePage } from '@inertiajs/react';
 import { useUrlTab } from '@/hooks/useUrlTab';
 import { useEffect, useMemo, useState } from 'react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
+import { ModuleHeader } from '@/Components/layout/ModuleHeader';
 import { moduleTabbedContentClass, moduleTabsClass, moduleViewportClass } from '@/lib/module-layout';
 import InputError from '@/Components/InputError';
 import { Card, CardContent, CardHeader, CardTitle } from '@/Components/ui/card';
@@ -1340,10 +1341,10 @@ export default function ComunicacaoIndex({
     <AuthenticatedLayout
       fullWidth
       header={
-        <div>
-          <h1 className="text-lg sm:text-xl font-semibold tracking-tight">Comunicação</h1>
-          <p className="text-muted-foreground text-xs mt-0.5">Campanhas, envios, templates, segmentos e alertas internos.</p>
-        </div>
+        <ModuleHeader
+          title="Comunicação"
+          description="Campanhas, envios, modelos, segmentos e alertas internos."
+        />
       }
     >
       <Head title="Comunicação" />

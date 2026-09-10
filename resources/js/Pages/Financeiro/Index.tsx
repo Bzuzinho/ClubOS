@@ -1,6 +1,7 @@
 import { Head } from '@inertiajs/react';
 import { Suspense, lazy, useEffect, useState } from 'react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
+import { ModuleHeader } from '@/Components/layout/ModuleHeader';
 import { moduleTabbedContentClass, moduleTabsClass, moduleViewportClass } from '@/lib/module-layout';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/Components/ui/tabs';
 import { ChartLineUp, Receipt, ArrowsDownUp, Bank, ChartBar, FileText } from '@phosphor-icons/react';
@@ -150,10 +151,10 @@ export default function FinanceiroIndex({
     <AuthenticatedLayout
       fullWidth
       header={
-        <div>
-          <h1 className="text-lg sm:text-xl font-semibold tracking-tight">Modulo Financeiro</h1>
-          <p className="text-muted-foreground text-xs mt-0.5">Gestao completa das financas do clube</p>
-        </div>
+        <ModuleHeader
+          title="Financeiro"
+          description="Mensalidades, movimentos, banco, fiscalidade e relatórios."
+        />
       }
     >
       <Head title="Gestao Financeira" />
