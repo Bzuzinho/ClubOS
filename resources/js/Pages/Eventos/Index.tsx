@@ -2,8 +2,9 @@ import { Suspense, lazy, useEffect, useState } from 'react';
 import { Head, router, usePage } from '@inertiajs/react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { ModuleHeader } from '@/Components/layout/ModuleHeader';
+import { ModuleTabsList } from '@/Components/layout/ModuleTabsList';
 import { moduleTabbedContentClass, moduleTabsClass, moduleViewportClass } from '@/lib/module-layout';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/Components/ui/tabs';
+import { Tabs, TabsContent, TabsTrigger } from '@/Components/ui/tabs';
 import { ListChecks, CalendarBlank, ChartBar } from '@phosphor-icons/react';
 import { useUrlTab } from '@/hooks/useUrlTab';
 
@@ -180,13 +181,13 @@ export default function EventosIndex({
 
       <div className={moduleViewportClass}>
         <Tabs value={activeTab} onValueChange={setActiveTab} className={moduleTabsClass}>
-          <TabsList className={`grid w-full shrink-0 h-9 ${permissions.resultados ? 'grid-cols-4' : 'grid-cols-3'} p-1`}>
+          <ModuleTabsList label="Áreas de Eventos">
             <TabsTrigger
               value="dashboard"
               className="flex items-center gap-1.5 px-1 py-1 text-xs"
             >
               <ChartBar size={16} className="flex-shrink-0" />
-              <span>Dashboard</span>
+              <span>Visão geral</span>
             </TabsTrigger>
             <TabsTrigger
               value="calendario"
@@ -211,7 +212,7 @@ export default function EventosIndex({
                 <span>Relatórios</span>
               </TabsTrigger>
             ) : null}
-          </TabsList>
+          </ModuleTabsList>
 
           <TabsContent value="dashboard" className={`${moduleTabbedContentClass} space-y-3`}>
             {activeTab === 'dashboard' ? (
