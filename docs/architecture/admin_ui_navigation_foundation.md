@@ -17,6 +17,9 @@ A área administrativa deve comportar-se como uma única aplicação. Portal, Ca
 6. Uma entidade tem um único módulo proprietário; outros módulos apenas a consultam ou editam através do respetivo contrato.
 7. Portal, Cais e Live não recebem a navegação administrativa normal.
 
+8. Sem deslocação horizontal em toda a plataforma, em desktop e mobile: páginas, menus, separadores e tabelas. Distribuir navegação por várias linhas e adaptar conteúdo à largura; não ocultar overflow para disfarçar conteúdo cortado. Tabelas extensas devem usar detalhe expansível ou apresentação responsiva.
+9. Validar no browser a largura da página e dos componentes, todos os destinos acessíveis sem deslizar lateralmente e rótulos completos, incluindo ecrãs estreitos e zoom.
+
 ## Propriedade funcional
 
 | Domínio | Proprietário |
