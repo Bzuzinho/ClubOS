@@ -71,3 +71,9 @@ A ficha deve apresentar os dados canónicos de participação, modalidade, époc
 7. P6 — reporting transversal.
 
 Cada fase deve manter contratos canónicos, permissões e histórico existentes.
+
+## Conceito visual aprovado
+
+O mockup é conceptual, não um novo design system. Reutilizar cores, tipografia, cards, botões, tabelas e tabs atuais. Navegação com quebra de linha, sem grelha fixa de seis colunas nem scroll horizontal. Maximizar amplia a área de trabalho com recuperação explícita do menu. Não ocultar campos ou ações no móvel para fazer caber conteúdo.
+
+Preservar acesso a Biblioteca, Convocatórias, Resultados, Recordes e Configuração na reorganização. Modalidade/época só podem ser contexto global quando os consumidores filtrarem efetivamente esses parâmetros. Nunca transportar dados ilustrativos do mockup para produção.
