@@ -1,6 +1,7 @@
 import { Suspense, lazy } from 'react';
 import { Head } from '@inertiajs/react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
+import { ModuleHeader } from '@/Components/layout/ModuleHeader';
 import { moduleTabbedContentClass, moduleTabsClass, moduleViewportClass } from '@/lib/module-layout';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/Components/ui/tabs';
 import { ChartBar, ChartLineUp, Users as UsersIcon } from '@phosphor-icons/react';
@@ -94,12 +95,10 @@ export default function MembrosIndex({ members, membersPagination, filters, user
         <AuthenticatedLayout
             fullWidth
             header={
-                <div>
-                    <h1 className="text-lg sm:text-xl font-semibold tracking-tight">Gestão de Membros</h1>
-                    <p className="text-muted-foreground text-xs mt-0.5">
-                        Visão geral, gestão e reporting dos membros do clube
-                    </p>
-                </div>
+                <ModuleHeader
+                    title="Membros"
+                    description="Visão geral, gestão e relatórios dos membros do clube."
+                />
             }
         >
             <Head title="Membros" />
