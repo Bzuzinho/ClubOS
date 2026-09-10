@@ -282,4 +282,43 @@ test.describe('authenticated access', () => {
         await expect(dialog).not.toBeVisible();
     });
 
+    test('P1: populated periodisation exposes cycles and the linked session', async ({ page }, testInfo) => {
+        await login(page, testInfo, '/desportivo/planeamento');
+        await Promise.all([
+            page.waitForResponse((response) => response.url().includes('/desportivo/planeamento?season_id=') && response.request().method() === 'GET' && response.ok()),
+            page.getByRole('combobox', { name: 'Época de planeamento' }).selectOption({ label: 'E2E Época · E2E' }),
+        ]);
+        await expect(page.locator('#nprogress')).toHaveCount(0);
+        await expect(page.getByText('E2E Preparação', { exact: true }).first()).toBeVisible();
+        await expect(page.getByText('E2E Base', { exact: true }).first()).toBeVisible();
+        await expect(page.getByText('E2E Semana', { exact: true }).first()).toBeVisible();
+        await expectNoHorizontalOverflow(page);
+        await page.getByRole('tab', { name: 'Sessões', exact: true }).click();
+        await expect(page.getByRole('tab', { name: 'Sessões', exact: true })).toHaveAttribute('aria-selected', 'true');
+        await expect(page.getByText('#E2E-DESPORTIVO', { exact: false }).first()).toBeVisible();
+        await expectNoHorizontalOverflow(page);
+    });
+
+    test('P1: populated Cais and Live retain athlete and series controls', async ({ page }, testInfo) => {
+        await login(page, testInfo, '/desportivo/cais');
+        await expect(page.getByText('Atleta E2E Desportivo', { exact: true })).toBeVisible();
+        await expect(page.getByRole('button', { name: 'Comportamento', exact: true })).toBeVisible();
+        await expectNoHorizontalOverflow(page);
+        await page.getByRole('button', { name: 'Cards', exact: true }).click();
+        await expect(page.getByText('Atleta E2E Desportivo', { exact: true })).toBeVisible();
+        await expectNoHorizontalOverflow(page);
+        await page.getByRole('button', { name: 'Lista', exact: true }).click();
+        const overflowing = await page.locator('main [class*="overflow"]').evaluateAll((elements) =>
+            elements.filter((element) => element.getClientRects().length > 0 && element.scrollWidth > element.clientWidth + 1)
+                .map((element) => ({ width: element.clientWidth, scroll: element.scrollWidth })),
+        );
+        expect(overflowing).toEqual([]);
+        await page.getByRole('button', { name: 'Live', exact: true }).click();
+        await expect(page.getByRole('heading', { name: 'Live · Monitorização fina' })).toBeVisible();
+        await page.getByRole('checkbox', { name: 'Selecionar Atleta E2E Desportivo' }).check();
+        await page.getByRole('button', { name: /8×50.*E2E Livre técnico/ }).click();
+        await expect(page.getByRole('button', { name: 'START', exact: true })).toBeEnabled();
+        await expectNoHorizontalOverflow(page);
+    });
+
 });

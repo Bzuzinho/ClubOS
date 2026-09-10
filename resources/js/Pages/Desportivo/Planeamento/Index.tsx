@@ -265,6 +265,7 @@ export default function PlanningWorkspace(props: Props) {
               {planningLocked && selectedSeason && <div className="text-xs text-destructive">Época encerrada/arquivada: o planeamento está em modo de consulta.</div>}
             </div>
             <select
+              aria-label="Época de planeamento"
               className={`${selectClass} max-w-sm`}
               value={seasonId}
               onChange={(event) => router.get(route('desportivo.planeamento'), { season_id: event.target.value }, { preserveScroll: true })}
@@ -297,7 +298,7 @@ export default function PlanningWorkspace(props: Props) {
               {macrocycles.map((macro) => (
                 <Card key={macro.id}>
                   <CardContent className="p-3">
-                    <div className="flex items-start justify-between gap-2">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
                       <div>
                         <div className="font-semibold">{macro.nome} <Badge variant="outline">{macro.tipo}</Badge></div>
                         <div className="text-xs text-muted-foreground">{dateOnly(macro.data_inicio)} → {dateOnly(macro.data_fim)} · {macro.objetivo_principal || 'Sem objetivo'}</div>
@@ -311,7 +312,7 @@ export default function PlanningWorkspace(props: Props) {
                     <div className="mt-3 space-y-2 border-l pl-3">
                       {(macro.mesocycles ?? []).map((meso) => (
                         <div key={meso.id} className="rounded-md border p-2">
-                          <div className="flex items-start justify-between gap-2">
+                          <div className="flex flex-wrap items-start justify-between gap-2">
                             <div><b className="text-sm">{meso.nome}</b><div className="text-xs text-muted-foreground">{dateOnly(meso.data_inicio)} → {dateOnly(meso.data_fim)} · {meso.objetivo_principal}</div></div>
                             <div className="flex">
                               <Button size="icon" variant="ghost" onClick={() => open('micro', undefined, meso.id)} disabled={planningLocked}><Plus size={14} /></Button>

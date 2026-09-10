@@ -20,7 +20,7 @@ export function CaisContextPanel({ session }: { session: SelectedSession }) {
                   <span>{block.name}{block.rounds > 1 ? ` · ${block.rounds} rondas` : ''}</span><span>{block.volume_m.toLocaleString('pt-PT')} m</span>
                 </div>
                 {block.series.map((line) => (
-                  <div key={line.id} className="grid grid-cols-[60px_1fr_42px_58px_58px] gap-1 border-b px-2 py-1.5 text-[10px] last:border-b-0">
+                  <div key={line.id} className="grid grid-cols-2 xl:grid-cols-5 gap-1 break-words border-b px-2 py-1.5 text-[10px] last:border-b-0">
                     <b>{line.repeticoes}×{line.distancia_m || ''}</b>
                     <span>{line.exercicio ?? line.estilo ?? 'Série'}</span>
                     <span className="text-muted-foreground">{line.zona ?? '—'}</span>
