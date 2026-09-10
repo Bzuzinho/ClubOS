@@ -18,8 +18,8 @@ describe('ModuleTabsList', () => {
         const navigation = screen.getByRole('navigation', { name: 'Áreas de Membros' });
         expect(navigation).not.toHaveClass('overflow-x-auto');
         const list = screen.getByRole('tablist');
-        expect(list).toHaveClass('grid', 'h-auto', 'w-full', 'min-w-0', 'grid-cols-2');
-        expect(list).not.toHaveClass('min-w-max');
+        expect(list).toHaveClass('flex', 'flex-wrap', 'h-auto', 'w-full', 'min-w-0');
+        expect(list).not.toHaveClass('min-w-max', 'grid-cols-2');
         expect(list).toHaveClass('[&_[data-slot=tabs-trigger]]:whitespace-normal');
         expect(screen.getAllByRole('tab')).toHaveLength(3);
         expect(screen.getByRole('tab', { name: 'Visão geral' })).toHaveAttribute('data-state', 'active');
