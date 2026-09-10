@@ -18,14 +18,22 @@ export function ModuleTabsList({
         <nav
             aria-label={label}
             className={cn(
-                'w-full overflow-x-auto overscroll-x-contain pb-1',
+                'w-full min-w-0 shrink-0 pb-1',
                 containerClassName,
             )}
         >
             <TabsList
                 className={cn(
-                    'h-10 min-w-max justify-start gap-1 p-1',
-                    '[&_[data-slot=tabs-trigger]]:h-8',
+                    'grid h-auto w-full min-w-0 grid-cols-2 gap-1 p-1 sm:grid-cols-3 lg:grid-cols-6',
+                    '[&_[data-slot=tabs-trigger]]:h-auto',
+                    '[&_[data-slot=tabs-trigger]]:min-h-11',
+                    '[&_[data-slot=tabs-trigger]]:min-w-0',
+                    '[&_[data-slot=tabs-trigger]]:whitespace-normal',
+                    '[&_[data-slot=tabs-trigger]]:break-words',
+                    '[&_[data-slot=tabs-trigger]]:py-2',
+                    '[&_[data-slot=tabs-trigger]]:leading-snug',
+                    '[&_[data-slot=tabs-trigger]>span]:min-w-0',
+                    '[&_[data-slot=tabs-trigger]>span]:[overflow-wrap:anywhere]',
                     '[&_[data-slot=tabs-trigger]]:flex-none',
                     '[&_[data-slot=tabs-trigger]]:px-3',
                     '[&_[data-slot=tabs-trigger]]:text-xs',
