@@ -1,9 +1,11 @@
 import {createServer} from 'vite';
+import react from '@vitejs/plugin-react';
+import {resolve} from 'node:path';
 import React from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {readFileSync,readdirSync} from 'node:fs';
 import {chromium} from '@playwright/test';
-const server=await createServer({server:{middlewareMode:true},appType:'custom'});
+const server=await createServer({configFile:false,plugins:[react()],resolve:{alias:{'@':resolve('resources/js')}},server:{middlewareMode:true},appType:'custom'});
 let browser;
 try {
 const {Table,TableHeader,TableBody,TableRow,TableHead,TableCell}=await server.ssrLoadModule('/resources/js/Components/ui/table.tsx');
