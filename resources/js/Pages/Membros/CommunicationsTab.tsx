@@ -595,16 +595,16 @@ export default function CommunicationsTab({
                         </div>
 
                         <div className="hidden max-h-[420px] overflow-auto lg:block">
-                            <div className="min-w-[700px]">
-                                <Table>
+                            <div className="min-w-0">
+                                <Table responsive>
                                     <TableHeader>
                                         <TableRow>
-                                            <TableHead className="w-[120px]">Tipo</TableHead>
+                                            <TableHead>Tipo</TableHead>
                                             <TableHead>Assunto</TableHead>
-                                            <TableHead className="w-[220px]">{folder === 'received' ? 'Remetente' : 'Destinatários'}</TableHead>
-                                            <TableHead className="w-[140px]">Estado</TableHead>
-                                            <TableHead className="w-[150px]">Data</TableHead>
-                                            <TableHead className="sticky right-0 z-10 w-[130px] bg-background text-right">Ações</TableHead>
+                                            <TableHead>{folder === 'received' ? 'Remetente' : 'Destinatários'}</TableHead>
+                                            <TableHead>Estado</TableHead>
+                                            <TableHead>Data</TableHead>
+                                            <TableHead className="bg-background text-right">Ações</TableHead>
                                         </TableRow>
                                     </TableHeader>
                                     <TableBody>
@@ -613,7 +613,7 @@ export default function CommunicationsTab({
                                                 key={`${item.folder}-${item.message_id}`}
                                                 className="align-top"
                                             >
-                                                <TableCell>
+                                                <TableCell label="Tipo">
                                                     <div className="space-y-1">
                                                         <Badge variant="outline" className={typeBadgeClassName[item.type]}>
                                                             {typeOptions.find((option) => option.value === item.type)?.label}
@@ -623,14 +623,14 @@ export default function CommunicationsTab({
                                                         </Badge>
                                                     </div>
                                                 </TableCell>
-                                                <TableCell className="max-w-[320px]">
+                                                <TableCell label="Assunto">
                                                     <div className="truncate text-sm font-medium">{item.subject}</div>
                                                     <div className="truncate text-xs text-muted-foreground">{item.message}</div>
                                                 </TableCell>
-                                                <TableCell className="text-xs text-muted-foreground">
+                                                <TableCell label={folder === 'received' ? 'Remetente' : 'Destinatários'} className="text-xs text-muted-foreground">
                                                     {item.folder === 'received' ? item.sender.name : recipientLabel(item)}
                                                 </TableCell>
-                                                <TableCell>
+                                                <TableCell label="Estado">
                                                     <Badge
                                                         variant={item.folder === 'received' && !item.is_read ? 'secondary' : 'outline'}
                                                         className="text-[11px]"
@@ -638,9 +638,9 @@ export default function CommunicationsTab({
                                                         {stateLabel(item)}
                                                     </Badge>
                                                 </TableCell>
-                                                <TableCell className="text-xs text-muted-foreground">{formatDateTime(item.created_at)}</TableCell>
-                                                <TableCell className="sticky right-0 z-10 bg-background">
-                                                    <div className="flex items-center justify-end gap-1">
+                                                <TableCell label="Data" className="text-xs text-muted-foreground">{formatDateTime(item.created_at)}</TableCell>
+                                                <TableCell label="Ações" className="bg-background">
+                                                    <div className="flex flex-wrap items-center justify-end gap-1">
                                                         <Tooltip>
                                                             <TooltipTrigger asChild>
                                                                 <Button

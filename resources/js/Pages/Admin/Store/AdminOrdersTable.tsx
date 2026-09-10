@@ -1,3 +1,4 @@
+import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/Components/ui/table';
 import { Head, router, usePage } from '@inertiajs/react';
 import { Badge } from '@/Components/ui/badge';
 import { Card, CardContent, CardHeader } from '@/Components/ui/card';
@@ -57,50 +58,50 @@ export default function AdminOrdersTable() {
                         <SectionTitle title="Lista de encomendas" subtitle={`${orders.length} encomenda(s) no filtro atual.`} />
                     </CardHeader>
                     <CardContent>
-                        <div className="overflow-x-auto rounded-md border border-border">
-                            <table className="min-w-full divide-y divide-border text-sm">
-                            <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-                                <tr>
-                                    <th className="px-5 py-3">Pedido</th>
-                                    <th className="px-5 py-3">Utilizador</th>
-                                    <th className="px-5 py-3">Estado</th>
-                                    <th className="px-5 py-3">Pagamento</th>
-                                    <th className="px-5 py-3">Data</th>
-                                    <th className="px-5 py-3">Total</th>
-                                    <th className="px-5 py-3">Ações</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-border bg-white">
+                        <div className="min-w-0 rounded-md border border-border">
+                            <Table responsive className="divide-y divide-border text-sm">
+                            <TableHeader className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+                                <TableRow>
+                                    <TableHead className="px-5 py-3">Pedido</TableHead>
+                                    <TableHead className="px-5 py-3">Utilizador</TableHead>
+                                    <TableHead className="px-5 py-3">Estado</TableHead>
+                                    <TableHead className="px-5 py-3">Pagamento</TableHead>
+                                    <TableHead className="px-5 py-3">Data</TableHead>
+                                    <TableHead className="px-5 py-3">Total</TableHead>
+                                    <TableHead className="px-5 py-3">Ações</TableHead>
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody className="divide-y divide-border bg-white">
                                 {orders.length > 0 ? orders.map((order) => (
-                                    <tr key={order.id} className="hover:bg-slate-50">
-                                        <td className="px-5 py-4 font-semibold text-slate-900">{order.numero}</td>
-                                        <td className="px-5 py-4 text-slate-600">
+                                    <TableRow key={order.id} className="hover:bg-slate-50">
+                                        <TableCell label="Pedido" className="px-5 py-4 font-semibold text-slate-900">{order.numero}</TableCell>
+                                        <TableCell label="Utilizador" className="px-5 py-4 text-slate-600">
                                             <span className="block">{order.user?.nome_completo || 'Sem utilizador'}</span>
                                             {order.target_user?.nome_completo ? <span className="block text-xs text-slate-400">Para {order.target_user.nome_completo}</span> : null}
-                                        </td>
-                                        <td className="px-5 py-4">
+                                        </TableCell>
+                                        <TableCell label="Estado" className="px-5 py-4">
                                             <Badge variant="outline" className={storeOrderStatusClass(order.estado)}>
                                                 {storeOrderStatusLabel(order.estado)}
                                             </Badge>
-                                        </td>
-                                        <td className="px-5 py-4">
+                                        </TableCell>
+                                        <TableCell label="Pagamento" className="px-5 py-4">
                                             <Badge variant="outline" className={storePaymentStatusClass(order.financeiro.estado_pagamento)}>
                                                 {storePaymentStatusLabel(order.financeiro.estado_pagamento)}
                                             </Badge>
-                                        </td>
-                                        <td className="px-5 py-4 text-slate-600">{formatStoreDate(order.created_at)}</td>
-                                        <td className="px-5 py-4 font-semibold text-blue-700">{formatStoreCurrency(order.total)}</td>
-                                        <td className="px-5 py-4">
+                                        </TableCell>
+                                        <TableCell label="Data" className="px-5 py-4 text-slate-600">{formatStoreDate(order.created_at)}</TableCell>
+                                        <TableCell label="Total" className="px-5 py-4 font-semibold text-blue-700">{formatStoreCurrency(order.total)}</TableCell>
+                                        <TableCell label="Ações" className="px-5 py-4">
                                             <button type="button" onClick={() => router.visit(`/admin/loja/encomendas/${order.id}`)} className="rounded-md border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50">Abrir</button>
-                                        </td>
-                                    </tr>
+                                        </TableCell>
+                                    </TableRow>
                                 )) : (
-                                    <tr>
-                                        <td colSpan={7} className="px-5 py-10 text-center text-sm text-slate-500">Não existem encomendas com este filtro.</td>
-                                    </tr>
+                                    <TableRow>
+                                        <TableCell colSpan={7} className="px-5 py-10 text-center text-sm text-slate-500">Não existem encomendas com este filtro.</TableCell>
+                                    </TableRow>
                                 )}
-                            </tbody>
-                            </table>
+                            </TableBody>
+                            </Table>
                         </div>
                     </CardContent>
                 </Card>

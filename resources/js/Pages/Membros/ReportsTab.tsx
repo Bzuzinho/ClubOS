@@ -605,29 +605,29 @@ export default function MembrosReportsTab() {
                                 </div>
                             </div>
                             {report.rows.length > 0 ? (
-                                <div className="w-full overflow-x-auto">
-                                    <Table>
+                                <div className="w-full min-w-0">
+                                    <Table responsive>
                                         <TableHeader>
                                             <TableRow>
-                                                <TableHead className="min-w-[90px]">Nº Sócio</TableHead>
-                                                <TableHead className="min-w-[220px]">Nome</TableHead>
-                                                <TableHead className="min-w-[220px]">Email</TableHead>
-                                                <TableHead className="min-w-[100px]">Estado</TableHead>
-                                                <TableHead className="min-w-[180px]">Tipo</TableHead>
-                                                <TableHead className="min-w-[160px]">Escalão</TableHead>
+                                                <TableHead className="min-w-0">Nº Sócio</TableHead>
+                                                <TableHead className="min-w-0">Nome</TableHead>
+                                                <TableHead className="min-w-0">Email</TableHead>
+                                                <TableHead className="min-w-0">Estado</TableHead>
+                                                <TableHead className="min-w-0">Tipo</TableHead>
+                                                <TableHead className="min-w-0">Escalão</TableHead>
                                             </TableRow>
                                         </TableHeader>
                                         <TableBody>
                                             {report.rows.map((member) => (
                                                 <TableRow key={member.id}>
-                                                    <TableCell className="text-xs">{member.numero_socio || '-'}</TableCell>
-                                                    <TableCell className="text-xs font-medium">{member.nome_completo}</TableCell>
-                                                    <TableCell className="text-xs text-muted-foreground">{member.email_utilizador || '-'}</TableCell>
-                                                    <TableCell>
+                                                    <TableCell label="Nº Sócio" className="text-xs">{member.numero_socio || '-'}</TableCell>
+                                                    <TableCell label="Nome" className="text-xs font-medium">{member.nome_completo}</TableCell>
+                                                    <TableCell label="Email" className="text-xs text-muted-foreground">{member.email_utilizador || '-'}</TableCell>
+                                                    <TableCell label="Estado">
                                                         <Badge variant="outline" className="text-[10px]">{member.estado_label}</Badge>
                                                     </TableCell>
-                                                    <TableCell className="text-xs">{member.user_type_labels.join(', ') || '-'}</TableCell>
-                                                    <TableCell className="text-xs">{member.age_group_labels.join(', ') || '-'}</TableCell>
+                                                    <TableCell label="Tipo" className="text-xs">{member.user_type_labels.join(', ') || '-'}</TableCell>
+                                                    <TableCell label="Escalão" className="text-xs">{member.age_group_labels.join(', ') || '-'}</TableCell>
                                                 </TableRow>
                                             ))}
                                         </TableBody>
