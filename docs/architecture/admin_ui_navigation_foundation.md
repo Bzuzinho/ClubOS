@@ -17,6 +17,9 @@ A área administrativa deve comportar-se como uma única aplicação. Portal, Ca
 6. Uma entidade tem um único módulo proprietário; outros módulos apenas a consultam ou editam através do respetivo contrato.
 7. Portal, Cais e Live não recebem a navegação administrativa normal.
 
+8. Sem deslocação horizontal em toda a plataforma, em desktop e mobile: páginas, menus, separadores e tabelas. Distribuir navegação por várias linhas e adaptar conteúdo à largura; não ocultar overflow para disfarçar conteúdo cortado. Tabelas extensas devem usar detalhe expansível ou apresentação responsiva.
+9. Validar no browser a largura da página e dos componentes, todos os destinos acessíveis sem deslizar lateralmente e rótulos completos, incluindo ecrãs estreitos e zoom.
+
 ## Propriedade funcional
 
 | Domínio | Proprietário |
@@ -68,3 +71,9 @@ A ficha deve apresentar os dados canónicos de participação, modalidade, époc
 7. P6 — reporting transversal.
 
 Cada fase deve manter contratos canónicos, permissões e histórico existentes.
+
+## Conceito visual aprovado
+
+O mockup é conceptual, não um novo design system. Reutilizar cores, tipografia, cards, botões, tabelas e tabs atuais. Navegação com quebra de linha, sem grelha fixa de seis colunas nem scroll horizontal. A área administrativa ocupa toda a largura disponível por defeito no computador, com o menu principal acessível. Não existe botão nem estado manual de Maximizar/Repor menu. A adaptação ao telemóvel é automática. Não ocultar campos ou ações no móvel para fazer caber conteúdo.
+
+Preservar acesso a Biblioteca, Convocatórias, Resultados, Recordes e Configuração na reorganização. Modalidade/época só podem ser contexto global quando os consumidores filtrarem efetivamente esses parâmetros. Nunca transportar dados ilustrativos do mockup para produção.

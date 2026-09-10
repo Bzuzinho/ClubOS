@@ -1,3 +1,4 @@
+import { SportsNavigation } from '@/Components/Desportivo/SportsNavigation';
 import { ReactNode, useEffect, useMemo, useRef, useState, PropsWithChildren } from 'react';
 import { router, usePage } from '@inertiajs/react';
 import {
@@ -106,7 +107,7 @@ const modulePrefetchPriority = ['eventos', 'financeiro', 'comunicacao', 'configu
 export default function AuthenticatedLayout({ 
     header,
     children,
-    fullWidth = false,
+    fullWidth = true,
     collapseSidebarDesktop = false,
     showSidebarPopupButton = false,
     hideMobileHeader = false,
@@ -563,6 +564,7 @@ export default function AuthenticatedLayout({
                             fullWidth ? 'w-full px-[10px] py-[10px] sm:py-4' : 'spark-container py-3 sm:py-4'
                         )}
                     >
+                        <SportsNavigation />
                         {children}
                     </div>
                 </main>

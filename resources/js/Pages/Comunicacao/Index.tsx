@@ -3,10 +3,11 @@ import { useUrlTab } from '@/hooks/useUrlTab';
 import { useEffect, useMemo, useState } from 'react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { ModuleHeader } from '@/Components/layout/ModuleHeader';
+import { ModuleTabsList } from '@/Components/layout/ModuleTabsList';
 import { moduleTabbedContentClass, moduleTabsClass, moduleViewportClass } from '@/lib/module-layout';
 import InputError from '@/Components/InputError';
 import { Card, CardContent, CardHeader, CardTitle } from '@/Components/ui/card';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/Components/ui/tabs';
+import { Tabs, TabsContent, TabsTrigger } from '@/Components/ui/tabs';
 import { Button } from '@/Components/ui/button';
 import { Input } from '@/Components/ui/input';
 import { Label } from '@/Components/ui/label';
@@ -1351,11 +1352,10 @@ export default function ComunicacaoIndex({
 
       <div className={moduleViewportClass}>
         <Tabs value={activeTab} onValueChange={setActiveTab} className={moduleTabsClass}>
-          <div className="w-full">
-            <TabsList className="grid h-auto w-full shrink-0 grid-cols-2 gap-1 p-1 text-[11px] sm:h-9 sm:grid-cols-6 sm:text-xs">
+          <ModuleTabsList label="Áreas de Comunicação">
               <TabsTrigger value="dashboard" className="flex h-8 min-w-0 items-center justify-center gap-1 whitespace-nowrap px-2 py-1 text-[11px] leading-none sm:h-7 sm:text-xs">
                 <ChartLineUp size={14} />
-                <span>Dashboard</span>
+                <span>Visão geral</span>
               </TabsTrigger>
               <TabsTrigger value="envios" className="flex h-8 min-w-0 items-center justify-center gap-1 whitespace-nowrap px-2 py-1 text-[11px] leading-none sm:h-7 sm:text-xs">
                 <MegaphoneSimple size={14} />
@@ -1363,7 +1363,7 @@ export default function ComunicacaoIndex({
               </TabsTrigger>
               <TabsTrigger value="templates" className="flex h-8 min-w-0 items-center justify-center gap-1 whitespace-nowrap px-2 py-1 text-[11px] leading-none sm:h-7 sm:text-xs">
                 <PaperPlaneTilt size={14} />
-                <span>Templates</span>
+                <span>Modelos</span>
               </TabsTrigger>
               <TabsTrigger value="segmentos" className="flex h-8 min-w-0 items-center justify-center gap-1 whitespace-nowrap px-2 py-1 text-[11px] leading-none sm:h-7 sm:text-xs">
                 <Files size={14} />
@@ -1377,8 +1377,7 @@ export default function ComunicacaoIndex({
                 <PaperPlaneTilt size={14} />
                 <span>Redes</span>
               </TabsTrigger>
-            </TabsList>
-          </div>
+          </ModuleTabsList>
 
           <TabsContent value="dashboard" className={`${moduleTabbedContentClass} space-y-3`}>
             {activeTab === 'dashboard' ? (

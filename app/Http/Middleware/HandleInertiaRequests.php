@@ -58,6 +58,7 @@ class HandleInertiaRequests extends Middleware
                     fn () => app(UserTypeAccessControlService::class)->getCurrentUserAccess($user)
                 )
                 : app(UserTypeAccessControlService::class)->getCurrentUserAccess(null),
+            'sportsNavigation' => fn () => app(\App\Services\Desportivo\SportsNavigation::class)->forRequest($request),
             'clubSettings' => app(ClubSettingsService::class)->get(),
             'communicationAlerts' => $this->sharedCommunicationAlerts($user),
             'communicationMembers' => $this->shouldShareCommunicationMembers($request)
