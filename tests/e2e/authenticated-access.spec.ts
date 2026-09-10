@@ -51,7 +51,16 @@ test.describe('authenticated access', () => {
     test('keeps member sports tabs and populated training fields readable', async ({ page }, testInfo) => {
         await login(page, testInfo, '/membros');
         await page.getByRole('tab', { name: 'Membros', exact: true }).click();
-        await page.getByPlaceholder('Pesquisar por nome, NIF, nº sócio ou email...').fill('e2e.sports@clubos.test');
+        await expect(page).toHaveURL(/\/membros\?tab=list$/);
+        await expect(page.locator('#nprogress')).toHaveCount(0);
+        await Promise.all([
+            page.waitForResponse(response => {
+                const url = new URL(response.url());
+                return url.pathname === '/membros' && url.searchParams.get('search') === 'e2e.sports@clubos.test' && response.ok();
+            }),
+            page.getByPlaceholder('Pesquisar por nome, NIF, nº sócio ou email...').fill('e2e.sports@clubos.test'),
+        ]);
+        await expect(page.locator('#nprogress')).toHaveCount(0);
         await page.getByRole('link', { name: /Atleta E2E Desportivo/ }).filter({ visible: true }).first().click();
         await expect(page).toHaveURL(/\/membros\/[^/?]+$/);
         await page.getByRole('tab', { name: 'Desportivo', exact: true }).click();
