@@ -107,8 +107,8 @@ const modulePrefetchPriority = ['eventos', 'financeiro', 'comunicacao', 'configu
 export default function AuthenticatedLayout({ 
     header,
     children,
-    fullWidth = false,
-    collapseSidebarDesktop: collapseSidebarRequested = false,
+    fullWidth = true,
+    collapseSidebarDesktop = false,
     showSidebarPopupButton = false,
     hideMobileHeader = false,
 }: PropsWithChildren<{
@@ -118,10 +118,7 @@ export default function AuthenticatedLayout({
     showSidebarPopupButton?: boolean;
     hideMobileHeader?: boolean;
 }>) {
-    const [sportsMaximized, setSportsMaximized] = useState(false);
     const page = usePage<PageProps & Record<string, unknown>>();
-    const hasSportsNavigation = Array.isArray(page.props.sportsNavigation) && page.props.sportsNavigation.length > 0;
-    const collapseSidebarDesktop = collapseSidebarRequested || (hasSportsNavigation && sportsMaximized);
     const { auth, accessControl, communicationAlerts } = page.props;
     const { clubDisplayName, clubLogoUrl, clubName, clubShortName } = useClubSettings();
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -567,7 +564,7 @@ export default function AuthenticatedLayout({
                             fullWidth ? 'w-full px-[10px] py-[10px] sm:py-4' : 'spark-container py-3 sm:py-4'
                         )}
                     >
-                        <SportsNavigation maximized={sportsMaximized} onToggle={() => setSportsMaximized((value) => !value)} />
+                        <SportsNavigation />
                         {children}
                     </div>
                 </main>
