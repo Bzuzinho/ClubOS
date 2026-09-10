@@ -1,9 +1,10 @@
-import { Suspense, lazy, useState } from 'react';
+import { Suspense, lazy } from 'react';
 import { Head } from '@inertiajs/react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { moduleTabbedContentClass, moduleTabsClass, moduleViewportClass } from '@/lib/module-layout';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/Components/ui/tabs';
 import { ChartBar, ChartLineUp, Users as UsersIcon } from '@phosphor-icons/react';
+import { useUrlTab } from '@/hooks/useUrlTab';
 
 interface User {
     id: string;
@@ -77,21 +78,17 @@ const MembrosDashboard = lazy(() => import('./Dashboard'));
 const MembrosListTab = lazy(() => import('./ListTab'));
 const MembrosReportsTab = lazy(() => import('./ReportsTab'));
 
+const MEMBER_TABS = ['dashboard', 'list', 'reports'] as const;
+
 function TabLoadingState() {
     return <div className="min-h-[240px] rounded-lg border border-dashed border-border bg-background" />;
 }
 
 export default function MembrosIndex({ members, membersPagination, filters, userTypes, stats, tipoMembrosStats, escaloesStats, communicationState }: Props) {
-    const [activeTab, setActiveTab] = useState(() => {
-        if (typeof window !== 'undefined') {
-            const queryTab = new URLSearchParams(window.location.search).get('tab');
-            if (queryTab) {
-                return queryTab;
-            }
-        }
-
-        return communicationState?.initialTab || 'dashboard';
-    });
+    const initialTab = MEMBER_TABS.includes(communicationState?.initialTab as (typeof MEMBER_TABS)[number])
+        ? communicationState?.initialTab as (typeof MEMBER_TABS)[number]
+        : 'dashboard';
+    const [activeTab, setActiveTab] = useUrlTab(MEMBER_TABS, initialTab);
 
     return (
         <AuthenticatedLayout

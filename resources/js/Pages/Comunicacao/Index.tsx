@@ -1,4 +1,5 @@
 import { Head, router, useForm, usePage } from '@inertiajs/react';
+import { useUrlTab } from '@/hooks/useUrlTab';
 import { useEffect, useMemo, useState } from 'react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { moduleTabbedContentClass, moduleTabsClass, moduleViewportClass } from '@/lib/module-layout';
@@ -263,6 +264,8 @@ const deliveryStatusTone = (
 
 const DEFAULT_DYNAMIC_SOURCE_STRATEGY = 'all_members';
 
+const COMMUNICATION_TABS = ['dashboard', 'envios', 'templates', 'segmentos', 'execucao', 'redes'] as const;
+
 export default function ComunicacaoIndex({
   stats,
   campaigns,
@@ -298,7 +301,7 @@ export default function ComunicacaoIndex({
 
   const defaultAlertCategory = alertCategories[0]?.value || 'geral';
   const defaultAlertChannels = alertCategories[0]?.channels || DIRECT_CHANNEL_CONFIG;
-  const [activeTab, setActiveTab] = useState('dashboard');
+  const [activeTab, setActiveTab] = useUrlTab(COMMUNICATION_TABS, 'dashboard');
   const [loadingTab, setLoadingTab] = useState<string | null>(null);
   const [loadingRecipients, setLoadingRecipients] = useState(false);
   const [showCampaignModal, setShowCampaignModal] = useState(false);
