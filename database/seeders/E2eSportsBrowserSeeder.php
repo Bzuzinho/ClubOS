@@ -25,7 +25,7 @@ final class E2eSportsBrowserSeeder extends Seeder
         ]);
         $dates = ['data_inicio' => now()->startOfMonth()->toDateString(), 'data_fim' => now()->endOfMonth()->toDateString(), 'active' => true];
         $macro = Macrocycle::query()->updateOrCreate(['epoca_id' => $season->id, 'nome' => 'E2E Preparação'], $dates + ['club_id' => $club, 'tipo' => 'Preparação geral']);
-        $meso = Mesocycle::query()->updateOrCreate(['macrociclo_id' => $macro->id, 'nome' => 'E2E Base'], $dates + ['club_id' => $club]);
+        $meso = Mesocycle::query()->updateOrCreate(['macrociclo_id' => $macro->id, 'nome' => 'E2E Base'], $dates + ['club_id' => $club, 'foco' => 'Técnica']);
         $micro = Microcycle::query()->updateOrCreate(['mesociclo_id' => $meso->id, 'semana' => 'E2E Semana'], $dates + ['club_id' => $club, 'volume_previsto' => 400]);
         $athlete = User::query()->firstOrCreate(['email' => 'e2e.sports@clubos.test'], [
             'name' => 'Atleta E2E Desportivo', 'nome_completo' => 'Atleta E2E Desportivo',
