@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Database\Seeders;
 
+use App\Models\BankStatement;
+use App\Models\Invoice;
 use App\Models\Product;
 use App\Models\User;
 use App\Services\Pessoas\PlatformAccessService;
@@ -59,6 +61,36 @@ final class E2eBrowserTestSeeder extends Seeder
             } else {
                 $user->forceFill($attributes)->save();
             }
+
+            // Fixtures remain isolated in the testing database; browser tests never submit payments.
+            Invoice::query()->updateOrCreate(
+                ['referencia_pagamento' => 'E2E-INVOICE-'.$project],
+                [
+                    'user_id' => $user->id,
+                    'data_fatura' => now()->toDateString(),
+                    'data_emissao' => now()->toDateString(),
+                    'data_vencimento' => now()->addDays(10)->toDateString(),
+                    'mes' => now()->format('Y-m'),
+                    'valor_total' => 25,
+                    'estado_pagamento' => 'pendente',
+                    'tipo' => 'mensalidade',
+                    'oculta' => false,
+                ],
+            );
+            BankStatement::query()->updateOrCreate(
+                ['referencia' => 'E2E-BANK-'.$project],
+                [
+                    'conta' => 'E2E-'.$project,
+                    'data_movimento' => now()->toDateString(),
+                    'descricao' => 'Transferencia de teste para conciliacao '.$project,
+                    'valor' => 40,
+                    'saldo' => 1000,
+                    'conciliado' => false,
+                    'valor_conciliado' => 0,
+                    'valor_por_conciliar' => 40,
+                    'conciliacao_status' => 'unreconciled',
+                ],
+            );
 
             $platformAccessService->grantPlatformAccess(
                 $user,

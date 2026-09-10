@@ -24,7 +24,7 @@ A aprovação do mockup é conceptual: conservar componentes, cores e tipografia
 ## Evidência e limites
 
 - TypeScript, lint e build locais; testes de navegação e tabelas no pipeline.
-- CI 34489117738: 149 testes de browser passaram à primeira e um passou na repetição. A falha revelou overflow na tabela de utilizadores das Configurações em WebKit móvel; este lote corrige essa tabela e os restantes catálogos ainda no formato antigo. Exige nova CI sobre a correção, sem considerar a repetição prova suficiente.
+- CI 34489117738: 149 testes de browser passaram à primeira e um passou na repetição. A falha revelou overflow na tabela de utilizadores das Configurações em WebKit móvel; este lote corrige essa tabela e os restantes catálogos ainda no formato antigo. A CI final 34490322492 passou com 150 testes de browser sem repetições. PR #344 integrada em 84d6029b681af941defac5d532bb4552b524543f.
 - A matriz de percursos verifica entrada autenticada, separador ativo, painel quando existe e overflow da página/tabelas/separadores em cinco perfis Playwright.
 - O gate do componente Table cobre 320, 375, 768, 1280 e 1920 px com texto longo. Isto não prova isoladamente todos os ecrãs com todos os dados.
 - PHP e browser local indisponíveis neste ambiente; Laravel e percursos reais são executados na CI.
@@ -38,3 +38,9 @@ A aprovação do mockup é conceptual: conservar componentes, cores e tipografia
 4. Confirmar a altura útil em percursos reais: o shell administrativo passa a distribuir a altura disponível por flex, sem subtrair offsets fixos. Cais/Live preservam o shell operacional.
 
 As redundâncias de propriedade funcional pertencem a P2. O histórico consolidado pertence a P3. O contexto global real de modalidade/época e o assistente de época pertencem a P4. Permanecem no plano; não são substituídos por ajustes de CSS.
+
+## Continuação: percursos preenchidos
+
+O seeder exclusivo do ambiente testing passa a incluir uma fatura e uma linha bancária por perfil de browser. O percurso abre a conciliação manual, confirma as nove células da fatura, preenche uma alocação parcial e cancela sem gravar pagamentos. A matriz passa também a verificar tabelas e separadores em cada tab visitada, em vez de apenas na última. Validação CI deste incremento pendente. Isto não substitui QA com dados operacionais reais nem fecha os percursos desportivos e Website.
+
+CI 34492565080: conciliação preenchida passou nos cinco perfis; 153 testes passaram e dois detetaram overflow nas tabelas intermédias de Estrutura Desportiva em Chrome/Safari móvel. As dez tabelas de Estrutura passam ao componente adaptável com identificação de todos os campos e ações; nova CI obrigatória.
