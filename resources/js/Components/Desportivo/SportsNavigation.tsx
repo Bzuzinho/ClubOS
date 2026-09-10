@@ -1,10 +1,9 @@
 import { Link, usePage } from '@inertiajs/react';
-import { Button } from '@/Components/ui/button';
 import { cn } from '@/lib/utils';
 
 export type SportsNavigationItem = { label: string; href: string; active: boolean };
 
-export function SportsNavigation({ maximized, onToggle }: { maximized: boolean; onToggle: () => void }) {
+export function SportsNavigation() {
     const { sportsNavigation = [] } = usePage<{ sportsNavigation?: SportsNavigationItem[] }>().props;
     if (sportsNavigation.length === 0) return null;
 
@@ -25,9 +24,6 @@ export function SportsNavigation({ maximized, onToggle }: { maximized: boolean; 
                     </Link>
                 ))}
             </nav>
-            <Button type="button" size="sm" variant="outline" aria-pressed={maximized} onClick={onToggle}>
-                {maximized ? 'Repor menu' : 'Maximizar'}
-            </Button>
         </div>
     );
 }
