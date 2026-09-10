@@ -111,7 +111,7 @@ export default function WebsitePagesIndex({ pages, summary }: { pages: WebsitePa
                     <CardContent className="p-0">
                         <div className="divide-y">
                             {pages.map((page) => (
-                                <div key={page.id} className="flex flex-col gap-3 px-4 py-4 lg:flex-row lg:items-center lg:justify-between">
+                                <div key={page.id} data-website-page={page.id} className="flex flex-col gap-3 px-4 py-4 lg:flex-row lg:items-center lg:justify-between">
                                     <div className="min-w-0">
                                         <div className="flex flex-wrap items-center gap-2"><h2 className="font-medium">{page.title}</h2><Badge variant="outline" className={statusClasses[page.status]}>{statusLabels[page.status]}</Badge>{page.is_system && <Badge variant="secondary">Essencial</Badge>}{page.show_in_navigation && <Badge variant="secondary">Menu</Badge>}</div>
                                         <p className="mt-1 text-sm text-muted-foreground">{page.public_url} · {page.blocks_count} {page.blocks_count === 1 ? 'bloco' : 'blocos'}</p>

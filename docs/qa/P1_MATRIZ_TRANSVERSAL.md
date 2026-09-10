@@ -50,3 +50,9 @@ CI 34492565080: conciliação preenchida passou nos cinco perfis; 153 testes pas
 PR #345 integrada em `4e3e71ae2ba14742e34ee0fa20bfea504a2236d6`; CI da PR 34493511720 verde, com 155 testes sem repetições. O novo fixture exclusivo de testing contém época, macro/meso/microciclo, treino publicado, atleta presente e série 8×50. Os percursos verificam a hierarquia e sessão ligada, alternância Lista/Cards no Cais e seleção atleta→série com START disponível no Live, sem iniciar medições.
 
 A revisão encontrou larguras mínimas no Cais preenchido (grelha de 340+760 px e linha de atleta com mínimos fixos). As grelhas e ações passam a quebrar linha conforme o espaço, preservando o shell operacional e todos os campos. Planeamento quebra as ações dos ciclos; Live adapta cabeçalho e seleção. CI do incremento pendente. Persistência de cronometragem/presenças e editor Website continuam fora desta cobertura de browser.
+
+## Continuação: editor Website
+
+PR #346 integrada em `3c7f35593cbd6c6e935ce0d63f55456d097bc8b0`; CI da PR 34496321359 verde, 165 testes sem repetições. O editor Website deixa de impor uma sobreposição com três colunas fixas e canvas com largura superior ao espaço disponível. Usa o layout administrativo comum, mantém o menu acessível, dispõe os painéis em sequência em ecrãs estreitos e ajusta visualmente a pré-visualização sem alterar a largura simulada do dispositivo. As ferramentas de cabeçalho deixam de estar ocultas por breakpoint e os separadores usam o componente comum.
+
+Fixture de rascunho exclusivo de testing com bloco hero; percurso cobre os seis separadores de propriedades, três dispositivos e largura do editor/inspector. Entradas Website/Páginas incluídas na matriz transversal. TypeScript/lint locais e CI do lote em validação. Gravação, publicação, recuperação de versões e dados dinâmicos não são alterados; a persistência destes percursos em browser continua pendente. Não declarar P1 globalmente fechada.
