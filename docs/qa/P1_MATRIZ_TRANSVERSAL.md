@@ -15,7 +15,7 @@ A aprovação do mockup é conceptual: conservar componentes, cores e tipografia
 | Logística | Índice, stock, requisições, empréstimos, compras | Tabelas e navegação do lote #342 | Entrada/separadores e testes existentes de diálogo/stock na CI |
 | Loja | Administração, catálogo, encomendas, histórico público | Lotes #342/#343; filtros públicos agora quebram linha | Entradas e navegação administrativa na CI |
 | Patrocínios | Índice e integrações | Lote #342 | Entrada e separadores na CI |
-| Configurações | Geral, financeiro, logística, notificações e respetivos separadores | Separadores internos passam ao componente comum | Entrada/alternância e formulário de artigos na CI |
+| Configurações | Geral, financeiro, logística, notificações e respetivos separadores | Separadores internos comuns e 14 tabelas adaptáveis, incluindo utilizadores, artigos e catálogos | Entrada/alternância e formulário de artigos na CI |
 | Desportivo | Visão geral, atletas, estrutura, configuração, planeamento, treinos, competições, resultados, análise, registos e convocatórias | Retirados limites internos de largura; separadores comuns; filtros de atletas ajustados; linha temporal sem largura mínima de 900 px | Entradas de visão geral, estrutura, planeamento e treinos na CI; operações com dados por expandir |
 | Cais / Live | Seletores de sessões e medições | Quebra de linha; cronómetros, presenças e fluxos conservados | Cobertura funcional backend existente; operação visual real pendente |
 | Portal | Séries do treino | Tabela adaptável, mantendo todas as métricas | Percurso atleta/família ainda por expandir |
@@ -24,6 +24,7 @@ A aprovação do mockup é conceptual: conservar componentes, cores e tipografia
 ## Evidência e limites
 
 - TypeScript, lint e build locais; testes de navegação e tabelas no pipeline.
+- CI 34489117738: 149 testes de browser passaram à primeira e um passou na repetição. A falha revelou overflow na tabela de utilizadores das Configurações em WebKit móvel; este lote corrige essa tabela e os restantes catálogos ainda no formato antigo. Exige nova CI sobre a correção, sem considerar a repetição prova suficiente.
 - A matriz de percursos verifica entrada autenticada, separador ativo, painel quando existe e overflow da página/tabelas/separadores em cinco perfis Playwright.
 - O gate do componente Table cobre 320, 375, 768, 1280 e 1920 px com texto longo. Isto não prova isoladamente todos os ecrãs com todos os dados.
 - PHP e browser local indisponíveis neste ambiente; Laravel e percursos reais são executados na CI.
