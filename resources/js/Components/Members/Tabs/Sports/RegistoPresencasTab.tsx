@@ -59,33 +59,10 @@ export function RegistoPresencasTab({ user }: RegistoPresencasTabProps) {
 
   return (
     <div className="space-y-2">
-      <p className="text-xs text-muted-foreground">Registo de presenças do atleta em treinos e eventos</p>
+      <p className="text-xs text-muted-foreground">Registo de presenças do atleta em eventos</p>
       <div className="border rounded-md overflow-hidden">
-        <div className="sm:hidden p-2 space-y-2">
-          {atletaPresencas.map((p) => {
-            const evento = p.evento!;
-
-            return (
-              <div key={p.id} className="rounded-md border bg-white p-2 space-y-2">
-                <div className="grid grid-cols-2 gap-x-2 gap-y-1 text-xs">
-                  <span className="text-muted-foreground">Evento</span>
-                  <span className="text-right break-words font-medium">{evento.titulo}</span>
-                  <span className="text-muted-foreground">Data</span>
-                  <span className="text-right">{format(new Date(evento.data_inicio), 'dd/MM/yyyy', { locale: pt })}</span>
-                  <span className="text-muted-foreground">Estado</span>
-                  <span className="text-right">{getEstadoBadge(p.estado)}</span>
-                  <span className="text-muted-foreground">Hora Chegada</span>
-                  <span className="text-right">{p.hora_chegada || '-'}</span>
-                  <span className="text-muted-foreground">Observações</span>
-                  <span className="text-right break-words">{p.observacoes || '-'}</span>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-
-        <div className="hidden sm:block max-h-[400px] overflow-auto">
-          <Table>
+        <div className="max-h-[400px] overflow-y-auto">
+          <Table responsive>
             <TableHeader>
               <TableRow>
                 <TableHead className="text-xs">Evento</TableHead>
@@ -101,13 +78,13 @@ export function RegistoPresencasTab({ user }: RegistoPresencasTabProps) {
 
                 return (
                   <TableRow key={p.id}>
-                    <TableCell className="text-xs font-medium">{evento.titulo}</TableCell>
-                    <TableCell className="text-xs">
+                    <TableCell label="Evento" className="text-xs font-medium">{evento.titulo}</TableCell>
+                    <TableCell label="Data" className="text-xs">
                       {format(new Date(evento.data_inicio), 'dd/MM/yyyy', { locale: pt })}
                     </TableCell>
-                    <TableCell className="text-xs">{getEstadoBadge(p.estado)}</TableCell>
-                    <TableCell className="text-xs">{p.hora_chegada || '-'}</TableCell>
-                    <TableCell className="text-xs">{p.observacoes || '-'}</TableCell>
+                    <TableCell label="Estado" className="text-xs">{getEstadoBadge(p.estado)}</TableCell>
+                    <TableCell label="Hora Chegada" className="text-xs">{p.hora_chegada || '-'}</TableCell>
+                    <TableCell label="Observações" className="text-xs">{p.observacoes || '-'}</TableCell>
                   </TableRow>
                 );
               })}

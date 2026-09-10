@@ -1,5 +1,6 @@
+import { ModuleTabsList } from '@/Components/layout/ModuleTabsList';
 import { User } from '@/types';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/Components/ui/tabs';
+import { Tabs, TabsContent, TabsTrigger } from '@/Components/ui/tabs';
 import { DadosDesportivosTab } from './Sports/DadosDesportivosTab';
 import { ConvocatoriasTab } from './Sports/ConvocatoriasTab';
 import { RegistoPresencasTab } from './Sports/RegistoPresencasTab';
@@ -49,7 +50,7 @@ export function SportsTab({ user, onChange, isAdmin, onNavigate }: SportsTabProp
   return (
     <div className="space-y-1">
       <Tabs defaultValue="dados" className="space-y-1">
-        <TabsList className="grid w-full h-auto grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 bg-slate-200 gap-1 p-1">
+        <ModuleTabsList label="Áreas desportivas do membro" className="bg-slate-200">
           <TabsTrigger value="dados" className="text-xs px-2 py-1.5 whitespace-normal leading-tight text-center min-h-8">
             Perfil Desportivo
           </TabsTrigger>
@@ -71,7 +72,7 @@ export function SportsTab({ user, onChange, isAdmin, onNavigate }: SportsTabProp
           <TabsTrigger value="disciplina" className="text-xs px-2 py-1.5 whitespace-normal leading-tight text-center min-h-8">
             Disciplina
           </TabsTrigger>
-        </TabsList>
+        </ModuleTabsList>
 
         <TabsContent value="dados" className="mt-1 bg-white p-0 rounded-lg border border-white">
           <DadosDesportivosTab user={user} onChange={onChange} isAdmin={isAdmin} />

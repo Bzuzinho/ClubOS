@@ -4,7 +4,6 @@ import { pt } from 'date-fns/locale';
 import { User } from '@/types';
 import { Badge } from '@/Components/ui/badge';
 import { Card } from '@/Components/ui/card';
-import { ScrollArea } from '@/Components/ui/scroll-area';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/Components/ui/table';
 import { useAgeGroups } from '@/hooks/useAgeGroups';
 import { useTrainings } from '@/hooks/sports';
@@ -128,36 +127,36 @@ export function TreinosTab({ user }: TreinosTabProps) {
         </p>
       </Card>
 
-      <ScrollArea className="h-[420px] border rounded-lg">
-        <Table>
+      <div className="max-h-[420px] overflow-y-auto border rounded-lg">
+        <Table responsive>
           <TableHeader>
             <TableRow>
               <TableHead className="text-xs">Treino</TableHead>
               <TableHead className="text-xs">Data</TableHead>
               <TableHead className="text-xs">Tipo</TableHead>
-              <TableHead className="text-xs hidden lg:table-cell">Escalão</TableHead>
-              <TableHead className="text-xs hidden md:table-cell">Descrição</TableHead>
+              <TableHead className="text-xs">Escalão</TableHead>
+              <TableHead className="text-xs">Descrição</TableHead>
               <TableHead className="text-xs">Estado</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {trainingsByAgeGroup.map((training) => (
               <TableRow key={training.id}>
-                <TableCell className="text-xs font-medium">{training.numero_treino || '-'}</TableCell>
-                <TableCell className="text-xs whitespace-nowrap">
+                <TableCell label="Treino" className="text-xs font-medium">{training.numero_treino || '-'}</TableCell>
+                <TableCell label="Data" className="text-xs whitespace-nowrap">
                   {training.data ? format(new Date(training.data), 'dd/MM/yyyy', { locale: pt }) : '-'}
                 </TableCell>
-                <TableCell className="text-xs">{training.tipo_treino || '-'}</TableCell>
-                <TableCell className="text-xs hidden lg:table-cell">{getEscaloesLabel(training.escaloes)}</TableCell>
-                <TableCell className="text-xs hidden md:table-cell max-w-[320px] truncate" title={training.descricao_treino || ''}>
+                <TableCell label="Tipo" className="text-xs">{training.tipo_treino || '-'}</TableCell>
+                <TableCell label="Escalão" className="text-xs">{getEscaloesLabel(training.escaloes)}</TableCell>
+                <TableCell label="Descrição" className="text-xs" title={training.descricao_treino || ''}>
                   {training.descricao_treino || '-'}
                 </TableCell>
-                <TableCell className="text-xs">{getEstadoBadge(training.estadoTreino)}</TableCell>
+                <TableCell label="Estado" className="text-xs">{getEstadoBadge(training.estadoTreino)}</TableCell>
               </TableRow>
             ))}
           </TableBody>
         </Table>
-      </ScrollArea>
+      </div>
     </div>
   );
 }

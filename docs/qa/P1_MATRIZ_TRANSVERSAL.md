@@ -75,3 +75,11 @@ PR #347 integrada em `6cf14934ee7bee2aef8ce5a8d3abb5e92fadf8c6`. CI da PR 345009
 O E2E transversal passa a inspecionar também o contentor de tabelas HTML nativas, evitando que escapem ao controlo por não usarem `data-slot`. A CI deste incremento é obrigatória. O percurso financeiro existente tem linhas e faturas de teste; não se assume cobertura preenchida de recibos importados, aliases bancários ou encomendas só porque as páginas entram.
 
 P1 continua aberta para a ficha desportiva do membro, percursos de importação/configuração com dados e inventário residual de diálogos/grelhas. Em P2, rever a coexistência da catalogação bancária e conciliação manual, sem remover fluxos ou alterar fontes financeiras neste lote. P3/P4 (histórico e modalidade/época) mantêm a prioridade previamente definida.
+
+## Continuação: ficha desportiva do membro
+
+PR #348 integrada em `efbcf56657494bacf3b4fde94d64f1d900bf5493`; CI da PR 34503087605 verde, 180 testes de browser sem repetições. A ficha passa a usar os separadores comuns e cinco tabelas adaptáveis (treinos, presenças, convocatórias, resultados e disciplina). Escalão e descrição do treino deixam de estar ocultos/truncados. Presenças e convocatórias deixam de duplicar o markup móvel; todas as provas são apresentadas.
+
+O fixture testing acrescenta escalão ao atleta e ao treino e descrição preenchida. O percurso abre Membros → ficha → Desportivo, percorre sete separadores e verifica os seis campos do treino, incluindo escalão/descrição e overflow interno. TypeScript/lint locais passaram; CI do incremento pendente. Os restantes quatro históricos não têm ainda fixtures preenchidos neste percurso.
+
+Pendências funcionais confirmadas no source: `TreinosTab` filtra o catálogo pelo escalão atual, não pela participação histórica individual; `RegistoPresencasTab` lê `club-presencas`, projetado de `EventAttendance` em `EventosKeyValueService`, não de `TrainingAthlete`. A descrição deste separador foi corrigida para presenças em eventos. É necessária uma projeção individual explícita para integrar o histórico do Cais/Live e preservar a leitura após mudança de escalão. Não se conclui perda de dados a partir destas limitações de visualização. P1 e P3/P4 continuam abertas; importações preenchidas, diálogos e história individual permanecem pendentes.

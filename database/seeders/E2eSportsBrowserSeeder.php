@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Database\Seeders;
 
-use App\Models\{Macrocycle, Mesocycle, Microcycle, Season, SportsModality, Training, TrainingAthlete, TrainingSeries, User};
+use App\Models\{AgeGroup, Macrocycle, Mesocycle, Microcycle, Season, SportsModality, Training, TrainingAthlete, TrainingSeries, User};
 use Illuminate\Database\Seeder;
 use RuntimeException;
 
@@ -34,11 +34,17 @@ final class E2eSportsBrowserSeeder extends Seeder
             'data_nascimento' => '1990-01-01', 'menor' => false, 'rgpd' => true, 'consentimento' => true,
             'afiliacao' => false, 'declaracao_de_transporte' => false,
         ]);
+        $ageGroup = AgeGroup::query()->updateOrCreate(['club_id' => $club, 'code' => 'e2e-masters'], [
+            'nome' => 'E2E Masters', 'ativo' => true,
+        ]);
+        $athlete->update(['escalao' => [$ageGroup->id]]);
         $training = Training::query()->updateOrCreate(['numero_treino' => '#E2E-DESPORTIVO'], [
             'club_id' => $club, 'data' => now()->toDateString(), 'hora_inicio' => '18:00', 'hora_fim' => '19:30',
+            'descricao_treino' => 'E2E Descrição completa do treino para consultar na ficha do atleta em qualquer ecrã.',
             'tipo_treino' => 'Técnico', 'session_status' => 'published', 'epoca_id' => $season->id,
             'macrocycle_id' => $macro->id, 'mesociclo_id' => $meso->id, 'microciclo_id' => $micro->id,
         ]);
+        $training->syncAgeGroupsWithPivot([$ageGroup->id]);
         TrainingAthlete::query()->updateOrCreate(['treino_id' => $training->id, 'user_id' => $athlete->id], [
             'presente' => true, 'estado' => 'presente', 'registado_em' => now(),
         ]);

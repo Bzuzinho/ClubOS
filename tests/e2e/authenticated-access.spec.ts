@@ -48,6 +48,34 @@ const expectNoHorizontalOverflow = async (page: Page) => {
 };
 
 test.describe('authenticated access', () => {
+    test('keeps member sports tabs and populated training fields readable', async ({ page }, testInfo) => {
+        await login(page, testInfo, '/membros');
+        await page.getByRole('tab', { name: 'Membros', exact: true }).click();
+        await page.getByPlaceholder('Pesquisar por nome, NIF, nº sócio ou email...').fill('e2e.sports@clubos.test');
+        await page.getByRole('link', { name: /Atleta E2E Desportivo/ }).filter({ visible: true }).first().click();
+        await expect(page).toHaveURL(/\/membros\/[^/?]+$/);
+        await page.getByRole('tab', { name: 'Desportivo', exact: true }).click();
+        const navigation = page.getByRole('navigation', { name: 'Áreas desportivas do membro' });
+        const tabs = navigation.getByRole('tab');
+        await expect(tabs).toHaveCount(7);
+        for (let i = 0; i < 7; i += 1) {
+            const tab = tabs.nth(i);
+            await tab.click();
+            await expect(tab).toHaveAttribute('aria-selected', 'true');
+            await expectNoHorizontalOverflow(page);
+        }
+        await navigation.getByRole('tab', { name: 'Treinos', exact: true }).click();
+        const training = page.getByRole('row').filter({ hasText: '#E2E-DESPORTIVO' });
+        await expect(training).toBeVisible();
+        await expect(training.getByRole('cell')).toHaveCount(6);
+        await expect(training.getByRole('cell').filter({ hasText: 'E2E Masters' })).toBeVisible();
+        await expect(training.getByRole('cell').filter({ hasText: 'E2E Descrição completa' })).toBeVisible();
+        await expectNoHorizontalOverflow(page);
+        expect(await page.locator('main [data-slot="table-container"], main [role="tablist"], main [class*="overflow"]').evaluateAll(
+            elements => elements.filter(el => el.getClientRects().length > 0 && el.scrollWidth > el.clientWidth + 1).length,
+        )).toBe(0);
+    });
+
     test('protects the dashboard and returns to the intended route after a valid login', async ({ page }, testInfo) => {
         await login(page, testInfo);
 

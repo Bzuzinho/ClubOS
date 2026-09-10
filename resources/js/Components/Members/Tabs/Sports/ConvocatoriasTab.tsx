@@ -143,52 +143,8 @@ export function ConvocatoriasTab({ user, onNavigate }: ConvocatoriasTabProps) {
     <div className="space-y-2">
       <p className="text-xs text-muted-foreground">Lista de convocatórias onde o atleta foi incluído</p>
       <div className="border rounded-md overflow-hidden">
-        <div className="sm:hidden p-2 space-y-2">
-          {atletaConvocatorias.map((ca) => {
-            const evento = ca.evento!;
-            const provaLabels = getProvaLabels(ca.provas);
-
-            return (
-              <div key={ca.convocatoria_grupo_id} className="rounded-md border bg-white p-2 space-y-2">
-                <div className="grid grid-cols-2 gap-x-2 gap-y-1 text-xs">
-                  <span className="text-muted-foreground">Evento</span>
-                  <span className="text-right break-words font-medium">{evento.titulo}</span>
-                  <span className="text-muted-foreground">Data</span>
-                  <span className="text-right">{format(new Date(evento.data_inicio), 'dd/MM/yyyy', { locale: pt })}</span>
-                  <span className="text-muted-foreground">Estado</span>
-                  <span className="text-right">{getEstadoBadge(evento.estado)}</span>
-                </div>
-
-                <div className="space-y-1">
-                  <p className="text-[11px] text-muted-foreground">Provas</p>
-                  <div className="flex flex-wrap gap-1">
-                    {provaLabels.length > 0 ? (
-                      <>
-                        {provaLabels.slice(0, 2).map((prova, idx) => (
-                          <Badge key={idx} variant="secondary" className="text-xs">{prova}</Badge>
-                        ))}
-                        {provaLabels.length > 2 && <Badge variant="secondary" className="text-xs">+{provaLabels.length - 2}</Badge>}
-                      </>
-                    ) : (
-                      <Badge variant="outline" className="text-xs text-muted-foreground">
-                        {provasLoading ? 'A carregar provas...' : 'Sem provas'}
-                      </Badge>
-                    )}
-                  </div>
-                </div>
-
-                <div className="flex justify-end">
-                  <Button type="button" variant="outline" size="sm" className="h-7 text-xs" onClick={() => openConvocatoria(ca)}>
-                    Consultar
-                  </Button>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-
-        <div className="hidden sm:block max-h-[400px] overflow-auto">
-          <Table>
+        <div className="max-h-[400px] overflow-y-auto">
+          <Table responsive>
             <TableHeader>
               <TableRow>
                 <TableHead className="text-xs">Evento</TableHead>
@@ -209,21 +165,18 @@ export function ConvocatoriasTab({ user, onNavigate }: ConvocatoriasTabProps) {
                     className="cursor-pointer hover:bg-accent/50"
                     onClick={() => openConvocatoria(ca)}
                   >
-                    <TableCell className="text-xs font-medium">{evento.titulo}</TableCell>
-                    <TableCell className="text-xs">
+                    <TableCell label="Evento" className="text-xs font-medium">{evento.titulo}</TableCell>
+                    <TableCell label="Data" className="text-xs">
                       {format(new Date(evento.data_inicio), 'dd/MM/yyyy', { locale: pt })}
                     </TableCell>
-                    <TableCell className="text-xs">{getEstadoBadge(evento.estado)}</TableCell>
-                    <TableCell className="text-xs">
+                    <TableCell label="Estado" className="text-xs">{getEstadoBadge(evento.estado)}</TableCell>
+                    <TableCell label="Provas" className="text-xs">
                       <div className="flex flex-wrap gap-1">
                         {provaLabels.length > 0 ? (
                           <>
-                            {provaLabels.slice(0, 2).map((prova, idx) => (
+                            {provaLabels.map((prova, idx) => (
                               <Badge key={idx} variant="secondary" className="text-xs">{prova}</Badge>
                             ))}
-                            {provaLabels.length > 2 && (
-                              <Badge variant="secondary" className="text-xs">+{provaLabels.length - 2}</Badge>
-                            )}
                           </>
                         ) : (
                           <Badge variant="outline" className="text-xs text-muted-foreground">
@@ -232,7 +185,7 @@ export function ConvocatoriasTab({ user, onNavigate }: ConvocatoriasTabProps) {
                         )}
                       </div>
                     </TableCell>
-                    <TableCell className="text-right">
+                    <TableCell label="Consultar" className="text-right">
                       <Button
                         type="button"
                         variant="outline"

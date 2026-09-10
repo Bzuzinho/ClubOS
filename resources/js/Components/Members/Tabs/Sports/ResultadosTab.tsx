@@ -133,7 +133,7 @@ export function ResultadosTab({ user, isAdmin }: ResultadosTabProps) {
         </div>
       ) : (
         <ScrollArea className="h-[400px] border rounded-lg">
-          <Table>
+          <Table responsive>
             <TableHeader>
               <TableRow>
                 <TableHead className="text-xs">Evento</TableHead>
@@ -155,18 +155,18 @@ export function ResultadosTab({ user, isAdmin }: ResultadosTabProps) {
                 
                 return (
                   <TableRow key={resultado.id}>
-                    <TableCell className="text-xs font-medium">{eventoNome}</TableCell>
-                    <TableCell className="text-xs">{resultado.local}</TableCell>
-                    <TableCell className="text-xs">
+                    <TableCell label="Evento" className="text-xs font-medium">{eventoNome}</TableCell>
+                    <TableCell label="Local" className="text-xs">{resultado.local}</TableCell>
+                    <TableCell label="Data" className="text-xs">
                       {format(new Date(resultado.data), 'dd/MM/yyyy', { locale: pt })}
                     </TableCell>
-                    <TableCell className="text-xs">{resultado.prova}</TableCell>
-                    <TableCell className="text-xs">
+                    <TableCell label="Prova" className="text-xs">{resultado.prova}</TableCell>
+                    <TableCell label="Piscina" className="text-xs">
                       <Badge variant="outline" className="text-xs">{piscinaLabel}</Badge>
                     </TableCell>
-                    <TableCell className="text-xs font-semibold">{resultado.tempo_final}</TableCell>
+                    <TableCell label="Tempo" className="text-xs font-semibold">{resultado.tempo_final}</TableCell>
                     {isAdmin && (
-                      <TableCell className="text-right">
+                      <TableCell label="Ações" className="text-right">
                         <div className="flex gap-1 justify-end">
                           <Button
                             size="sm"
