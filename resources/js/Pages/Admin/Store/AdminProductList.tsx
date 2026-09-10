@@ -1,3 +1,4 @@
+import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/Components/ui/table';
 import { Head, router, usePage } from '@inertiajs/react';
 import { useMemo, useState } from 'react';
 import { Card, CardContent, CardHeader } from '@/Components/ui/card';
@@ -121,59 +122,59 @@ export default function AdminProductList() {
                         <SectionTitle title="Catálogo" subtitle={`${filteredCount} produto(s) encontrados.`} />
                     </CardHeader>
                     <CardContent>
-                        <div className="overflow-x-auto rounded-md border border-border">
-                            <table className="min-w-full divide-y divide-border text-sm">
-                            <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-                                <tr>
-                                    <th className="px-5 py-3">Produto</th>
-                                    <th className="px-5 py-3">Categoria</th>
-                                    <th className="px-5 py-3">Preço</th>
-                                    <th className="px-5 py-3">Stock</th>
-                                    <th className="px-5 py-3">Estado</th>
-                                    <th className="px-5 py-3">Ações</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-border bg-white">
+                        <div className="min-w-0 rounded-md border border-border">
+                            <Table responsive className="divide-y divide-border text-sm">
+                            <TableHeader className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+                                <TableRow>
+                                    <TableHead className="px-5 py-3">Produto</TableHead>
+                                    <TableHead className="px-5 py-3">Categoria</TableHead>
+                                    <TableHead className="px-5 py-3">Preço</TableHead>
+                                    <TableHead className="px-5 py-3">Stock</TableHead>
+                                    <TableHead className="px-5 py-3">Estado</TableHead>
+                                    <TableHead className="px-5 py-3">Ações</TableHead>
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody className="divide-y divide-border bg-white">
                                 {products.length > 0 ? products.map((product) => (
-                                    <tr key={product.id} className="hover:bg-slate-50">
-                                        <td className="px-5 py-4">
+                                    <TableRow key={product.id} className="hover:bg-slate-50">
+                                        <TableCell label="Produto" className="px-5 py-4">
                                             <div className="flex items-center gap-3">
-                                                <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-md bg-slate-100 text-xs text-slate-400">
+                                                <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-md bg-slate-100 text-xs text-slate-400">
                                                     {product.imagem_principal_path ? <img src={product.imagem_principal_path} alt={product.nome} className="h-full w-full object-cover" /> : 'IMG'}
                                                 </div>
-                                                <div>
+                                                <div className="min-w-0">
                                                     <p className="font-semibold text-slate-900">{product.nome}</p>
                                                     <p className="text-xs text-slate-500">{product.codigo || product.slug}</p>
                                                 </div>
                                             </div>
-                                        </td>
-                                        <td className="px-5 py-4 text-slate-600">{product.categoria?.nome || 'Sem categoria'}</td>
-                                        <td className="px-5 py-4 font-semibold text-blue-700">{formatStoreCurrency(product.preco)}</td>
-                                        <td className="px-5 py-4 text-slate-600">
+                                        </TableCell>
+                                        <TableCell label="Categoria" className="px-5 py-4 text-slate-600">{product.categoria?.nome || 'Sem categoria'}</TableCell>
+                                        <TableCell label="Preço" className="px-5 py-4 font-semibold text-blue-700">{formatStoreCurrency(product.preco)}</TableCell>
+                                        <TableCell label="Stock" className="px-5 py-4 text-slate-600">
                                             {product.gere_stock ? `${product.stock_atual} un.` : 'Sem gestão'}
                                             {product.tem_stock_baixo ? <span className="ml-2 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700">Baixo</span> : null}
-                                        </td>
-                                        <td className="px-5 py-4">
+                                        </TableCell>
+                                        <TableCell label="Estado" className="px-5 py-4">
                                             <div className="flex flex-wrap gap-2">
                                                 <span className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${product.publicado ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-100 text-slate-700'}`}>
                                                     {product.publicado ? 'Publicado' : 'Não publicado'}
                                                 </span>
                                                 {!product.ativo ? <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-700">Artigo inativo</span> : null}
                                             </div>
-                                        </td>
-                                        <td className="px-5 py-4">
+                                        </TableCell>
+                                        <TableCell label="Ações" className="px-5 py-4">
                                             <Button type="button" variant="outline" size="sm" onClick={() => router.visit(`/admin/loja/produtos/${product.id}/editar`)}>
                                                 Editar
                                             </Button>
-                                        </td>
-                                    </tr>
+                                        </TableCell>
+                                    </TableRow>
                                 )) : (
-                                    <tr>
-                                        <td colSpan={6} className="px-5 py-10 text-center text-sm text-slate-500">Ainda não existem produtos no novo catálogo da Loja.</td>
-                                    </tr>
+                                    <TableRow>
+                                        <TableCell colSpan={6} className="px-5 py-10 text-center text-sm text-slate-500">Ainda não existem produtos no novo catálogo da Loja.</TableCell>
+                                    </TableRow>
                                 )}
-                            </tbody>
-                            </table>
+                            </TableBody>
+                            </Table>
                         </div>
                     </CardContent>
                 </Card>
