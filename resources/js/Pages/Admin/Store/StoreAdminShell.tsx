@@ -1,8 +1,9 @@
+import { ModuleTabsList } from '@/Components/layout/ModuleTabsList';
 import type { ReactNode } from 'react';
 import { router } from '@inertiajs/react';
 import { LayoutDashboard, Package, ShoppingBag, Image as ImageIcon } from 'lucide-react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
-import { Tabs, TabsList, TabsTrigger } from '@/Components/ui/tabs';
+import { Tabs, TabsTrigger } from '@/Components/ui/tabs';
 import { moduleTabbedContentClass, moduleTabsClass, moduleViewportClass } from '@/lib/module-layout';
 
 type StoreAdminTab = 'dashboard' | 'produtos' | 'hero' | 'encomendas';
@@ -21,7 +22,7 @@ const tabs: Array<{
     href: string;
     icon: typeof LayoutDashboard;
 }> = [
-    { value: 'dashboard', label: 'Dashboard', href: '/admin/loja', icon: LayoutDashboard },
+    { value: 'dashboard', label: 'Visão geral', href: '/admin/loja', icon: LayoutDashboard },
     { value: 'produtos', label: 'Produtos', href: '/admin/loja/produtos', icon: Package },
     { value: 'hero', label: 'Destaques', href: '/admin/loja/hero', icon: ImageIcon },
     { value: 'encomendas', label: 'Encomendas', href: '/admin/loja/encomendas', icon: ShoppingBag },
@@ -56,9 +57,9 @@ export function StoreAdminShell({
                                         router.visit(target.href);
                                     }
                                 }}
-                                className="w-full"
+                                className="w-full min-w-0"
                             >
-                                <TabsList className="grid h-auto w-full grid-cols-2 gap-1 rounded-md bg-muted/60 p-1 sm:grid-cols-4 xl:w-auto xl:min-w-[42rem] xl:grid-cols-4">
+                                <ModuleTabsList label="Áreas da Loja">
                                     {tabs.map((tab) => {
                                         const Icon = tab.icon;
 
@@ -73,7 +74,7 @@ export function StoreAdminShell({
                                             </TabsTrigger>
                                         );
                                     })}
-                                </TabsList>
+                                </ModuleTabsList>
                             </Tabs>
 
                             {actions ? <div className="flex w-full flex-wrap gap-2 xl:w-auto xl:shrink-0 xl:justify-end">{actions}</div> : null}

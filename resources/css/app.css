@@ -87,3 +87,41 @@
   --sidebar-border: 214 32% 91%;
   --sidebar-ring: 210 100% 40%;
 }
+/* Opt-in record tables: retain every field and action at narrow container widths. */
+.responsive-table { container-type: inline-size; }
+.responsive-table > table { width: 100%; table-layout: fixed; }
+.responsive-table th, .responsive-table td {
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.responsive-table td > * { max-width: 100%; }
+.responsive-table [data-slot="badge"], .responsive-table button {
+  white-space: normal;
+  height: auto;
+  overflow-wrap: anywhere;
+}
+.responsive-table-label { display: none; }
+@container (max-width: 64rem) {
+  .responsive-table > table,
+  .responsive-table tbody,
+  .responsive-table tr,
+  .responsive-table td { display: block; width: 100%; }
+  .responsive-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+  .responsive-table tbody tr { padding: 0.5rem 0; }
+  .responsive-table td { text-align: left; }
+  .responsive-table-label {
+    display: block;
+    margin-bottom: 0.125rem;
+    font-size: 0.7rem;
+    font-weight: 500;
+    color: hsl(var(--muted-foreground));
+  }
+}
