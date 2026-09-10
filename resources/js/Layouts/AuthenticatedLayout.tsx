@@ -1,3 +1,4 @@
+import { SportsNavigation } from '@/Components/Desportivo/SportsNavigation';
 import { ReactNode, useEffect, useMemo, useRef, useState, PropsWithChildren } from 'react';
 import { router, usePage } from '@inertiajs/react';
 import {
@@ -107,7 +108,7 @@ export default function AuthenticatedLayout({
     header,
     children,
     fullWidth = false,
-    collapseSidebarDesktop = false,
+    collapseSidebarDesktop: collapseSidebarRequested = false,
     showSidebarPopupButton = false,
     hideMobileHeader = false,
 }: PropsWithChildren<{
@@ -117,6 +118,8 @@ export default function AuthenticatedLayout({
     showSidebarPopupButton?: boolean;
     hideMobileHeader?: boolean;
 }>) {
+    const [sportsMaximized, setSportsMaximized] = useState(false);
+    const collapseSidebarDesktop = collapseSidebarRequested || sportsMaximized;
     const page = usePage<PageProps & Record<string, unknown>>();
     const { auth, accessControl, communicationAlerts } = page.props;
     const { clubDisplayName, clubLogoUrl, clubName, clubShortName } = useClubSettings();
@@ -563,6 +566,7 @@ export default function AuthenticatedLayout({
                             fullWidth ? 'w-full px-[10px] py-[10px] sm:py-4' : 'spark-container py-3 sm:py-4'
                         )}
                     >
+                        <SportsNavigation maximized={sportsMaximized} onToggle={() => setSportsMaximized((value) => !value)} />
                         {children}
                     </div>
                 </main>
