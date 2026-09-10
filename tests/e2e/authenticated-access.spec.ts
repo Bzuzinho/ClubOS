@@ -219,7 +219,7 @@ test.describe('authenticated access', () => {
         '/membros', '/financeiro', '/eventos', '/comunicacao', '/logistica',
         '/patrocinios', '/configuracoes', '/admin/loja', '/admin/loja/produtos',
         '/admin/loja/encomendas', '/desportivo', '/desportivo/estrutura',
-        '/desportivo/planeamento', '/desportivo/treinos',
+        '/desportivo/planeamento', '/desportivo/treinos', '/website', '/website/paginas',
     ];
 
     for (const path of P1_WORKSPACES) {
@@ -319,6 +319,38 @@ test.describe('authenticated access', () => {
         await page.getByRole('button', { name: /8×50.*E2E Livre técnico/ }).click();
         await expect(page.getByRole('button', { name: 'START', exact: true })).toBeEnabled();
         await expectNoHorizontalOverflow(page);
+    });
+
+    test('P1: website editor keeps tools and device previews within the available width', async ({ page }, testInfo) => {
+        await login(page, testInfo, '/website/paginas');
+        await page.locator('[data-website-page]').filter({ hasText: 'E2E Editor' }).getByRole('link', { name: 'Editar', exact: true }).click();
+        const editor = page.getByTestId('website-editor');
+        await expect(editor).toBeVisible();
+        const properties = page.getByRole('complementary', { name: 'Propriedades da página' });
+        for (const tab of ['Conteúdo', 'Estilo', 'Comportamento', 'Página', 'Imagens', 'Histórico']) {
+            await properties.getByRole('tab', { name: tab, exact: true }).click();
+            await expect(properties.getByRole('tab', { name: tab, exact: true })).toHaveAttribute('aria-selected', 'true');
+            expect(await editor.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
+            const overflowing = await properties.locator('[data-radix-scroll-area-viewport]').evaluateAll((elements) =>
+                elements.filter((element) => element.scrollWidth > element.clientWidth + 1).length,
+            );
+            expect(overflowing).toBe(0);
+        }
+        const frame = page.frameLocator('iframe[title="Pré-visualização em tempo real"]');
+        await expect(frame.getByText('E2E Pré-visualização', { exact: true })).toBeVisible();
+        for (const device of ['desktop', 'tablet', 'mobile']) {
+            await page.getByRole('button', { name: device, exact: true }).click();
+            const preview = page.getByRole('region', { name: 'Pré-visualização da página' });
+            const iframe = page.locator('iframe[title="Pré-visualização em tempo real"]');
+            await expect.poll(async () => {
+                const outer = await preview.boundingBox();
+                const inner = await iframe.boundingBox();
+                return !!outer && !!inner && inner.x >= outer.x - 1 && inner.x + inner.width <= outer.x + outer.width + 1;
+            }).toBe(true);
+            await expect(frame.getByText('E2E Pré-visualização', { exact: true })).toBeVisible();
+            expect(await editor.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
+        }
+        await expect(page.getByRole('button', { name: 'Guardar', exact: true })).toBeVisible();
     });
 
 });

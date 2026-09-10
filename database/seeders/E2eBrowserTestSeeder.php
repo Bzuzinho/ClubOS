@@ -8,6 +8,7 @@ use App\Models\BankStatement;
 use App\Models\Invoice;
 use App\Models\Product;
 use App\Models\User;
+use App\Models\WebsitePage;
 use App\Services\Pessoas\PlatformAccessService;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Hash;
@@ -99,6 +100,16 @@ final class E2eBrowserTestSeeder extends Seeder
         }
 
         $this->call(E2eSportsBrowserSeeder::class);
+
+        $page = WebsitePage::query()->updateOrCreate(['slug' => 'e2e-editor'], [
+            'title' => 'E2E Editor', 'status' => 'draft', 'is_system' => false,
+            'show_in_navigation' => false, 'sort_order' => 999,
+        ]);
+        $page->blocks()->updateOrCreate(['block_key' => 'e2e-hero'], [
+            'type' => 'hero', 'sort_order' => 0, 'is_visible' => true,
+            'content' => ['title' => 'E2E Pré-visualização', 'subtitle' => 'Conteúdo de teste do editor'],
+            'style' => [], 'settings' => [],
+        ]);
 
         foreach (range(1, 32) as $index) {
             Product::query()->updateOrCreate(
