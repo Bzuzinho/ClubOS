@@ -652,7 +652,7 @@ export function BankReconciliationManagementTab({ canEdit }: { canEdit: boolean 
           </div>
 
           <div className="max-h-[360px] overflow-auto">
-            <Table>
+            <Table responsive>
               <TableHeader>
                 <TableRow>
                   <TableHead>Valor</TableHead>
@@ -674,20 +674,20 @@ export function BankReconciliationManagementTab({ canEdit }: { canEdit: boolean 
                 ) : (
                   aliasRows.map((alias) => (
                     <TableRow key={alias.id}>
-                      <TableCell>
+                      <TableCell label="Valor">
                         <div className="font-medium">{alias.normalized_value || '-'}</div>
                         <div className="text-xs text-muted-foreground">{alias.original_value || alias.description || '-'}</div>
                       </TableCell>
-                      <TableCell>{alias.target_name || '-'}</TableCell>
-                      <TableCell>{alias.target_type === 'family' ? 'Familia' : alias.target_type === 'user' ? 'Utilizador' : '-'}</TableCell>
-                      <TableCell>{typeof alias.confidence === 'number' ? `${alias.confidence}%` : '-'}</TableCell>
-                      <TableCell>{alias.source || '-'}</TableCell>
-                      <TableCell>{alias.usage_count ?? 0}</TableCell>
-                      <TableCell>{formatDate(alias.last_used_at)}</TableCell>
-                      <TableCell>
+                      <TableCell label="Associado a">{alias.target_name || '-'}</TableCell>
+                      <TableCell label="Tipo">{alias.target_type === 'family' ? 'Familia' : alias.target_type === 'user' ? 'Utilizador' : '-'}</TableCell>
+                      <TableCell label="Confianca">{typeof alias.confidence === 'number' ? `${alias.confidence}%` : '-'}</TableCell>
+                      <TableCell label="Origem">{alias.source || '-'}</TableCell>
+                      <TableCell label="Utilizacoes">{alias.usage_count ?? 0}</TableCell>
+                      <TableCell label="Ultima utilizacao">{formatDate(alias.last_used_at)}</TableCell>
+                      <TableCell label="Estado">
                         <Badge variant={alias.active ? 'default' : 'secondary'}>{alias.active ? 'Ativo' : 'Inativo'}</Badge>
                       </TableCell>
-                      <TableCell className="text-right">
+                      <TableCell label="Acoes" className="text-right">
                         <Button
                           size="sm"
                           variant="outline"
@@ -772,7 +772,7 @@ export function BankReconciliationManagementTab({ canEdit }: { canEdit: boolean 
           </div>
 
           <div className="max-h-[360px] overflow-auto">
-            <Table>
+            <Table responsive>
               <TableHeader>
                 <TableRow>
                   <TableHead>Data</TableHead>
@@ -801,18 +801,18 @@ export function BankReconciliationManagementTab({ canEdit }: { canEdit: boolean 
 
                     return (
                       <TableRow key={suggestion.id}>
-                        <TableCell>{formatDate(suggestion.bank_statement?.data_movimento || null)}</TableCell>
-                        <TableCell>{suggestion.bank_statement?.descricao || '-'}</TableCell>
-                        <TableCell>{formatCurrency(suggestion.bank_statement?.valor ?? null)}</TableCell>
-                        <TableCell>{target}</TableCell>
-                        <TableCell>{typeof suggestion.score === 'number' ? `${suggestion.score}` : '-'}</TableCell>
-                        <TableCell>
-                          <div className="max-w-[260px] whitespace-normal text-sm">{reason}</div>
+                        <TableCell label="Data">{formatDate(suggestion.bank_statement?.data_movimento || null)}</TableCell>
+                        <TableCell label="Descricao bancaria">{suggestion.bank_statement?.descricao || '-'}</TableCell>
+                        <TableCell label="Valor">{formatCurrency(suggestion.bank_statement?.valor ?? null)}</TableCell>
+                        <TableCell label="Alvo sugerido">{target}</TableCell>
+                        <TableCell label="Confianca">{typeof suggestion.score === 'number' ? `${suggestion.score}` : '-'}</TableCell>
+                        <TableCell label="Motivo">
+                          <div className="whitespace-normal text-sm">{reason}</div>
                           {rules ? <div className="text-xs text-muted-foreground">{rules}</div> : null}
                         </TableCell>
-                        <TableCell>{formatDate(suggestion.rejected_at)}</TableCell>
-                        <TableCell>{suggestion.rejected_by?.nome_completo || '-'}</TableCell>
-                        <TableCell className="text-right">
+                        <TableCell label="Rejeitado em">{formatDate(suggestion.rejected_at)}</TableCell>
+                        <TableCell label="Rejeitado por">{suggestion.rejected_by?.nome_completo || '-'}</TableCell>
+                        <TableCell label="Acoes" className="text-right">
                           <Button
                             size="sm"
                             variant="outline"
@@ -1073,7 +1073,7 @@ export function BankReconciliationManagementTab({ canEdit }: { canEdit: boolean 
           </div>
 
           <div className="max-h-[460px] overflow-auto">
-            <Table>
+            <Table responsive>
               <TableHeader>
                 <TableRow>
                   <TableHead>Data</TableHead>
@@ -1097,29 +1097,29 @@ export function BankReconciliationManagementTab({ canEdit }: { canEdit: boolean 
                 ) : (
                   auditRows.map((row) => (
                     <TableRow key={row.bank_statement_id}>
-                      <TableCell>{formatDate(row.data_movimento || null)}</TableCell>
-                      <TableCell>
+                      <TableCell label="Data">{formatDate(row.data_movimento || null)}</TableCell>
+                      <TableCell label="Descricao / Referencia">
                         <div className="font-medium">{row.descricao || '-'}</div>
                         <div className="text-xs text-muted-foreground">{row.referencia || '-'}</div>
                       </TableCell>
-                      <TableCell>{formatCurrency(row.valor)}</TableCell>
-                      <TableCell>
+                      <TableCell label="Valor">{formatCurrency(row.valor)}</TableCell>
+                      <TableCell label="Estado">
                         <Badge variant={row.estado_conciliacao === 'conciliado' ? 'default' : row.estado_conciliacao === 'parcial' ? 'secondary' : 'outline'}>
                           {formatAuditState(row.estado_conciliacao)}
                         </Badge>
                       </TableCell>
-                      <TableCell>{formatCurrency(row.valor_alocado)}</TableCell>
-                      <TableCell>{formatCurrency(row.valor_por_alocar)}</TableCell>
-                      <TableCell>{formatAuditMethod(row.metodo_conciliacao)}</TableCell>
-                      <TableCell>
-                        <div className="max-w-[220px] whitespace-normal">{row.target_summary?.nome_principal || '-'}</div>
+                      <TableCell label="Valor alocado">{formatCurrency(row.valor_alocado)}</TableCell>
+                      <TableCell label="Valor por alocar">{formatCurrency(row.valor_por_alocar)}</TableCell>
+                      <TableCell label="Metodo">{formatAuditMethod(row.metodo_conciliacao)}</TableCell>
+                      <TableCell label="Alvo">
+                        <div className="whitespace-normal">{row.target_summary?.nome_principal || '-'}</div>
                         <div className="text-xs text-muted-foreground">
                           Mensalidades liquidadas: {row.target_summary?.faturas_afetadas ?? 0} · Movimentos liquidados: {row.target_summary?.movimentos_afetados ?? 0}
                         </div>
                       </TableCell>
-                      <TableCell>{row.reconciled_by_name || '-'}</TableCell>
-                      <TableCell>{formatDate(row.reconciled_at || null)}</TableCell>
-                      <TableCell className="text-right">
+                      <TableCell label="Conciliado por">{row.reconciled_by_name || '-'}</TableCell>
+                      <TableCell label="Conciliado em">{formatDate(row.reconciled_at || null)}</TableCell>
+                      <TableCell label="Acoes" className="text-right">
                         <details>
                           <summary className="cursor-pointer text-sm text-primary">Ver detalhe</summary>
                           <div className="mt-2 space-y-2 rounded border p-2 text-left text-xs">

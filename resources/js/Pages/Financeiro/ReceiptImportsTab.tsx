@@ -422,7 +422,7 @@ export function ReceiptImportsTab({ users, invoices, canEdit }: ReceiptImportsTa
             </div>
           </div>
 
-          <Table>
+          <Table responsive>
             <TableHeader>
               <TableRow>
                 <TableHead className="w-10">Sel.</TableHead>
@@ -439,40 +439,40 @@ export function ReceiptImportsTab({ users, invoices, canEdit }: ReceiptImportsTa
             <TableBody>
               {selectedBatch.items.map((item) => (
                 <TableRow key={item.id}>
-                  <TableCell>
+                  <TableCell label="Sel.">
                     <Checkbox
                       checked={selectedIds.includes(item.id)}
                       onCheckedChange={(checked) => toggleSelection(item.id, checked)}
                       disabled={!canEdit || item.display_status === 'imported'}
                     />
                   </TableCell>
-                  <TableCell>
+                  <TableCell label="Ficheiro">
                     <div className="font-medium">{item.file_name}</div>
                     <div className="text-xs text-muted-foreground">{formatCurrency(item.valor)}</div>
                   </TableCell>
-                  <TableCell>
+                  <TableCell label="Recibo">
                     <div>{item.numero_recibo || '-'}</div>
                     <div className="text-xs text-muted-foreground">{item.recibo_emitido_em || '-'}</div>
                   </TableCell>
-                  <TableCell>
+                  <TableCell label="Extraído">
                     <div>{item.extracted_name || '-'}</div>
                     <div className="text-xs text-muted-foreground">{item.extracted_nif || item.extracted_member_number || item.extracted_email || '-'}</div>
                   </TableCell>
-                  <TableCell>
+                  <TableCell label="Atleta">
                     <div>{item.user?.nome_completo || '-'}</div>
                     <div className="text-xs text-muted-foreground">Confiança: {item.confidence_score.toFixed(0)}%</div>
                   </TableCell>
-                  <TableCell>
+                  <TableCell label="Fatura">
                     <div>{item.invoice ? `${item.invoice.tipo} ${item.invoice.mes ?? ''}`.trim() : '-'}</div>
                     <div className="text-xs text-muted-foreground">{item.invoice ? `${formatCurrency(item.invoice.valor_total)} | ${item.invoice.estado_pagamento}` : '-'}</div>
                   </TableCell>
-                  <TableCell>
+                  <TableCell label="Banco">
                     <div>{item.bank_statement?.descricao || '-'}</div>
                     <div className="text-xs text-muted-foreground">
                       {item.bank_statement ? `${formatCurrency(item.bank_statement.valor)} | pendente ${formatCurrency(item.bank_statement.valor_por_conciliar)}` : '-'}
                     </div>
                   </TableCell>
-                  <TableCell>
+                  <TableCell label="Estado">
                     <Badge className={displayStatusStyles[item.display_status || item.status] || displayStatusStyles.pending_review}>
                       {item.display_status || item.status}
                     </Badge>
@@ -480,7 +480,7 @@ export function ReceiptImportsTab({ users, invoices, canEdit }: ReceiptImportsTa
                       <div className="mt-1 text-xs text-rose-700">{item.failure_reason}</div>
                     ) : null}
                   </TableCell>
-                  <TableCell className="text-right">
+                  <TableCell label="Ações" className="text-right">
                     <div className="flex justify-end gap-2">
                       <Button type="button" size="sm" variant="outline" onClick={() => window.open(item.preview_url, '_blank', 'noopener,noreferrer')}>
                         PDF
@@ -593,7 +593,7 @@ export function ReceiptImportsTab({ users, invoices, canEdit }: ReceiptImportsTa
           </DialogHeader>
           <div className="space-y-3">
             <Input placeholder="Filtrar descrição, referência ou conta" value={statementSearch} onChange={(event) => setStatementSearch(event.target.value)} />
-            <Table>
+            <Table responsive>
               <TableHeader>
                 <TableRow>
                   <TableHead>Data</TableHead>
@@ -607,15 +607,15 @@ export function ReceiptImportsTab({ users, invoices, canEdit }: ReceiptImportsTa
               <TableBody>
                 {statementRows.map((statement) => (
                   <TableRow key={statement.id}>
-                    <TableCell>{statement.data_movimento}</TableCell>
-                    <TableCell>
+                    <TableCell label="Data">{statement.data_movimento}</TableCell>
+                    <TableCell label="Descrição">
                       <div>{statement.descricao}</div>
                       <div className="text-xs text-muted-foreground">{statement.conta || '-'}</div>
                     </TableCell>
-                    <TableCell>{formatCurrency(statement.valor)}</TableCell>
-                    <TableCell>{formatCurrency(statement.valor_conciliado)}</TableCell>
-                    <TableCell>{formatCurrency(statement.valor_por_conciliar)}</TableCell>
-                    <TableCell className="text-right">
+                    <TableCell label="Valor">{formatCurrency(statement.valor)}</TableCell>
+                    <TableCell label="Já alocado">{formatCurrency(statement.valor_conciliado)}</TableCell>
+                    <TableCell label="Pendente">{formatCurrency(statement.valor_por_conciliar)}</TableCell>
+                    <TableCell label="Ação" className="text-right">
                       <Button type="button" size="sm" variant="outline" onClick={() => void selectStatement(statement.id)} disabled={statementLoading || !canEdit}>
                         Selecionar
                       </Button>

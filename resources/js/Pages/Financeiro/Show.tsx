@@ -548,7 +548,7 @@ export default function FinanceiroShowPage({
 
                         <TabsContent value="linhas" className={`${moduleTabbedContentClass} space-y-3`}>
                             <Card className="p-3">
-                                <Table>
+                                <Table responsive>
                                     <TableHeader>
                                         <TableRow>
                                             <TableHead>Descrição</TableHead>
@@ -566,12 +566,12 @@ export default function FinanceiroShowPage({
                                             </TableRow>
                                         ) : movementState.items.map((item) => (
                                             <TableRow key={item.id}>
-                                                <TableCell className="font-medium">{item.descricao}</TableCell>
-                                                <TableCell>{item.quantidade}</TableCell>
-                                                <TableCell>{formatCurrency(item.valor_unitario)}</TableCell>
-                                                <TableCell>{item.imposto_percentual}%</TableCell>
-                                                <TableCell>{formatCurrency(item.total_linha)}</TableCell>
-                                                <TableCell>{item.centro_custo?.nome || '-'}</TableCell>
+                                                <TableCell label="Descrição" className="font-medium">{item.descricao}</TableCell>
+                                                <TableCell label="Quantidade">{item.quantidade}</TableCell>
+                                                <TableCell label="Valor unitário">{formatCurrency(item.valor_unitario)}</TableCell>
+                                                <TableCell label="IVA">{item.imposto_percentual}%</TableCell>
+                                                <TableCell label="Total">{formatCurrency(item.total_linha)}</TableCell>
+                                                <TableCell label="Centro custo">{item.centro_custo?.nome || '-'}</TableCell>
                                             </TableRow>
                                         ))}
                                     </TableBody>
@@ -594,7 +594,7 @@ export default function FinanceiroShowPage({
                             </div>
 
                             <Card className="p-3">
-                                <Table>
+                                <Table responsive>
                                     <TableHeader>
                                         <TableRow>
                                             <TableHead>Tipo</TableHead>
@@ -614,15 +614,15 @@ export default function FinanceiroShowPage({
                                             </TableRow>
                                         ) : movementState.documents.map((document) => (
                                             <TableRow key={document.id}>
-                                                <TableCell>
+                                                <TableCell label="Tipo">
                                                     <div className="font-medium">{documentTypeLabel(document.document_type)}</div>
                                                     <div className="text-xs text-muted-foreground">{document.supplier?.nome || '-'}</div>
                                                 </TableCell>
-                                                <TableCell>{document.document_number || '-'}</TableCell>
-                                                <TableCell>{formatDate(document.issue_date)}</TableCell>
-                                                <TableCell>{formatCurrency(document.amount)}</TableCell>
-                                                <TableCell>{documentStatusBadge(document.status)}</TableCell>
-                                                <TableCell>
+                                                <TableCell label="Número">{document.document_number || '-'}</TableCell>
+                                                <TableCell label="Data">{formatDate(document.issue_date)}</TableCell>
+                                                <TableCell label="Valor">{formatCurrency(document.amount)}</TableCell>
+                                                <TableCell label="Estado">{documentStatusBadge(document.status)}</TableCell>
+                                                <TableCell label="Ficheiro">
                                                     {document.file_url ? (
                                                         <a href={document.file_url} target="_blank" rel="noreferrer" className="text-sm font-medium text-primary underline-offset-4 hover:underline">
                                                             {document.original_filename || 'Ver documento'}
@@ -631,11 +631,11 @@ export default function FinanceiroShowPage({
                                                         <span className="text-muted-foreground">-</span>
                                                     )}
                                                 </TableCell>
-                                                <TableCell>
+                                                <TableCell label="Validação">
                                                     <div className="text-xs">{formatDateTime(document.validated_at)}</div>
                                                     <div className="text-xs text-muted-foreground">{document.validator?.name || '-'}</div>
                                                 </TableCell>
-                                                <TableCell className="text-right">
+                                                <TableCell label="Ações" className="text-right">
                                                     <div className="flex flex-wrap justify-end gap-2">
                                                         {canManageDocuments && document.status !== 'valid' && (
                                                             <Button size="sm" variant="outline" onClick={() => void handleDocumentAction(document.id, 'validate')} disabled={submitting}>

@@ -403,7 +403,7 @@ export function FinancialTab({
           </div>
         ) : (
           <ScrollArea className="h-[240px]">
-            <Table>
+            <Table responsive>
               <TableHeader>
                 <TableRow className="text-xs">
                   <TableHead className="text-xs h-7 py-1">Emissão</TableHead>
@@ -417,12 +417,12 @@ export function FinancialTab({
               <TableBody>
                 {userFaturas.map((fatura) => (
                   <TableRow key={fatura.id} className="text-xs">
-                    <TableCell className="py-1">{format(new Date(fatura.data_emissao), 'dd/MM/yy')}</TableCell>
-                    <TableCell className="py-1 hidden sm:table-cell">{format(new Date(fatura.data_vencimento), 'dd/MM/yy')}</TableCell>
-                    <TableCell className="font-semibold py-1">€{toNumber(fatura.valor_total).toFixed(2)}</TableCell>
-                    <TableCell className="py-1 hidden md:table-cell">€{toNumber(fatura.valor_pago ?? 0).toFixed(2)}</TableCell>
-                    <TableCell className="font-semibold py-1">€{toNumber(fatura.valor_em_aberto ?? fatura.valor_total).toFixed(2)}</TableCell>
-                    <TableCell className="py-1">{getEstadoBadge(fatura.estado_pagamento)}</TableCell>
+                    <TableCell label="Emissão" className="py-1">{format(new Date(fatura.data_emissao), 'dd/MM/yy')}</TableCell>
+                    <TableCell label="Vencimento" className="py-1 hidden sm:table-cell">{format(new Date(fatura.data_vencimento), 'dd/MM/yy')}</TableCell>
+                    <TableCell label="Nominal" className="font-semibold py-1">€{toNumber(fatura.valor_total).toFixed(2)}</TableCell>
+                    <TableCell label="Pago" className="py-1 hidden md:table-cell">€{toNumber(fatura.valor_pago ?? 0).toFixed(2)}</TableCell>
+                    <TableCell label="Em aberto" className="font-semibold py-1">€{toNumber(fatura.valor_em_aberto ?? fatura.valor_total).toFixed(2)}</TableCell>
+                    <TableCell label="Estado" className="py-1">{getEstadoBadge(fatura.estado_pagamento)}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -436,7 +436,7 @@ export function FinancialTab({
         <Card className="p-2">
           <h3 className="text-xs font-semibold mb-1.5">Movimentos</h3>
           <ScrollArea className="h-[240px]">
-            <Table>
+            <Table responsive>
               <TableHeader>
                 <TableRow className="text-xs">
                   <TableHead className="text-xs h-7 py-1">Data</TableHead>
@@ -447,9 +447,9 @@ export function FinancialTab({
               <TableBody>
                 {userMovimentos.map((movimento) => (
                   <TableRow key={movimento.id} className="text-xs">
-                    <TableCell className="py-1">{format(new Date(movimento.data_emissao), 'dd/MM/yy')}</TableCell>
-                    <TableCell className="py-1">{movimento.evento_nome}</TableCell>
-                    <TableCell className={`font-semibold py-1 ${movimento.displayAmount < 0 ? 'text-red-600' : movimento.displayAmount > 0 ? 'text-green-600' : 'text-foreground'}`}>
+                    <TableCell label="Data" className="py-1">{format(new Date(movimento.data_emissao), 'dd/MM/yy')}</TableCell>
+                    <TableCell label="Evento" className="py-1">{movimento.evento_nome}</TableCell>
+                    <TableCell label="Valor" className={`font-semibold py-1 ${movimento.displayAmount < 0 ? 'text-red-600' : movimento.displayAmount > 0 ? 'text-green-600' : 'text-foreground'}`}>
                       {formatSignedEuro(movimento.displayAmount)}
                     </TableCell>
                   </TableRow>
@@ -467,7 +467,7 @@ export function FinancialTab({
             <span>📋</span> Inscrições em Eventos
           </h3>
           <ScrollArea className="h-[300px]">
-            <Table>
+            <Table responsive>
               <TableHeader>
                 <TableRow className="text-xs">
                   <TableHead className="text-xs h-7 py-1">Data</TableHead>
@@ -479,18 +479,18 @@ export function FinancialTab({
               <TableBody>
                 {linhasResponsabilidade.map((linha) => (
                   <TableRow key={linha.id} className="text-xs hover:bg-muted/50">
-                    <TableCell className="py-1">
+                    <TableCell label="Data" className="py-1">
                       {linha.movimento ? format(new Date(linha.movimento.data_emissao), 'dd/MM/yy') : '-'}
                     </TableCell>
-                    <TableCell className="py-1 text-muted-foreground">
-                      <div className="truncate max-w-sm" title={linha.descricao}>
+                    <TableCell label="Inscrição" className="py-1 text-muted-foreground">
+                      <div className="break-words max-w-sm" title={linha.descricao}>
                         {linha.descricao}
                       </div>
                     </TableCell>
-                    <TableCell className="py-1 text-right font-semibold">
+                    <TableCell label="Valor" className="py-1 text-right font-semibold">
                       €{toNumber(linha.valor_unitario).toFixed(2)}
                     </TableCell>
-                    <TableCell className="py-1 text-right">
+                    <TableCell label="Ações" className="py-1 text-right">
                       <Button
                         size="sm"
                         variant="ghost"
