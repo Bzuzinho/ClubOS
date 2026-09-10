@@ -241,6 +241,11 @@ test.describe('authenticated access', () => {
                     await expect(tab).toHaveAttribute('aria-selected', 'true');
                     await expect(page.locator('#nprogress')).toHaveCount(0);
                     await expectNoHorizontalOverflow(page);
+                    const overflowing = await page.locator('main [data-slot="table-container"], main [role="tablist"]').evaluateAll((elements) =>
+                        elements.filter((element) => element.getClientRects().length > 0 && element.scrollWidth > element.clientWidth + 1)
+                            .map((element) => ({ slot: element.getAttribute('data-slot'), width: element.clientWidth, scroll: element.scrollWidth })),
+                    );
+                    expect(overflowing).toEqual([]);
                     const panelId = await tab.getAttribute('aria-controls');
                     if (panelId) {
                         const panel = page.locator(`[id="${panelId}"]`);
@@ -248,13 +253,33 @@ test.describe('authenticated access', () => {
                     }
                 }
             }
-            const overflowing = await page.locator('main [data-slot="table-container"], main [role="tablist"]').evaluateAll((elements) =>
-                elements.filter((element) => element.getClientRects().length > 0 && element.scrollWidth > element.clientWidth + 1)
-                    .map((element) => ({ slot: element.getAttribute('data-slot'), width: element.clientWidth, scroll: element.scrollWidth })),
-            );
-            expect(overflowing).toEqual([]);
             await expect(page.locator('main')).not.toContainText('Server Error');
         });
     }
+
+    test('P1: populated reconciliation keeps invoice fields and allocation usable', async ({ page }, testInfo) => {
+        await login(page, testInfo, '/financeiro');
+        await page.getByRole('tab', { name: 'Banco', exact: true }).click();
+        await page.getByPlaceholder('Pesquisar descricao, referencia, conta ou centro de custo')
+            .fill(`E2E-BANK-${testInfo.project.name}`);
+        await page.getByRole('button', { name: /Consultar sugestao|Consultar sugestoes de conciliacao/ }).click();
+        await page.getByRole('button', { name: 'Abrir conciliacao manual', exact: true }).click();
+        const dialog = page.getByRole('dialog', { name: 'Conciliacao Manual', exact: true });
+        await expect(dialog).toBeVisible();
+        const invoice = dialog.getByRole('row').filter({ hasText: `Browser QA ${testInfo.project.name}` });
+        await expect(invoice).toHaveCount(1);
+        await expect(invoice.getByRole('cell')).toHaveCount(9);
+        const amount = invoice.getByRole('spinbutton');
+        await amount.fill('10');
+        await expect(amount).toHaveValue('10');
+        await expect(dialog.getByText('Total alocado', { exact: true }).locator('..')).toContainText('10');
+        const overflowing = await dialog.locator('[data-slot="table-container"]').evaluateAll((elements) =>
+            elements.filter((element) => element.scrollWidth > element.clientWidth + 1).length,
+        );
+        expect(overflowing).toBe(0);
+        await expectNoHorizontalOverflow(page);
+        await dialog.getByRole('button', { name: 'Cancelar', exact: true }).click();
+        await expect(dialog).not.toBeVisible();
+    });
 
 });
