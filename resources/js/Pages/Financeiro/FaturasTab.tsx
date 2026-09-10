@@ -2030,8 +2030,8 @@ export function FaturasTab({
           </div>
         ) : (
           <div className="p-0 overflow-hidden">
-            <div className="w-full overflow-x-auto">
-              <Table>
+            <div className="w-full min-w-0">
+              <Table responsive>
                 <TableHeader>
                   <TableRow>
                     <TableHead className="w-12">
@@ -2040,15 +2040,15 @@ export function FaturasTab({
                         onCheckedChange={handleToggleAllFaturas}
                       />
                     </TableHead>
-                    <TableHead className="hidden sm:table-cell flex-1 min-w-[150px]">Utilizador</TableHead>
-                    <TableHead className="hidden md:table-cell w-24">Tipo</TableHead>
-                    <TableHead className="hidden lg:table-cell w-28">Data Emissao</TableHead>
-                    <TableHead className="flex-1 min-w-[120px]">Vencimento</TableHead>
-                    <TableHead className="hidden sm:table-cell w-24 text-right">Valor</TableHead>
-                    <TableHead className="hidden lg:table-cell w-24 text-right">Pago</TableHead>
-                    <TableHead className="hidden lg:table-cell w-28 text-right">Em Aberto</TableHead>
-                    <TableHead className="hidden md:table-cell w-20">Estado</TableHead>
-                    <TableHead className="hidden xl:table-cell min-w-[220px]">Conciliação bancária</TableHead>
+                    <TableHead className="flex-1 min-w-0">Utilizador</TableHead>
+                    <TableHead className="w-24">Tipo</TableHead>
+                    <TableHead className="w-28">Data Emissao</TableHead>
+                    <TableHead className="flex-1 min-w-0">Vencimento</TableHead>
+                    <TableHead className="w-24 text-right">Valor</TableHead>
+                    <TableHead className="w-24 text-right">Pago</TableHead>
+                    <TableHead className="w-28 text-right">Em Aberto</TableHead>
+                    <TableHead className="w-20">Estado</TableHead>
+                    <TableHead className="min-w-0">Conciliação bancária</TableHead>
                     <TableHead className="w-48 text-right">Acoes</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -2069,14 +2069,14 @@ export function FaturasTab({
 
                         return (
                         <TableRow key={fatura.id}>
-                          <TableCell>
+                          <TableCell label="Selecionar">
                             <Checkbox
                               checked={selectedFaturas.has(fatura.id)}
                               onCheckedChange={() => handleToggleFaturaSelection(fatura.id)}
                             />
                           </TableCell>
-                          <TableCell className={`hidden sm:table-cell font-medium text-xs max-w-[150px] truncate ${!fatura.user_id ? 'text-red-700' : ''}`}>{getUserName(fatura.user_id, fatura.owner_name)}</TableCell>
-                          <TableCell className="hidden md:table-cell text-xs">
+                          <TableCell label="Utilizador" className={`font-medium text-xs min-w-0 break-words ${!fatura.user_id ? 'text-red-700' : ''}`}>{getUserName(fatura.user_id, fatura.owner_name)}</TableCell>
+                          <TableCell label="Tipo" className="text-xs">
                             <div className="space-y-1">
                               <Badge variant="outline">{getInvoiceTypeLabel(fatura.tipo)}</Badge>
                               {competenceLabel && (
@@ -2084,23 +2084,23 @@ export function FaturasTab({
                               )}
                             </div>
                           </TableCell>
-                          <TableCell className="hidden lg:table-cell text-xs">
+                          <TableCell label="Data de emissão" className="text-xs">
                             <div>{format(new Date(fatura.data_emissao), 'dd/MM/yyyy')}</div>
                             {competenceLabel && (
                               <div className="text-[10px] text-muted-foreground">{competenceLabel}</div>
                             )}
                           </TableCell>
-                          <TableCell className="text-xs">{format(new Date(fatura.data_vencimento), 'dd/MM/yyyy')}</TableCell>
-                          <TableCell className="hidden sm:table-cell font-semibold text-xs text-right">€{toNumber(fatura.valor_total).toFixed(2)}</TableCell>
-                          <TableCell className="hidden lg:table-cell text-xs text-right">€{paidAmount.toFixed(2)}</TableCell>
-                          <TableCell className="hidden lg:table-cell text-xs text-right">€{outstandingAmount.toFixed(2)}</TableCell>
-                          <TableCell className="hidden md:table-cell text-xs">{getEstadoBadge(fatura.estado_pagamento)}</TableCell>
-                          <TableCell className="hidden xl:table-cell text-xs">
+                          <TableCell label="Vencimento" className="text-xs">{format(new Date(fatura.data_vencimento), 'dd/MM/yyyy')}</TableCell>
+                          <TableCell label="Valor" className="font-semibold text-xs text-right">€{toNumber(fatura.valor_total).toFixed(2)}</TableCell>
+                          <TableCell label="Pago" className="text-xs text-right">€{paidAmount.toFixed(2)}</TableCell>
+                          <TableCell label="Em aberto" className="text-xs text-right">€{outstandingAmount.toFixed(2)}</TableCell>
+                          <TableCell label="Estado" className="text-xs">{getEstadoBadge(fatura.estado_pagamento)}</TableCell>
+                          <TableCell label="Conciliação bancária" className="text-xs">
                             {fatura.tipo === 'mensalidade'
                               ? renderBankReconciliationTrace(fatura.id, true)
                               : <span className="text-muted-foreground">—</span>}
                           </TableCell>
-                          <TableCell>
+                          <TableCell label="Ações">
                             <div className="flex items-center justify-end gap-1">
                               <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => handleEditarFatura(fatura.id)} title="Editar">
                                 <PencilSimple size={14} />

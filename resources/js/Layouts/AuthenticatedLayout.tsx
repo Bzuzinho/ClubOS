@@ -118,6 +118,7 @@ export default function AuthenticatedLayout({
     showSidebarPopupButton?: boolean;
     hideMobileHeader?: boolean;
 }>) {
+    const useViewportLayout = !collapseSidebarDesktop && !hideMobileHeader;
     const page = usePage<PageProps & Record<string, unknown>>();
     const { auth, accessControl, communicationAlerts } = page.props;
     const { clubDisplayName, clubLogoUrl, clubName, clubShortName } = useClubSettings();
@@ -333,7 +334,7 @@ export default function AuthenticatedLayout({
     };
 
     return (
-        <div className="min-h-screen bg-background flex">
+        <div className={cn("bg-background flex", useViewportLayout ? "h-dvh min-h-0" : "min-h-screen")}>
             {/* Sidebar */}
             <aside className={cn(
                 "fixed inset-y-0 left-0 z-50 w-64 bg-sidebar border-r border-sidebar-border",
@@ -484,7 +485,7 @@ export default function AuthenticatedLayout({
             )}
 
             {/* Main Content Area */}
-            <div className="flex-1 flex flex-col min-w-0">
+            <div className="flex-1 flex flex-col min-w-0 min-h-0">
                 {/* Mobile Header */}
                 {!hideMobileHeader && (
                     <header className="bg-card border-b lg:hidden">
@@ -558,10 +559,11 @@ export default function AuthenticatedLayout({
                 )}
 
                 {/* Page Content */}
-                <main className="flex-1 overflow-auto">
+                <main className="min-h-0 flex-1 overflow-auto">
                     <div
                         className={cn(
-                            fullWidth ? 'w-full px-[10px] py-[10px] sm:py-4' : 'spark-container py-3 sm:py-4'
+                            fullWidth ? 'w-full px-[10px] py-[10px] sm:py-4' : 'spark-container py-3 sm:py-4',
+                            useViewportLayout && 'flex h-full min-h-0 flex-col'
                         )}
                     >
                         <SportsNavigation />

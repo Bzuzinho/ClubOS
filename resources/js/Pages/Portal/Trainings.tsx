@@ -1,3 +1,4 @@
+import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/Components/ui/table';
 import { Head, router, useForm, usePage } from '@inertiajs/react';
 import { useEffect, useRef, useState } from 'react';
 import {
@@ -475,34 +476,34 @@ function TrainingDetailPanel({
                     <div className="border-b border-slate-200 bg-slate-50 px-3 py-2">
                         <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Tabela de séries</p>
                     </div>
-                    <div className="overflow-x-auto">
-                        <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
-                            <thead className="bg-white text-xs uppercase tracking-[0.14em] text-slate-400">
-                                <tr>
-                                    <th className="px-3 py-2 font-semibold">#</th>
-                                    <th className="px-3 py-2 font-semibold">Descrição</th>
-                                    <th className="px-3 py-2 font-semibold">Metros</th>
-                                    <th className="px-3 py-2 font-semibold">Zona</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-200 bg-white text-slate-700">
+                    <div className="min-w-0">
+                        <Table responsive className="text-sm">
+                            <TableHeader className="bg-white text-xs uppercase tracking-[0.14em] text-slate-400">
+                                <TableRow>
+                                    <TableHead className="px-3 py-2 font-semibold">#</TableHead>
+                                    <TableHead className="px-3 py-2 font-semibold">Descrição</TableHead>
+                                    <TableHead className="px-3 py-2 font-semibold">Metros</TableHead>
+                                    <TableHead className="px-3 py-2 font-semibold">Zona</TableHead>
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody className="divide-y divide-slate-200 bg-white text-slate-700">
                                 {training.series.map((row) => (
-                                    <tr key={row.id}>
-                                        <td className="px-3 py-2 align-top">{row.ordem ?? '—'}</td>
-                                        <td className="px-3 py-2 align-top">
+                                    <TableRow key={row.id}>
+                                        <TableCell label="#" className="px-3 py-2 align-top">{row.ordem ?? '—'}</TableCell>
+                                        <TableCell label="Descrição" className="px-3 py-2 align-top">
                                             <p>{row.descricao_texto || 'Sem descrição'}</p>
                                             {(row.repeticoes || row.estilo || row.intervalo || row.observacoes) ? (
                                                 <p className="mt-1 text-xs text-slate-500">
                                                     {[row.repeticoes ? `${row.repeticoes} rep.` : null, row.estilo, row.intervalo ? `Intervalo ${row.intervalo}` : null, row.observacoes].filter(Boolean).join(' · ')}
                                                 </p>
                                             ) : null}
-                                        </td>
-                                        <td className="px-3 py-2 align-top">{formatMetersValue(row.distancia_total_m)}</td>
-                                        <td className="px-3 py-2 align-top">{row.zona_intensidade || '—'}</td>
-                                    </tr>
+                                        </TableCell>
+                                        <TableCell label="Metros" className="px-3 py-2 align-top">{formatMetersValue(row.distancia_total_m)}</TableCell>
+                                        <TableCell label="Zona" className="px-3 py-2 align-top">{row.zona_intensidade || '—'}</TableCell>
+                                    </TableRow>
                                 ))}
-                            </tbody>
-                        </table>
+                            </TableBody>
+                        </Table>
                     </div>
                 </div>
             ) : (

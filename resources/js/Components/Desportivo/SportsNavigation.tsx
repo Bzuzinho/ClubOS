@@ -8,7 +8,7 @@ export function SportsNavigation() {
     if (sportsNavigation.length === 0) return null;
 
     return (
-        <div className="mb-3 flex min-w-0 flex-wrap items-start gap-2">
+        <div className="mb-3 flex min-w-0 shrink-0 flex-wrap items-start gap-2">
             <nav aria-label="Áreas do Desportivo" className="flex min-w-0 flex-1 flex-wrap gap-1 rounded-lg bg-muted p-1">
                 {sportsNavigation.map((item) => (
                     <Link

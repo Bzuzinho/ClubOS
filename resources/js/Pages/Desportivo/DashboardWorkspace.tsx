@@ -28,7 +28,7 @@ const pct=(v:number|null)=>v==null?'—':`${v.toFixed(1)}%`;
 export default function DashboardWorkspace({stats,today,upcoming_trainings,upcoming_competitions,alerts,top_athletes,quick_links}:Props){
   return <AuthenticatedLayout fullWidth header={<div><h1 className="text-lg font-semibold">Desportivo</h1><p className="text-xs text-muted-foreground">Visão operacional do módulo</p></div>}>
     <Head title="Dashboard · Desportivo"/>
-    <div className="mx-auto max-w-[1500px] space-y-3 p-3">
+    <div className="w-full min-w-0 space-y-3">
       <div className="flex gap-1 overflow-auto pb-1">{quick_links.map(link=><Button key={link.route} size="sm" variant="outline" onClick={()=>router.get(route(link.route))}>{link.label}</Button>)}</div>
 
       <div className="grid grid-cols-2 gap-2 lg:grid-cols-6">

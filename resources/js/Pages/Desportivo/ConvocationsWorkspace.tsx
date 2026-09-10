@@ -107,7 +107,7 @@ export default function ConvocationsWorkspace({ convocations, events, athletes, 
 
   return <AuthenticatedLayout fullWidth>
     <Head title="Convocatórias · Desportivo" />
-    <div className="mx-auto max-w-[1500px] space-y-3 p-3">
+    <div className="w-full min-w-0 space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div><h1 className="text-lg font-semibold">Convocatórias</h1><p className="text-xs text-muted-foreground">Seleção, publicação, respostas e logística</p></div>
         <div className="flex gap-1"><Button size="sm" variant="outline" onClick={() => router.get(route('desportivo.competicoes'))}>Competições</Button><Button size="sm" onClick={openCreate}>+ Convocatória</Button></div>

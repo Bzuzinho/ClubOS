@@ -321,34 +321,34 @@ export default function MembrosListTab({ members, membersPagination, filters, us
                     </div>
                 ) : (
                     <Card className="p-0 overflow-hidden">
-                        <div className="w-full overflow-x-auto">
-                            <Table>
+                        <div className="w-full min-w-0">
+                            <Table responsive>
                                 <TableHeader>
                                     <TableRow>
                                         <TableHead className="w-16">Nº Sócio</TableHead>
-                                        <TableHead className="flex-1 min-w-[200px]">Nome</TableHead>
-                                        <TableHead className="hidden md:table-cell min-w-[180px]">Email</TableHead>
-                                        <TableHead className="hidden lg:table-cell w-24">Estado</TableHead>
-                                        <TableHead className="hidden xl:table-cell flex-1 min-w-[180px]">Tipo</TableHead>
+                                        <TableHead className="flex-1 min-w-0">Nome</TableHead>
+                                        <TableHead className="min-w-0">Email</TableHead>
+                                        <TableHead className="w-24">Estado</TableHead>
+                                        <TableHead className="flex-1 min-w-0">Tipo</TableHead>
                                         <TableHead className="w-20 text-right">Ação</TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
                                     {members.map((user) => (
                                         <TableRow key={user.id}>
-                                            <TableCell className="text-xs font-medium">{user.numero_socio || '-'}</TableCell>
-                                            <TableCell className="max-w-[200px]">
-                                                <Link href={route('membros.show', user.id)} className="font-medium hover:underline truncate block">
+                                            <TableCell label="Nº Sócio" className="text-xs font-medium">{user.numero_socio || '-'}</TableCell>
+                                            <TableCell label="Nome" className="min-w-0">
+                                                <Link href={route('membros.show', user.id)} className="font-medium hover:underline break-words block">
                                                     {user.nome_completo || 'Sem nome'}
                                                 </Link>
                                             </TableCell>
-                                            <TableCell className="hidden md:table-cell text-xs text-muted-foreground max-w-[180px] truncate">{user.email_utilizador || '-'}</TableCell>
-                                            <TableCell className="hidden lg:table-cell">
+                                            <TableCell label="Email" className="text-xs text-muted-foreground min-w-0 break-words">{user.email_utilizador || '-'}</TableCell>
+                                            <TableCell label="Estado" className="">
                                                 <Badge variant="outline" className={`${getStatusColor(user.estado)} text-[10px] px-1.5 py-0`}>
                                                     {getStatusLabel(user.estado)}
                                                 </Badge>
                                             </TableCell>
-                                            <TableCell className="hidden xl:table-cell">
+                                            <TableCell label="Tipo" className="">
                                                 <div className="flex flex-wrap gap-1">
                                                     {Array.isArray(user.tipo_membro) && user.tipo_membro.length > 0 ? (
                                                         user.tipo_membro.slice(0, 2).map((type, index) => (
@@ -366,8 +366,8 @@ export default function MembrosListTab({ members, membersPagination, filters, us
                                                     ) : null}
                                                 </div>
                                             </TableCell>
-                                            <TableCell className="text-right">
-                                                <div className="flex justify-end gap-1">
+                                            <TableCell label="Ação" className="text-right">
+                                                <div className="flex flex-wrap justify-end gap-1">
                                                     <Link href={route('membros.show', user.id)}>
                                                         <Button variant="outline" size="sm" className="h-7 px-2 text-xs">Ver</Button>
                                                     </Link>

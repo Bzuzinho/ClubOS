@@ -116,7 +116,7 @@ export default function AthletesWorkspace({ athletes, stats, filters, principles
     >
       <Head title="Atletas · Desportivo" />
 
-      <div className="mx-auto max-w-[1600px] space-y-3 p-3">
+      <div className="w-full min-w-0 space-y-3">
         <div className="grid grid-cols-2 gap-2 md:grid-cols-5">
           <Metric label="Atletas canónicos" value={stats.total} />
           <Metric label="Ativos" value={stats.active} />
@@ -127,7 +127,7 @@ export default function AthletesWorkspace({ athletes, stats, filters, principles
 
         <Card>
           <CardContent className="p-3">
-            <div className="grid gap-2 lg:grid-cols-[2fr_repeat(4,minmax(150px,1fr))_auto]">
+            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
               <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Pesquisar por nome ou nº de sócio…" />
               <Filter value={stateFilter} onChange={setStateFilter} options={filters.states} allLabel="Todos os estados" />
               <Filter value={modalityFilter} onChange={setModalityFilter} options={filters.modalities} allLabel="Todas as modalidades" />
@@ -141,21 +141,21 @@ export default function AthletesWorkspace({ athletes, stats, filters, principles
           </CardContent>
         </Card>
 
-        <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_430px]">
+        <div className="grid gap-3 2xl:grid-cols-[minmax(0,1fr)_minmax(0,430px)]">
           <div>
             {viewMode === 'list' ? (
               <div className="overflow-hidden rounded-lg border bg-background">
-                <div className="hidden grid-cols-[2fr_1.2fr_1.2fr_110px_110px_90px_110px] gap-2 border-b bg-muted/40 px-3 py-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground md:grid">
+                <div className="hidden grid-cols-7 gap-2 border-b bg-muted/40 px-3 py-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground xl:grid">
                   <span>Atleta</span><span>Modalidade / grupo</span><span>Escalão</span><span>Assiduidade</span><span>Volume 30d</span><span>RPE</span><span>Estado</span>
                 </div>
                 {filteredAthletes.map((athlete) => (
-                  <button type="button" key={athlete.id} onClick={() => setSelectedId(athlete.id)} className={`grid w-full gap-2 border-b px-3 py-3 text-left text-xs transition last:border-b-0 md:grid-cols-[2fr_1.2fr_1.2fr_110px_110px_90px_110px] ${selectedId === athlete.id ? 'bg-sky-50' : 'hover:bg-muted/40'}`}>
+                  <button type="button" key={athlete.id} onClick={() => setSelectedId(athlete.id)} className={`grid w-full min-w-0 gap-2 break-words border-b px-3 py-3 text-left text-xs transition last:border-b-0 xl:grid-cols-7 ${selectedId === athlete.id ? 'bg-sky-50' : 'hover:bg-muted/40'}`}>
                     <div><div className="font-semibold">{athlete.name}</div><div className="text-[10px] text-muted-foreground">Sócio {athlete.member_number || '—'}</div></div>
-                    <div><b className="md:hidden">Modalidade / grupo · </b>{labels(athlete.modalities)}<div className="text-[10px] text-muted-foreground">{labels(athlete.groups)}</div></div>
-                    <div><b className="md:hidden">Escalão · </b>{labels(athlete.age_groups)}</div>
-                    <div><b className="md:hidden">Assiduidade · </b>{pct(athlete.attendance_30d)}</div>
-                    <div><b className="md:hidden">Volume · </b>{km(athlete.volume_30d_m)}</div>
-                    <div><b className="md:hidden">RPE · </b>{numeric(athlete.avg_rpe_30d)}</div>
+                    <div><b className="xl:hidden">Modalidade / grupo · </b>{labels(athlete.modalities)}<div className="text-[10px] text-muted-foreground">{labels(athlete.groups)}</div></div>
+                    <div><b className="xl:hidden">Escalão · </b>{labels(athlete.age_groups)}</div>
+                    <div><b className="xl:hidden">Assiduidade · </b>{pct(athlete.attendance_30d)}</div>
+                    <div><b className="xl:hidden">Volume · </b>{km(athlete.volume_30d_m)}</div>
+                    <div><b className="xl:hidden">RPE · </b>{numeric(athlete.avg_rpe_30d)}</div>
                     <div className="flex flex-wrap gap-1"><StateBadge state={athlete.state} /><MedicalBadge status={athlete.medical_document.status} /></div>
                   </button>
                 ))}

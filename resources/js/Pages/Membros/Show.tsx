@@ -1,10 +1,11 @@
+import { ModuleTabsList } from '@/Components/layout/ModuleTabsList';
 import { useEffect, useRef, useState, FormEventHandler } from 'react';
 import { Head, router, usePage } from '@inertiajs/react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { moduleTabbedContentClass, moduleTabsClass, moduleViewportClass } from '@/lib/module-layout';
 import { Button } from '@/Components/ui/button';
 import { Card } from '@/Components/ui/card';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/Components/ui/tabs';
+import { Tabs, TabsContent, TabsTrigger } from '@/Components/ui/tabs';
 import { EnvelopeSimple } from '@phosphor-icons/react';
 import { toast } from 'sonner';
 import { DashboardTab } from '@/Components/Members/Tabs/DashboardTab';
@@ -436,7 +437,7 @@ export default function Show({ member, family_context, permissions, allUsers, in
             <div className={moduleViewportClass}>
             <Card className="flex min-h-0 flex-1 flex-col p-2 sm:p-3 bg-white border-0">
                 <Tabs value={activeTab} onValueChange={handleTabChange} className={moduleTabsClass}>
-                    <TabsList className={`grid w-full shrink-0 h-auto gap-1 p-1 ${currentShowSportsTab ? 'grid-cols-2 sm:grid-cols-7' : 'grid-cols-2 sm:grid-cols-6'}`}>
+                    <ModuleTabsList label="Secções disponíveis">
                             <TabsTrigger value="dashboard" className="text-xs px-2 py-1.5 whitespace-normal leading-tight text-center min-h-8">
                                 Dashboard
                             </TabsTrigger>
@@ -461,7 +462,7 @@ export default function Show({ member, family_context, permissions, allUsers, in
                                 <EnvelopeSimple size={14} weight="duotone" />
                                 Comunicações
                             </TabsTrigger>
-                        </TabsList>
+                        </ModuleTabsList>
 
                     <TabsContent value="dashboard" className={`${moduleTabbedContentClass} space-y-2 bg-white p-0 rounded-lg`}>
                         <DashboardTab user={user as any} faturas={faturas} />

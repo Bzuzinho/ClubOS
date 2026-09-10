@@ -1,3 +1,4 @@
+import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/Components/ui/table';
 import { useEffect, useMemo, useState } from 'react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
@@ -698,37 +699,37 @@ export function BankStatementReconciliationDialog({
                   <div className="py-8 text-center text-sm text-muted-foreground">Nao foram encontradas faturas em aberto para esta pesquisa.</div>
                 ) : (
                   <div className="w-full min-w-0 max-h-[420px] overflow-auto rounded-lg border">
-                    <table className="w-full min-w-[1100px] text-sm">
-                      <thead className="bg-muted/50 text-xs uppercase tracking-wide text-muted-foreground">
-                        <tr>
-                          <th className="px-3 py-2 text-left font-medium">Utilizador</th>
-                          <th className="px-3 py-2 text-left font-medium">Familia</th>
-                          <th className="px-3 py-2 text-left font-medium">Mes / Periodo</th>
-                          <th className="px-3 py-2 text-left font-medium">Vencimento</th>
-                          <th className="px-3 py-2 text-left font-medium">Centro de custo</th>
-                          <th className="px-3 py-2 text-right font-medium">Valor total</th>
-                          <th className="px-3 py-2 text-right font-medium">Valor pago</th>
-                          <th className="px-3 py-2 text-right font-medium">Valor em aberto</th>
-                          <th className="px-3 py-2 text-left font-medium">Valor a alocar</th>
-                        </tr>
-                      </thead>
-                      <tbody>
+                    <Table responsive className="text-sm">
+                      <TableHeader className="bg-muted/50 text-xs uppercase tracking-wide text-muted-foreground">
+                        <TableRow>
+                          <TableHead className="px-3 py-2 text-left font-medium">Utilizador</TableHead>
+                          <TableHead className="px-3 py-2 text-left font-medium">Familia</TableHead>
+                          <TableHead className="px-3 py-2 text-left font-medium">Mes / Periodo</TableHead>
+                          <TableHead className="px-3 py-2 text-left font-medium">Vencimento</TableHead>
+                          <TableHead className="px-3 py-2 text-left font-medium">Centro de custo</TableHead>
+                          <TableHead className="px-3 py-2 text-right font-medium">Valor total</TableHead>
+                          <TableHead className="px-3 py-2 text-right font-medium">Valor pago</TableHead>
+                          <TableHead className="px-3 py-2 text-right font-medium">Valor em aberto</TableHead>
+                          <TableHead className="px-3 py-2 text-left font-medium">Valor a alocar</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
                         {openInvoices.map((invoice) => (
-                          <tr key={invoice.id} className="border-t align-top">
-                            <td className="px-3 py-3">
+                          <TableRow key={invoice.id} className="border-t align-top">
+                            <TableCell label="Utilizador" className="px-3 py-3">
                               <div className="font-medium">{invoice.user_name || 'Utilizador'}</div>
                               <div className="text-xs text-muted-foreground">{invoice.tipo || 'Fatura'}</div>
-                            </td>
-                            <td className="px-3 py-3 text-muted-foreground">{invoice.family_name || '-'}</td>
-                            <td className="px-3 py-3 text-muted-foreground">{invoice.mes || formatDateLabel(invoice.data_fatura)}</td>
-                            <td className="px-3 py-3 text-muted-foreground">{formatDateLabel(invoice.vencimento)}</td>
-                            <td className="px-3 py-3 text-muted-foreground">{invoice.centro_custo_name || '-'}</td>
-                            <td className="px-3 py-3 text-right font-medium">{formatCurrency(toNumber(invoice.valor_total, 0))}</td>
-                            <td className="px-3 py-3 text-right text-muted-foreground">{formatCurrency(toNumber(invoice.valor_pago, 0))}</td>
-                            <td className="px-3 py-3 text-right">
+                            </TableCell>
+                            <TableCell label="Familia" className="px-3 py-3 text-muted-foreground">{invoice.family_name || '-'}</TableCell>
+                            <TableCell label="Mes / Periodo" className="px-3 py-3 text-muted-foreground">{invoice.mes || formatDateLabel(invoice.data_fatura)}</TableCell>
+                            <TableCell label="Vencimento" className="px-3 py-3 text-muted-foreground">{formatDateLabel(invoice.vencimento)}</TableCell>
+                            <TableCell label="Centro de custo" className="px-3 py-3 text-muted-foreground">{invoice.centro_custo_name || '-'}</TableCell>
+                            <TableCell label="Valor total" className="px-3 py-3 text-right font-medium">{formatCurrency(toNumber(invoice.valor_total, 0))}</TableCell>
+                            <TableCell label="Valor pago" className="px-3 py-3 text-right text-muted-foreground">{formatCurrency(toNumber(invoice.valor_pago, 0))}</TableCell>
+                            <TableCell label="Valor em aberto" className="px-3 py-3 text-right">
                               <Badge variant="outline">{formatCurrency(toNumber(invoice.valor_em_aberto, 0))}</Badge>
-                            </td>
-                            <td className="px-3 py-3 min-w-[170px]">
+                            </TableCell>
+                            <TableCell label="Valor a alocar" className="px-3 py-3 min-w-0">
                               <div className="space-y-1">
                                 <Label className="text-xs">Valor a alocar</Label>
                                 <Input
@@ -740,11 +741,11 @@ export function BankStatementReconciliationDialog({
                                   onChange={(event) => setInvoiceAllocations((current) => ({ ...current, [invoice.id]: event.target.value }))}
                                 />
                               </div>
-                            </td>
-                          </tr>
+                            </TableCell>
+                          </TableRow>
                         ))}
-                      </tbody>
-                    </table>
+                      </TableBody>
+                    </Table>
                   </div>
                 )}
               </Card>
@@ -772,36 +773,36 @@ export function BankStatementReconciliationDialog({
                   <div className="py-8 text-center text-sm text-muted-foreground">Nao foram encontrados movimentos em aberto para esta pesquisa.</div>
                 ) : (
                   <div className="w-full min-w-0 max-h-[420px] overflow-auto rounded-lg border">
-                    <table className="w-full min-w-[1280px] text-sm">
-                      <thead className="bg-muted/50 text-xs uppercase tracking-wide text-muted-foreground">
-                        <tr>
-                          <th className="px-3 py-2 text-left font-medium">Descricao</th>
-                          <th className="px-3 py-2 text-left font-medium">Utilizador / Familia</th>
-                          <th className="px-3 py-2 text-left font-medium">Tipo</th>
-                          <th className="px-3 py-2 text-left font-medium">Data</th>
-                          <th className="px-3 py-2 text-left font-medium">Centro de custo</th>
-                          <th className="px-3 py-2 text-right font-medium">Valor total</th>
-                          <th className="px-3 py-2 text-right font-medium">Valor pago</th>
-                          <th className="px-3 py-2 text-right font-medium">Valor em aberto</th>
-                          <th className="px-3 py-2 text-left font-medium">Valor a alocar</th>
-                        </tr>
-                      </thead>
-                      <tbody>
+                    <Table responsive className="text-sm">
+                      <TableHeader className="bg-muted/50 text-xs uppercase tracking-wide text-muted-foreground">
+                        <TableRow>
+                          <TableHead className="px-3 py-2 text-left font-medium">Descricao</TableHead>
+                          <TableHead className="px-3 py-2 text-left font-medium">Utilizador / Familia</TableHead>
+                          <TableHead className="px-3 py-2 text-left font-medium">Tipo</TableHead>
+                          <TableHead className="px-3 py-2 text-left font-medium">Data</TableHead>
+                          <TableHead className="px-3 py-2 text-left font-medium">Centro de custo</TableHead>
+                          <TableHead className="px-3 py-2 text-right font-medium">Valor total</TableHead>
+                          <TableHead className="px-3 py-2 text-right font-medium">Valor pago</TableHead>
+                          <TableHead className="px-3 py-2 text-right font-medium">Valor em aberto</TableHead>
+                          <TableHead className="px-3 py-2 text-left font-medium">Valor a alocar</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
                         {openMovements.map((movement) => {
                           const resolvedCostCenterId = movementCostCenters[movement.id] || movement.default_centro_custo_id || '';
 
                           return (
-                            <tr key={movement.id} className="border-t align-top">
-                              <td className="px-3 py-3">
+                            <TableRow key={movement.id} className="border-t align-top">
+                              <TableCell label="Descricao" className="px-3 py-3">
                                 <div className="font-medium break-words">{movement.descricao}</div>
                                 <div className="text-xs text-muted-foreground">{movement.classificacao}</div>
-                              </td>
-                              <td className="px-3 py-3 text-muted-foreground">
+                              </TableCell>
+                              <TableCell label="Utilizador / Familia" className="px-3 py-3 text-muted-foreground">
                                 {[movement.user_name, movement.family_name].filter(Boolean).join(' · ') || '-'}
-                              </td>
-                              <td className="px-3 py-3 text-muted-foreground">{movement.tipo || '-'}</td>
-                              <td className="px-3 py-3 text-muted-foreground">{formatDateLabel(movement.data_emissao || movement.data_vencimento)}</td>
-                              <td className="px-3 py-3 min-w-[240px]">
+                              </TableCell>
+                              <TableCell label="Tipo" className="px-3 py-3 text-muted-foreground">{movement.tipo || '-'}</TableCell>
+                              <TableCell label="Data" className="px-3 py-3 text-muted-foreground">{formatDateLabel(movement.data_emissao || movement.data_vencimento)}</TableCell>
+                              <TableCell label="Centro de custo" className="px-3 py-3 min-w-0">
                                 {movement.requires_centro_custo ? (
                                   <div className="space-y-1">
                                     <Label className="text-xs">Centro de custo obrigatorio</Label>
@@ -824,13 +825,13 @@ export function BankStatementReconciliationDialog({
                                 ) : (
                                   <span className="text-muted-foreground">{movement.centro_custo_name || '-'}</span>
                                 )}
-                              </td>
-                              <td className="px-3 py-3 text-right font-medium">{formatCurrency(toNumber(movement.valor_total, 0))}</td>
-                              <td className="px-3 py-3 text-right text-muted-foreground">{formatCurrency(toNumber(movement.valor_pago, 0))}</td>
-                              <td className="px-3 py-3 text-right">
+                              </TableCell>
+                              <TableCell label="Valor total" className="px-3 py-3 text-right font-medium">{formatCurrency(toNumber(movement.valor_total, 0))}</TableCell>
+                              <TableCell label="Valor pago" className="px-3 py-3 text-right text-muted-foreground">{formatCurrency(toNumber(movement.valor_pago, 0))}</TableCell>
+                              <TableCell label="Valor em aberto" className="px-3 py-3 text-right">
                                 <Badge variant="outline">{formatCurrency(toNumber(movement.valor_em_aberto, 0))}</Badge>
-                              </td>
-                              <td className="px-3 py-3 min-w-[170px]">
+                              </TableCell>
+                              <TableCell label="Valor a alocar" className="px-3 py-3 min-w-0">
                                 <div className="space-y-1">
                                   <Label className="text-xs">Valor a alocar</Label>
                                   <Input
@@ -842,12 +843,12 @@ export function BankStatementReconciliationDialog({
                                     onChange={(event) => setMovementAllocations((current) => ({ ...current, [movement.id]: event.target.value }))}
                                   />
                                 </div>
-                              </td>
-                            </tr>
+                              </TableCell>
+                            </TableRow>
                           );
                         })}
-                      </tbody>
-                    </table>
+                      </TableBody>
+                    </Table>
                   </div>
                 )}
               </Card>

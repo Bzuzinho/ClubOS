@@ -37,7 +37,7 @@ export default function CategoryScroller({ categories, activeCategoryId, onSelec
                 </button>
             </div>
 
-            <div className="mt-3 flex gap-2 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            <div className="mt-3 flex gap-2 flex-wrap pb-0.5">
                 <button
                     type="button"
                     onClick={() => onSelect('all')}
@@ -50,7 +50,7 @@ export default function CategoryScroller({ categories, activeCategoryId, onSelec
                         key={category.id}
                         type="button"
                         onClick={() => onSelect(category.id)}
-                        className={`shrink-0 whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-semibold transition ${activeCategoryId === category.id ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                        className={`min-w-0 max-w-full whitespace-normal break-words rounded-full px-3 py-1.5 text-xs font-semibold transition ${activeCategoryId === category.id ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
                     >
                         {category.nome}
                     </button>

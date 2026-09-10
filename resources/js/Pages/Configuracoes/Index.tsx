@@ -3,7 +3,7 @@ import { lazy, Suspense, useState, useEffect, FormEventHandler } from 'react';
 import { Head, router, useForm, usePage } from '@inertiajs/react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/Components/ui/card';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/Components/ui/tabs';
+import { Tabs, TabsContent, TabsTrigger } from '@/Components/ui/tabs';
 import { Button } from '@/Components/ui/button';
 import { Input } from '@/Components/ui/input';
 import { Label } from '@/Components/ui/label';
@@ -768,7 +768,7 @@ export default function SettingsIndex({
         { value: 11, label: 'Novembro' },
         { value: 12, label: 'Dezembro' },
     ];
-    const settingsViewportClass = 'flex h-[calc(100dvh-10rem)] min-h-0 w-full flex-col sm:h-[calc(100dvh-11rem)]';
+    const settingsViewportClass = 'flex min-h-0 min-w-0 w-full flex-1 flex-col';
     const rootTabsClass = 'flex h-full min-h-0 flex-col space-y-3';
     const sectionTabsClass = 'flex h-full min-h-0 flex-col space-y-4';
     const scrollableTabContentClass = 'mt-0 min-h-0 flex-1 overflow-auto pr-1';
@@ -1351,13 +1351,13 @@ export default function SettingsIndex({
                     <TabsContent value="geral" className="mt-0 min-h-0 flex-1 overflow-hidden">
                         {currentTab === 'geral' ? (
                         <Tabs value={currentGeneralTab} onValueChange={setCurrentGeneralTab} className={sectionTabsClass}>
-                            <TabsList className="w-full shrink-0 flex flex-wrap h-auto gap-1 justify-start">
+                            <ModuleTabsList label="Secções disponíveis">
                                 <TabsTrigger value="geral-tipos-utilizador">Tipos de Utilizador</TabsTrigger>
                                 <TabsTrigger value="geral-tipos-evento">Tipos de Evento</TabsTrigger>
                                 <TabsTrigger value="geral-permissoes">Permissões</TabsTrigger>
                                 <TabsTrigger value="geral-estados">Estados</TabsTrigger>
                                 <TabsTrigger value="geral-motivos-ausencia">Motivos Ausência</TabsTrigger>
-                            </TabsList>
+                            </ModuleTabsList>
 
 
                         <TabsContent value="geral-tipos-utilizador" className={nestedScrollableTabContentClass}>
@@ -1376,7 +1376,7 @@ export default function SettingsIndex({
                                         Adicionar Tipo
                                     </Button>
                                 </div>
-                                <Table>
+                                <Table responsive>
                                     <TableHeader>
                                         <TableRow>
                                             <TableHead>Nome</TableHead>
@@ -1394,9 +1394,9 @@ export default function SettingsIndex({
                                         ) : (
                                             userTypes.map((type) => (
                                                 <TableRow key={type.id}>
-                                                    <TableCell className="font-medium">{type.nome}</TableCell>
-                                                    <TableCell>{type.descricao || '-'}</TableCell>
-                                                    <TableCell className="text-right">
+                                                    <TableCell label="Nome" className="font-medium">{type.nome}</TableCell>
+                                                    <TableCell label="Descrição">{type.descricao || '-'}</TableCell>
+                                                    <TableCell label="Ações" className="text-right">
                                                         <div className="flex justify-end gap-2">
                                                             <Button
                                                                 variant="ghost"
@@ -1548,7 +1548,7 @@ export default function SettingsIndex({
                                         Adicionar Estado
                                     </Button>
                                 </div>
-                                <Table>
+                                <Table responsive>
                                     <TableHeader>
                                         <TableRow>
                                             <TableHead>Codigo</TableHead>
@@ -1568,9 +1568,9 @@ export default function SettingsIndex({
                                         ) : (
                                             athleteStatuses.map((status) => (
                                                 <TableRow key={status.id}>
-                                                    <TableCell className="font-medium">{status.codigo}</TableCell>
-                                                    <TableCell>{status.nome}</TableCell>
-                                                    <TableCell>
+                                                    <TableCell label="Codigo" className="font-medium">{status.codigo}</TableCell>
+                                                    <TableCell label="Nome">{status.nome}</TableCell>
+                                                    <TableCell label="Cor">
                                                         {status.cor && typeof status.cor === 'string' ? (
                                                             <span className="inline-flex items-center gap-2">
                                                                 <span className="h-3 w-3 rounded-full border" style={{ backgroundColor: status.cor }} />
@@ -1578,8 +1578,8 @@ export default function SettingsIndex({
                                                             </span>
                                                         ) : '-'}
                                                     </TableCell>
-                                                    <TableCell>{status.ativo ? 'Sim' : 'Nao'}</TableCell>
-                                                    <TableCell className="text-right">
+                                                    <TableCell label="Ativo">{status.ativo ? 'Sim' : 'Nao'}</TableCell>
+                                                    <TableCell label="Ações" className="text-right">
                                                         <div className="flex justify-end gap-2">
                                                             <Button
                                                                 variant="ghost"
@@ -1623,7 +1623,7 @@ export default function SettingsIndex({
                                         Adicionar Motivo
                                     </Button>
                                 </div>
-                                <Table>
+                                <Table responsive>
                                     <TableHeader>
                                         <TableRow>
                                             <TableHead>Codigo</TableHead>
@@ -1643,11 +1643,11 @@ export default function SettingsIndex({
                                         ) : (
                                             absenceReasons.map((reason) => (
                                                 <TableRow key={reason.id}>
-                                                    <TableCell className="font-medium">{reason.codigo}</TableCell>
-                                                    <TableCell>{reason.nome}</TableCell>
-                                                    <TableCell>{reason.requer_justificacao ? 'Sim' : 'Nao'}</TableCell>
-                                                    <TableCell>{reason.ativo ? 'Sim' : 'Nao'}</TableCell>
-                                                    <TableCell className="text-right">
+                                                    <TableCell label="Codigo" className="font-medium">{reason.codigo}</TableCell>
+                                                    <TableCell label="Nome">{reason.nome}</TableCell>
+                                                    <TableCell label="Requer Justificação">{reason.requer_justificacao ? 'Sim' : 'Nao'}</TableCell>
+                                                    <TableCell label="Ativo">{reason.ativo ? 'Sim' : 'Nao'}</TableCell>
+                                                    <TableCell label="Ações" className="text-right">
                                                         <div className="flex justify-end gap-2">
                                                             <Button
                                                                 variant="ghost"
@@ -1810,7 +1810,7 @@ export default function SettingsIndex({
                         <TabFallback />
                         ) : (
                         <Tabs value={currentFinanceiroTab} onValueChange={setCurrentFinanceiroTab} className={sectionTabsClass}>
-                            <TabsList className="w-full shrink-0 flex flex-wrap h-auto gap-1 justify-start">
+                            <ModuleTabsList label="Secções disponíveis">
                                 <TabsTrigger value="financeiro-mensalidades">Mensalidades</TabsTrigger>
                                 <TabsTrigger value="financeiro-tipos-fatura">Itens de Fatura</TabsTrigger>
                                 <TabsTrigger value="financeiro-centros-custos">Centros de Custos</TabsTrigger>
@@ -1822,7 +1822,7 @@ export default function SettingsIndex({
                                     <TabsTrigger value="financeiro-importacao-recibos">Importar Recibos</TabsTrigger>
                                 ) : null}
                                 <TabsTrigger value="financeiro-ciclo">Ciclo Financeiro</TabsTrigger>
-                            </TabsList>
+                            </ModuleTabsList>
 
                         <TabsContent value="financeiro-mensalidades" className={nestedScrollableTabContentClass}>
                         {currentFinanceiroTab === 'financeiro-mensalidades' ? (
@@ -1840,7 +1840,7 @@ export default function SettingsIndex({
                                         Adicionar Mensalidade
                                     </Button>
                                 </div>
-                                <Table>
+                                <Table responsive>
                                     <TableHeader>
                                         <TableRow>
                                             <TableHead>Nome</TableHead>
@@ -1861,10 +1861,10 @@ export default function SettingsIndex({
                                                 const ageGroup = ageGroups.find((group) => group.id === fee.age_group_id);
                                                 return (
                                                     <TableRow key={fee.id}>
-                                                        <TableCell className="font-medium">{fee.designacao}</TableCell>
-                                                        <TableCell>{ageGroup?.nome || '-'}</TableCell>
-                                                        <TableCell>€{toNumber(fee.valor).toFixed(2)}</TableCell>
-                                                        <TableCell className="text-right">
+                                                        <TableCell label="Nome" className="font-medium">{fee.designacao}</TableCell>
+                                                        <TableCell label="Escalao">{ageGroup?.nome || '-'}</TableCell>
+                                                        <TableCell label="Valor">€{toNumber(fee.valor).toFixed(2)}</TableCell>
+                                                        <TableCell label="Ações" className="text-right">
                                                             <div className="flex justify-end gap-2">
                                                                 <Button
                                                                     variant="ghost"
@@ -1909,7 +1909,7 @@ export default function SettingsIndex({
                                         Adicionar Tipo
                                     </Button>
                                 </div>
-                                <Table>
+                                <Table responsive>
                                     <TableHeader>
                                         <TableRow>
                                             <TableHead>Nome</TableHead>
@@ -1928,10 +1928,10 @@ export default function SettingsIndex({
                                         ) : (
                                             invoiceTypes.map((type) => (
                                                 <TableRow key={type.id}>
-                                                    <TableCell className="font-medium">{type.nome}</TableCell>
-                                                    <TableCell>{type.codigo}</TableCell>
-                                                    <TableCell>{type.ativo ? 'Sim' : 'Nao'}</TableCell>
-                                                    <TableCell className="text-right">
+                                                    <TableCell label="Nome" className="font-medium">{type.nome}</TableCell>
+                                                    <TableCell label="Codigo">{type.codigo}</TableCell>
+                                                    <TableCell label="Ativo">{type.ativo ? 'Sim' : 'Nao'}</TableCell>
+                                                    <TableCell label="Ações" className="text-right">
                                                         <div className="flex justify-end gap-2">
                                                             <Button
                                                                 variant="ghost"
@@ -1975,7 +1975,7 @@ export default function SettingsIndex({
                                         Adicionar Método
                                     </Button>
                                 </div>
-                                <Table>
+                                <Table responsive>
                                     <TableHeader>
                                         <TableRow>
                                             <TableHead>Ordem</TableHead>
@@ -1996,12 +1996,12 @@ export default function SettingsIndex({
                                         ) : (
                                             paymentMethods.map((method) => (
                                                 <TableRow key={method.id}>
-                                                    <TableCell>{method.ordem}</TableCell>
-                                                    <TableCell className="font-medium">{method.nome}</TableCell>
-                                                    <TableCell>{method.codigo}</TableCell>
-                                                    <TableCell>{method.requer_linha_bancaria ? 'Sim' : 'Não'}</TableCell>
-                                                    <TableCell>{method.ativo ? 'Sim' : 'Não'}</TableCell>
-                                                    <TableCell className="text-right">
+                                                    <TableCell label="Ordem">{method.ordem}</TableCell>
+                                                    <TableCell label="Nome" className="font-medium">{method.nome}</TableCell>
+                                                    <TableCell label="Código">{method.codigo}</TableCell>
+                                                    <TableCell label="Linha Bancária">{method.requer_linha_bancaria ? 'Sim' : 'Não'}</TableCell>
+                                                    <TableCell label="Ativo">{method.ativo ? 'Sim' : 'Não'}</TableCell>
+                                                    <TableCell label="Ações" className="text-right">
                                                         <div className="flex justify-end gap-2">
                                                             <Button
                                                                 variant="ghost"
@@ -2206,7 +2206,7 @@ export default function SettingsIndex({
                                         Adicionar Centro de Custos
                                     </Button>
                                 </div>
-                                <Table>
+                                <Table responsive>
                                     <TableHeader>
                                         <TableRow>
                                             <TableHead>Nome</TableHead>
@@ -2225,10 +2225,10 @@ export default function SettingsIndex({
                                         ) : (
                                             costCenters.map((center) => (
                                                 <TableRow key={center.id}>
-                                                    <TableCell className="font-medium">{center.nome}</TableCell>
-                                                    <TableCell>{center.tipo || '-'}</TableCell>
-                                                    <TableCell>{center.descricao || '-'}</TableCell>
-                                                    <TableCell className="text-right">
+                                                    <TableCell label="Nome" className="font-medium">{center.nome}</TableCell>
+                                                    <TableCell label="Tipo">{center.tipo || '-'}</TableCell>
+                                                    <TableCell label="Descricao">{center.descricao || '-'}</TableCell>
+                                                    <TableCell label="Ações" className="text-right">
                                                         <div className="flex justify-end gap-2">
                                                             <Button
                                                                 variant="ghost"
@@ -2267,12 +2267,12 @@ export default function SettingsIndex({
                         <TabFallback />
                         ) : (
                         <Tabs value={currentLogisticaTab} onValueChange={setCurrentLogisticaTab} className={sectionTabsClass}>
-                            <TabsList className="w-full shrink-0 flex flex-wrap h-auto gap-1 justify-start">
+                            <ModuleTabsList label="Secções disponíveis">
                                 <TabsTrigger value="logistica-artigos">Artigos</TabsTrigger>
                                 <TabsTrigger value="logistica-categorias">Categorias de Itens</TabsTrigger>
                                 <TabsTrigger value="logistica-patrocinadores">Patrocinadores</TabsTrigger>
                                 <TabsTrigger value="logistica-fornecedores">Fornecedores</TabsTrigger>
-                            </TabsList>
+                            </ModuleTabsList>
 
                         <TabsContent value="logistica-artigos" className={nestedScrollableTabContentClass}>
                         {currentLogisticaTab === 'logistica-artigos' ? (
@@ -2290,7 +2290,7 @@ export default function SettingsIndex({
                                         Adicionar Artigo
                                     </Button>
                                 </div>
-                                <Table>
+                                <Table responsive>
                                     <TableHeader>
                                         <TableRow>
                                             <TableHead>Codigo</TableHead>
@@ -2318,41 +2318,41 @@ export default function SettingsIndex({
                                         ) : (
                                             products.map((product) => (
                                                 <TableRow key={product.id}>
-                                                    <TableCell className="font-medium">{product.codigo}</TableCell>
-                                                    <TableCell>
+                                                    <TableCell label="Codigo" className="font-medium">{product.codigo}</TableCell>
+                                                    <TableCell label="Imagem">
                                                         {product.imagem ? (
                                                             <img src={product.imagem} alt={product.nome} className="h-10 w-10 object-cover rounded" />
                                                         ) : (
                                                             <span className="text-muted-foreground text-xs">—</span>
                                                         )}
                                                     </TableCell>
-                                                    <TableCell>{product.nome}</TableCell>
-                                                    <TableCell>{product.category?.nome || product.categoria || '-'}</TableCell>
-                                                    <TableCell>€{Number(product.preco).toFixed(2)}</TableCell>
-                                                    <TableCell>{product.stock_minimo ?? 0}</TableCell>
-                                                    <TableCell>{product.area_armazenamento || '-'}</TableCell>
-                                                    <TableCell>{product.supplier?.nome || '-'}</TableCell>
-                                                    <TableCell>
+                                                    <TableCell label="Nome">{product.nome}</TableCell>
+                                                    <TableCell label="Categoria">{product.category?.nome || product.categoria || '-'}</TableCell>
+                                                    <TableCell label="Preço base">€{Number(product.preco).toFixed(2)}</TableCell>
+                                                    <TableCell label="Stock Mínimo">{product.stock_minimo ?? 0}</TableCell>
+                                                    <TableCell label="Área de armazenamento">{product.area_armazenamento || '-'}</TableCell>
+                                                    <TableCell label="Fornecedor">{product.supplier?.nome || '-'}</TableCell>
+                                                    <TableCell label="Requisição">
                                                         <Badge variant={product.allow_request ? 'secondary' : 'outline'}>
                                                             {product.allow_request ? 'Sim' : 'Não'}
                                                         </Badge>
                                                     </TableCell>
-                                                    <TableCell>
+                                                    <TableCell label="Empréstimo">
                                                         <Badge variant={product.allow_loan ? 'secondary' : 'outline'}>
                                                             {product.allow_loan ? 'Sim' : 'Não'}
                                                         </Badge>
                                                     </TableCell>
-                                                    <TableCell>
+                                                    <TableCell label="Gere Stock">
                                                         <Badge variant={product.track_stock ? 'secondary' : 'outline'}>
                                                             {product.track_stock ? 'Sim' : 'Não'}
                                                         </Badge>
                                                     </TableCell>
-                                                    <TableCell>
+                                                    <TableCell label="Ativo">
                                                         <Badge variant={product.ativo ? 'secondary' : 'outline'}>
                                                             {product.ativo ? 'Sim' : 'Não'}
                                                         </Badge>
                                                     </TableCell>
-                                                    <TableCell className="text-right">
+                                                    <TableCell label="Ações" className="text-right">
                                                         <div className="flex justify-end gap-2">
                                                             <Button
                                                                 variant="ghost"
@@ -2396,7 +2396,7 @@ export default function SettingsIndex({
                                         Adicionar Categoria
                                     </Button>
                                 </div>
-                                <Table>
+                                <Table responsive>
                                     <TableHeader>
                                         <TableRow>
                                             <TableHead>Codigo</TableHead>
@@ -2415,14 +2415,14 @@ export default function SettingsIndex({
                                         ) : (
                                             itemCategories.map((category) => (
                                                 <TableRow key={category.id}>
-                                                    <TableCell className="font-medium">{category.codigo}</TableCell>
-                                                    <TableCell>{category.nome}</TableCell>
-                                                    <TableCell>
+                                                    <TableCell label="Codigo" className="font-medium">{category.codigo}</TableCell>
+                                                    <TableCell label="Nome">{category.nome}</TableCell>
+                                                    <TableCell label="Ativo">
                                                         <Badge variant={category.ativo ? 'secondary' : 'outline'}>
                                                             {category.ativo ? 'Sim' : 'Não'}
                                                         </Badge>
                                                     </TableCell>
-                                                    <TableCell className="text-right">
+                                                    <TableCell label="Ações" className="text-right">
                                                         <div className="flex justify-end gap-2">
                                                             <Button
                                                                 variant="ghost"
@@ -2466,7 +2466,7 @@ export default function SettingsIndex({
                                         Adicionar Patrocinador
                                     </Button>
                                 </div>
-                                <Table>
+                                <Table responsive>
                                     <TableHeader>
                                         <TableRow>
                                             <TableHead>Logo</TableHead>
@@ -2491,34 +2491,34 @@ export default function SettingsIndex({
                                         ) : (
                                             sponsors.map((sponsor) => (
                                                 <TableRow key={sponsor.id}>
-                                                    <TableCell>
+                                                    <TableCell label="Logo">
                                                         {sponsor.logo ? (
                                                             <img src={sponsor.logo} alt={sponsor.nome} className="h-10 w-10 rounded object-cover" />
                                                         ) : (
                                                             <span className="text-muted-foreground text-xs">—</span>
                                                         )}
                                                     </TableCell>
-                                                    <TableCell>
+                                                    <TableCell label="Nome">
                                                         <div className="font-medium">{sponsor.nome}</div>
                                                         <div className="text-xs text-muted-foreground line-clamp-1">{sponsor.descricao || 'Sem descrição'}</div>
                                                     </TableCell>
-                                                    <TableCell className="capitalize">{sponsor.tipo}</TableCell>
-                                                    <TableCell>{sponsor.contacto || '-'}</TableCell>
-                                                    <TableCell>{sponsor.email || '-'}</TableCell>
-                                                    <TableCell>
+                                                    <TableCell label="Tipo" className="capitalize">{sponsor.tipo}</TableCell>
+                                                    <TableCell label="Contacto">{sponsor.contacto || '-'}</TableCell>
+                                                    <TableCell label="Email">{sponsor.email || '-'}</TableCell>
+                                                    <TableCell label="Website">
                                                         {sponsor.website ? (
                                                             <a href={sponsor.website} target="_blank" rel="noreferrer" className="text-primary hover:underline">
                                                                 {sponsor.website}
                                                             </a>
                                                         ) : '-'}
                                                     </TableCell>
-                                                    <TableCell>{sponsor.valor_anual ? `€${Number(sponsor.valor_anual).toFixed(2)}` : '-'}</TableCell>
-                                                    <TableCell>
+                                                    <TableCell label="Valor anual">{sponsor.valor_anual ? `€${Number(sponsor.valor_anual).toFixed(2)}` : '-'}</TableCell>
+                                                    <TableCell label="Período">
                                                         <div>{sponsor.data_inicio}</div>
                                                         <div className="text-xs text-muted-foreground">até {sponsor.data_fim || 'sem fim'}</div>
                                                     </TableCell>
-                                                    <TableCell className="capitalize">{sponsor.estado}</TableCell>
-                                                    <TableCell className="text-right">
+                                                    <TableCell label="Estado" className="capitalize">{sponsor.estado}</TableCell>
+                                                    <TableCell label="Ações" className="text-right">
                                                         <div className="flex justify-end gap-2">
                                                             <Button
                                                                 variant="ghost"
@@ -2562,7 +2562,7 @@ export default function SettingsIndex({
                                         Adicionar Fornecedor
                                     </Button>
                                 </div>
-                                <Table>
+                                <Table responsive>
                                     <TableHeader>
                                         <TableRow>
                                             <TableHead>Nome</TableHead>
@@ -2583,12 +2583,12 @@ export default function SettingsIndex({
                                         ) : (
                                             suppliers.map((supplier) => (
                                                 <TableRow key={supplier.id}>
-                                                    <TableCell className="font-medium">{supplier.nome}</TableCell>
-                                                    <TableCell>{supplier.nif || '-'}</TableCell>
-                                                    <TableCell>{supplier.email || '-'}</TableCell>
-                                                    <TableCell>{supplier.telefone || '-'}</TableCell>
-                                                    <TableCell>{supplier.categoria || '-'}</TableCell>
-                                                    <TableCell className="text-right">
+                                                    <TableCell label="Nome" className="font-medium">{supplier.nome}</TableCell>
+                                                    <TableCell label="NIF">{supplier.nif || '-'}</TableCell>
+                                                    <TableCell label="Email">{supplier.email || '-'}</TableCell>
+                                                    <TableCell label="Telefone">{supplier.telefone || '-'}</TableCell>
+                                                    <TableCell label="Categoria">{supplier.categoria || '-'}</TableCell>
+                                                    <TableCell label="Ações" className="text-right">
                                                         <div className="flex justify-end gap-2">
                                                             <Button
                                                                 variant="ghost"
@@ -2627,12 +2627,12 @@ export default function SettingsIndex({
                         <TabFallback />
                         ) : (
                         <Tabs value={currentNotificacoesTab} onValueChange={setCurrentNotificacoesTab} className={sectionTabsClass}>
-                            <TabsList className="w-full shrink-0 flex flex-wrap h-auto gap-1 justify-start">
+                            <ModuleTabsList label="Secções disponíveis">
                                 <TabsTrigger value="automacoes">Automações</TabsTrigger>
                                 <TabsTrigger value="fontes-dinamicas">Fontes Dinâmicas</TabsTrigger>
                                 <TabsTrigger value="categorias-alerta">Categoria do Alerta</TabsTrigger>
                                 <TabsTrigger value="redes">Redes sociais</TabsTrigger>
-                            </TabsList>
+                            </ModuleTabsList>
 
                             <TabsContent value="automacoes" className={nestedScrollableTabContentClass}>
                                 {currentNotificacoesTab === 'automacoes' ? (
@@ -2696,7 +2696,7 @@ export default function SettingsIndex({
                                         </Button>
                                     </CardHeader>
                                     <CardContent>
-                                        <Table>
+                                        <Table responsive>
                                             <TableHeader>
                                                 <TableRow>
                                                     <TableHead>Nome</TableHead>
@@ -2717,18 +2717,18 @@ export default function SettingsIndex({
                                                 ) : (
                                                     communicationDynamicSources.map((source) => (
                                                         <TableRow key={source.id}>
-                                                            <TableCell className="font-medium">{source.name}</TableCell>
-                                                            <TableCell>{dynamicSourceStrategyLabel(source.strategy)}</TableCell>
-                                                            <TableCell>{source.sort_order}</TableCell>
-                                                            <TableCell>
+                                                            <TableCell label="Nome" className="font-medium">{source.name}</TableCell>
+                                                            <TableCell label="Estratégia">{dynamicSourceStrategyLabel(source.strategy)}</TableCell>
+                                                            <TableCell label="Ordem">{source.sort_order}</TableCell>
+                                                            <TableCell label="Estado">
                                                                 <Badge variant={source.is_active ? 'secondary' : 'destructive'}>
                                                                     {source.is_active ? 'Ativa' : 'Inativa'}
                                                                 </Badge>
                                                             </TableCell>
-                                                            <TableCell className="max-w-[320px] text-xs text-muted-foreground">
+                                                            <TableCell label="Descrição" className="max-w-[320px] text-xs text-muted-foreground">
                                                                 {source.description || '-'}
                                                             </TableCell>
-                                                            <TableCell className="text-right">
+                                                            <TableCell label="Ações" className="text-right">
                                                                 <div className="flex justify-end gap-2">
                                                                     <Button variant="ghost" size="sm" onClick={() => openEditDynamicSource(source)}>
                                                                         <PencilSimple size={16} />
@@ -2764,7 +2764,7 @@ export default function SettingsIndex({
                                         </Button>
                                     </CardHeader>
                                     <CardContent>
-                                        <Table>
+                                        <Table responsive>
                                             <TableHeader>
                                                 <TableRow>
                                                     <TableHead>Nome</TableHead>
@@ -2786,25 +2786,25 @@ export default function SettingsIndex({
                                                 ) : (
                                                     communicationAlertCategories.map((category) => (
                                                         <TableRow key={category.id}>
-                                                            <TableCell className="font-medium">{category.name}</TableCell>
-                                                            <TableCell>{category.code}</TableCell>
-                                                            <TableCell>
+                                                            <TableCell label="Nome" className="font-medium">{category.name}</TableCell>
+                                                            <TableCell label="Código">{category.code}</TableCell>
+                                                            <TableCell label="Canais">
                                                                 <div className="flex flex-wrap gap-1">
                                                                     {category.channels.map((channel) => (
                                                                         <Badge key={channel} variant="outline">{alertCategoryChannelLabel(channel)}</Badge>
                                                                     ))}
                                                                 </div>
                                                             </TableCell>
-                                                            <TableCell>{category.sort_order}</TableCell>
-                                                            <TableCell>
+                                                            <TableCell label="Ordem">{category.sort_order}</TableCell>
+                                                            <TableCell label="Estado">
                                                                 <Badge variant={category.is_active ? 'secondary' : 'destructive'}>
                                                                     {category.is_active ? 'Ativa' : 'Inativa'}
                                                                 </Badge>
                                                             </TableCell>
-                                                            <TableCell className="max-w-[280px] text-xs text-muted-foreground">
+                                                            <TableCell label="Descrição" className="max-w-[280px] text-xs text-muted-foreground">
                                                                 {category.description || '-'}
                                                             </TableCell>
-                                                            <TableCell className="text-right">
+                                                            <TableCell label="Ações" className="text-right">
                                                                 <div className="flex justify-end gap-2">
                                                                     <Button variant="ghost" size="sm" onClick={() => openEditAlertCategory(category)}>
                                                                         <PencilSimple size={16} />
@@ -2860,7 +2860,7 @@ export default function SettingsIndex({
                                         </Label>
                                     </div>
 
-                                    <Table>
+                                    <Table responsive>
                                         <TableHeader>
                                             <TableRow>
                                                 <TableHead>Nº Sócio</TableHead>
@@ -2880,11 +2880,11 @@ export default function SettingsIndex({
                                             ) : (
                                                 users.map((user) => (
                                                     <TableRow key={user.id}>
-                                                        <TableCell className="font-medium">{user.numero_socio || '-'}</TableCell>
-                                                        <TableCell>{user.nome_completo || '-'}</TableCell>
-                                                        <TableCell>{user.email_utilizador || '-'}</TableCell>
-                                                        <TableCell>{user.perfil || '-'}</TableCell>
-                                                        <TableCell>{user.estado || '-'}</TableCell>
+                                                        <TableCell label="Nº Sócio" className="font-medium">{user.numero_socio || '-'}</TableCell>
+                                                        <TableCell label="Nome">{user.nome_completo || '-'}</TableCell>
+                                                        <TableCell label="Email">{user.email_utilizador || '-'}</TableCell>
+                                                        <TableCell label="Perfil">{user.perfil || '-'}</TableCell>
+                                                        <TableCell label="Estado">{user.estado || '-'}</TableCell>
                                                     </TableRow>
                                                 ))
                                             )}

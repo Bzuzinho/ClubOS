@@ -1496,8 +1496,8 @@ export function EventosList({
         </div>
       ) : (
         <Card className="p-0 overflow-hidden">
-          <div className="w-full overflow-x-auto">
-            <Table>
+          <div className="w-full min-w-0">
+            <Table responsive>
               <TableHeader>
                 <TableRow>
                   {canDelete ? <TableHead className="w-12">
@@ -1506,38 +1506,38 @@ export function EventosList({
                       onCheckedChange={toggleSelectAll}
                     />
                   </TableHead> : null}
-                  <TableHead className="flex-1 min-w-[180px]">Título</TableHead>
-                  <TableHead className="hidden md:table-cell min-w-[120px]">Data</TableHead>
-                  <TableHead className="hidden lg:table-cell min-w-[130px]">Local</TableHead>
-                  <TableHead className="hidden sm:table-cell w-24">Tipo</TableHead>
-                  <TableHead className="hidden md:table-cell w-20 text-center">Estado</TableHead>
+                  <TableHead className="flex-1 min-w-0">Título</TableHead>
+                  <TableHead className="min-w-0">Data</TableHead>
+                  <TableHead className="min-w-0">Local</TableHead>
+                  <TableHead className="w-24">Tipo</TableHead>
+                  <TableHead className="w-20 text-center">Estado</TableHead>
                   {canEdit || canDelete ? <TableHead className="w-16 text-right">Ações</TableHead> : null}
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filteredEvents.map((event) => (
                   <TableRow key={event.id} className={selectedEvents.has(event.id) ? 'bg-primary/5' : ''}>
-                    {canDelete ? <TableCell>
+                    {canDelete ? <TableCell label="Selecionar">
                       <Checkbox
                         checked={selectedEvents.has(event.id)}
                         onCheckedChange={() => toggleEventSelection(event.id)}
                       />
                     </TableCell> : null}
-                    <TableCell className="font-medium text-xs max-w-[180px] truncate">{event.titulo}</TableCell>
-                    <TableCell className="hidden md:table-cell text-xs">{format(new Date(event.data_inicio), 'dd/MM/yyyy', { locale: ptBR })}</TableCell>
-                    <TableCell className="hidden lg:table-cell text-xs max-w-[130px] truncate">{event.local || '-'}</TableCell>
-                    <TableCell className="hidden sm:table-cell text-xs">
+                    <TableCell label="Título" className="font-medium text-xs min-w-0 break-words">{event.titulo}</TableCell>
+                    <TableCell label="Data" className="text-xs">{format(new Date(event.data_inicio), 'dd/MM/yyyy', { locale: ptBR })}</TableCell>
+                    <TableCell label="Local" className="text-xs min-w-0 break-words">{event.local || '-'}</TableCell>
+                    <TableCell label="Tipo" className="text-xs">
                       <Badge variant="outline" className="text-[10px]">
                         {getEventTypeLabel(event.tipo)}
                       </Badge>
                     </TableCell>
-                    <TableCell className="hidden md:table-cell text-xs text-center">
+                    <TableCell label="Estado" className="text-xs text-center">
                       <Badge variant={event.estado === 'concluido' ? 'default' : event.estado === 'cancelado' ? 'destructive' : 'outline'} className="text-[10px]">
                         {getEventStatusLabel(event.estado)}
                       </Badge>
                     </TableCell>
-                    {canEdit || canDelete ? <TableCell className="text-right">
-                      <div className="flex items-center justify-end gap-1">
+                    {canEdit || canDelete ? <TableCell label="Ações" className="text-right">
+                      <div className="flex flex-wrap items-center justify-end gap-1">
                         {canEdit ? <Button
                           variant="ghost"
                           size="sm"

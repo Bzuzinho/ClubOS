@@ -214,4 +214,47 @@ test.describe('authenticated access', () => {
 
         expect(blockingViolations).toEqual([]);
     });
+
+    const P1_WORKSPACES = [
+        '/membros', '/financeiro', '/eventos', '/comunicacao', '/logistica',
+        '/patrocinios', '/configuracoes', '/admin/loja', '/admin/loja/produtos',
+        '/admin/loja/encomendas', '/desportivo', '/desportivo/estrutura',
+        '/desportivo/planeamento', '/desportivo/treinos',
+    ];
+
+    for (const path of P1_WORKSPACES) {
+        test(`P1: navigation and active content fit ${path}`, async ({ page }, testInfo) => {
+            await login(page, testInfo, path);
+            await expect(page.locator('main')).toBeVisible();
+            await expect(page.locator('#nprogress')).toHaveCount(0);
+            await expectNoHorizontalOverflow(page);
+
+            const firstTabList = page.locator('main').getByRole('tablist').first();
+            if (await firstTabList.count()) {
+                const values = await firstTabList.getByRole('tab').evaluateAll((tabs) =>
+                    tabs.map((tab) => tab.textContent?.trim() ?? ''),
+                );
+                for (const name of values) {
+                    const tab = firstTabList.getByRole('tab', { name, exact: true });
+                    if (await tab.isDisabled()) continue;
+                    await tab.click();
+                    await expect(tab).toHaveAttribute('aria-selected', 'true');
+                    await expect(page.locator('#nprogress')).toHaveCount(0);
+                    await expectNoHorizontalOverflow(page);
+                    const panelId = await tab.getAttribute('aria-controls');
+                    if (panelId) {
+                        const panel = page.locator(`[id="${panelId}"]`);
+                        if (await panel.count()) await expect(panel).toBeVisible();
+                    }
+                }
+            }
+            const overflowing = await page.locator('main [data-slot="table-container"], main [role="tablist"]').evaluateAll((elements) =>
+                elements.filter((element) => element.getClientRects().length > 0 && element.scrollWidth > element.clientWidth + 1)
+                    .map((element) => ({ slot: element.getAttribute('data-slot'), width: element.clientWidth, scroll: element.scrollWidth })),
+            );
+            expect(overflowing).toEqual([]);
+            await expect(page.locator('main')).not.toContainText('Server Error');
+        });
+    }
+
 });

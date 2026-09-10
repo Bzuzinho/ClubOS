@@ -1,3 +1,4 @@
+import { ModuleTabsList } from '@/Components/layout/ModuleTabsList';
 import { useMemo, useState } from 'react';
 import { Head, router } from '@inertiajs/react';
 import { CalendarBlank, GearSix, PencilSimple, Plus, Trash } from '@phosphor-icons/react';
@@ -8,7 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/Components/ui/card';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/Components/ui/dialog';
 import { Input } from '@/Components/ui/input';
 import { Label } from '@/Components/ui/label';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/Components/ui/tabs';
+import { Tabs, TabsContent, TabsTrigger } from '@/Components/ui/tabs';
 
 type Id = string;
 interface Person { id: Id; name: string }
@@ -282,12 +283,12 @@ export default function PlanningWorkspace(props: Props) {
         </div>
 
         <Tabs value={tab} onValueChange={setTab}>
-          <TabsList className="grid w-full grid-cols-2 lg:grid-cols-4">
+          <ModuleTabsList label="Secções disponíveis">
             <TabsTrigger value="periodizacao">Periodização</TabsTrigger>
             <TabsTrigger value="sessoes">Sessões</TabsTrigger>
             <TabsTrigger value="recorrencias">Recorrências</TabsTrigger>
             <TabsTrigger value="objetivos">Objetivos</TabsTrigger>
-          </TabsList>
+          </ModuleTabsList>
 
           <TabsContent value="periodizacao" className="space-y-3">
             <div className="flex justify-end"><Button onClick={() => open('macro')} disabled={planningLocked}><Plus size={15} className="mr-1" />Macrociclo</Button></div>
@@ -551,26 +552,33 @@ function Timeline({ season, macros, competitions }: { season: Season; macros: Ma
   const end = new Date(`${dateOnly(season.data_fim)}T00:00:00`).getTime();
   const span = Math.max(1, end - start);
   const percent = (date: string) => Math.max(0, Math.min(100, ((new Date(`${dateOnly(date)}T00:00:00`).getTime() - start) / span) * 100));
-  const bar = (from: string, to: string) => ({ left: `${percent(from)}%`, width: `${Math.max(0.6, percent(to) - percent(from))}%` });
+  const bar = (from: string, to: string) => {
+    const left = Math.min(99.4, percent(from));
+    return { left: `${left}%`, width: `${Math.min(100 - left, Math.max(0.6, percent(to) - left))}%` };
+  };
 
   return (
     <Card>
-      <CardContent className="overflow-x-auto p-3">
-        <div className="min-w-[900px] space-y-2">
+      <CardContent className="min-w-0 p-3">
+        <div className="min-w-0 space-y-2">
           <div className="relative h-9 border-b">
             <span className="text-xs font-medium">{dateOnly(season.data_inicio)}</span>
             <span className="absolute right-0 text-xs font-medium">{dateOnly(season.data_fim)}</span>
-            {competitions.map((competition) => <div key={competition.id} className="absolute bottom-0 h-5 border-l-2 border-destructive" style={{ left: `${percent(competition.data_inicio)}%` }} title={`${competition.nome} · ${dateOnly(competition.data_inicio)}`} />)}
+            {competitions.map((competition) => <div key={competition.id} className="absolute bottom-0 h-5 border-l-2 border-destructive" style={{ left: `${Math.min(99.5, percent(competition.data_inicio))}%` }} title={`${competition.nome} · ${dateOnly(competition.data_inicio)}`} />)}
           </div>
           {macros.map((macro) => (
             <div key={macro.id} className="space-y-1">
+              <p className="break-words text-xs font-medium">{macro.nome} · {dateOnly(macro.data_inicio)} — {dateOnly(macro.data_fim)}</p>
               <div className="relative h-7 rounded bg-muted"><div className="absolute h-7 overflow-hidden rounded bg-foreground/80 px-2 text-xs leading-7 text-background" style={bar(macro.data_inicio, macro.data_fim)}>{macro.nome}</div></div>
               {(macro.mesocycles ?? []).map((meso) => (
-                <div key={meso.id} className="relative ml-4 h-6 rounded bg-muted/70">
+                <div key={meso.id} className="ml-4 space-y-1">
+                  <p className="break-words text-xs">{meso.nome} · {dateOnly(meso.data_inicio)} — {dateOnly(meso.data_fim)}</p>
+                  <div className="relative h-6 rounded bg-muted/70">
                   <div className="absolute h-6 overflow-hidden rounded border bg-background px-2 text-[11px] leading-6" style={bar(meso.data_inicio, meso.data_fim)}>{meso.nome}</div>
                   {(meso.microcycles ?? []).filter((micro) => micro.data_inicio && micro.data_fim).map((micro) => (
                     <div key={micro.id} className={`absolute bottom-0 h-1.5 ${micro.is_recovery_week ? 'border border-dashed border-foreground' : 'bg-foreground/40'}`} style={bar(micro.data_inicio!, micro.data_fim!)} title={`${micro.semana}${micro.is_recovery_week ? ' · descarga' : ''}`} />
                   ))}
+                  </div>
                 </div>
               ))}
             </div>

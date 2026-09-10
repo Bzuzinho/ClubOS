@@ -1,4 +1,4 @@
-export const moduleViewportClass = 'flex h-[calc(100dvh-10rem)] min-h-0 w-full flex-col sm:h-[calc(100dvh-11rem)]';
+export const moduleViewportClass = 'flex min-h-0 min-w-0 w-full flex-1 flex-col';
 
 export const moduleTabsClass = 'flex h-full min-h-0 flex-col space-y-3';
 
