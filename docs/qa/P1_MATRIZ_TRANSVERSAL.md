@@ -42,3 +42,5 @@ As redundâncias de propriedade funcional pertencem a P2. O histórico consolida
 ## Continuação: percursos preenchidos
 
 O seeder exclusivo do ambiente testing passa a incluir uma fatura e uma linha bancária por perfil de browser. O percurso abre a conciliação manual, confirma as nove células da fatura, preenche uma alocação parcial e cancela sem gravar pagamentos. A matriz passa também a verificar tabelas e separadores em cada tab visitada, em vez de apenas na última. Validação CI deste incremento pendente. Isto não substitui QA com dados operacionais reais nem fecha os percursos desportivos e Website.
+
+CI 34492565080: conciliação preenchida passou nos cinco perfis; 153 testes passaram e dois detetaram overflow nas tabelas intermédias de Estrutura Desportiva em Chrome/Safari móvel. As dez tabelas de Estrutura passam ao componente adaptável com identificação de todos os campos e ações; nova CI obrigatória.
