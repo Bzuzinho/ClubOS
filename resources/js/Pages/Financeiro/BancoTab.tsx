@@ -1850,8 +1850,8 @@ export function BancoTab({
 
   return (
     <div className="space-y-6">
-      <Card className="flex flex-col gap-3 p-3 md:flex-row md:items-center md:justify-between">
-        <div className="flex w-full flex-col gap-2 md:w-auto md:flex-row md:items-center">
+      <Card className="flex flex-col gap-3 p-3 md:flex-row md:flex-wrap md:items-center md:justify-between">
+        <div className="flex w-full flex-col gap-2 md:w-auto md:flex-row md:flex-wrap md:items-center">
           <Input
             value={extratoSearchTerm}
             onChange={(event) => setExtratoSearchTerm(event.target.value)}
@@ -1972,14 +1972,14 @@ export function BancoTab({
                       </Select>
                     </div>
                     <Card className="p-4 overflow-auto max-h-[240px]">
-                      <Table>
+                      <Table responsive>
                         <TableBody>
                           {importPreview.map((row: any[], idx) => (
                             <TableRow key={idx}>
-                              <TableCell className="text-xs text-muted-foreground w-16">{idx + 1}</TableCell>
+                              <TableCell label="Linha" className="text-xs text-muted-foreground w-16">{idx + 1}</TableCell>
                               {Array.isArray(row) &&
                                 row.map((cell, cellIdx) => (
-                                  <TableCell key={cellIdx} className="text-xs">
+                                  <TableCell label={`Coluna ${cellIdx + 1}`} key={cellIdx} className="text-xs">
                                     {cell?.toString() || '-'}
                                   </TableCell>
                                 ))}
@@ -2369,7 +2369,7 @@ export function BancoTab({
         </div>
 
         <div className="hidden max-h-[400px] overflow-auto md:block">
-            <table className="w-full caption-bottom text-sm">
+            <Table responsive>
               <TableHeader>
                 <TableRow>
                   <TableHead className="sticky top-0 bg-card z-20 text-xs md:text-sm whitespace-nowrap">Data</TableHead>
@@ -2405,32 +2405,32 @@ export function BancoTab({
 
                       return (
                       <TableRow key={extrato.id}>
-                        <TableCell className="text-xs md:text-sm whitespace-nowrap">
+                        <TableCell label="Data" className="text-xs md:text-sm whitespace-nowrap">
                           {format(new Date(extrato.data_movimento), 'dd/MM/yyyy')}
                         </TableCell>
-                        <TableCell className="text-xs md:text-sm max-w-[120px] md:max-w-xs truncate">{extrato.descricao}</TableCell>
-                        <TableCell className={`text-xs md:text-sm font-semibold whitespace-nowrap ${toNumber(extrato.valor) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                        <TableCell label="Descricao" className="text-xs md:text-sm md:max-w-xs break-words">{extrato.descricao}</TableCell>
+                        <TableCell label="Valor" className={`text-xs md:text-sm font-semibold whitespace-nowrap ${toNumber(extrato.valor) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                           {toNumber(extrato.valor) >= 0 ? '+' : ''}€{toNumber(extrato.valor).toFixed(2)}
                         </TableCell>
-                        <TableCell className="text-xs md:text-sm whitespace-nowrap">
+                        <TableCell label="Saldo" className="text-xs md:text-sm whitespace-nowrap">
                           €{toNumber(extrato.saldo).toFixed(2)}
                         </TableCell>
-                        <TableCell className="text-xs md:text-sm whitespace-nowrap">
+                        <TableCell label="Conciliado" className="text-xs md:text-sm whitespace-nowrap">
                           €{reconciledAmount.toFixed(2)}
                         </TableCell>
-                        <TableCell className="text-xs md:text-sm whitespace-nowrap">
+                        <TableCell label="Por Conciliar" className="text-xs md:text-sm whitespace-nowrap">
                           €{remainingAmount.toFixed(2)}
                         </TableCell>
-                        <TableCell className="text-xs md:text-sm max-w-[100px] md:max-w-none truncate">
+                        <TableCell label="Centro Custo" className="text-xs md:text-sm md:max-w-none break-words">
                           {getCentroCustoName(extrato.centro_custo_id)}
                         </TableCell>
-                        <TableCell>
+                        <TableCell label="Estado">
                           <div className="flex flex-col gap-1">
                             {getReconciliationBadge(extrato)}
                             {movementDocumentalState ? <MovementDocumentStatusBadge status={movementDocumentalState} className="text-[10px] md:text-xs whitespace-nowrap" /> : null}
                           </div>
                         </TableCell>
-                        <TableCell className="text-right">
+                        <TableCell label="Acoes" className="text-right">
                           <div className="flex flex-wrap gap-1 md:gap-2 justify-end whitespace-nowrap">
                             {associatedMovementId ? (
                               <Button
@@ -2526,7 +2526,7 @@ export function BancoTab({
                   ))
                 )}
               </TableBody>
-            </table>
+            </Table>
         </div>
       </Card>
 
@@ -2727,7 +2727,7 @@ export function BancoTab({
             <div className="space-y-2">
               <Label>Faturas a Conciliar</Label>
               <Card className="p-2 max-h-[220px] overflow-y-auto">
-                <Table>
+                <Table responsive>
                   <TableBody>
                     {(faturas || [])
                       .filter((f) => f.estado_pagamento !== 'cancelado')
@@ -2738,7 +2738,7 @@ export function BancoTab({
                         const defaultValor = Math.min(valorBase, restanteConciliacao > 0 ? restanteConciliacao : valorBase);
                         return (
                           <TableRow key={fatura.id}>
-                            <TableCell className="w-10">
+                            <TableCell label="Selecionar" className="w-10">
                               <Checkbox
                                 checked={checked}
                                 onCheckedChange={() => {
@@ -2751,10 +2751,10 @@ export function BancoTab({
                                 }}
                               />
                             </TableCell>
-                            <TableCell className="text-xs">
+                            <TableCell label="Registo" className="text-xs">
                               {user?.nome_completo || 'Utilizador'} - €{valorBase.toFixed(2)} ({format(new Date(fatura.data_emissao), 'dd/MM/yyyy')})
                             </TableCell>
-                            <TableCell className="w-28">
+                            <TableCell label="Valor a alocar" className="w-28">
                               {checked ? (
                                 <Input
                                   type="number"
@@ -2776,7 +2776,7 @@ export function BancoTab({
             <div className="space-y-2">
               <Label>Movimentos a Conciliar</Label>
               <Card className="p-2 max-h-[220px] overflow-y-auto">
-                <Table>
+                <Table responsive>
                   <TableBody>
                     {(movimentos || [])
                       .filter((m) => m.estado_pagamento !== 'cancelado')
@@ -2789,16 +2789,16 @@ export function BancoTab({
                         const defaultValor = Math.min(valorBase, restanteConciliacao > 0 ? restanteConciliacao : valorBase);
                         return (
                           <TableRow key={movimento.id}>
-                            <TableCell className="w-10">
+                            <TableCell label="Selecionar" className="w-10">
                               <Checkbox
                                 checked={checked}
                                 onCheckedChange={() => toggleConciliacaoItem('movimento', movimento.id, defaultValor)}
                               />
                             </TableCell>
-                            <TableCell className="text-xs">
+                            <TableCell label="Registo" className="text-xs">
                               {nomeDisplay || 'Cliente'} - {movimento.tipo} - €{valorBase.toFixed(2)}
                             </TableCell>
-                            <TableCell className="w-28">
+                            <TableCell label="Valor a alocar" className="w-28">
                               {checked ? (
                                 <Input
                                   type="number"
@@ -2820,7 +2820,7 @@ export function BancoTab({
             <div className="space-y-2">
               <Label>Entradas Financeiras a Conciliar</Label>
               <Card className="p-2 max-h-[220px] overflow-y-auto">
-                <Table>
+                <Table responsive>
                   <TableBody>
                     {(lancamentos || [])
                       .filter((lancamento) => !lancamento.fatura_id)
@@ -2843,7 +2843,7 @@ export function BancoTab({
 
                         return (
                           <TableRow key={lancamento.id}>
-                            <TableCell className="w-10">
+                            <TableCell label="Selecionar" className="w-10">
                               <Checkbox
                                 checked={checked}
                                 onCheckedChange={() => {
@@ -2857,10 +2857,10 @@ export function BancoTab({
                                 }}
                               />
                             </TableCell>
-                            <TableCell className="text-xs">
+                            <TableCell label="Registo" className="text-xs">
                               {nomeDisplay || 'Entrada financeira'} - {lancamento.categoria || lancamento.tipo} - €{valorBase.toFixed(2)}
                             </TableCell>
-                            <TableCell className="w-28">
+                            <TableCell label="Valor a alocar" className="w-28">
                               {checked ? (
                                 <Input
                                   type="number"

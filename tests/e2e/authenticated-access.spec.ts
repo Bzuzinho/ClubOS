@@ -241,8 +241,9 @@ test.describe('authenticated access', () => {
                     await expect(tab).toHaveAttribute('aria-selected', 'true');
                     await expect(page.locator('#nprogress')).toHaveCount(0);
                     await expectNoHorizontalOverflow(page);
-                    const overflowing = await page.locator('main [data-slot="table-container"], main [role="tablist"]').evaluateAll((elements) =>
-                        elements.filter((element) => element.getClientRects().length > 0 && element.scrollWidth > element.clientWidth + 1)
+                    const overflowing = await page.locator('main [data-slot="table-container"], main [role="tablist"], main table').evaluateAll((elements) =>
+                        elements.map((element) => element.tagName === 'TABLE' ? element.parentElement ?? element : element)
+                            .filter((element) => element.getClientRects().length > 0 && element.scrollWidth > element.clientWidth + 1)
                             .map((element) => ({ slot: element.getAttribute('data-slot'), width: element.clientWidth, scroll: element.scrollWidth })),
                     );
                     expect(overflowing).toEqual([]);

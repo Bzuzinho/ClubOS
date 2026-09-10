@@ -1907,7 +1907,7 @@ export default function ComunicacaoIndex({
                 </div>
 
                 <div className="hidden lg:block">
-                  <Table>
+                  <Table responsive>
                     <TableHeader>
                       <TableRow>
                         <TableHead>Nome</TableHead>
@@ -1922,13 +1922,13 @@ export default function ComunicacaoIndex({
                     <TableBody>
                       {segmentsData.map((segment) => (
                         <TableRow key={segment.id}>
-                          <TableCell className="font-medium">{segment.name}</TableCell>
-                          <TableCell>{segment.type}</TableCell>
-                          <TableCell className="text-xs">{segment.description || '-'}</TableCell>
-                          <TableCell>{segment.estimated_recipients || 0}</TableCell>
-                          <TableCell><Badge variant={segment.is_active ? 'secondary' : 'destructive'}>{segment.is_active ? 'Sim' : 'Não'}</Badge></TableCell>
-                          <TableCell className="text-xs">{segment.rules_json ? JSON.stringify(segment.rules_json) : '-'}</TableCell>
-                          <TableCell className="text-right">
+                          <TableCell label="Nome" className="font-medium">{segment.name}</TableCell>
+                          <TableCell label="Tipo">{segment.type}</TableCell>
+                          <TableCell label="Descrição" className="text-xs">{segment.description || '-'}</TableCell>
+                          <TableCell label="Estimativa">{segment.estimated_recipients || 0}</TableCell>
+                          <TableCell label="Ativo"><Badge variant={segment.is_active ? 'secondary' : 'destructive'}>{segment.is_active ? 'Sim' : 'Não'}</Badge></TableCell>
+                          <TableCell label="Regras" className="text-xs">{segment.rules_json ? JSON.stringify(segment.rules_json) : '-'}</TableCell>
+                          <TableCell label="Ações" className="text-right">
                             <div className="flex justify-end gap-1">
                               <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => {
                                 populateSegmentForm(segment);

@@ -56,3 +56,22 @@ A revisão encontrou larguras mínimas no Cais preenchido (grelha de 340+760 px 
 PR #346 integrada em `3c7f35593cbd6c6e935ce0d63f55456d097bc8b0`; CI da PR 34496321359 verde, 165 testes sem repetições. O editor Website deixa de impor uma sobreposição com três colunas fixas e canvas com largura superior ao espaço disponível. Usa o layout administrativo comum, mantém o menu acessível, dispõe os painéis em sequência em ecrãs estreitos e ajusta visualmente a pré-visualização sem alterar a largura simulada do dispositivo. As ferramentas de cabeçalho deixam de estar ocultas por breakpoint e os separadores usam o componente comum.
 
 Fixture de rascunho exclusivo de testing com bloco hero; percurso cobre os seis separadores de propriedades, três dispositivos e largura do editor/inspector. Entradas Website/Páginas incluídas na matriz transversal. TypeScript/lint locais e CI do lote em validação. Gravação, publicação, recuperação de versões e dados dinâmicos não são alterados; a persistência destes percursos em browser continua pendente. Não declarar P1 globalmente fechada.
+
+## Consolidação após o editor Website
+
+PR #347 integrada em `6cf14934ee7bee2aef8ce5a8d3abb5e92fadf8c6`. CI da PR 34500915866: 180 testes de browser, sem falhas nem repetições. A base atual deste inventário é esse merge; o hash no início identifica a base histórica da matriz.
+
+| Componentes revistos | Evidência / decisão |
+|---|---|
+| Financeiro: Banco, Relatórios, ficha e importação de recibos | 13 tabelas adaptadas, incluindo quatro listas/preview internas do Banco; valores, seleção e alocações preservados |
+| Membros: FinancialTab e MemberImportDialog | Quatro tabelas adaptadas; importação e regras financeiras inalteradas |
+| Configurações: BankReconciliationManagementTab | Três tabelas adaptadas; aliases e gestão canónica preservados |
+| Comunicação e painel administrativo da Loja | Uma tabela em cada componente adaptada, com campos identificados |
+| DesportivoPlaneamentoTab, DesportivoTreinosTab, ResultadosCompeticoesForm, CaisAthletePerformanceModal | Permanecem ocorrências de overflow no source; pesquisa de referências não encontrou ligação destes ramos às páginas atuais. Não alterados nem eliminados neste lote |
+| EventosTipos e PresencasList | Exportações sem referências encontradas no frontend atual; não confundidas com os componentes de Eventos em uso |
+| ReportsTab de Membros | As tabelas HTML restantes pertencem à exportação/impressão, não à interface interativa. Preservadas |
+| SportsTab da ficha do membro | Tem consumidores nas páginas de Membros e componentes internos próprios; revisão de tabelas e percursos preenchidos ainda pendente |
+
+O E2E transversal passa a inspecionar também o contentor de tabelas HTML nativas, evitando que escapem ao controlo por não usarem `data-slot`. A CI deste incremento é obrigatória. O percurso financeiro existente tem linhas e faturas de teste; não se assume cobertura preenchida de recibos importados, aliases bancários ou encomendas só porque as páginas entram.
+
+P1 continua aberta para a ficha desportiva do membro, percursos de importação/configuração com dados e inventário residual de diálogos/grelhas. Em P2, rever a coexistência da catalogação bancária e conciliação manual, sem remover fluxos ou alterar fontes financeiras neste lote. P3/P4 (histórico e modalidade/época) mantêm a prioridade previamente definida.

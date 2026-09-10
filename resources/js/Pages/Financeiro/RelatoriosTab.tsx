@@ -370,7 +370,7 @@ export function RelatoriosTab({ centrosCusto, users, ageGroups }: RelatoriosTabP
             <CalendarBlank size={20} className="text-primary" />
             Relatorio: Receitas/Despesas por Periodo
           </h3>
-          <Table>
+          <Table responsive>
             <TableHeader>
               <TableRow>
                 <TableHead>Periodo</TableHead>
@@ -389,10 +389,10 @@ export function RelatoriosTab({ centrosCusto, users, ageGroups }: RelatoriosTabP
               ) : (
                 reportData.reports.period.items.map((item) => (
                   <TableRow key={item.period_key}>
-                    <TableCell className="font-medium">{item.period_label}</TableCell>
-                    <TableCell className="text-right text-green-600">{formatCurrency(item.receitas)}</TableCell>
-                    <TableCell className="text-right text-red-600">{formatCurrency(item.despesas)}</TableCell>
-                    <TableCell className={`text-right font-semibold ${item.saldo >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                    <TableCell label="Periodo" className="font-medium">{item.period_label}</TableCell>
+                    <TableCell label="Outras receitas" className="text-right text-green-600">{formatCurrency(item.receitas)}</TableCell>
+                    <TableCell label="Despesas" className="text-right text-red-600">{formatCurrency(item.despesas)}</TableCell>
+                    <TableCell label="Saldo" className={`text-right font-semibold ${item.saldo >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                       {formatCurrency(item.saldo)}
                     </TableCell>
                   </TableRow>
@@ -400,10 +400,10 @@ export function RelatoriosTab({ centrosCusto, users, ageGroups }: RelatoriosTabP
               )}
               {reportData.reports.period.items.length > 0 ? (
                 <TableRow className="font-bold bg-muted/50">
-                  <TableCell>TOTAL</TableCell>
-                  <TableCell className="text-right text-green-600">{formatCurrency(reportData.reports.period.totals.receitas)}</TableCell>
-                  <TableCell className="text-right text-red-600">{formatCurrency(reportData.reports.period.totals.despesas)}</TableCell>
-                  <TableCell className={`text-right ${reportData.reports.period.totals.saldo >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                  <TableCell label="Periodo">TOTAL</TableCell>
+                  <TableCell label="Outras receitas" className="text-right text-green-600">{formatCurrency(reportData.reports.period.totals.receitas)}</TableCell>
+                  <TableCell label="Despesas" className="text-right text-red-600">{formatCurrency(reportData.reports.period.totals.despesas)}</TableCell>
+                  <TableCell label="Saldo" className={`text-right ${reportData.reports.period.totals.saldo >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                     {formatCurrency(reportData.reports.period.totals.saldo)}
                   </TableCell>
                 </TableRow>
@@ -419,7 +419,7 @@ export function RelatoriosTab({ centrosCusto, users, ageGroups }: RelatoriosTabP
             <Users size={20} className="text-primary" />
             Relatorio: Rendimento por Escalao
           </h3>
-          <Table>
+          <Table responsive>
             <TableHeader>
               <TableRow>
                 <TableHead>Escalao</TableHead>
@@ -440,29 +440,29 @@ export function RelatoriosTab({ centrosCusto, users, ageGroups }: RelatoriosTabP
               ) : (
                 relatorioEscalao.map((item) => (
                   <TableRow key={item.age_group_id}>
-                    <TableCell className="font-medium">{item.age_group}</TableCell>
-                    <TableCell className="text-right">{item.numero_atletas}</TableCell>
-                    <TableCell className="text-right font-semibold text-green-600">
+                    <TableCell label="Escalao" className="font-medium">{item.age_group}</TableCell>
+                    <TableCell label="Nº Atletas" className="text-right">{item.numero_atletas}</TableCell>
+                    <TableCell label="Receitas" className="text-right font-semibold text-green-600">
                       {formatCurrency(item.receitas)}
                     </TableCell>
-                    <TableCell className="text-right">{formatCurrency(item.total_faturado)}</TableCell>
-                    <TableCell className="text-right text-green-600">{formatCurrency(item.total_pago)}</TableCell>
-                    <TableCell className="text-right text-orange-600">{formatCurrency(item.total_pendente)}</TableCell>
+                    <TableCell label="Total Faturado" className="text-right">{formatCurrency(item.total_faturado)}</TableCell>
+                    <TableCell label="Mensalidades pagas" className="text-right text-green-600">{formatCurrency(item.total_pago)}</TableCell>
+                    <TableCell label="Pendente" className="text-right text-orange-600">{formatCurrency(item.total_pendente)}</TableCell>
                   </TableRow>
                 ))
               )}
               {relatorioEscalao.length > 0 && ageGroupTotals && (
                 <TableRow className="font-bold bg-muted/50">
-                  <TableCell>TOTAL</TableCell>
-                  <TableCell className="text-right">{ageGroupTotals.numero_atletas}</TableCell>
-                  <TableCell className="text-right text-green-600">
+                  <TableCell label="Escalao">TOTAL</TableCell>
+                  <TableCell label="Nº Atletas" className="text-right">{ageGroupTotals.numero_atletas}</TableCell>
+                  <TableCell label="Receitas" className="text-right text-green-600">
                     {formatCurrency(ageGroupTotals.receitas)}
                   </TableCell>
-                  <TableCell className="text-right">{formatCurrency(ageGroupTotals.total_faturado)}</TableCell>
-                  <TableCell className="text-right text-green-600">
+                  <TableCell label="Total Faturado" className="text-right">{formatCurrency(ageGroupTotals.total_faturado)}</TableCell>
+                  <TableCell label="Mensalidades pagas" className="text-right text-green-600">
                     {formatCurrency(ageGroupTotals.total_pago)}
                   </TableCell>
-                  <TableCell className="text-right text-orange-600">
+                  <TableCell label="Pendente" className="text-right text-orange-600">
                     {formatCurrency(ageGroupTotals.total_pendente)}
                   </TableCell>
                 </TableRow>
@@ -478,7 +478,7 @@ export function RelatoriosTab({ centrosCusto, users, ageGroups }: RelatoriosTabP
             <CurrencyCircleDollar size={20} className="text-primary" />
             Relatorio: Receitas/Despesas por Centro de Custo
           </h3>
-          <Table>
+          <Table responsive>
             <TableHeader>
               <TableRow>
                 <TableHead>Centro de Custo</TableHead>
@@ -498,15 +498,15 @@ export function RelatoriosTab({ centrosCusto, users, ageGroups }: RelatoriosTabP
               ) : (
                 reportData.reports.cost_centers.items.map((item) => (
                   <TableRow key={item.id}>
-                    <TableCell className="font-medium">{item.nome}</TableCell>
-                    <TableCell className="capitalize">{item.tipo}</TableCell>
-                    <TableCell className="text-right font-semibold text-green-600">
+                    <TableCell label="Centro de Custo" className="font-medium">{item.nome}</TableCell>
+                    <TableCell label="Tipo" className="capitalize">{item.tipo}</TableCell>
+                    <TableCell label="Receitas" className="text-right font-semibold text-green-600">
                       {formatCurrency(item.receitas)}
                     </TableCell>
-                    <TableCell className="text-right font-semibold text-red-600">
+                    <TableCell label="Despesas" className="text-right font-semibold text-red-600">
                       {formatCurrency(item.despesas)}
                     </TableCell>
-                    <TableCell
+                    <TableCell label="Saldo"
                       className={`text-right font-bold ${item.saldo >= 0 ? 'text-green-600' : 'text-red-600'}`}
                     >
                       {formatCurrency(item.saldo)}
@@ -544,7 +544,7 @@ export function RelatoriosTab({ centrosCusto, users, ageGroups }: RelatoriosTabP
           <p className="text-xs text-muted-foreground mb-3">
             Valor Pago - Valor Gasto = Peso Financeiro. A tab apenas apresenta leitura canónica do backend.
           </p>
-          <Table>
+          <Table responsive>
             <TableHeader>
               <TableRow>
                 <TableHead>Nome</TableHead>
@@ -565,14 +565,14 @@ export function RelatoriosTab({ centrosCusto, users, ageGroups }: RelatoriosTabP
               ) : (
                 reportData.reports.athletes.items.map((item) => (
                   <TableRow key={item.id}>
-                    <TableCell className="font-medium">{item.nome}</TableCell>
-                    <TableCell>{item.numero_socio}</TableCell>
-                    <TableCell>{item.escalao}</TableCell>
-                    <TableCell className="text-right text-green-600 font-semibold">
+                    <TableCell label="Nome" className="font-medium">{item.nome}</TableCell>
+                    <TableCell label="Numero Socio">{item.numero_socio}</TableCell>
+                    <TableCell label="Escalao">{item.escalao}</TableCell>
+                    <TableCell label="Valor Pago" className="text-right text-green-600 font-semibold">
                       {formatCurrency(item.valor_pago)}
                     </TableCell>
-                    <TableCell className="text-right text-red-600">{formatCurrency(item.valor_gasto)}</TableCell>
-                    <TableCell
+                    <TableCell label="Valor Gasto" className="text-right text-red-600">{formatCurrency(item.valor_gasto)}</TableCell>
+                    <TableCell label="Peso Financeiro"
                       className={`text-right font-bold ${item.peso_financeiro >= 0 ? 'text-green-600' : 'text-red-600'}`}
                     >
                       {formatCurrency(item.peso_financeiro)}

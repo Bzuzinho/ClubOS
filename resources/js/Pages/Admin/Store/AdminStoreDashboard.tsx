@@ -1,3 +1,4 @@
+import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/Components/ui/table';
 import { Head, router, usePage } from '@inertiajs/react';
 import { ArrowRight, BellRing, Package, ShoppingBag, Truck, TriangleAlert } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/Components/ui/alert';
@@ -94,19 +95,19 @@ export default function AdminStoreDashboard() {
                         </CardHeader>
                         <CardContent>
                             <div className="overflow-hidden rounded-md border border-border">
-                                <table className="min-w-full divide-y divide-border text-sm">
-                                <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-                                    <tr>
-                                        <th className="px-4 py-3">Pedido</th>
-                                        <th className="px-4 py-3">Utilizador</th>
-                                        <th className="px-4 py-3">Estado</th>
-                                        <th className="px-4 py-3">Total</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-border bg-white">
+                                <Table responsive className="w-full divide-y divide-border text-sm">
+                                <TableHeader className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+                                    <TableRow>
+                                        <TableHead className="px-4 py-3">Pedido</TableHead>
+                                        <TableHead className="px-4 py-3">Utilizador</TableHead>
+                                        <TableHead className="px-4 py-3">Estado</TableHead>
+                                        <TableHead className="px-4 py-3">Total</TableHead>
+                                    </TableRow>
+                                </TableHeader>
+                                <TableBody className="divide-y divide-border bg-white">
                                     {dashboard.ultimos_pedidos.length > 0 ? dashboard.ultimos_pedidos.map((order) => (
-                                        <tr key={order.id} className="hover:bg-slate-50">
-                                            <td className="px-4 py-3">
+                                        <TableRow key={order.id} className="hover:bg-slate-50">
+                                            <TableCell label="Pedido" className="px-4 py-3">
                                                 <button
                                                     type="button"
                                                     onClick={() => router.visit(`/admin/loja/encomendas/${order.id}`)}
@@ -115,27 +116,27 @@ export default function AdminStoreDashboard() {
                                                     <span className="block font-semibold text-slate-900">{order.numero}</span>
                                                     <span className="block text-xs text-slate-500">{formatStoreDate(order.created_at)}</span>
                                                 </button>
-                                            </td>
-                                            <td className="px-4 py-3 text-slate-600">
+                                            </TableCell>
+                                            <TableCell label="Utilizador" className="px-4 py-3 text-slate-600">
                                                 <span className="block">{order.user || 'Sem utilizador'}</span>
                                                 {order.target_user ? <span className="block text-xs text-slate-400">Para {order.target_user}</span> : null}
-                                            </td>
-                                            <td className="px-4 py-3">
+                                            </TableCell>
+                                            <TableCell label="Estado" className="px-4 py-3">
                                                 <span className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-semibold ${storeOrderStatusClass(order.estado)}`}>
                                                     {storeOrderStatusLabel(order.estado)}
                                                 </span>
-                                            </td>
-                                            <td className="px-4 py-3 font-semibold text-blue-700">{formatStoreCurrency(order.total)}</td>
-                                        </tr>
+                                            </TableCell>
+                                            <TableCell label="Total" className="px-4 py-3 font-semibold text-blue-700">{formatStoreCurrency(order.total)}</TableCell>
+                                        </TableRow>
                                     )) : (
-                                        <tr>
-                                            <td colSpan={4} className="px-4 py-8 text-center text-sm text-slate-500">
+                                        <TableRow>
+                                            <TableCell colSpan={4} className="px-4 py-8 text-center text-sm text-slate-500">
                                                 Ainda não existem pedidos na Loja.
-                                            </td>
-                                        </tr>
+                                            </TableCell>
+                                        </TableRow>
                                     )}
-                                </tbody>
-                                </table>
+                                </TableBody>
+                                </Table>
                             </div>
                         </CardContent>
                     </Card>

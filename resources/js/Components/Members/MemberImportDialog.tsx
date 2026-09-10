@@ -366,7 +366,7 @@ export function MemberImportDialog() {
 
         <Card className="p-0">
           <ScrollArea className="h-[280px]">
-            <Table>
+            <Table responsive>
               <TableHeader>
                 <TableRow>
                   <TableHead>Linha</TableHead>
@@ -381,13 +381,13 @@ export function MemberImportDialog() {
               <TableBody>
                 {preview.rows.map((row) => (
                   <TableRow key={row.row}>
-                    <TableCell>{row.row}</TableCell>
-                    <TableCell>{row.display.nome_completo ?? '-'}</TableCell>
-                    <TableCell>{row.display.numero_socio ?? '-'}</TableCell>
-                    <TableCell>{row.display.email_utilizador ?? '-'}</TableCell>
-                    <TableCell>{row.display.tipo_membro ?? '-'}</TableCell>
-                    <TableCell>{row.display.estado ?? '-'}</TableCell>
-                    <TableCell>
+                    <TableCell label="Linha">{row.row}</TableCell>
+                    <TableCell label="Nome">{row.display.nome_completo ?? '-'}</TableCell>
+                    <TableCell label="Nº sócio">{row.display.numero_socio ?? '-'}</TableCell>
+                    <TableCell label="Email">{row.display.email_utilizador ?? '-'}</TableCell>
+                    <TableCell label="Tipo">{row.display.tipo_membro ?? '-'}</TableCell>
+                    <TableCell label="Estado">{row.display.estado ?? '-'}</TableCell>
+                    <TableCell label="Resultado">
                       {row.is_valid ? (
                         row.warnings.length > 0 ? <Badge className="bg-amber-100 text-amber-800">Com avisos</Badge> : <Badge className="bg-emerald-100 text-emerald-800">Válida</Badge>
                       ) : (
