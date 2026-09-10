@@ -2,8 +2,9 @@ import { Head } from '@inertiajs/react';
 import { Suspense, lazy, useEffect, useState } from 'react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { ModuleHeader } from '@/Components/layout/ModuleHeader';
+import { ModuleTabsList } from '@/Components/layout/ModuleTabsList';
 import { moduleTabbedContentClass, moduleTabsClass, moduleViewportClass } from '@/lib/module-layout';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/Components/ui/tabs';
+import { Tabs, TabsContent, TabsTrigger } from '@/Components/ui/tabs';
 import { ChartLineUp, Receipt, ArrowsDownUp, Bank, ChartBar, FileText } from '@phosphor-icons/react';
 import { useUrlTab } from '@/hooks/useUrlTab';
 import {
@@ -161,11 +162,10 @@ export default function FinanceiroIndex({
 
       <div className={moduleViewportClass}>
         <Tabs value={activeTab} onValueChange={setActiveTab} className={moduleTabsClass}>
-          <div className="w-full">
-            <TabsList className="grid h-auto w-full shrink-0 grid-cols-2 gap-1 p-1 text-[11px] sm:h-9 sm:grid-cols-6 sm:text-xs">
+          <ModuleTabsList label="Áreas do Financeiro">
               <TabsTrigger value="dashboard" className="flex h-8 items-center justify-center gap-1 px-2 py-1 text-[11px] leading-none sm:h-7 sm:text-xs">
                 <ChartLineUp size={14} />
-                <span>Dashboard</span>
+                <span>Visão geral</span>
               </TabsTrigger>
               <TabsTrigger value="mensalidades" className="flex h-8 items-center justify-center gap-1 px-2 py-1 text-[11px] leading-none sm:h-7 sm:text-xs">
                 <Receipt size={14} />
@@ -181,14 +181,13 @@ export default function FinanceiroIndex({
               </TabsTrigger>
               <TabsTrigger value="relatorios" className="flex h-8 items-center justify-center gap-1 px-2 py-1 text-[11px] leading-none sm:h-7 sm:text-xs">
                 <ChartBar size={14} />
-                <span>Relatorios</span>
+                <span>Relatórios</span>
               </TabsTrigger>
               <TabsTrigger value="emissao-fiscal" className="flex h-8 items-center justify-center gap-1 px-2 py-1 text-[11px] leading-none sm:h-7 sm:text-xs">
                 <FileText size={14} />
-                <span>Emissao Fiscal</span>
+                <span>Emissão fiscal</span>
               </TabsTrigger>
-            </TabsList>
-          </div>
+          </ModuleTabsList>
 
           <TabsContent value="dashboard" className={moduleTabbedContentClass}>
             {activeTab === 'dashboard' ? (
