@@ -1,6 +1,7 @@
 import { Suspense, lazy, useEffect, useState } from 'react';
 import { Head, router, usePage } from '@inertiajs/react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
+import { ModuleHeader } from '@/Components/layout/ModuleHeader';
 import { moduleTabbedContentClass, moduleTabsClass, moduleViewportClass } from '@/lib/module-layout';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/Components/ui/tabs';
 import { ListChecks, CalendarBlank, ChartBar } from '@phosphor-icons/react';
@@ -169,14 +170,10 @@ export default function EventosIndex({
     <AuthenticatedLayout
       fullWidth
       header={
-        <div>
-          <h1 className="text-lg sm:text-xl font-semibold tracking-tight">
-            Gestão de Eventos
-          </h1>
-          <p className="text-muted-foreground text-xs mt-0.5">
-            Sistema completo de gestão de eventos, convocatórias e presenças
-          </p>
-        </div>
+        <ModuleHeader
+          title="Eventos"
+          description="Calendário, eventos, convocatórias, resultados e presenças."
+        />
       }
     >
       <Head title="Gestão de Eventos" />
