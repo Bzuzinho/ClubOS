@@ -98,6 +98,8 @@ final class E2eBrowserTestSeeder extends Seeder
             );
         }
 
+        $this->call(E2eSportsBrowserSeeder::class);
+
         foreach (range(1, 32) as $index) {
             Product::query()->updateOrCreate(
                 ['codigo' => sprintf('E2E-%02d', $index)],

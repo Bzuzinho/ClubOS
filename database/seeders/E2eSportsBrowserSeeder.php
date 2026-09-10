@@ -1,0 +1,51 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Database\Seeders;
+
+use App\Models\{Macrocycle, Mesocycle, Microcycle, Season, SportsModality, Training, TrainingAthlete, TrainingSeries, User};
+use Illuminate\Database\Seeder;
+use RuntimeException;
+
+final class E2eSportsBrowserSeeder extends Seeder
+{
+    public function run(): void
+    {
+        if (! app()->environment('testing')) {
+            throw new RuntimeException('Sports browser fixtures require testing.');
+        }
+
+        $club = (string) config('sports.club_id', 'bscn');
+        $modality = SportsModality::query()->where('club_id', $club)->where('code', 'swimming')->firstOrFail();
+        $season = Season::query()->updateOrCreate(['club_id' => $club, 'nome' => 'E2E Época'], [
+            'sports_modality_id' => $modality->id, 'ano_temporada' => 'E2E',
+            'data_inicio' => now()->startOfYear()->toDateString(), 'data_fim' => now()->endOfYear()->toDateString(),
+            'tipo' => 'Principal', 'estado' => 'Em curso', 'status' => 'active',
+        ]);
+        $dates = ['data_inicio' => now()->startOfMonth()->toDateString(), 'data_fim' => now()->endOfMonth()->toDateString(), 'active' => true];
+        $macro = Macrocycle::query()->updateOrCreate(['epoca_id' => $season->id, 'nome' => 'E2E Preparação'], $dates + ['club_id' => $club, 'tipo' => 'Preparação geral']);
+        $meso = Mesocycle::query()->updateOrCreate(['macrociclo_id' => $macro->id, 'nome' => 'E2E Base'], $dates + ['club_id' => $club]);
+        $micro = Microcycle::query()->updateOrCreate(['mesociclo_id' => $meso->id, 'semana' => 'E2E Semana'], $dates + ['club_id' => $club, 'volume_previsto' => 400]);
+        $athlete = User::query()->firstOrCreate(['email' => 'e2e.sports@clubos.test'], [
+            'name' => 'Atleta E2E Desportivo', 'nome_completo' => 'Atleta E2E Desportivo',
+            'password' => bcrypt('No-browser-login-2026!'), 'perfil' => 'atleta',
+            'estado' => 'ativo', 'tipo_membro' => ['atleta'], 'ativo_desportivo' => true,
+            'data_nascimento' => '1990-01-01', 'menor' => false, 'rgpd' => true, 'consentimento' => true,
+            'afiliacao' => false, 'declaracao_de_transporte' => false,
+        ]);
+        $training = Training::query()->updateOrCreate(['numero_treino' => '#E2E-DESPORTIVO'], [
+            'club_id' => $club, 'data' => now()->toDateString(), 'hora_inicio' => '18:00', 'hora_fim' => '19:30',
+            'tipo_treino' => 'Técnico', 'session_status' => 'published', 'epoca_id' => $season->id,
+            'macrocycle_id' => $macro->id, 'mesociclo_id' => $meso->id, 'microciclo_id' => $micro->id,
+        ]);
+        TrainingAthlete::query()->updateOrCreate(['treino_id' => $training->id, 'user_id' => $athlete->id], [
+            'presente' => true, 'estado' => 'presente', 'registado_em' => now(),
+        ]);
+        TrainingSeries::query()->updateOrCreate(['treino_id' => $training->id, 'ordem' => 1], [
+            'descricao_texto' => 'E2E Livre técnico', 'distancia_total_m' => 400, 'estilo' => 'Livre',
+            'repeticoes' => 8, 'distancia_m' => 50, 'block_name' => 'Principal', 'block_order' => 1,
+            'block_rounds' => 1, 'timing_mode' => 'each_rep',
+        ]);
+    }
+}

@@ -44,3 +44,9 @@ As redundâncias de propriedade funcional pertencem a P2. O histórico consolida
 O seeder exclusivo do ambiente testing passa a incluir uma fatura e uma linha bancária por perfil de browser. O percurso abre a conciliação manual, confirma as nove células da fatura, preenche uma alocação parcial e cancela sem gravar pagamentos. A matriz passa também a verificar tabelas e separadores em cada tab visitada, em vez de apenas na última. Validação CI deste incremento pendente. Isto não substitui QA com dados operacionais reais nem fecha os percursos desportivos e Website.
 
 CI 34492565080: conciliação preenchida passou nos cinco perfis; 153 testes passaram e dois detetaram overflow nas tabelas intermédias de Estrutura Desportiva em Chrome/Safari móvel. As dez tabelas de Estrutura passam ao componente adaptável com identificação de todos os campos e ações; nova CI obrigatória.
+
+## Continuação: Planeamento, Cais e Live preenchidos
+
+PR #345 integrada em `4e3e71ae2ba14742e34ee0fa20bfea504a2236d6`; CI da PR 34493511720 verde, com 155 testes sem repetições. O novo fixture exclusivo de testing contém época, macro/meso/microciclo, treino publicado, atleta presente e série 8×50. Os percursos verificam a hierarquia e sessão ligada, alternância Lista/Cards no Cais e seleção atleta→série com START disponível no Live, sem iniciar medições.
+
+A revisão encontrou larguras mínimas no Cais preenchido (grelha de 340+760 px e linha de atleta com mínimos fixos). As grelhas e ações passam a quebrar linha conforme o espaço, preservando o shell operacional e todos os campos. Planeamento quebra as ações dos ciclos; Live adapta cabeçalho e seleção. CI do incremento pendente. Persistência de cronometragem/presenças e editor Website continuam fora desta cobertura de browser.
