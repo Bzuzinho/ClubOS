@@ -1,8 +1,9 @@
+import { ModuleTabsList } from '@/Components/layout/ModuleTabsList';
 import { FormEvent, useMemo, useState } from 'react';
 import { Head, router, useForm } from '@inertiajs/react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { moduleTabbedContentClass, moduleTabsClass, moduleViewportClass } from '@/lib/module-layout';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/Components/ui/tabs';
+import { Tabs, TabsContent, TabsTrigger } from '@/Components/ui/tabs';
 import { Card, CardContent, CardHeader, CardTitle } from '@/Components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/Components/ui/table';
 import { Input } from '@/Components/ui/input';
@@ -518,13 +519,13 @@ export default function LogisticaIndex({
 
       <div className={moduleViewportClass}>
         <Tabs value={activeTab} onValueChange={setActiveTab} className={moduleTabsClass}>
-          <TabsList className="grid w-full shrink-0 grid-cols-2 sm:grid-cols-5 h-auto gap-1">
+          <ModuleTabsList label="Áreas de Logística">
             <TabsTrigger value="dashboard">Dashboard</TabsTrigger>
             <TabsTrigger value="requisicoes">Requisições</TabsTrigger>
             <TabsTrigger value="stock">Stock</TabsTrigger>
             <TabsTrigger value="emprestimos">Empréstimos</TabsTrigger>
             <TabsTrigger value="compras">Compras</TabsTrigger>
-          </TabsList>
+          </ModuleTabsList>
 
         {/* ── Dashboard ──────────────────────────────────────────────────── */}
         <TabsContent value="dashboard" className={`${moduleTabbedContentClass} space-y-3`}>
@@ -746,7 +747,7 @@ export default function LogisticaIndex({
               </div>
 
               <div className="hidden md:block">
-                <Table>
+                <Table responsive>
                   <TableHeader>
                     <TableRow>
                       <TableHead>Requisitante</TableHead>
@@ -761,17 +762,17 @@ export default function LogisticaIndex({
                   <TableBody>
                     {filteredRequests.map((r) => (
                       <TableRow key={r.id}>
-                        <TableCell>{r.requester_name_snapshot}</TableCell>
-                        <TableCell>{r.requester_area || '-'}</TableCell>
-                        <TableCell>{r.requester_type || '-'}</TableCell>
-                        <TableCell>
+                        <TableCell label="Requisitante">{r.requester_name_snapshot}</TableCell>
+                        <TableCell label="Área">{r.requester_area || '-'}</TableCell>
+                        <TableCell label="Tipo">{r.requester_type || '-'}</TableCell>
+                        <TableCell label="Estado">
                           <Badge variant={r.status === 'delivered' ? 'secondary' : r.status === 'cancelled' ? 'outline' : 'default'}>
                             {statusReqLabel[r.status] ?? r.status}
                           </Badge>
                         </TableCell>
-                        <TableCell>{euro(r.total_amount)}</TableCell>
-                        <TableCell>{formatDateYmd(r.created_at)}</TableCell>
-                        <TableCell>
+                        <TableCell label="Total">{euro(r.total_amount)}</TableCell>
+                        <TableCell label="Data">{formatDateYmd(r.created_at)}</TableCell>
+                        <TableCell label="Ações">
                           <div className="flex flex-wrap gap-1">
                             {['draft', 'pending', 'approved', 'invoiced', 'delivered'].includes(r.status) && (
                               <>
@@ -950,7 +951,7 @@ export default function LogisticaIndex({
               </div>
 
               <div className="hidden md:block">
-                <Table>
+                <Table responsive>
                   <TableHeader>
                     <TableRow>
                       <TableHead>Código</TableHead>
@@ -965,13 +966,13 @@ export default function LogisticaIndex({
                   <TableBody>
                     {filteredProducts.map((p) => (
                       <TableRow key={p.id}>
-                        <TableCell>{p.codigo}</TableCell>
-                        <TableCell>{p.nome}</TableCell>
-                        <TableCell>{p.categoria || '-'}</TableCell>
-                        <TableCell>{p.stock}</TableCell>
-                        <TableCell>{p.stock_reservado}</TableCell>
-                        <TableCell>{p.stock_minimo}</TableCell>
-                        <TableCell>
+                        <TableCell label="Código">{p.codigo}</TableCell>
+                        <TableCell label="Nome">{p.nome}</TableCell>
+                        <TableCell label="Categoria">{p.categoria || '-'}</TableCell>
+                        <TableCell label="Stock">{p.stock}</TableCell>
+                        <TableCell label="Reservado">{p.stock_reservado}</TableCell>
+                        <TableCell label="Mínimo">{p.stock_minimo}</TableCell>
+                        <TableCell label="Estado">
                           <Badge variant={p.status === 'baixo' ? 'destructive' : 'secondary'}>
                             {stockStatusLabel(p.status)}
                           </Badge>
@@ -1014,7 +1015,7 @@ export default function LogisticaIndex({
                 </div>
 
                 <div className="hidden md:block">
-                  <Table>
+                  <Table responsive>
                     <TableHeader>
                       <TableRow>
                         <TableHead>Artigo</TableHead>
@@ -1027,11 +1028,11 @@ export default function LogisticaIndex({
                     <TableBody>
                       {stockMovements.map((m) => (
                         <TableRow key={m.id}>
-                          <TableCell>{m.article?.nome ?? '-'}{movementVariantLabel(m) ? ` · ${movementVariantLabel(m)}` : ''}</TableCell>
-                          <TableCell>{movTypeLabel[m.movement_type] ?? m.movement_type}</TableCell>
-                          <TableCell>{m.quantity}</TableCell>
-                          <TableCell>{formatDateYmd(m.created_at)}</TableCell>
-                          <TableCell>{m.notes || '-'}</TableCell>
+                          <TableCell label="Artigo">{m.article?.nome ?? '-'}{movementVariantLabel(m) ? ` · ${movementVariantLabel(m)}` : ''}</TableCell>
+                          <TableCell label="Tipo">{movTypeLabel[m.movement_type] ?? m.movement_type}</TableCell>
+                          <TableCell label="Qtd.">{m.quantity}</TableCell>
+                          <TableCell label="Data">{formatDateYmd(m.created_at)}</TableCell>
+                          <TableCell label="Notas">{m.notes || '-'}</TableCell>
                         </TableRow>
                       ))}
                     </TableBody>
@@ -1181,7 +1182,7 @@ export default function LogisticaIndex({
               </div>
 
               <div className="hidden md:block">
-                <Table>
+                <Table responsive>
                   <TableHeader>
                     <TableRow>
                       <TableHead>Requisitante</TableHead>
@@ -1196,17 +1197,17 @@ export default function LogisticaIndex({
                   <TableBody>
                     {filteredLoans.map((loan) => (
                       <TableRow key={loan.id}>
-                        <TableCell>{loan.borrower_name_snapshot}</TableCell>
-                        <TableCell>{loan.article_name_snapshot}</TableCell>
-                        <TableCell>{loan.quantity}</TableCell>
-                        <TableCell>{formatDateYmd(loan.loan_date)}</TableCell>
-                        <TableCell>{loan.due_date ? formatDateYmd(loan.due_date) : '-'}</TableCell>
-                        <TableCell>
+                        <TableCell label="Requisitante">{loan.borrower_name_snapshot}</TableCell>
+                        <TableCell label="Artigo">{loan.article_name_snapshot}</TableCell>
+                        <TableCell label="Qtd.">{loan.quantity}</TableCell>
+                        <TableCell label="Data">{formatDateYmd(loan.loan_date)}</TableCell>
+                        <TableCell label="Limite">{loan.due_date ? formatDateYmd(loan.due_date) : '-'}</TableCell>
+                        <TableCell label="Estado">
                           <Badge variant={loan.status === 'overdue' ? 'destructive' : loan.status === 'returned' ? 'secondary' : 'default'}>
                             {statusLoanLabel[loan.status] ?? loan.status}
                           </Badge>
                         </TableCell>
-                        <TableCell>
+                        <TableCell label="Ações">
                           <div className="flex flex-wrap gap-1">
                             {['active', 'overdue'].includes(loan.status) && (
                               <>
@@ -1363,7 +1364,7 @@ export default function LogisticaIndex({
               </div>
 
               <div className="hidden md:block">
-                <Table>
+                <Table responsive>
                   <TableHeader>
                     <TableRow>
                       <TableHead>Fornecedor</TableHead>
@@ -1377,12 +1378,12 @@ export default function LogisticaIndex({
                   <TableBody>
                     {filteredSupplierPurchases.map((p) => (
                       <TableRow key={p.id}>
-                        <TableCell>{p.supplier_name_snapshot}</TableCell>
-                        <TableCell>{p.invoice_reference}</TableCell>
-                        <TableCell>{formatDateYmd(p.invoice_date)}</TableCell>
-                        <TableCell>{euro(p.total_amount)}</TableCell>
-                        <TableCell>{p.financial_movement_id ? p.financial_movement_id.slice(0, 8) : '-'}</TableCell>
-                        <TableCell className="space-x-1">
+                        <TableCell label="Fornecedor">{p.supplier_name_snapshot}</TableCell>
+                        <TableCell label="Ref. Fatura">{p.invoice_reference}</TableCell>
+                        <TableCell label="Data">{formatDateYmd(p.invoice_date)}</TableCell>
+                        <TableCell label="Total">{euro(p.total_amount)}</TableCell>
+                        <TableCell label="Mov. Financeiro">{p.financial_movement_id ? p.financial_movement_id.slice(0, 8) : '-'}</TableCell>
+                        <TableCell label="Ações" className="space-x-1">
                           <Button size="sm" variant="secondary" onClick={() => openEditPurchase(p)}>Editar</Button>
                           <Button size="sm" variant="destructive" onClick={() => deletePurchase(p.id)}>Apagar</Button>
                         </TableCell>

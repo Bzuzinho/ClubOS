@@ -170,6 +170,9 @@ jobs:
       - name: Install Playwright browsers
         run: npm run test:e2e:install
 
+      - name: Verify responsive tables at five viewport widths
+        run: node scripts/qa/responsive-table-browser.mjs
+
       - name: Run multi-browser, mobile and accessibility E2E
         run: npm run test:e2e
 

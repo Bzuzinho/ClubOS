@@ -1,3 +1,4 @@
+import { ModuleTabsList } from '@/Components/layout/ModuleTabsList';
 import { lazy, Suspense, useState, useEffect, FormEventHandler } from 'react';
 import { Head, router, useForm, usePage } from '@inertiajs/react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
@@ -1320,8 +1321,8 @@ export default function SettingsIndex({
 
             <div className={settingsViewportClass}>
                 <Tabs value={currentTab} onValueChange={setCurrentTab} className={rootTabsClass}>
-                    <div className="w-full shrink-0 overflow-x-auto -mx-2 px-2 sm:mx-0 sm:px-0">
-                        <TabsList className="inline-flex w-auto sm:grid sm:w-full sm:grid-cols-7 h-9 text-sm min-w-full sm:min-w-0">
+                    <div className="w-full min-w-0 shrink-0">
+                        <ModuleTabsList label="Áreas de Configurações">
                             <TabsTrigger value="geral" className="text-sm whitespace-nowrap px-3 sm:px-2">
                                 Geral
                             </TabsTrigger>
@@ -1343,7 +1344,7 @@ export default function SettingsIndex({
                             <TabsTrigger value="base-dados" className="text-sm whitespace-nowrap px-3 sm:px-2">
                                 Base de Dados
                             </TabsTrigger>
-                        </TabsList>
+                        </ModuleTabsList>
                     </div>
 
                     {/* Tab: Geral */}

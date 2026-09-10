@@ -1,8 +1,9 @@
+import { ModuleTabsList } from '@/Components/layout/ModuleTabsList';
 import { Head, router } from '@inertiajs/react';
 import { useEffect, useMemo, useState } from 'react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { moduleTabbedContentClass, moduleTabsClass, moduleViewportClass } from '@/lib/module-layout';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/Components/ui/tabs';
+import { Tabs, TabsContent, TabsTrigger } from '@/Components/ui/tabs';
 import { Card, CardContent, CardHeader, CardTitle } from '@/Components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/Components/ui/table';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/Components/ui/dialog';
@@ -751,7 +752,7 @@ export default function SponsorshipsIndex({
 
       <div className={moduleViewportClass}>
         <Tabs value={activeTab} onValueChange={handleTabChange} className={moduleTabsClass}>
-          <TabsList className="grid h-auto w-full shrink-0 grid-cols-3 gap-1 p-1 text-[11px] sm:h-9 sm:text-xs">
+          <ModuleTabsList label="Áreas de Patrocínios">
             <TabsTrigger value="dashboard" className="flex h-8 items-center justify-center gap-1 px-2 py-1 text-[11px] sm:h-7 sm:text-xs">
               <Handshake size={14} />
               <span>Dashboard</span>
@@ -764,7 +765,7 @@ export default function SponsorshipsIndex({
               <ArrowsClockwise size={14} />
               <span>Integração</span>
             </TabsTrigger>
-          </TabsList>
+          </ModuleTabsList>
 
           <TabsContent value="dashboard" className={`${moduleTabbedContentClass} space-y-3`}>
             <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-5">
@@ -835,8 +836,8 @@ export default function SponsorshipsIndex({
                   <CardTitle className="text-sm">Últimos patrocínios criados</CardTitle>
                 </CardHeader>
                 <CardContent className="p-0">
-                  <div className="overflow-x-auto">
-                    <Table>
+                  <div className="min-w-0">
+                    <Table responsive>
                       <TableHeader>
                         <TableRow>
                           <TableHead className="w-[120px]">Código</TableHead>
@@ -849,18 +850,18 @@ export default function SponsorshipsIndex({
                       <TableBody>
                         {dashboard.latest.map((sponsorship) => (
                           <TableRow key={sponsorship.id} className="text-xs">
-                            <TableCell className="font-medium">{sponsorship.codigo}</TableCell>
-                            <TableCell>
+                            <TableCell label="Código" className="font-medium">{sponsorship.codigo}</TableCell>
+                            <TableCell label="Patrocinador">
                               <div className="font-medium">{sponsorship.sponsor?.nome || sponsorship.sponsor_name}</div>
                               <div className="text-muted-foreground">{sponsorship.supplier?.nome || 'Sem fornecedor associado'}</div>
                             </TableCell>
-                            <TableCell>{sponsorship.title}</TableCell>
-                            <TableCell>
+                            <TableCell label="Título">{sponsorship.title}</TableCell>
+                            <TableCell label="Tipo">
                               <Badge variant="outline" className={typeBadgeClasses[sponsorship.type]}>
                                 {typeLabels[sponsorship.type]}
                               </Badge>
                             </TableCell>
-                            <TableCell>
+                            <TableCell label="Estado">
                               <Badge variant="outline" className={statusBadgeClasses[sponsorship.status]}>
                                 {statusLabels[sponsorship.status]}
                               </Badge>
@@ -929,8 +930,8 @@ export default function SponsorshipsIndex({
                 <CardTitle className="text-sm">Alertas de integração</CardTitle>
               </CardHeader>
               <CardContent className="p-0">
-                <div className="overflow-x-auto">
-                  <Table>
+                <div className="min-w-0">
+                  <Table responsive>
                     <TableHeader>
                       <TableRow>
                         <TableHead>Data</TableHead>
@@ -943,18 +944,18 @@ export default function SponsorshipsIndex({
                     <TableBody>
                       {dashboard.alerts.map((integration) => (
                         <TableRow key={integration.id} className="text-xs">
-                          <TableCell>{formatDate(integration.executed_at || integration.created_at)}</TableCell>
-                          <TableCell>
+                          <TableCell label="Data">{formatDate(integration.executed_at || integration.created_at)}</TableCell>
+                          <TableCell label="Patrocínio">
                             <div className="font-medium">{integration.sponsorship?.codigo}</div>
                             <div className="text-muted-foreground">{integration.sponsorship?.sponsor_name}</div>
                           </TableCell>
-                          <TableCell>{integrationDestination(integration)}</TableCell>
-                          <TableCell>
+                          <TableCell label="Destino">{integrationDestination(integration)}</TableCell>
+                          <TableCell label="Estado">
                             <Badge variant="outline" className={integrationBadgeClasses[integration.status]}>
                               {integrationStatusLabels[integration.status]}
                             </Badge>
                           </TableCell>
-                          <TableCell className="max-w-[320px] truncate">{integration.message || '-'}</TableCell>
+                          <TableCell label="Mensagem" className="whitespace-normal">{integration.message || '-'}</TableCell>
                         </TableRow>
                       ))}
 
@@ -974,7 +975,7 @@ export default function SponsorshipsIndex({
 
           <TabsContent value="patrocinios" className={`${moduleTabbedContentClass} space-y-3`}>
             <Card className="gap-0 py-0">
-              <CardContent className="grid gap-2 p-3 lg:grid-cols-[minmax(0,1.4fr)_180px_180px_220px_170px_170px_auto] lg:items-end">
+              <CardContent className="grid gap-2 p-3 sm:grid-cols-2 xl:grid-cols-3 lg:items-end">
                 <div>
                   <Label className="text-xs">Pesquisa</Label>
                   <Input
@@ -1276,7 +1277,7 @@ export default function SponsorshipsIndex({
             )}
 
             <Card className="gap-0 py-0">
-              <CardContent className="grid gap-2 p-3 lg:grid-cols-[minmax(0,1.3fr)_180px_180px_180px_auto] lg:items-end">
+              <CardContent className="grid gap-2 p-3 sm:grid-cols-2 xl:grid-cols-3 lg:items-end">
                 <div>
                   <Label className="text-xs">Pesquisa</Label>
                   <Input
@@ -1351,8 +1352,8 @@ export default function SponsorshipsIndex({
                 <CardTitle className="text-sm">Histórico de integrações</CardTitle>
               </CardHeader>
               <CardContent className="p-0">
-                <div className="overflow-x-auto">
-                  <Table>
+                <div className="min-w-0">
+                  <Table responsive>
                     <TableHeader>
                       <TableRow>
                         <TableHead>Data</TableHead>
@@ -1367,23 +1368,23 @@ export default function SponsorshipsIndex({
                     <TableBody>
                       {filteredIntegrations.map((integration) => (
                         <TableRow key={integration.id} className="text-xs">
-                          <TableCell>
+                          <TableCell label="Data">
                             <div>{formatDate(integration.executed_at || integration.created_at)}</div>
                             <div className="text-muted-foreground">{integration.source_type}</div>
                           </TableCell>
-                          <TableCell>
+                          <TableCell label="Patrocínio">
                             <div className="font-medium">{integration.sponsorship?.codigo || '-'}</div>
                             <div className="text-muted-foreground">{integration.sponsorship?.sponsor_name || '-'}</div>
                           </TableCell>
-                          <TableCell>{integrationTypeLabels[integration.integration_type]}</TableCell>
-                          <TableCell>{integrationDestination(integration)}</TableCell>
-                          <TableCell>
+                          <TableCell label="Tipo">{integrationTypeLabels[integration.integration_type]}</TableCell>
+                          <TableCell label="Destino">{integrationDestination(integration)}</TableCell>
+                          <TableCell label="Estado">
                             <Badge variant="outline" className={integrationBadgeClasses[integration.status]}>
                               {integrationStatusLabels[integration.status]}
                             </Badge>
                           </TableCell>
-                          <TableCell>{integration.target_record_id || '-'}</TableCell>
-                          <TableCell className="max-w-[360px] whitespace-normal text-muted-foreground">{integration.message || '-'}</TableCell>
+                          <TableCell label="Registo destino">{integration.target_record_id || '-'}</TableCell>
+                          <TableCell label="Observações / Erro" className="whitespace-normal text-muted-foreground">{integration.message || '-'}</TableCell>
                         </TableRow>
                       ))}
 
@@ -1676,7 +1677,7 @@ export default function SponsorshipsIndex({
 
                     return (
                       <div key={item.id || `goods-${index}`} className="rounded-md border p-3">
-                        <div className="grid grid-cols-1 gap-3 lg:grid-cols-2 2xl:grid-cols-[220px_minmax(0,1.2fr)_160px_120px_150px_140px_auto] 2xl:items-end">
+                        <div className="grid grid-cols-1 gap-3 lg:grid-cols-2 2xl:grid-cols-3 2xl:items-end">
                           <div className="min-w-0 lg:col-span-2 2xl:col-span-1">
                             <Label className="text-xs">Artigo existente</Label>
                             <Select value={item.item_id || 'none'} onValueChange={(value) => changeGoodsProduct(index, value === 'none' ? '' : value)} disabled={isReadOnly || locked}>
