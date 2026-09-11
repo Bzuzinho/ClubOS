@@ -60,6 +60,22 @@ final class SportsRecordsWorkspaceFunctionalTest extends TestCase
         $this->assertSame(63000,data_get($detail,'execution.0.final_ms'));
         $this->assertSame('176',data_get($detail,'metrics.0.value'));
         $this->assertSame('material',data_get($detail,'operational.registers.0.code'));
+        $other = User::factory()->create();
+        TrainingMetric::query()->create(['treino_id'=>$training->id,'user_id'=>$other->id,'ordem'=>1,'metrica'=>'private_note','valor'=>'Outro atleta']);
+        $timeline = app(SportsRecordsReadModelService::class)->athleteTimeline((string)$athlete->id,
+            Request::create('/desportivo/registos/atletas/'.$athlete->id, 'GET', ['training_id'=>(string)$training->id]));
+        $row = $timeline->items()[0];
+        $this->assertSame(63000, data_get($row, 'execution.0.final_ms'));
+        $this->assertSame(31000, data_get($row, 'execution.0.splits.0.elapsed_ms'));
+        $this->assertSame(100, data_get($row, 'execution.0.distance_m'));
+        $this->assertSame('176', data_get($row, 'live_metrics.0.value'));
+        $this->assertCount(1, $row['cais_registers']);
+        $this->assertSame('material', data_get($row, 'cais_registers.0.code'));
+        \App\Models\SportsLiveMetricRecord::query()->where('user_id', $athlete->id)->update(['voided_at'=>now()]);
+        $voided = app(SportsRecordsReadModelService::class)->athleteTimeline((string)$athlete->id,
+            Request::create('/', 'GET', ['training_id'=>(string)$training->id]))->items()[0];
+        $this->assertCount(0, $voided['live_metrics']);
+
     }
 
     public function test_unclassified_free_measurement_is_not_exposed_as_consolidated_result(): void
@@ -96,6 +112,17 @@ final class SportsRecordsWorkspaceFunctionalTest extends TestCase
         $this->assertStringNotContainsString('Route::post(', $source);
         $this->assertStringNotContainsString('Route::put(', $source);
         $this->assertStringNotContainsString('Route::delete(', $source);
+    }
+
+    public function test_individual_training_detail_cannot_read_other_training_or_club(): void
+    {
+        [, $athlete, $training] = $this->fixture();
+        $other = Training::query()->create(['numero_treino'=>'OTHER','tipo_treino'=>'Técnico','data'=>now(),'club_id'=>'other-club']);
+        TrainingAthlete::query()->create(['treino_id'=>$other->id,'user_id'=>$athlete->id,'presente'=>true]);
+        $service = app(SportsRecordsReadModelService::class);
+        $this->assertSame(0, $service->athleteTimeline((string)$athlete->id, Request::create('/', 'GET', ['training_id'=>(string)$other->id]))->total());
+        $stranger = User::factory()->create();
+        $this->assertSame(0, $service->athleteTimeline((string)$stranger->id, Request::create('/', 'GET', ['training_id'=>(string)$training->id]))->total());
     }
 
     private function fixture(): array

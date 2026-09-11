@@ -27,6 +27,7 @@ final class SportsRecordsWorkspaceController extends Controller
 
     public function athlete(Request $request, string $athlete): JsonResponse
     {
+        $request->validate(['training_id' => ['sometimes', 'required', 'uuid']]);
         return response()->json($this->service->athleteTimeline($athlete, $request));
     }
 

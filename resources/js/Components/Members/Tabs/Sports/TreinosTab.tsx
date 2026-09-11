@@ -1,3 +1,4 @@
+import { TrainingRecords } from './TrainingRecords';
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import axios from 'axios';
@@ -22,6 +23,7 @@ interface Participation {
 }
 
 interface HistoryPage {
+  can_view_records: boolean;
   data: Participation[];
   current_page: number;
   last_page: number;
@@ -42,6 +44,7 @@ export function TreinosTab({ user }: { user: User }) {
 
 function AthleteHistory({ athleteId }: { athleteId: string }) {
   const [page, setPage] = useState(1);
+  const [selected, setSelected] = useState<Participation | null>(null);
   const history = useQuery<HistoryPage>({
     queryKey: ['member-training-history', athleteId, page],
     enabled: Boolean(athleteId),
@@ -80,7 +83,9 @@ function AthleteHistory({ athleteId }: { athleteId: string }) {
             </TableRow></TableHeader>
             <TableBody>{result.data.map(training => (
               <TableRow key={training.id}>
-                <TableCell label="Treino" className="text-xs font-medium">{training.numero_treino || '—'}</TableCell>
+                <TableCell label="Treino" className="text-xs font-medium">{training.numero_treino || '—'}
+                  {result.can_view_records && <Button variant="outline" size="sm" className="mt-2" aria-expanded={selected?.id === training.id} onClick={() => setSelected(selected?.id === training.id ? null : training)}>Ver registos</Button>}
+                </TableCell>
                 <TableCell label="Data" className="text-xs">{training.data ? format(new Date(`${training.data}T12:00:00`), 'dd/MM/yyyy') : '—'}</TableCell>
                 <TableCell label="Época" className="text-xs">{training.season || 'Sem época associada'}</TableCell>
                 <TableCell label="Tipo" className="text-xs">{training.tipo_treino || '—'}</TableCell>
@@ -93,11 +98,12 @@ function AthleteHistory({ athleteId }: { athleteId: string }) {
           </Table>
         </div>
       )}
+      {selected && result.can_view_records && <TrainingRecords athleteId={athleteId} trainingId={selected.training_id} number={selected.numero_treino || 'Treino'} onClose={() => setSelected(null)} />}
       <nav aria-label="Páginas de participações em treinos" className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-xs">{result.total} participações · Página {result.current_page} de {result.last_page}</p>
         <div className="flex flex-wrap gap-2">
-          <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>Anterior</Button>
-          <Button variant="outline" size="sm" disabled={page >= result.last_page} onClick={() => setPage(page + 1)}>Seguinte</Button>
+          <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => { setSelected(null); setPage(page - 1); }}>Anterior</Button>
+          <Button variant="outline" size="sm" disabled={page >= result.last_page} onClick={() => { setSelected(null); setPage(page + 1); }}>Seguinte</Button>
         </div>
       </nav>
     </div>

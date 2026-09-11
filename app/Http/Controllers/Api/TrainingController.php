@@ -36,9 +36,14 @@ class TrainingController extends Controller
                 'page' => ['sometimes', 'integer', 'min:1'],
             ]);
 
-            return response()->json(app(GetAthleteTrainingHistory::class)(
+            $history = app(GetAthleteTrainingHistory::class)(
                 $filters['athlete_id'], (int) ($filters['page'] ?? 1),
-            ));
+            );
+            return response()->json([
+                ...$history->toArray(),
+                'can_view_records' => app(\App\Services\AccessControl\UserTypeAccessControlService::class)
+                    ->canAccessPermission($request->user(), 'desportivo.treinos.cais', 'view'),
+            ]);
         }
 
         $trainings = Training::query()

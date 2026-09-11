@@ -81,6 +81,13 @@ test.describe('authenticated access', () => {
         await expect(training.getByRole('cell').filter({ hasText: 'Presente' })).toBeVisible();
         await expect(training.getByRole('cell').filter({ hasText: 'E2E Masters' })).toBeVisible();
         await expect(training.getByRole('cell').filter({ hasText: 'E2E Descrição completa' })).toBeVisible();
+        await training.getByRole('button', { name: 'Ver registos', exact: true }).click();
+        const records = page.getByRole('region', { name: 'Registos de #E2E-DESPORTIVO' });
+        await expect(records.getByText('32.540 s', { exact: true })).toBeVisible();
+        await expect(records.getByText('50 m · Livre', { exact: true })).toBeVisible();
+        await expect(records.getByText('Nota técnica', { exact: true })).toBeVisible();
+        await expect(records).toContainText('E2E Melhorar a viragem');
+
         await expectNoHorizontalOverflow(page);
         expect(await page.locator('main [data-slot="table-container"], main [role="tablist"], main [class*="overflow"]').evaluateAll(
             elements => elements.filter(el => el.getClientRects().length > 0 && el.scrollWidth > el.clientWidth + 1).length,
