@@ -89,6 +89,7 @@ final class AthleteTrainingHistoryTest extends TestCase
         $season = \App\Models\Season::query()->create([
             'club_id' => 'bscn', 'nome' => 'Histórica', 'ano_temporada' => '2024/25',
             'data_inicio' => '2024-09-01', 'data_fim' => '2025-08-31', 'tipo' => 'Principal',
+            'estado' => 'Concluída', 'status' => 'closed',
         ]);
         $training = $this->training('WITH-SEASON');
         $training->update(['epoca_id' => $season->id]);
