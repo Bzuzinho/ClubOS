@@ -101,3 +101,11 @@ Incremento sobre #350: cada participação permite abrir os registos do próprio
 Testes cobrem leitura individual de tempos e parciais, distância por repetição, métricas anuladas, exclusão de outro atleta/treino/clube. Fixture testing com monitorização concluída, tempo de 32,540 s em 50 m e nota técnica; browser verifica o detalhe sem overflow. TypeScript/lint/build locais e CI em validação. PRs #349 e #350 continuam pré-requisitos por integrar.
 
 Pendência identificada: `SportsAnalysisWorkspaceService::caisMetrics` consulta `TrainingAthleteCaisMetric`, enquanto `SportsCaisWorkspaceService` grava em `TrainingMetric`. Não assumir que Análise já reflete todos os registos do Cais atual. Resultados de competição, classificação histórica individual e consolidação global por época mantêm-se pendentes. Os nomes das métricas personalizadas do Cais ainda podem ser códigos, pois os registos atuais não guardam um snapshot do nome.
+
+## P3 — Análise alinhada com o Cais canónico
+
+A Análise passa a consultar `training_metrics`, a mesma fonte canónica onde `SportsCaisWorkspaceService` grava as métricas atuais. O resumo individual e a cobertura do grupo deixam assim de depender de `training_athlete_cais_metrics`, tabela de transição sem escritores no fluxo corrente. Os nomes e unidades continuam resolvidos pelo catálogo `SportsCaisMetricDefinition`; sessões canceladas e dados de outros clubes permanecem excluídos. A construção da Análise continua estritamente de leitura.
+
+O teste funcional grava a frequência cardíaca através do serviço real do Cais e confirma que a Análise devolve cobertura, último valor e média. O contrato de source impede a reintrodução do modelo de transição neste serviço. Não há migrations, novos writes produtivos, alteração de permissões ou atualização de percentagens.
+
+A tabela e o modelo legacy não são eliminados neste incremento: a remoção física exige uma verificação separada do cutover/backfill e dos dados existentes em produção. Após este lote deixam de ter consumidores runtime identificados. O incremento depende das PRs #349, #350 e #351, ainda abertas nesta data; resultados e histórico consolidado por época mantêm-se pendentes.
