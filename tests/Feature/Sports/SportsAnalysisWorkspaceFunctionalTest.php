@@ -54,7 +54,7 @@ final class SportsAnalysisWorkspaceFunctionalTest extends TestCase
             'club_id' => 'bscn',
             'numero_treino' => 1,
             'data' => now()->subDays(3)->toDateString(),
-            'session_status' => 'completed',
+            'session_status' => 'published',
             'tipo_treino' => 'Técnico',
             'volume_planeado_m' => 3000,
         ]);
@@ -69,6 +69,7 @@ final class SportsAnalysisWorkspaceFunctionalTest extends TestCase
         app(SportsCaisWorkspaceService::class)->saveRegister($training, $athlete, [
             'metrics' => [['code' => 'heart_rate', 'value' => '152']],
         ], User::factory()->create());
+        $training->update(['session_status' => 'completed']);
 
         $competition = Competition::query()->create([
             'club_id' => 'bscn',
