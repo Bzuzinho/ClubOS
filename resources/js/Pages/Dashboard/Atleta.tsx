@@ -277,7 +277,7 @@ export default function Atleta() {
                     <div className="mb-3 flex items-center justify-between gap-3">
                         <h2 className="text-base font-semibold text-slate-900">Ações rápidas</h2>
                     </div>
-                    <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 xl:grid-cols-5">
+                    <div className="grid grid-cols-3 gap-2 sm:gap-2.5 xl:grid-cols-5">
                         {quickActions.map((action) => (
                             <button
                                 key={action.key}
