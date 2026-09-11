@@ -76,7 +76,9 @@ test.describe('authenticated access', () => {
         await navigation.getByRole('tab', { name: 'Treinos', exact: true }).click();
         const training = page.getByRole('row').filter({ hasText: '#E2E-DESPORTIVO' });
         await expect(training).toBeVisible();
-        await expect(training.getByRole('cell')).toHaveCount(6);
+        await expect(training.getByRole('cell')).toHaveCount(8);
+        await expect(training.getByRole('cell').filter({ hasText: 'E2E Época' })).toBeVisible();
+        await expect(training.getByRole('cell').filter({ hasText: 'Presente' })).toBeVisible();
         await expect(training.getByRole('cell').filter({ hasText: 'E2E Masters' })).toBeVisible();
         await expect(training.getByRole('cell').filter({ hasText: 'E2E Descrição completa' })).toBeVisible();
         await expectNoHorizontalOverflow(page);

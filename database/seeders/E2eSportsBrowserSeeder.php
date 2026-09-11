@@ -37,7 +37,10 @@ final class E2eSportsBrowserSeeder extends Seeder
         $ageGroup = AgeGroup::query()->updateOrCreate(['club_id' => $club, 'code' => 'e2e-masters'], [
             'nome' => 'E2E Masters', 'ativo' => true,
         ]);
-        $athlete->update(['escalao' => [$ageGroup->id]]);
+        $currentAgeGroup = AgeGroup::query()->updateOrCreate(['club_id' => $club, 'code' => 'e2e-current'], [
+            'nome' => 'E2E Escalão atual', 'ativo' => true,
+        ]);
+        $athlete->update(['escalao' => [$currentAgeGroup->id]]);
         $training = Training::query()->updateOrCreate(['numero_treino' => '#E2E-DESPORTIVO'], [
             'club_id' => $club, 'data' => now()->toDateString(), 'hora_inicio' => '18:00', 'hora_fim' => '19:30',
             'descricao_treino' => 'E2E Descrição completa do treino para consultar na ficha do atleta em qualquer ecrã.',

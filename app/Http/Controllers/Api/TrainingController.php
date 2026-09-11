@@ -12,6 +12,8 @@ use App\Services\Desportivo\Queries\GetTrainingPoolDeckView;
 use App\Services\Desportivo\SportsClubContext;
 use App\Services\Desportivo\UpdateTrainingScheduleAction;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use App\Services\Desportivo\Queries\GetAthleteTrainingHistory;
 
 class TrainingController extends Controller
 {
@@ -26,8 +28,19 @@ class TrainingController extends Controller
      * GET /api/desportivo/trainings
      * Retorna lista de treinos com dados essenciais.
      */
-    public function index(): JsonResponse
+    public function index(Request $request): JsonResponse
     {
+        if ($request->has('athlete_id')) {
+            $filters = $request->validate([
+                'athlete_id' => ['required', 'uuid'],
+                'page' => ['sometimes', 'integer', 'min:1'],
+            ]);
+
+            return response()->json(app(GetAthleteTrainingHistory::class)(
+                $filters['athlete_id'], (int) ($filters['page'] ?? 1),
+            ));
+        }
+
         $trainings = Training::query()
             ->where('club_id', $this->clubContext->id())
             ->with([
