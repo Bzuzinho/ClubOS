@@ -23,7 +23,7 @@ final class AthleteCompetitionHistoryTest extends TestCase
         $this->actingAs($actor);
     }
 
-    private function result(User $athlete, string $club = 'bscn', string $date = '2025-01-01'): Result
+    private function createCompetitionResult(User $athlete, string $club = 'bscn', string $date = '2025-01-01'): Result
     {
         $competition = Competition::query()->create([
             'club_id' => $club, 'nome' => 'Campeonato', 'local' => 'Leiria',
@@ -41,7 +41,7 @@ final class AthleteCompetitionHistoryTest extends TestCase
     public function test_individual_results_include_official_facts_and_sorted_splits_after_age_group_removal(): void
     {
         $athlete = User::factory()->create();
-        $result = $this->result($athlete);
+        $result = $this->createCompetitionResult($athlete);
         foreach ([100 => 61.42, 50 => 29.72] as $distance => $time) {
             ResultSplit::query()->create(['resultado_id' => $result->id, 'distancia_parcial_m' => $distance, 'tempo_parcial' => $time]);
         }
@@ -63,10 +63,10 @@ final class AthleteCompetitionHistoryTest extends TestCase
     public function test_pagination_is_individual_club_scoped_and_ordered_by_competition_date(): void
     {
         $athlete = User::factory()->create();
-        for ($i = 0; $i < 25; $i++) $this->result($athlete);
-        $latest = $this->result($athlete, 'bscn', '2026-01-01');
-        $this->result($athlete, 'other-club', '2027-01-01');
-        $this->result(User::factory()->create(), 'bscn', '2027-01-01');
+        for ($i = 0; $i < 25; $i++) $this->createCompetitionResult($athlete);
+        $latest = $this->createCompetitionResult($athlete, 'bscn', '2026-01-01');
+        $this->createCompetitionResult($athlete, 'other-club', '2027-01-01');
+        $this->createCompetitionResult(User::factory()->create(), 'bscn', '2027-01-01');
         $first = $this->getJson('/api/desportivo/competition-results?athlete_id='.$athlete->id)
             ->assertOk()->assertJsonPath('total', 26)->assertJsonCount(25, 'data')
             ->assertJsonPath('data.0.id', $latest->id);
