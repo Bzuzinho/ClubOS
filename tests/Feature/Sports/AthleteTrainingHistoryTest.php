@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Sports;
 
-use App\Models\{AgeGroup, Training, TrainingAthlete, User};
+use App\Models\{AgeGroup, Training, TrainingAthlete, User, UserType, UserTypeMenuModule};
 use App\Services\Desportivo\SportsCaisWorkspaceService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\Concerns\GrantsDesportivoAccess;
@@ -86,7 +86,15 @@ final class AthleteTrainingHistoryTest extends TestCase
     public function test_history_validates_parameters_and_preserves_route_authorization(): void
     {
         $this->getJson('/api/desportivo/trainings?athlete_id=invalid')->assertUnprocessable();
-        $athlete = User::factory()->create();
+        $athlete = User::factory()->create(['perfil' => 'user', 'tipo_membro' => ['Socio']]);
+        $type = UserType::query()->create([
+            'codigo' => 'history_no_sports', 'nome' => 'Sem Desportivo',
+            'ativo' => true, 'menu_visibility_configured' => true,
+        ]);
+        $athlete->userTypes()->attach($type->id);
+        UserTypeMenuModule::query()->create([
+            'user_type_id' => $type->id, 'module_key' => 'membros', 'sort_order' => 1,
+        ]);
         $this->getJson('/api/desportivo/trainings?athlete_id='.$athlete->id.'&page=0')->assertUnprocessable();
         $this->actingAs($athlete)->getJson('/api/desportivo/trainings?athlete_id='.$athlete->id)->assertForbidden();
     }
