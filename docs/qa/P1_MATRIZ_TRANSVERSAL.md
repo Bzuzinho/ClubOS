@@ -75,3 +75,47 @@ PR #347 integrada em `6cf14934ee7bee2aef8ce5a8d3abb5e92fadf8c6`. CI da PR 345009
 O E2E transversal passa a inspecionar também o contentor de tabelas HTML nativas, evitando que escapem ao controlo por não usarem `data-slot`. A CI deste incremento é obrigatória. O percurso financeiro existente tem linhas e faturas de teste; não se assume cobertura preenchida de recibos importados, aliases bancários ou encomendas só porque as páginas entram.
 
 P1 continua aberta para a ficha desportiva do membro, percursos de importação/configuração com dados e inventário residual de diálogos/grelhas. Em P2, rever a coexistência da catalogação bancária e conciliação manual, sem remover fluxos ou alterar fontes financeiras neste lote. P3/P4 (histórico e modalidade/época) mantêm a prioridade previamente definida.
+
+## Continuação: ficha desportiva do membro
+
+PR #348 integrada em `efbcf56657494bacf3b4fde94d64f1d900bf5493`; CI da PR 34503087605 verde, 180 testes de browser sem repetições. A ficha passa a usar os separadores comuns e cinco tabelas adaptáveis (treinos, presenças, convocatórias, resultados e disciplina). Escalão e descrição do treino deixam de estar ocultos/truncados. Presenças e convocatórias deixam de duplicar o markup móvel; todas as provas são apresentadas.
+
+O fixture testing acrescenta escalão ao atleta e ao treino e descrição preenchida. O percurso abre Membros → ficha → Desportivo, percorre sete separadores e verifica os seis campos do treino, incluindo escalão/descrição e overflow interno. TypeScript/lint locais passaram; CI do incremento pendente. Os restantes quatro históricos não têm ainda fixtures preenchidos neste percurso.
+
+Pendências funcionais confirmadas no source: `TreinosTab` filtra o catálogo pelo escalão atual, não pela participação histórica individual; `RegistoPresencasTab` lê `club-presencas`, projetado de `EventAttendance` em `EventosKeyValueService`, não de `TrainingAthlete`. A descrição deste separador foi corrigida para presenças em eventos. É necessária uma projeção individual explícita para integrar o histórico do Cais/Live e preservar a leitura após mudança de escalão. Não se conclui perda de dados a partir destas limitações de visualização. P1 e P3/P4 continuam abertas; importações preenchidas, diálogos e história individual permanecem pendentes.
+
+A CI 34506451477 revelou que a pesquisa de Membros prometia email no placeholder mas consultava apenas `email_utilizador`, ignorando `email`. O controller passa a pesquisar ambos; o E2E mantém a pesquisa pelo email do atleta, espera a resposta e só depois abre a ficha. CI anterior 34505509779 tinha exposto a corrida entre pesquisa com debounce e clique. Nova execução obrigatória; não ocultar estas falhas alterando o teste para pesquisar apenas pelo nome.
+
+## P3 — Participações individuais em treinos
+
+A consulta de Treinos da ficha passa a usar `training_athletes.user_id`, limitada ao clube do treino, paginada a 25 registos e ordenada por data. Não depende do escalão atual nem dos últimos 100 treinos do catálogo. A presença lê o mesmo registo usado no Cais; o estado da sessão usa `session_status`, sem deduzir conclusão pela data. Mostra época e escalões associados ao treino (não um snapshot do escalão individual do atleta). Sem migrations, novos writes ou alteração de permissões.
+
+`GetAthleteTrainingHistory`, `TrainingController::index`, `TreinosTab` e `AthleteTrainingHistoryTest` documentam a ligação. Testes cobrem mudança/remoção de escalão, 101 treinos posteriores sem participação, alteração de presença via Cais, paginação, outro atleta/clube, validação e autorização. Fixture E2E atribui ao atleta um escalão diferente do treino e confirma oito campos, época e presença. TypeScript/lint locais verdes; backend/browser dependem de CI, pois PHP não está disponível localmente.
+
+Incremento sobre a PR #349, ainda aberta nesta data. Não fecha P3: cronometrias Live, métricas técnicas, resultados e historial consolidado por época continuam fora desta visualização. Registo Presenças mantém Eventos; Treinos mostra a presença de cada participação. A consulta preserva acesso ao passado existente, não cria snapshots retroativos nem recupera registos eliminados. P1/P2/P4 mantêm as pendências anteriores.
+
+## P3 — Detalhe individual de Cais e Live
+
+Incremento sobre #350: cada participação permite abrir os registos do próprio atleta/treino. Reutiliza `SportsRecordsReadModelService::athleteTimeline`, com filtro opcional validado `training_id` e detalhe de tempos/parciais, métricas Live não anuladas e registos canónicos `TrainingMetric` do Cais. As permissões de Registos (`desportivo.treinos.cais,view`) continuam aplicadas no endpoint e determinam a disponibilidade da ação na ficha. Não há novos writes, migrations ou duplicação de históricos.
+
+Testes cobrem leitura individual de tempos e parciais, distância por repetição, métricas anuladas, exclusão de outro atleta/treino/clube. Fixture testing com monitorização concluída, tempo de 32,540 s em 50 m e nota técnica; browser verifica o detalhe sem overflow. TypeScript/lint/build locais e CI em validação. PRs #349 e #350 continuam pré-requisitos por integrar.
+
+Pendência identificada: `SportsAnalysisWorkspaceService::caisMetrics` consulta `TrainingAthleteCaisMetric`, enquanto `SportsCaisWorkspaceService` grava em `TrainingMetric`. Não assumir que Análise já reflete todos os registos do Cais atual. Resultados de competição, classificação histórica individual e consolidação global por época mantêm-se pendentes. Os nomes das métricas personalizadas do Cais ainda podem ser códigos, pois os registos atuais não guardam um snapshot do nome.
+
+## P3 — Análise alinhada com o Cais canónico
+
+A Análise passa a consultar `training_metrics`, a mesma fonte canónica onde `SportsCaisWorkspaceService` grava as métricas atuais. O resumo individual e a cobertura do grupo deixam assim de depender de `training_athlete_cais_metrics`, tabela de transição sem escritores no fluxo corrente. Os nomes e unidades continuam resolvidos pelo catálogo `SportsCaisMetricDefinition`; sessões canceladas e dados de outros clubes permanecem excluídos. A construção da Análise continua estritamente de leitura.
+
+O teste funcional grava a frequência cardíaca através do serviço real do Cais e confirma que a Análise devolve cobertura, último valor e média. O contrato de source impede a reintrodução do modelo de transição neste serviço. Não há migrations, novos writes produtivos, alteração de permissões ou atualização de percentagens.
+
+A tabela e o modelo legacy não são eliminados neste incremento: a remoção física exige uma verificação separada do cutover/backfill e dos dados existentes em produção. Após este lote deixam de ter consumidores runtime identificados. O incremento depende das PRs #349, #350 e #351, ainda abertas nesta data; resultados e histórico consolidado por época mantêm-se pendentes.
+
+## P3 — Resultados oficiais individuais e filtro de época dos treinos
+
+A ficha mostra resultados oficiais a partir de `results → provas → competitions`, paginados por atleta e isolados pelo clube da competição. O endpoint existente preserva a resposta em array dos consumidores sem `athlete_id`. O histórico individual é ordenado pela data da competição, inclui tempo em segundos, estado competitivo, classificação, pontos FINA, notas e parciais ordenados por distância. DNS/DNF/DSQ não são convertidos em resultados válidos. Não há writes nesta consulta nem alterações nas permissões de Resultados desportivos.
+
+Os registos de `club-resultados-provas` continuam identificados como Resultados de Eventos, sem eliminação ou migração silenciosa. A ficha anterior lia essa fonte e não a workspace canónica de Competições. Unificar os dois owners exige análise e reconciliação explícitas, fora deste incremento.
+
+Treinos podem ser filtrados por época associada ao treino. As opções derivam das participações do atleta no clube, incluindo épocas antigas; a opção geral preserva treinos sem época. A mudança de filtro regressa à primeira página e fecha o detalhe selecionado. Competições não possuem associação explícita a época no modelo atual: este lote não fabrica essa associação nem um snapshot retroativo.
+
+Testes funcionais cobrem resultados/parciais, estados sem tempo, mudança/remoção de escalão, paginação, separação de atletas/clubes, autorização e filtro de épocas. O fixture testing acrescenta competição, resultado de 61,42 s e parcial de 29,72 s aos 50 m; browser verifica tabela preenchida e filtro de treino nos cinco perfis. TypeScript/lint/build locais e CI a validar. Sem PHP local; testes Laravel são executados na CI. Incremento sobre #352; nenhuma integração ou publicação deste lote.

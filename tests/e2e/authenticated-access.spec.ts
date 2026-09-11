@@ -48,6 +48,63 @@ const expectNoHorizontalOverflow = async (page: Page) => {
 };
 
 test.describe('authenticated access', () => {
+    test('keeps member sports tabs and populated training fields readable', async ({ page }, testInfo) => {
+        test.setTimeout(60_000);
+        await login(page, testInfo, '/membros');
+        await page.getByRole('tab', { name: 'Membros', exact: true }).click();
+        await expect(page).toHaveURL(/\/membros\?tab=list$/);
+        await expect(page.locator('#nprogress')).toHaveCount(0);
+        await Promise.all([
+            page.waitForResponse(response => {
+                const url = new URL(response.url());
+                return url.pathname === '/membros' && url.searchParams.get('search') === 'e2e.sports@clubos.test' && response.ok();
+            }),
+            page.getByPlaceholder('Pesquisar por nome, NIF, nº sócio ou email...').fill('e2e.sports@clubos.test'),
+        ]);
+        await expect(page.locator('#nprogress')).toHaveCount(0);
+        await page.getByRole('link', { name: /Atleta E2E Desportivo/ }).filter({ visible: true }).first().click();
+        await expect(page).toHaveURL(/\/membros\/[^/?]+$/);
+        await page.getByRole('tab', { name: 'Desportivo', exact: true }).click();
+        const navigation = page.getByRole('navigation', { name: 'Áreas desportivas do membro' });
+        const tabs = navigation.getByRole('tab');
+        await expect(tabs).toHaveCount(7);
+        for (let i = 0; i < 7; i += 1) {
+            const tab = tabs.nth(i);
+            await tab.click();
+            await expect(tab).toHaveAttribute('aria-selected', 'true');
+            await expectNoHorizontalOverflow(page);
+        }
+        await navigation.getByRole('tab', { name: 'Treinos', exact: true }).click();
+        const training = page.getByRole('row').filter({ hasText: '#E2E-DESPORTIVO' });
+        await expect(training).toBeVisible();
+        await expect(training.getByRole('cell')).toHaveCount(8);
+        await expect(training.getByRole('cell').filter({ hasText: 'E2E Época' })).toBeVisible();
+        await expect(training.getByRole('cell').filter({ hasText: 'Presente' })).toBeVisible();
+        await expect(training.getByRole('cell').filter({ hasText: 'E2E Masters' })).toBeVisible();
+        await expect(training.getByRole('cell').filter({ hasText: 'E2E Descrição completa' })).toBeVisible();
+        await page.getByLabel('Época dos treinos', { exact: true }).selectOption({ label: 'E2E Época' });
+        await expect(training).toBeVisible();
+        await training.getByRole('button', { name: 'Ver registos', exact: true }).click();
+        const records = page.getByRole('region', { name: 'Registos de #E2E-DESPORTIVO' });
+        await expect(records.getByRole('cell', { name: '32.540 s', exact: true })).toBeVisible();
+        await expect(records.getByRole('cell', { name: '50 m · Livre', exact: true })).toBeVisible();
+        await expect(records.getByText('Nota técnica', { exact: true })).toBeVisible();
+        await expect(records).toContainText('E2E Melhorar a viragem');
+        await navigation.getByRole('tab', { name: 'Resultados', exact: true }).click();
+        const competitionHistory = page.getByRole('region', { name: 'Histórico de competições' });
+        const official = competitionHistory.getByRole('row').filter({ hasText: 'E2E Campeonato individual' });
+        await expect(official).toBeVisible();
+        await expect(official.getByRole('cell')).toHaveCount(10);
+        await expect(official.getByRole('cell', { name: '61,42 s', exact: true })).toBeVisible();
+        await expect(official.getByRole('cell', { name: '50 m: 29,72 s', exact: true })).toBeVisible();
+
+
+        await expectNoHorizontalOverflow(page);
+        expect(await page.locator('main [data-slot="table-container"], main [role="tablist"], main [class*="overflow"]').evaluateAll(
+            elements => elements.filter(el => el.getClientRects().length > 0 && el.scrollWidth > el.clientWidth + 1).length,
+        )).toBe(0);
+    });
+
     test('protects the dashboard and returns to the intended route after a valid login', async ({ page }, testInfo) => {
         await login(page, testInfo);
 

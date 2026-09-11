@@ -10,11 +10,11 @@ use App\Models\SportsAthleteParticipation;
 use App\Models\SportsModality;
 use App\Models\Training;
 use App\Models\TrainingAthlete;
-use App\Models\TrainingAthleteCaisMetric;
 use App\Models\TrainingGroup;
 use App\Models\TrainingGroupMembership;
 use App\Models\User;
 use App\Services\Desportivo\SportsAnalysisWorkspaceService;
+use App\Services\Desportivo\SportsCaisWorkspaceService;
 use App\Support\LegacySportsGuard;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -54,7 +54,7 @@ final class SportsAnalysisWorkspaceFunctionalTest extends TestCase
             'club_id' => 'bscn',
             'numero_treino' => 1,
             'data' => now()->subDays(3)->toDateString(),
-            'session_status' => 'completed',
+            'session_status' => 'published',
             'tipo_treino' => 'Técnico',
             'volume_planeado_m' => 3000,
         ]);
@@ -66,13 +66,10 @@ final class SportsAnalysisWorkspaceFunctionalTest extends TestCase
             'volume_real_m' => 2800,
             'rpe' => 7,
         ]);
-        TrainingAthleteCaisMetric::query()->create([
-            'treino_id' => $training->id,
-            'user_id' => $athlete->id,
-            'ordem' => 1,
-            'metrica' => 'Frequência cardíaca',
-            'valor' => '152',
-        ]);
+        app(SportsCaisWorkspaceService::class)->saveRegister($training, $athlete, [
+            'metrics' => [['code' => 'heart_rate', 'value' => '152']],
+        ], User::factory()->create());
+        $training->update(['session_status' => 'completed']);
 
         $competition = Competition::query()->create([
             'club_id' => 'bscn',
@@ -122,6 +119,10 @@ final class SportsAnalysisWorkspaceFunctionalTest extends TestCase
         $this->assertSame(1, $payload['coverage']['cais_metrics']);
         $this->assertSame('152', $payload['training']['cais_metrics'][0]['latest']);
         $this->assertSame(152.0, $payload['training']['cais_metrics'][0]['average']);
+        $this->assertStringNotContainsString(
+            'TrainingAthleteCaisMetric',
+            file_get_contents(app_path('Services/Desportivo/SportsAnalysisWorkspaceService.php')),
+        );
         $this->assertStringContainsString('Não', $payload['disclaimer']);
     }
 

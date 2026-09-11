@@ -106,6 +106,7 @@ class MembrosController extends Controller
                         ->orWhere('nome_completo', $operator, '%'.$search.'%')
                         ->orWhere('numero_socio', $operator, '%'.$search.'%')
                         ->orWhere('email_utilizador', $operator, '%'.$search.'%')
+                        ->orWhere('email', $operator, '%'.$search.'%')
                         ->orWhere('nif', $operator, '%'.$search.'%')
                         ->orWhereHas('dadosPessoais', function ($personalQuery) use ($search, $operator): void {
                             $personalQuery

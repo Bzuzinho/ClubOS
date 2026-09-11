@@ -8,9 +8,9 @@ use App\Models\SportsCaisMetricDefinition;
 use App\Models\SportsEvaluation;
 use App\Models\SportsLiveMetricRecord;
 use App\Models\TrainingAthlete;
-use App\Models\TrainingAthleteCaisMetric;
 use App\Models\TrainingGroup;
 use App\Models\TrainingGroupMembership;
+use App\Models\TrainingMetric;
 use App\Models\User;
 use App\Services\Members\MemberIdentityDisplayResolver;
 use Illuminate\Support\Carbon;
@@ -229,14 +229,14 @@ final class SportsAnalysisWorkspaceService
             ->groupBy(fn (SportsLiveMetricRecord $row) => (string) $row->user_id)
             ->map->count();
 
-        $caisCounts = TrainingAthleteCaisMetric::query()
+        $caisCounts = TrainingMetric::query()
             ->whereIn('user_id', $ids)
             ->whereHas('training', fn ($q) => $q
                 ->where('club_id', $this->clubContext->id())
                 ->whereDate('data', '>=', $from->toDateString())
                 ->where('session_status', '!=', 'cancelled'))
             ->get()
-            ->groupBy(fn (TrainingAthleteCaisMetric $row) => (string) $row->user_id)
+            ->groupBy(fn (TrainingMetric $row) => (string) $row->user_id)
             ->map->count();
 
         $summaries = $ids->map(function (string $id) use ($users, $names, $trainingRows, $evaluations, $results, $liveCounts, $caisCounts): ?array {
@@ -432,7 +432,7 @@ final class SportsAnalysisWorkspaceService
             ->where('club_id', $this->clubContext->id())
             ->get();
 
-        return TrainingAthleteCaisMetric::query()
+        return TrainingMetric::query()
             ->where('user_id', $athlete->id)
             ->whereHas('training', fn ($q) => $q
                 ->where('club_id', $this->clubContext->id())
@@ -441,13 +441,13 @@ final class SportsAnalysisWorkspaceService
             ->orderByDesc('updated_at')
             ->orderByDesc('created_at')
             ->get()
-            ->groupBy(fn (TrainingAthleteCaisMetric $row) => trim((string) $row->metrica) ?: 'metrica')
+            ->groupBy(fn (TrainingMetric $row) => trim((string) $row->metrica) ?: 'metrica')
             ->map(function (Collection $rows, string $code) use ($definitions): array {
                 $definition = $definitions->first(fn (SportsCaisMetricDefinition $item) =>
                     (string) $item->codigo === $code || (string) $item->nome === $code
                 );
                 $numeric = $rows
-                    ->map(fn (TrainingAthleteCaisMetric $row) => is_numeric($row->valor) ? (float) $row->valor : null)
+                    ->map(fn (TrainingMetric $row) => is_numeric($row->valor) ? (float) $row->valor : null)
                     ->filter(fn ($value) => $value !== null)
                     ->values();
                 $latest = $rows->first();
@@ -585,7 +585,7 @@ final class SportsAnalysisWorkspaceService
             ['code' => 'attendance', 'name' => 'Assiduidade', 'source' => 'Cais / training_athletes', 'nature' => 'factual'],
             ['code' => 'volume', 'name' => 'Volume realizado', 'source' => 'Treino + presença', 'nature' => 'derived'],
             ['code' => 'rpe', 'name' => 'RPE', 'source' => 'Cais / training_athletes', 'nature' => 'measured'],
-            ['code' => 'cais_metrics', 'name' => 'Métricas Cais', 'source' => 'training_athlete_cais_metrics + catálogo Cais', 'nature' => 'measured'],
+            ['code' => 'cais_metrics', 'name' => 'Métricas Cais', 'source' => 'training_metrics + catálogo Cais', 'nature' => 'measured'],
             ['code' => 'live_metrics', 'name' => 'Métricas Live', 'source' => 'sports_live_metric_records', 'nature' => 'measured'],
             ['code' => 'evaluation', 'name' => 'Avaliação formal', 'source' => 'Avaliações', 'nature' => 'coach_appraisal'],
             ['code' => 'competition_time', 'name' => 'Tempo competitivo', 'source' => 'Resultados', 'nature' => 'factual'],

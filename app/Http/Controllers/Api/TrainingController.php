@@ -12,6 +12,8 @@ use App\Services\Desportivo\Queries\GetTrainingPoolDeckView;
 use App\Services\Desportivo\SportsClubContext;
 use App\Services\Desportivo\UpdateTrainingScheduleAction;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use App\Services\Desportivo\Queries\GetAthleteTrainingHistory;
 
 class TrainingController extends Controller
 {
@@ -26,8 +28,32 @@ class TrainingController extends Controller
      * GET /api/desportivo/trainings
      * Retorna lista de treinos com dados essenciais.
      */
-    public function index(): JsonResponse
+    public function index(Request $request): JsonResponse
     {
+        if ($request->has('athlete_id')) {
+            $filters = $request->validate([
+                'athlete_id' => ['required', 'uuid'],
+                'page' => ['sometimes', 'integer', 'min:1'],
+                'season_id' => ['sometimes', 'nullable', 'uuid'],
+            ]);
+
+            $history = app(GetAthleteTrainingHistory::class)(
+                $filters['athlete_id'], (int) ($filters['page'] ?? 1), $filters['season_id'] ?? null,
+            );
+            return response()->json([
+                ...$history->toArray(),
+                'seasons' => \App\Models\Season::query()
+                    ->where('club_id', $this->clubContext->id())
+                    ->whereIn('id', \App\Models\Training::query()
+                        ->where('club_id', $this->clubContext->id())
+                        ->whereHas('athleteRecords', fn ($query) => $query->where('user_id', $filters['athlete_id']))
+                        ->select('epoca_id'))
+                    ->orderByDesc('data_inicio')->orderBy('id')->get(['id', 'nome']),
+                'can_view_records' => app(\App\Services\AccessControl\UserTypeAccessControlService::class)
+                    ->canAccessPermission($request->user(), 'desportivo.treinos.cais', 'view'),
+            ]);
+        }
+
         $trainings = Training::query()
             ->where('club_id', $this->clubContext->id())
             ->with([

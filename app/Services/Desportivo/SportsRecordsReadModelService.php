@@ -147,8 +147,10 @@ final class SportsRecordsReadModelService
     {
         $filters = $this->filters($request);
         $filters['athlete_id'] = $athleteId;
+        $trainingId = $request->string('training_id')->toString();
 
         $paginator = $this->trainingScope($filters)
+            ->when($trainingId !== '', fn (Builder $query) => $query->where('id', $trainingId))
             ->with('sessionGroups.group')
             ->orderByDesc('data')
             ->orderByDesc('hora_inicio')
@@ -163,7 +165,7 @@ final class SportsRecordsReadModelService
             ->whereHas('measurement.monitoring', fn (Builder $query) => $query
                 ->where('club_id', $this->clubContext->id())
                 ->whereIn('training_id', $trainingIds))
-            ->with(['measurement.series.stroke', 'measurement.monitoring', 'classification'])
+            ->with($this->timingRelations())
             ->get()
             ->groupBy(fn (SportsLiveMeasurementAthlete $row): string => (string) $row->measurement?->training_id);
 
@@ -172,6 +174,7 @@ final class SportsRecordsReadModelService
             ->whereIn('training_id', $trainingIds)
             ->where('user_id', $athleteId)
             ->whereNull('voided_at')
+            ->with(['athlete.dadosPessoais', 'series.stroke', 'series.zone'])
             ->orderBy('recorded_at')
             ->get()
             ->groupBy('training_id');
@@ -182,7 +185,7 @@ final class SportsRecordsReadModelService
             ->get()
             ->groupBy('treino_id');
 
-        $paginator->setCollection($paginator->getCollection()->map(function (Training $training) use ($timings, $metrics, $operations): array {
+        $paginator->setCollection($paginator->getCollection()->map(function (Training $training) use ($timings, $metrics, $operations, $trainingId): array {
             $trainingTimings = $timings->get((string) $training->id, collect());
             $execution = $trainingTimings->groupBy(function (SportsLiveMeasurementAthlete $row): string {
                 $monitoring = $row->measurement?->monitoring;
@@ -219,6 +222,15 @@ final class SportsRecordsReadModelService
                     'start_time' => $training->hora_inicio ? substr((string) $training->hora_inicio, 0, 5) : null,
                     'group' => $training->sessionGroups->pluck('group.name')->filter()->join(', '),
                 ],
+                ...($trainingId !== '' ? [
+                    'execution' => $trainingTimings->map(fn (SportsLiveMeasurementAthlete $row): array => $this->timingPayload($row))->values(),
+                    'live_metrics' => $metrics->get((string) $training->id, collect())->map(fn (SportsLiveMetricRecord $row): array => $this->metricPayload($row))->values(),
+                    'cais_registers' => $operations->get((string) $training->id, collect())->map(fn (TrainingMetric $row): array => [
+                        'id' => (string) $row->id, 'code' => $row->metrica,
+                        'value' => $row->valor, 'note' => $row->observacao,
+                        'recorded_at' => $row->recorded_at?->toIso8601String() ?? $row->created_at?->toIso8601String(),
+                    ])->values(),
+                ] : []),
                 'measurement_count' => $trainingTimings->count(),
                 'execution_summary' => $execution,
                 'metrics' => $latestMetrics,

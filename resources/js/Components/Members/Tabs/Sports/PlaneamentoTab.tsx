@@ -248,7 +248,7 @@ export function PlaneamentoTab({ user }: PlaneamentoTabProps) {
       )}
 
       <div className="border rounded-md overflow-hidden">
-        <Table>
+        <Table responsive>
           <TableHeader>
             <TableRow>
               <TableHead className="text-xs h-8">Data</TableHead>
@@ -268,11 +268,11 @@ export function PlaneamentoTab({ user }: PlaneamentoTabProps) {
             ) : (
               records.map((record) => (
                 <TableRow key={record.id}>
-                  <TableCell className="text-xs whitespace-nowrap">{record.data}</TableCell>
-                  <TableCell className="text-xs">{record.descricao_comportamento}</TableCell>
-                  <TableCell className="text-xs">{record.classificacao}</TableCell>
-                  {isMinor && <TableCell className="text-xs">{record.aviso_ee ? 'Sim' : 'Não'}</TableCell>}
-                  <TableCell className="text-right">
+                  <TableCell label="Data" className="text-xs whitespace-nowrap">{record.data}</TableCell>
+                  <TableCell label="Descrição do Comportamento" className="text-xs">{record.descricao_comportamento}</TableCell>
+                  <TableCell label="Classificação" className="text-xs">{record.classificacao}</TableCell>
+                  {isMinor && <TableCell label="Aviso ao EE" className="text-xs">{record.aviso_ee ? 'Sim' : 'Não'}</TableCell>}
+                  <TableCell label="Ações" className="text-right">
                     <div className="flex justify-end gap-1">
                       <Button type="button" variant="outline" size="icon" className="h-7 w-7" onClick={() => startEdit(record)}>
                         <Pencil size={14} />
