@@ -34,6 +34,16 @@ final class E2eSportsBrowserSeeder extends Seeder
             'data_nascimento' => '1990-01-01', 'menor' => false, 'rgpd' => true, 'consentimento' => true,
             'afiliacao' => false, 'declaracao_de_transporte' => false,
         ]);
+        $competition = \App\Models\Competition::query()->updateOrCreate(['club_id' => $club, 'nome' => 'E2E Campeonato individual'], [
+            'local' => 'Leiria', 'data_inicio' => now()->subDays(2)->toDateString(), 'tipo' => 'piscina', 'status' => 'completed',
+        ]);
+        $race = \App\Models\Prova::query()->updateOrCreate(['competicao_id' => $competition->id, 'ordem_prova' => 1], [
+            'estilo' => 'LIVRE', 'distancia_m' => 100, 'genero' => 'M',
+        ]);
+        $result = \App\Models\Result::query()->updateOrCreate(['prova_id' => $race->id, 'user_id' => $athlete->id], [
+            'tempo_oficial' => 61.42, 'posicao' => 2, 'pontos_fina' => 450, 'status' => 'ok',
+        ]);
+        \App\Models\ResultSplit::query()->updateOrCreate(['resultado_id' => $result->id, 'distancia_parcial_m' => 50], ['tempo_parcial' => 29.72]);
         $ageGroup = AgeGroup::query()->updateOrCreate(['club_id' => $club, 'code' => 'e2e-masters'], [
             'nome' => 'E2E Masters', 'ativo' => true,
         ]);

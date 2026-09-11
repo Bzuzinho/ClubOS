@@ -12,13 +12,14 @@ final class GetAthleteTrainingHistory
 {
     public function __construct(private readonly SportsClubContext $clubContext) {}
 
-    public function __invoke(string $athleteId, int $page = 1): LengthAwarePaginator
+    public function __invoke(string $athleteId, int $page = 1, ?string $seasonId = null): LengthAwarePaginator
     {
         $club = $this->clubContext->id();
 
         return TrainingAthlete::query()
             ->where('user_id', $athleteId)
             ->whereHas('training', fn ($query) => $query->where('club_id', $club))
+            ->when($seasonId, fn ($query) => $query->whereHas('training', fn ($training) => $training->where('epoca_id', $seasonId)->whereHas('season', fn ($season) => $season->where('club_id', $club))))
             ->with(['training.season', 'training.ageGroups'])
             ->join('trainings', 'trainings.id', '=', 'training_athletes.treino_id')
             ->select('training_athletes.*')

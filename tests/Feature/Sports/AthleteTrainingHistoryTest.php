@@ -83,6 +83,28 @@ final class AthleteTrainingHistoryTest extends TestCase
         $this->assertNotContains($second->json('data.0.id'), array_column($first->json('data'), 'id'));
     }
 
+    public function test_season_filter_uses_training_links_and_only_offers_the_athletes_club_seasons(): void
+    {
+        $athlete = User::factory()->create();
+        $season = \App\Models\Season::query()->create([
+            'club_id' => 'bscn', 'nome' => 'Histórica', 'ano_temporada' => '2024/25',
+            'data_inicio' => '2024-09-01', 'data_fim' => '2025-08-31', 'tipo' => 'Principal',
+        ]);
+        $training = $this->training('WITH-SEASON');
+        $training->update(['epoca_id' => $season->id]);
+        $this->includeAthlete($training, $athlete);
+        $this->includeAthlete($this->training('WITHOUT-SEASON'), $athlete);
+        $url = '/api/desportivo/trainings?athlete_id='.$athlete->id;
+        $this->getJson($url)->assertOk()->assertJsonPath('total', 2)
+            ->assertJsonCount(1, 'seasons')->assertJsonPath('seasons.0.id', $season->id);
+        $this->getJson($url.'&season_id='.$season->id)->assertOk()->assertJsonPath('total', 1)
+            ->assertJsonPath('data.0.numero_treino', 'WITH-SEASON');
+        $this->getJson($url.'&season_id=invalid')->assertUnprocessable();
+        $season->update(['club_id' => 'other-club']);
+        $this->getJson($url)->assertOk()->assertJsonCount(0, 'seasons');
+        $this->getJson($url.'&season_id='.$season->id)->assertOk()->assertJsonPath('total', 0);
+    }
+
     public function test_history_validates_parameters_and_preserves_route_authorization(): void
     {
         $this->getJson('/api/desportivo/trainings?athlete_id=invalid')->assertUnprocessable();

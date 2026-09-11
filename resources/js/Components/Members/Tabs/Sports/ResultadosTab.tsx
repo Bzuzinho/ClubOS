@@ -1,3 +1,4 @@
+import { CompetitionHistory } from './CompetitionHistory';
 import { User, ResultadoProva, Event } from '@/types';
 import { useKV } from '@/hooks/useKV';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/Components/ui/table';
@@ -99,9 +100,11 @@ export function ResultadosTab({ user, isAdmin }: ResultadosTabProps) {
   };
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-4">
+      <CompetitionHistory key={user.id} athleteId={user.id} />
+      <h3 className="text-sm font-semibold">Resultados de Eventos</h3>
       <div className="flex items-center justify-between">
-        <p className="text-xs text-muted-foreground">Resultados de provas do atleta</p>
+        <p className="text-xs text-muted-foreground">Registos de provas associados a Eventos</p>
         {isAdmin && (
           <Button
             size="sm"

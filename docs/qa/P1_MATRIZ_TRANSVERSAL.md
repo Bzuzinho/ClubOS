@@ -109,3 +109,13 @@ A Análise passa a consultar `training_metrics`, a mesma fonte canónica onde `S
 O teste funcional grava a frequência cardíaca através do serviço real do Cais e confirma que a Análise devolve cobertura, último valor e média. O contrato de source impede a reintrodução do modelo de transição neste serviço. Não há migrations, novos writes produtivos, alteração de permissões ou atualização de percentagens.
 
 A tabela e o modelo legacy não são eliminados neste incremento: a remoção física exige uma verificação separada do cutover/backfill e dos dados existentes em produção. Após este lote deixam de ter consumidores runtime identificados. O incremento depende das PRs #349, #350 e #351, ainda abertas nesta data; resultados e histórico consolidado por época mantêm-se pendentes.
+
+## P3 — Resultados oficiais individuais e filtro de época dos treinos
+
+A ficha mostra resultados oficiais a partir de `results → provas → competitions`, paginados por atleta e isolados pelo clube da competição. O endpoint existente preserva a resposta em array dos consumidores sem `athlete_id`. O histórico individual é ordenado pela data da competição, inclui tempo em segundos, estado competitivo, classificação, pontos FINA, notas e parciais ordenados por distância. DNS/DNF/DSQ não são convertidos em resultados válidos. Não há writes nesta consulta nem alterações nas permissões de Resultados desportivos.
+
+Os registos de `club-resultados-provas` continuam identificados como Resultados de Eventos, sem eliminação ou migração silenciosa. A ficha anterior lia essa fonte e não a workspace canónica de Competições. Unificar os dois owners exige análise e reconciliação explícitas, fora deste incremento.
+
+Treinos podem ser filtrados por época associada ao treino. As opções derivam das participações do atleta no clube, incluindo épocas antigas; a opção geral preserva treinos sem época. A mudança de filtro regressa à primeira página e fecha o detalhe selecionado. Competições não possuem associação explícita a época no modelo atual: este lote não fabrica essa associação nem um snapshot retroativo.
+
+Testes funcionais cobrem resultados/parciais, estados sem tempo, mudança/remoção de escalão, paginação, separação de atletas/clubes, autorização e filtro de épocas. O fixture testing acrescenta competição, resultado de 61,42 s e parcial de 29,72 s aos 50 m; browser verifica tabela preenchida e filtro de treino nos cinco perfis. TypeScript/lint/build locais e CI a validar. Sem PHP local; testes Laravel são executados na CI. Incremento sobre #352; nenhuma integração ou publicação deste lote.

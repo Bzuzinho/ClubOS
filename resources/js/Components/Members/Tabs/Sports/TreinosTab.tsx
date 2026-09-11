@@ -23,6 +23,7 @@ interface Participation {
 }
 
 interface HistoryPage {
+  seasons: { id: string; nome: string }[];
   can_view_records: boolean;
   data: Participation[];
   current_page: number;
@@ -44,13 +45,14 @@ export function TreinosTab({ user }: { user: User }) {
 
 function AthleteHistory({ athleteId }: { athleteId: string }) {
   const [page, setPage] = useState(1);
+  const [seasonId, setSeasonId] = useState('');
   const [selected, setSelected] = useState<Participation | null>(null);
   const history = useQuery<HistoryPage>({
-    queryKey: ['member-training-history', athleteId, page],
+    queryKey: ['member-training-history', athleteId, page, seasonId],
     enabled: Boolean(athleteId),
     queryFn: async ({ signal }) => {
       const response = await axios.get<HistoryPage>('/api/desportivo/trainings', {
-        params: { athlete_id: athleteId, page }, signal,
+        params: { athlete_id: athleteId, page, season_id: seasonId || undefined }, signal,
       });
       return response.data;
     },
@@ -73,6 +75,13 @@ function AthleteHistory({ athleteId }: { athleteId: string }) {
           Treinos em que o atleta foi incluído e presenças registadas no Cais, independentemente do escalão atual.
         </p>
       </Card>
+      <label className="flex flex-wrap items-center gap-2 text-sm">
+        Época dos treinos
+        <select aria-label="Época dos treinos" className="min-w-0 max-w-full rounded border bg-background p-2" value={seasonId} onChange={event => { setSeasonId(event.target.value); setPage(1); setSelected(null); }}>
+          <option value="">Todas as épocas, incluindo treinos sem época</option>
+          {result.seasons.map(season => <option key={season.id} value={season.id}>{season.nome}</option>)}
+        </select>
+      </label>
       {result.data.length === 0 ? <p className="p-4 text-sm text-muted-foreground">Sem participações em treinos nesta página.</p> : (
         <div className="border rounded-lg">
           <Table responsive>

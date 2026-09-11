@@ -19,6 +19,26 @@ class CompetitionResultController extends Controller
 
     public function index(Request $request): JsonResponse
     {
+        if ($request->has('athlete_id')) {
+            $filters = $request->validate([
+                'athlete_id' => ['required', 'uuid'],
+                'page' => ['sometimes', 'integer', 'min:1'],
+            ]);
+            $history = Result::query()
+                ->where('user_id', $filters['athlete_id'])
+                ->whereHas('prova.competition', fn ($query) => $query->forClub($this->clubContext->id()))
+                ->with(['athlete', 'prova.competition', 'splits'])
+                ->join('provas', 'provas.id', '=', 'results.prova_id')
+                ->join('competitions', 'competitions.id', '=', 'provas.competicao_id')
+                ->select('results.*')
+                ->orderByDesc('competitions.data_inicio')
+                ->orderByDesc('results.id')
+                ->paginate(25, ['results.*'], 'page', (int) ($filters['page'] ?? 1))
+                ->through(fn (Result $result) => $this->payload($result));
+
+            return response()->json($history);
+        }
+
         $competitionId = $request->query('competition_id');
 
         $results = Result::with(['athlete', 'prova.competition', 'splits'])
@@ -121,6 +141,9 @@ class CompetitionResultController extends Controller
             'prova_id' => $result->prova_id,
             'competition_id' => $result->prova?->competition?->id,
             'competition_nome' => $result->prova?->competition?->nome,
+            'competition_date' => $result->prova?->competition?->data_inicio?->toDateString(),
+            'competition_local' => $result->prova?->competition?->local,
+            'competition_status' => $result->prova?->competition?->status,
             'user_id' => $result->user_id,
             'user_nome' => $result->athlete?->nome_completo,
             'prova' => trim(($result->prova?->distancia_m ?? 0).'m '.($result->prova?->estilo ?? '')),
@@ -132,7 +155,7 @@ class CompetitionResultController extends Controller
             'status' => $result->status ?: ($result->desclassificado ? 'dsq' : 'ok'),
             'desqualificado' => $result->desclassificado ?? false,
             'observacoes' => $result->observacoes,
-            'splits' => $result->splits->map(fn ($split) => [
+            'splits' => $result->splits->sortBy('distancia_parcial_m')->map(fn ($split) => [
                 'distance_m' => $split->distancia_parcial_m,
                 'time' => $split->tempo_parcial,
             ])->values(),

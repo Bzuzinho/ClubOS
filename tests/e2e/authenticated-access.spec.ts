@@ -49,6 +49,7 @@ const expectNoHorizontalOverflow = async (page: Page) => {
 
 test.describe('authenticated access', () => {
     test('keeps member sports tabs and populated training fields readable', async ({ page }, testInfo) => {
+        test.setTimeout(60_000);
         await login(page, testInfo, '/membros');
         await page.getByRole('tab', { name: 'Membros', exact: true }).click();
         await expect(page).toHaveURL(/\/membros\?tab=list$/);
@@ -81,12 +82,22 @@ test.describe('authenticated access', () => {
         await expect(training.getByRole('cell').filter({ hasText: 'Presente' })).toBeVisible();
         await expect(training.getByRole('cell').filter({ hasText: 'E2E Masters' })).toBeVisible();
         await expect(training.getByRole('cell').filter({ hasText: 'E2E Descrição completa' })).toBeVisible();
+        await page.getByLabel('Época dos treinos', { exact: true }).selectOption({ label: 'E2E Época' });
+        await expect(training).toBeVisible();
         await training.getByRole('button', { name: 'Ver registos', exact: true }).click();
         const records = page.getByRole('region', { name: 'Registos de #E2E-DESPORTIVO' });
         await expect(records.getByRole('cell', { name: '32.540 s', exact: true })).toBeVisible();
         await expect(records.getByRole('cell', { name: '50 m · Livre', exact: true })).toBeVisible();
         await expect(records.getByText('Nota técnica', { exact: true })).toBeVisible();
         await expect(records).toContainText('E2E Melhorar a viragem');
+        await navigation.getByRole('tab', { name: 'Resultados', exact: true }).click();
+        const competitionHistory = page.getByRole('region', { name: 'Histórico de competições' });
+        const official = competitionHistory.getByRole('row').filter({ hasText: 'E2E Campeonato individual' });
+        await expect(official).toBeVisible();
+        await expect(official.getByRole('cell')).toHaveCount(10);
+        await expect(official.getByRole('cell', { name: '61,42 s', exact: true })).toBeVisible();
+        await expect(official.getByRole('cell', { name: '50 m: 29,72 s', exact: true })).toBeVisible();
+
 
         await expectNoHorizontalOverflow(page);
         expect(await page.locator('main [data-slot="table-container"], main [role="tablist"], main [class*="overflow"]').evaluateAll(
