@@ -13,6 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/Components/ui/table';
 import {
   inferImportMapping,
+  decodeMemberImportCsv,
   MEMBER_IMPORT_FIELDS,
   MEMBER_IMPORT_GROUP_LABELS,
   type MemberImportGroup,
@@ -132,7 +133,9 @@ export function MemberImportDialog() {
     try {
       const xlsx = await loadXlsxModule();
       const buffer = await file.arrayBuffer();
-      const workbook = xlsx.read(buffer, { type: 'array' });
+      const workbook = file.name.toLowerCase().endsWith('.csv')
+        ? xlsx.read(decodeMemberImportCsv(buffer), { type: 'string' })
+        : xlsx.read(buffer, { type: 'array' });
       const sheetName = workbook.SheetNames[0];
       const sheet = workbook.Sheets[sheetName];
 

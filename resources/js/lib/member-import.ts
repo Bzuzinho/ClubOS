@@ -79,3 +79,11 @@ export function inferImportMapping(headers: string[]): Record<string, string> {
 
   return mapping;
 }
+/** CSV exports may be UTF-8 (with or without BOM) or legacy Windows-1252. */
+export function decodeMemberImportCsv(buffer: ArrayBuffer): string {
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(buffer);
+  } catch {
+    return new TextDecoder('windows-1252').decode(buffer);
+  }
+}
