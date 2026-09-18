@@ -131,3 +131,10 @@ O diálogo de importação permitia fechar/reabrir durante a leitura do ficheiro
 Sem alteração do contrato backend, permissões ou migrations. Esta proteção não é idempotência no servidor nem protege contra reload/fecho do browser ou múltiplos separadores. A escrita do teste de componente usa mock; o teste de navegador chama o preview real e não cria membros. P1 mantém pendentes a importação efetiva e restantes diálogos/percursos financeiros; P2/P3/P4 mantêm as pendências anteriores.
 
 A primeira CI 34826731389 encontrou corrupção de acentos em CSV UTF-8 sem BOM: a pré-visualização mostrava “importaÃ§Ã£o”. A leitura de CSV passa a descodificar UTF-8 explicitamente, com fallback Windows-1252 para ficheiros antigos; XLS/XLSX conservam o leitor binário. Três regressões locais cobrem nomes portugueses em UTF-8 com/sem BOM e Windows-1252. O E2E mantém a linha acentuada e não disfarça a falha alterando os dados de teste. Nova CI obrigatória.
+
+
+## P1 — Importação efetiva de membros em browser
+
+O percurso de browser deixa de terminar no preview e passa a executar a importação real no ambiente efémero de testing. Cada execução gera nome e email únicos por projeto/worker/instante, valida o preview preenchido, envia o POST real de importação, exige `created_count=1`, zero ignorados/erros e um `created_id`, fecha o diálogo e confirma o membro criado através da pesquisa por email na lista.
+
+A alteração não toca em dados produtivos, migrations ou contratos do backend. O objetivo é provar o percurso UI → preview → store → leitura na lista e detetar regressões de persistência que o preview isolado não conseguia cobrir. CI completa obrigatória antes de considerar esta pendência P1 fechada.
