@@ -83,5 +83,32 @@ final class E2eSportsBrowserSeeder extends Seeder
             'monitoring_athlete_id'=>$monitorAthlete->id, 'training_athlete_id'=>$participation->id,
             'state'=>'stopped', 'duration_ms'=>32540, 'stopped_at'=>now(),
         ]);
+
+
+        // Dedicated mutation fixture for browser QA. It must not share the athlete/session
+        // used by the five parallel read-only browser projects.
+        $mutationAthlete = User::query()->firstOrCreate(['email' => 'e2e.sports.mutation@clubos.test'], [
+            'name' => 'Atleta E2E Mutação', 'nome_completo' => 'Atleta E2E Mutação',
+            'password' => bcrypt('No-browser-login-2026!'), 'perfil' => 'atleta',
+            'estado' => 'ativo', 'tipo_membro' => ['atleta'], 'ativo_desportivo' => true,
+            'data_nascimento' => '1991-01-01', 'menor' => false, 'rgpd' => true, 'consentimento' => true,
+            'afiliacao' => false, 'declaracao_de_transporte' => false,
+        ]);
+        $mutationAthlete->update(['escalao' => [$ageGroup->id]]);
+        $mutationTraining = Training::query()->updateOrCreate(['numero_treino' => '#E2E-MUTATION'], [
+            'club_id' => $club, 'data' => now()->toDateString(), 'hora_inicio' => '20:00', 'hora_fim' => '20:45',
+            'descricao_treino' => 'Fixture isolado para persistência Cais/Live no browser QA.',
+            'tipo_treino' => 'E2E Mutação', 'session_status' => 'published', 'epoca_id' => $season->id,
+            'macrocycle_id' => $macro->id, 'mesociclo_id' => $meso->id, 'microciclo_id' => $micro->id,
+        ]);
+        $mutationTraining->syncAgeGroupsWithPivot([$ageGroup->id]);
+        TrainingAthlete::query()->updateOrCreate(['treino_id' => $mutationTraining->id, 'user_id' => $mutationAthlete->id], [
+            'presente' => true, 'estado' => 'presente', 'registado_em' => now(),
+        ]);
+        TrainingSeries::query()->updateOrCreate(['treino_id' => $mutationTraining->id, 'ordem' => 1], [
+            'descricao_texto' => 'E2E Persistência Live', 'distancia_total_m' => 50, 'estilo' => 'Livre',
+            'repeticoes' => 2, 'distancia_m' => 25, 'block_name' => 'Persistência', 'block_order' => 1,
+            'block_rounds' => 1, 'timing_mode' => 'each_rep',
+        ]);
     }
 }
