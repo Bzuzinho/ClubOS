@@ -65,7 +65,7 @@ test.describe('authenticated access', () => {
         await dialog.getByLabel('Ficheiro Excel ou CSV').setInputFiles({
             name: 'effective-members.csv',
             mimeType: 'text/csv',
-            buffer: Buffer.from(`Nome,Email\n${importedName},${importedEmail}\n`),
+            buffer: Buffer.from(`Nome,Email login\n${importedName},${importedEmail}\n`),
         });
 
         await expect(dialog.getByRole('button', { name: 'Validar importação', exact: true })).toBeVisible();
