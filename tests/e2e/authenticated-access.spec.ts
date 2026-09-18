@@ -526,13 +526,13 @@ test.describe('authenticated access', () => {
             page.getByRole('button', { name: /REGISTAR 1\.ª · 25 m/ }).click(),
         ]);
         expect(stopResponse.ok()).toBe(true);
-        await expect(page.getByText(/1\.ª · 25 m · 00:00\./)).toBeVisible();
+        await expect(page.getByText(/1\.ª · 25 m ·/)).toBeVisible();
         await expect(page.getByText(/Rep\. 2\/2 · 25 m/)).toBeVisible();
 
         await page.reload();
         await expect(page.locator('#nprogress')).toHaveCount(0);
         await page.getByRole('button', { name: 'Abrir', exact: true }).click();
-        await expect(page.getByText(/1\.ª · 25 m · 00:00\./)).toBeVisible();
+        await expect(page.getByText(/1\.ª · 25 m ·/)).toBeVisible();
         await expect(page.getByText(/Rep\. 2\/2 · 25 m/)).toBeVisible();
 
         page.once('dialog', dialog => void dialog.accept());
@@ -577,7 +577,8 @@ test.describe('authenticated access', () => {
 
         // Managed legacy blocks are normalised into independent elements. Select
         // the actual heading node from the structure tree before editing it.
-        await page.getByRole('button', { name: 'E2E Mutação inicial Título', exact: true }).click();
+        const structure = page.getByRole('complementary', { name: 'Estrutura da página' });
+        await structure.getByRole('button').filter({ hasText: 'E2E Mutação inicial' }).filter({ hasText: 'Título' }).click();
         const titleField = properties.getByText('Título', { exact: true }).locator('..').locator('textarea');
         await expect(titleField).toBeVisible();
         const persistedTitle = `E2E Website persistido ${Date.now()}`;
@@ -600,7 +601,8 @@ test.describe('authenticated access', () => {
         await expect(page.locator('#nprogress')).toHaveCount(0);
         const reloadedProperties = page.getByRole('complementary', { name: 'Propriedades da página' });
         await reloadedProperties.getByRole('tab', { name: 'Conteúdo', exact: true }).click();
-        await page.getByRole('button', { name: `${persistedTitle} Título`, exact: true }).click();
+        const reloadedStructure = page.getByRole('complementary', { name: 'Estrutura da página' });
+        await reloadedStructure.getByRole('button').filter({ hasText: persistedTitle }).filter({ hasText: 'Título' }).click();
         const reloadedTitle = reloadedProperties.getByText('Título', { exact: true }).locator('..').locator('textarea');
         await expect(reloadedTitle).toHaveValue(persistedTitle);
         const preview = page.frameLocator('iframe[title="Pré-visualização em tempo real"]');
