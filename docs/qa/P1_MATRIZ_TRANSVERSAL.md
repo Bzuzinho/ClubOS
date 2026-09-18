@@ -145,3 +145,10 @@ A alteração não toca em dados produtivos, migrations ou contratos do backend.
 É acrescentado um fixture de testing dedicado e isolado dos cinco percursos read-only paralelos. Um único percurso Chromium desktop altera a presença no Cais, confirma a persistência após reload, inicia uma monitorização Live planeada 2×25, regista a primeira repetição, confirma progressão para a segunda repetição e volta a carregar a página para provar que a medição concluída e a monitorização ativa vêm do servidor. No final elimina a monitorização criada e repõe a presença original.
 
 Os restantes projetos Playwright continuam a validar Cais/Live visualmente sem mutações concorrentes. Não existem alterações a código produtivo, migrations ou contratos de negócio; apenas fixture de testing, E2E e documentação.
+
+
+## P1 — Persistência do editor Website
+
+Um segundo fixture de página, exclusivo de testing, isola a mutação do editor dos cinco percursos read-only paralelos. Em Chromium desktop, o browser altera o título do bloco hero, grava explicitamente o rascunho, recarrega o editor e confirma o valor persistido e a pré-visualização. Depois verifica a criação de versão no Histórico, publica a página e abre o slug público para confirmar que o snapshot publicado contém o novo conteúdo.
+
+O percurso testa UI → save_draft → reload → versões → publish → renderer público. Não altera páginas reais, migrations ou contratos produtivos; a página e o conteúdo existem apenas na base efémera de testing.
