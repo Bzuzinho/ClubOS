@@ -575,7 +575,10 @@ test.describe('authenticated access', () => {
         const properties = page.getByRole('complementary', { name: 'Propriedades da página' });
         await properties.getByRole('tab', { name: 'Conteúdo', exact: true }).click();
 
-        const titleField = properties.getByText('Título', { exact: true }).locator('..').locator('input');
+        // Managed legacy blocks are normalised into independent elements. Select
+        // the actual heading node from the structure tree before editing it.
+        await page.getByRole('button').filter({ hasText: 'E2E Mutação inicial' }).click();
+        const titleField = properties.getByText('Título', { exact: true }).locator('..').locator('textarea');
         await expect(titleField).toBeVisible();
         const persistedTitle = `E2E Website persistido ${Date.now()}`;
         await titleField.fill(persistedTitle);
@@ -597,7 +600,8 @@ test.describe('authenticated access', () => {
         await expect(page.locator('#nprogress')).toHaveCount(0);
         const reloadedProperties = page.getByRole('complementary', { name: 'Propriedades da página' });
         await reloadedProperties.getByRole('tab', { name: 'Conteúdo', exact: true }).click();
-        const reloadedTitle = reloadedProperties.getByText('Título', { exact: true }).locator('..').locator('input');
+        await page.getByRole('button').filter({ hasText: persistedTitle }).click();
+        const reloadedTitle = reloadedProperties.getByText('Título', { exact: true }).locator('..').locator('textarea');
         await expect(reloadedTitle).toHaveValue(persistedTitle);
         const preview = page.frameLocator('iframe[title="Pré-visualização em tempo real"]');
         await expect(preview.getByText(persistedTitle, { exact: true })).toBeVisible();
@@ -626,7 +630,7 @@ test.describe('authenticated access', () => {
 
     test('P1: website editor keeps tools and device previews within the available width', async ({ page }, testInfo) => {
         await login(page, testInfo, '/website/paginas');
-        await page.locator('[data-website-page]').filter({ hasText: 'E2E Editor' }).getByRole('link', { name: 'Editar', exact: true }).click();
+        await page.locator('[data-website-page]').filter({ has: page.getByText('E2E Editor', { exact: true }) }).getByRole('link', { name: 'Editar', exact: true }).click();
         const editor = page.getByTestId('website-editor');
         await expect(editor).toBeVisible();
         const properties = page.getByRole('complementary', { name: 'Propriedades da página' });
