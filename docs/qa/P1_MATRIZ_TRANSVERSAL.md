@@ -138,3 +138,10 @@ A primeira CI 34826731389 encontrou corrupção de acentos em CSV UTF-8 sem BOM:
 O percurso de browser deixa de terminar no preview e passa a executar a importação real no ambiente efémero de testing. Cada execução gera nome e email únicos por projeto/worker/instante, valida o preview preenchido, envia o POST real de importação, exige `created_count=1`, zero ignorados/erros e um `created_id`, fecha o diálogo e confirma o membro criado através da pesquisa por email na lista.
 
 A alteração não toca em dados produtivos, migrations ou contratos do backend. O objetivo é provar o percurso UI → preview → store → leitura na lista e detetar regressões de persistência que o preview isolado não conseguia cobrir. CI completa obrigatória antes de considerar esta pendência P1 fechada.
+
+
+## P1 — Persistência operacional Cais / Live
+
+É acrescentado um fixture de testing dedicado e isolado dos cinco percursos read-only paralelos. Um único percurso Chromium desktop altera a presença no Cais, confirma a persistência após reload, inicia uma monitorização Live planeada 2×25, regista a primeira repetição, confirma progressão para a segunda repetição e volta a carregar a página para provar que a medição concluída e a monitorização ativa vêm do servidor. No final elimina a monitorização criada e repõe a presença original.
+
+Os restantes projetos Playwright continuam a validar Cais/Live visualmente sem mutações concorrentes. Não existem alterações a código produtivo, migrations ou contratos de negócio; apenas fixture de testing, E2E e documentação.
