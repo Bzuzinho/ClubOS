@@ -103,7 +103,7 @@ test.describe('authenticated access', () => {
         await expect(dialog.getByText('Criados', { exact: true })).toBeVisible();
         await expect(dialog.getByText('1', { exact: true })).toBeVisible();
 
-        await dialog.getByRole('button', { name: 'Fechar', exact: true }).click();
+        await dialog.getByRole('button', { name: 'Fechar', exact: true }).first().click();
         await expect(dialog).not.toBeVisible();
 
         await Promise.all([
