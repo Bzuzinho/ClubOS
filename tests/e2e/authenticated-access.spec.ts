@@ -48,6 +48,30 @@ const expectNoHorizontalOverflow = async (page: Page) => {
 };
 
 test.describe('authenticated access', () => {
+    test('previews member import data and closes without importing', async ({ page }, testInfo) => {
+        await login(page, testInfo, '/membros');
+        await page.getByRole('tab', { name: 'Membros', exact: true }).click();
+        await expect(page).toHaveURL(/\/membros\?tab=list$/);
+        await expect(page.locator('#nprogress')).toHaveCount(0);
+        await page.getByRole('button', { name: 'Importar utilizadores', exact: true }).click();
+        const dialog = page.getByRole('dialog', { name: 'Importação de membros' });
+        await dialog.getByLabel('Ficheiro Excel ou CSV').setInputFiles({
+            name: 'preview-members.csv', mimeType: 'text/csv',
+            buffer: Buffer.from('Nome\nE2E Pessoa apenas para validar importação\n'),
+        });
+        await expect(dialog.getByRole('button', { name: 'Validar importação', exact: true })).toBeVisible();
+        await dialog.getByRole('button', { name: 'Validar importação', exact: true }).click();
+        const row = dialog.getByRole('row').filter({ hasText: 'E2E Pessoa apenas para validar importação' });
+        await expect(row).toBeVisible();
+        await expect(row.getByRole('cell')).toHaveCount(7);
+        await expect(dialog.getByRole('button', { name: 'Importar linhas válidas' })).toBeEnabled();
+        expect(await dialog.locator('[data-slot="table-container"]').evaluateAll(elements =>
+            elements.filter(el => el.scrollWidth > el.clientWidth + 1).length)).toBe(0);
+        expect(await dialog.evaluate(el => el.scrollWidth > el.clientWidth + 1)).toBe(false);
+        await dialog.getByRole('button', { name: 'Fechar', exact: true }).click();
+        await expect(dialog).not.toBeVisible();
+    });
+
     test('keeps member sports tabs and populated training fields readable', async ({ page }, testInfo) => {
         test.setTimeout(60_000);
         await login(page, testInfo, '/membros');

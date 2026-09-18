@@ -119,3 +119,15 @@ Os registos de `club-resultados-provas` continuam identificados como Resultados 
 Treinos podem ser filtrados por época associada ao treino. As opções derivam das participações do atleta no clube, incluindo épocas antigas; a opção geral preserva treinos sem época. A mudança de filtro regressa à primeira página e fecha o detalhe selecionado. Competições não possuem associação explícita a época no modelo atual: este lote não fabrica essa associação nem um snapshot retroativo.
 
 Testes funcionais cobrem resultados/parciais, estados sem tempo, mudança/remoção de escalão, paginação, separação de atletas/clubes, autorização e filtro de épocas. O fixture testing acrescenta competição, resultado de 61,42 s e parcial de 29,72 s aos 50 m; browser verifica tabela preenchida e filtro de treino nos cinco perfis. TypeScript/lint/build locais e CI a validar. Sem PHP local; testes Laravel são executados na CI. Incremento sobre #352; nenhuma integração ou publicação deste lote.
+
+## P1 — Continuação em 14/09: ciclo dos pedidos de importação
+
+Base produtiva confirmada: merge #353 em `44c2655`, incluindo #349–#352; workflow 34618321605 com CI/deploy verdes. No merge, 184 testes de browser passaram diretamente e o teste de recuperação de palavra-passe Firefox passou à segunda tentativa. Os estados “pendente” acima preservam a cronologia dos lotes.
+
+O diálogo de importação permitia fechar/reabrir durante a leitura do ficheiro ou pedidos HTTP e regressar/alterar o mapeamento enquanto uma validação ou importação estava em curso. As respostas podiam repor estados antigos no diálogo e o reset libertava a submissão antes de terminar a anterior.
+
+`MemberImportDialog` bloqueia essas interações enquanto a operação decorre, incluindo submissões concorrentes na mesma instância, e apresenta o estado ao utilizador. O bloqueio é libertado em sucesso/erro. Os testes de componente retêm promises de leitura, validação e escrita para reproduzir fecho e cliques concorrentes. O E2E acrescenta CSV de uma linha, mapeamento inferido, pré-visualização de sete campos, controlo de largura e fecho sem importar.
+
+Sem alteração do contrato backend, permissões ou migrations. Esta proteção não é idempotência no servidor nem protege contra reload/fecho do browser ou múltiplos separadores. A escrita do teste de componente usa mock; o teste de navegador chama o preview real e não cria membros. P1 mantém pendentes a importação efetiva e restantes diálogos/percursos financeiros; P2/P3/P4 mantêm as pendências anteriores.
+
+A primeira CI 34826731389 encontrou corrupção de acentos em CSV UTF-8 sem BOM: a pré-visualização mostrava “importaÃ§Ã£o”. A leitura de CSV passa a descodificar UTF-8 explicitamente, com fallback Windows-1252 para ficheiros antigos; XLS/XLSX conservam o leitor binário. Três regressões locais cobrem nomes portugueses em UTF-8 com/sem BOM e Windows-1252. O E2E mantém a linha acentuada e não disfarça a falha alterando os dados de teste. Nova CI obrigatória.

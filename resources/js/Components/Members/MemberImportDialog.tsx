@@ -13,6 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/Components/ui/table';
 import {
   inferImportMapping,
+  decodeMemberImportCsv,
   MEMBER_IMPORT_FIELDS,
   MEMBER_IMPORT_GROUP_LABELS,
   type MemberImportGroup,
@@ -72,6 +73,8 @@ function loadXlsxModule() {
 }
 
 export function MemberImportDialog() {
+  const operationBusy = useRef(false);
+  const [isReading, setIsReading] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const [open, setOpen] = useState(false);
   const [step, setStep] = useState<ImportStep>('file');
@@ -102,6 +105,7 @@ export function MemberImportDialog() {
   }, [mapping, requiredFieldKeys]);
 
   function resetState(nextOpen: boolean) {
+    if (operationBusy.current) return;
     setOpen(nextOpen);
     if (nextOpen) {
       return;
@@ -120,14 +124,18 @@ export function MemberImportDialog() {
 
   async function handleFileSelection(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
-    if (!file) {
+    if (!file || operationBusy.current) {
       return;
     }
 
+    operationBusy.current = true;
+    setIsReading(true);
     try {
       const xlsx = await loadXlsxModule();
       const buffer = await file.arrayBuffer();
-      const workbook = xlsx.read(buffer, { type: 'array' });
+      const workbook = file.name.toLowerCase().endsWith('.csv')
+        ? xlsx.read(decodeMemberImportCsv(buffer), { type: 'string' })
+        : xlsx.read(buffer, { type: 'array' });
       const sheetName = workbook.SheetNames[0];
       const sheet = workbook.Sheets[sheetName];
 
@@ -163,6 +171,8 @@ export function MemberImportDialog() {
       console.error(error);
       toast.error('Não foi possível ler o ficheiro selecionado.');
     } finally {
+      operationBusy.current = false;
+      setIsReading(false);
       if (event.target) {
         event.target.value = '';
       }
@@ -170,6 +180,7 @@ export function MemberImportDialog() {
   }
 
   function handleChangeMapping(fieldKey: string, value: string) {
+    if (operationBusy.current) return;
     setMapping((current) => {
       const next = { ...current };
       if (value === NONE_OPTION) {
@@ -182,7 +193,7 @@ export function MemberImportDialog() {
   }
 
   async function handlePreview() {
-    if (rows.length === 0) {
+    if (rows.length === 0 || operationBusy.current) {
       return;
     }
 
@@ -191,6 +202,7 @@ export function MemberImportDialog() {
       return;
     }
 
+    operationBusy.current = true;
     setIsPreviewing(true);
 
     try {
@@ -210,15 +222,17 @@ export function MemberImportDialog() {
       const message = error?.response?.data?.message || 'Não foi possível validar a importação.';
       toast.error(message);
     } finally {
+      operationBusy.current = false;
       setIsPreviewing(false);
     }
   }
 
   async function handleImport() {
-    if (!preview) {
+    if (!preview || operationBusy.current) {
       return;
     }
 
+    operationBusy.current = true;
     setIsImporting(true);
 
     try {
@@ -238,6 +252,7 @@ export function MemberImportDialog() {
       const message = error?.response?.data?.message || 'Não foi possível concluir a importação.';
       toast.error(message);
     } finally {
+      operationBusy.current = false;
       setIsImporting(false);
     }
   }
@@ -259,12 +274,14 @@ export function MemberImportDialog() {
             <input
               ref={inputRef}
               type="file"
+              disabled={isReading}
+              aria-label="Ficheiro Excel ou CSV"
               accept=".xlsx,.xls,.csv"
               className="hidden"
               onChange={handleFileSelection}
             />
             <div className="flex flex-wrap items-center justify-center gap-2">
-              <Button type="button" onClick={() => inputRef.current?.click()}>
+              <Button type="button" disabled={isReading} onClick={() => inputRef.current?.click()}>
                 <Upload className="mr-2 h-4 w-4" />
                 Escolher ficheiro
               </Button>
@@ -318,6 +335,7 @@ export function MemberImportDialog() {
                         <p className="text-[11px] text-muted-foreground">{field.key}</p>
                       </div>
                       <Select
+                        disabled={isPreviewing}
                         value={mapping[field.key] ?? NONE_OPTION}
                         onValueChange={(value) => handleChangeMapping(field.key, value)}
                       >
@@ -491,10 +509,13 @@ export function MemberImportDialog() {
             {step === 'result' ? renderResultStep() : null}
           </div>
 
+          {(isReading || isPreviewing || isImporting) && <p role="status" className="px-5 text-sm text-muted-foreground">
+            {isReading ? 'A ler o ficheiro...' : isPreviewing ? 'A validar as linhas...' : 'A importar os membros...'} Aguarde a conclusão antes de fechar esta janela.
+          </p>}
           <DialogFooter className="border-t px-5 py-4 sm:px-6">
             {step === 'mapping' ? (
               <>
-                <Button type="button" variant="outline" onClick={() => setStep('file')}>
+                <Button type="button" variant="outline" disabled={isPreviewing} onClick={() => setStep('file')}>
                   Voltar
                 </Button>
                 <Button type="button" onClick={handlePreview} disabled={isPreviewing || rows.length === 0}>
@@ -506,7 +527,7 @@ export function MemberImportDialog() {
 
             {step === 'preview' ? (
               <>
-                <Button type="button" variant="outline" onClick={() => setStep('mapping')}>
+                <Button type="button" variant="outline" disabled={isImporting} onClick={() => setStep('mapping')}>
                   Ajustar mapeamento
                 </Button>
                 <Button
