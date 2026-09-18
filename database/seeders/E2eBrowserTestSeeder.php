@@ -111,6 +111,17 @@ final class E2eBrowserTestSeeder extends Seeder
             'style' => [], 'settings' => [],
         ]);
 
+
+        $mutationPage = WebsitePage::query()->updateOrCreate(['slug' => 'e2e-editor-mutation'], [
+            'title' => 'E2E Editor Mutação', 'status' => 'draft', 'is_system' => false,
+            'show_in_navigation' => false, 'sort_order' => 998,
+        ]);
+        $mutationPage->blocks()->updateOrCreate(['block_key' => 'e2e-mutation-hero'], [
+            'type' => 'hero', 'sort_order' => 0, 'is_visible' => true,
+            'content' => ['title' => 'E2E Mutação inicial', 'subtitle' => 'Fixture isolada para persistência do editor'],
+            'style' => [], 'settings' => [],
+        ]);
+
         foreach (range(1, 32) as $index) {
             Product::query()->updateOrCreate(
                 ['codigo' => sprintf('E2E-%02d', $index)],
