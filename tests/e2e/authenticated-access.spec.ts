@@ -451,6 +451,116 @@ test.describe('authenticated access', () => {
         await expectNoHorizontalOverflow(page);
     });
 
+    test('P1: Cais presence and Live timing persist after reload', async ({ page }, testInfo) => {
+        test.skip(testInfo.project.name !== 'chromium-desktop', 'Mutating sports flow runs once against its isolated fixture.');
+        test.setTimeout(90_000);
+
+        await login(page, testInfo, '/desportivo/cais');
+        const mutationSession = page.getByRole('button').filter({ hasText: '#E2E-MUTATION' }).first();
+        await expect(mutationSession).toBeVisible();
+        await mutationSession.click();
+        await expect(page).toHaveURL(/\/desportivo\/cais.*training_id=/);
+        await expect(page.locator('#nprogress')).toHaveCount(0);
+
+        const athleteName = 'Atleta E2E Mutação';
+        await expect(page.getByText(athleteName, { exact: true })).toBeVisible();
+
+        const [lateResponse] = await Promise.all([
+            page.waitForResponse(response =>
+                response.url().includes('/desportivo/cais/') && response.url().includes('/presenca')
+                && response.request().method() === 'PATCH'
+                && response.ok()
+            ),
+            page.getByTitle('Atrasado').click(),
+        ]);
+        expect(lateResponse.ok()).toBe(true);
+        await expect(page.getByText('1 atrasados', { exact: true })).toBeVisible();
+
+        await page.reload();
+        await expect(page.locator('#nprogress')).toHaveCount(0);
+        await expect(page.getByText(athleteName, { exact: true })).toBeVisible();
+        await expect(page.getByText('1 atrasados', { exact: true })).toBeVisible();
+        await expect(page.getByTitle('Atrasado')).toHaveClass(/bg-sky-100/);
+
+        await page.getByRole('button', { name: 'Live', exact: true }).click();
+        await expect(page.getByRole('heading', { name: 'Live · Monitorização fina' })).toBeVisible();
+
+        // A failed Playwright attempt may have left the isolated fixture with an
+        // active monitoring. Remove it before retrying the mutation flow.
+        const existingMonitoring = page.getByRole('button', { name: 'Abrir', exact: true });
+        if (await existingMonitoring.count() > 0) {
+            await existingMonitoring.first().click();
+            page.once('dialog', dialog => void dialog.accept());
+            await Promise.all([
+                page.waitForResponse(response =>
+                    response.url().includes('/desportivo/live/monitorizacoes/')
+                    && response.request().method() === 'DELETE'
+                    && response.ok()
+                ),
+                page.getByRole('button', { name: 'Apagar', exact: true }).click(),
+            ]);
+        }
+
+        await page.getByRole('checkbox', { name: `Selecionar ${athleteName}` }).check();
+        await page.getByRole('button', { name: /2×25.*E2E Persistência Live/ }).click();
+
+        const [startResponse] = await Promise.all([
+            page.waitForResponse(response =>
+                response.url().includes('/desportivo/live/') && response.url().includes('/monitorizacoes')
+                && response.request().method() === 'POST'
+                && response.ok()
+            ),
+            page.getByRole('button', { name: 'START', exact: true }).click(),
+        ]);
+        expect(startResponse.ok()).toBe(true);
+        await expect(page.getByText(/Rep\. 1\/2 · 25 m/)).toBeVisible();
+
+        await page.waitForTimeout(120);
+        const [stopResponse] = await Promise.all([
+            page.waitForResponse(response =>
+                response.url().includes('/desportivo/live/medicoes/')
+                && response.url().includes('/stop')
+                && response.request().method() === 'POST'
+                && response.ok()
+            ),
+            page.getByRole('button', { name: /REGISTAR 1\.ª · 25 m/ }).click(),
+        ]);
+        expect(stopResponse.ok()).toBe(true);
+        await expect(page.getByText(/1\.ª · 25 m · 00:00\./)).toBeVisible();
+        await expect(page.getByText(/Rep\. 2\/2 · 25 m/)).toBeVisible();
+
+        await page.reload();
+        await expect(page.locator('#nprogress')).toHaveCount(0);
+        await page.getByRole('button', { name: 'Abrir', exact: true }).click();
+        await expect(page.getByText(/1\.ª · 25 m · 00:00\./)).toBeVisible();
+        await expect(page.getByText(/Rep\. 2\/2 · 25 m/)).toBeVisible();
+
+        page.once('dialog', dialog => void dialog.accept());
+        const [deleteResponse] = await Promise.all([
+            page.waitForResponse(response =>
+                response.url().includes('/desportivo/live/monitorizacoes/')
+                && response.request().method() === 'DELETE'
+                && response.ok()
+            ),
+            page.getByRole('button', { name: 'Apagar', exact: true }).click(),
+        ]);
+        expect(deleteResponse.ok()).toBe(true);
+
+        await page.getByRole('button', { name: 'Cais', exact: true }).click();
+        await expect(page.getByText(athleteName, { exact: true })).toBeVisible();
+        const [presentResponse] = await Promise.all([
+            page.waitForResponse(response =>
+                response.url().includes('/desportivo/cais/') && response.url().includes('/presenca')
+                && response.request().method() === 'PATCH'
+                && response.ok()
+            ),
+            page.getByTitle('Presente').click(),
+        ]);
+        expect(presentResponse.ok()).toBe(true);
+        await expect(page.getByText('1 presentes', { exact: true })).toBeVisible();
+        await expectNoHorizontalOverflow(page);
+    });
+
     test('P1: website editor keeps tools and device previews within the available width', async ({ page }, testInfo) => {
         await login(page, testInfo, '/website/paginas');
         await page.locator('[data-website-page]').filter({ hasText: 'E2E Editor' }).getByRole('link', { name: 'Editar', exact: true }).click();
