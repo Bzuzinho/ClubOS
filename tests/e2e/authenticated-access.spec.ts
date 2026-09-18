@@ -48,28 +48,76 @@ const expectNoHorizontalOverflow = async (page: Page) => {
 };
 
 test.describe('authenticated access', () => {
-    test('previews member import data and closes without importing', async ({ page }, testInfo) => {
+    test('imports member data end to end and finds the created member', async ({ page }, testInfo) => {
         await login(page, testInfo, '/membros');
         await page.getByRole('tab', { name: 'Membros', exact: true }).click();
         await expect(page).toHaveURL(/\/membros\?tab=list$/);
         await expect(page.locator('#nprogress')).toHaveCount(0);
+
+        const suffix = `${testInfo.project.name}-${testInfo.workerIndex}-${Date.now()}`
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, '-');
+        const importedName = `E2E Importação ${suffix}`;
+        const importedEmail = `e2e.import.${suffix}@clubos.test`;
+
         await page.getByRole('button', { name: 'Importar utilizadores', exact: true }).click();
         const dialog = page.getByRole('dialog', { name: 'Importação de membros' });
         await dialog.getByLabel('Ficheiro Excel ou CSV').setInputFiles({
-            name: 'preview-members.csv', mimeType: 'text/csv',
-            buffer: Buffer.from('Nome\nE2E Pessoa apenas para validar importação\n'),
+            name: 'effective-members.csv',
+            mimeType: 'text/csv',
+            buffer: Buffer.from(`Nome,Email login\n${importedName},${importedEmail}\n`),
         });
+
         await expect(dialog.getByRole('button', { name: 'Validar importação', exact: true })).toBeVisible();
         await dialog.getByRole('button', { name: 'Validar importação', exact: true }).click();
-        const row = dialog.getByRole('row').filter({ hasText: 'E2E Pessoa apenas para validar importação' });
+
+        const row = dialog.getByRole('row').filter({ hasText: importedName });
         await expect(row).toBeVisible();
         await expect(row.getByRole('cell')).toHaveCount(7);
+        await expect(row.getByRole('cell').filter({ hasText: importedEmail })).toBeVisible();
         await expect(dialog.getByRole('button', { name: 'Importar linhas válidas' })).toBeEnabled();
         expect(await dialog.locator('[data-slot="table-container"]').evaluateAll(elements =>
             elements.filter(el => el.scrollWidth > el.clientWidth + 1).length)).toBe(0);
         expect(await dialog.evaluate(el => el.scrollWidth > el.clientWidth + 1)).toBe(false);
-        await dialog.getByRole('button', { name: 'Fechar', exact: true }).click();
+
+        const [importResponse] = await Promise.all([
+            page.waitForResponse(response => {
+                const url = new URL(response.url());
+                return url.pathname === '/membros/import'
+                    && response.request().method() === 'POST';
+            }),
+            dialog.getByRole('button', { name: 'Importar linhas válidas' }).click(),
+        ]);
+
+        expect(importResponse.ok()).toBe(true);
+        const importResult = await importResponse.json() as {
+            created_count: number;
+            skipped_count: number;
+            error_count: number;
+            created_ids: string[];
+        };
+        expect(importResult.created_count).toBe(1);
+        expect(importResult.skipped_count).toBe(0);
+        expect(importResult.error_count).toBe(0);
+        expect(importResult.created_ids).toHaveLength(1);
+        await expect(dialog.getByText('Criados', { exact: true })).toBeVisible();
+        await expect(dialog.getByText('1', { exact: true })).toBeVisible();
+
+        await dialog.getByRole('button', { name: 'Fechar', exact: true }).first().click();
         await expect(dialog).not.toBeVisible();
+
+        await Promise.all([
+            page.waitForResponse(response => {
+                const url = new URL(response.url());
+                return url.pathname === '/membros'
+                    && url.searchParams.get('search') === importedEmail
+                    && response.ok();
+            }),
+            page.getByPlaceholder('Pesquisar por nome, NIF, nº sócio ou email...').fill(importedEmail),
+        ]);
+        await expect(page.locator('#nprogress')).toHaveCount(0);
+        await expect(page.getByRole('link').filter({ hasText: importedName }).filter({ visible: true }).first()).toBeVisible();
+        await expectNoHorizontalOverflow(page);
     });
 
     test('keeps member sports tabs and populated training fields readable', async ({ page }, testInfo) => {
