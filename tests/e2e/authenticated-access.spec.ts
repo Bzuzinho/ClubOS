@@ -577,7 +577,7 @@ test.describe('authenticated access', () => {
 
         // Managed legacy blocks are normalised into independent elements. Select
         // the actual heading node from the structure tree before editing it.
-        await page.getByRole('button').filter({ hasText: 'E2E Mutação inicial' }).click();
+        await page.getByRole('button', { name: 'E2E Mutação inicial Título', exact: true }).click();
         const titleField = properties.getByText('Título', { exact: true }).locator('..').locator('textarea');
         await expect(titleField).toBeVisible();
         const persistedTitle = `E2E Website persistido ${Date.now()}`;
@@ -600,7 +600,7 @@ test.describe('authenticated access', () => {
         await expect(page.locator('#nprogress')).toHaveCount(0);
         const reloadedProperties = page.getByRole('complementary', { name: 'Propriedades da página' });
         await reloadedProperties.getByRole('tab', { name: 'Conteúdo', exact: true }).click();
-        await page.getByRole('button').filter({ hasText: persistedTitle }).click();
+        await page.getByRole('button', { name: `${persistedTitle} Título`, exact: true }).click();
         const reloadedTitle = reloadedProperties.getByText('Título', { exact: true }).locator('..').locator('textarea');
         await expect(reloadedTitle).toHaveValue(persistedTitle);
         const preview = page.frameLocator('iframe[title="Pré-visualização em tempo real"]');
