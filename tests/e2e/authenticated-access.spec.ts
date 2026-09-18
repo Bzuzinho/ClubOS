@@ -484,6 +484,23 @@ test.describe('authenticated access', () => {
 
         await page.getByRole('button', { name: 'Live', exact: true }).click();
         await expect(page.getByRole('heading', { name: 'Live · Monitorização fina' })).toBeVisible();
+
+        // A failed Playwright attempt may have left the isolated fixture with an
+        // active monitoring. Remove it before retrying the mutation flow.
+        const existingMonitoring = page.getByRole('button', { name: 'Abrir', exact: true });
+        if (await existingMonitoring.count() > 0) {
+            await existingMonitoring.first().click();
+            page.once('dialog', dialog => void dialog.accept());
+            await Promise.all([
+                page.waitForResponse(response =>
+                    response.url().includes('/desportivo/live/monitorizacoes/')
+                    && response.request().method() === 'DELETE'
+                    && response.ok()
+                ),
+                page.getByRole('button', { name: 'Apagar', exact: true }).click(),
+            ]);
+        }
+
         await page.getByRole('checkbox', { name: `Selecionar ${athleteName}` }).check();
         await page.getByRole('button', { name: /2×25.*E2E Persistência Live/ }).click();
 
@@ -514,6 +531,7 @@ test.describe('authenticated access', () => {
 
         await page.reload();
         await expect(page.locator('#nprogress')).toHaveCount(0);
+        await page.getByRole('button', { name: 'Abrir', exact: true }).click();
         await expect(page.getByText(/1\.ª · 25 m · 00:00\./)).toBeVisible();
         await expect(page.getByText(/Rep\. 2\/2 · 25 m/)).toBeVisible();
 
@@ -532,7 +550,7 @@ test.describe('authenticated access', () => {
         await expect(page.getByText(athleteName, { exact: true })).toBeVisible();
         const [presentResponse] = await Promise.all([
             page.waitForResponse(response =>
-                response.url().includes('/cais/presence')
+                response.url().includes('/desportivo/cais/') && response.url().includes('/presenca')
                 && response.request().method() === 'PATCH'
                 && response.ok()
             ),
