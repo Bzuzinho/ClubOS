@@ -463,12 +463,11 @@ test.describe('authenticated access', () => {
         await expect(page.locator('#nprogress')).toHaveCount(0);
 
         const athleteName = 'Atleta E2E Mutação';
-        const athleteRow = page.locator('main').getByText(athleteName, { exact: true }).locator('..').locator('..');
         await expect(page.getByText(athleteName, { exact: true })).toBeVisible();
 
         const [lateResponse] = await Promise.all([
             page.waitForResponse(response =>
-                response.url().includes('/cais/presence')
+                response.url().includes('/desportivo/cais/') && response.url().includes('/presenca')
                 && response.request().method() === 'PATCH'
                 && response.ok()
             ),
@@ -490,7 +489,7 @@ test.describe('authenticated access', () => {
 
         const [startResponse] = await Promise.all([
             page.waitForResponse(response =>
-                response.url().includes('/live/monitorings/planned')
+                response.url().includes('/desportivo/live/') && response.url().includes('/monitorizacoes')
                 && response.request().method() === 'POST'
                 && response.ok()
             ),
@@ -502,7 +501,7 @@ test.describe('authenticated access', () => {
         await page.waitForTimeout(120);
         const [stopResponse] = await Promise.all([
             page.waitForResponse(response =>
-                response.url().includes('/live/measurements/')
+                response.url().includes('/desportivo/live/medicoes/')
                 && response.url().includes('/stop')
                 && response.request().method() === 'POST'
                 && response.ok()
@@ -521,7 +520,7 @@ test.describe('authenticated access', () => {
         page.once('dialog', dialog => void dialog.accept());
         const [deleteResponse] = await Promise.all([
             page.waitForResponse(response =>
-                response.url().includes('/live/monitorings/')
+                response.url().includes('/desportivo/live/monitorizacoes/')
                 && response.request().method() === 'DELETE'
                 && response.ok()
             ),
