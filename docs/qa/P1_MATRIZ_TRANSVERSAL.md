@@ -170,3 +170,10 @@ O inventário residual identificou dois diálogos ativos em Convocatórias com l
 Os dois diálogos passam a respeitar a largura útil do viewport e a conter overflow horizontal. As tabs do detalhe quebram linha em vez de criar uma faixa horizontal. O assistente mantém a navegação lateral a partir de `md`, mas a coluna de conteúdo usa `minmax(0,1fr)` e scroll apenas vertical. O fluxo, os cinco passos, publicação, atletas, provas, logística e custos permanecem inalterados.
 
 Sem alterações de backend, dados, migrations, permissões ou regras desportivas. CI multi-browser/mobile obrigatória.
+
+
+## P1 — Competições: separadores internos sem scroll horizontal
+
+Depois do fecho dos diálogos de Convocatórias, o inventário residual encontrou no workspace de Competições a mesma exceção ao contrato visual: os seis separadores internos estavam num contentor `overflow-auto`, criando uma faixa horizontal em larguras reduzidas. Passam a quebrar linha com `flex-wrap`, mantendo todos os destinos e o estado ativo sem esconder opções.
+
+Sem alterações de backend, dados, migrations, permissões ou regras desportivas. CI multi-browser/mobile obrigatória.
