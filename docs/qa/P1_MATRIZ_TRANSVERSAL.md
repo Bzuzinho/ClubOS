@@ -161,3 +161,12 @@ A revisão residual de diálogos/grelhas encontrou no registo em massa de Result
 O diálogo passa a respeitar explicitamente a largura útil do viewport e a esconder overflow horizontal. A grelha de edição deixa de impor as seis colunas fixas abaixo de desktop: usa uma coluna em mobile, duas a partir de `sm` e conserva a grelha operacional completa a partir de `lg`. Atleta e prova podem quebrar texto sem alargar o contentor. Campos, filtros, splits e ação de gravação são preservados; não há alteração de backend, dados, migrations ou regras desportivas.
 
 Este lote fecha um finding concreto do inventário residual P1; a CI multi-browser/mobile continua obrigatória antes do merge.
+
+
+## P1 — Convocatórias: detalhe e assistente sem deslocação horizontal
+
+O inventário residual identificou dois diálogos ativos em Convocatórias com largura máxima de desktop sem contenção explícita no viewport. O detalhe usava ainda tabs em `overflow-auto`, e o assistente combinava uma coluna lateral fixa com conteúdo `overflow-auto`, permitindo scroll horizontal em ecrãs estreitos ou conteúdo longo.
+
+Os dois diálogos passam a respeitar a largura útil do viewport e a conter overflow horizontal. As tabs do detalhe quebram linha em vez de criar uma faixa horizontal. O assistente mantém a navegação lateral a partir de `md`, mas a coluna de conteúdo usa `minmax(0,1fr)` e scroll apenas vertical. O fluxo, os cinco passos, publicação, atletas, provas, logística e custos permanecem inalterados.
+
+Sem alterações de backend, dados, migrations, permissões ou regras desportivas. CI multi-browser/mobile obrigatória.
