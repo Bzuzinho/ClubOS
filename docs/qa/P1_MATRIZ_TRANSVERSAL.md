@@ -152,3 +152,12 @@ Os restantes projetos Playwright continuam a validar Cais/Live visualmente sem m
 Um segundo fixture de página, exclusivo de testing, isola a mutação do editor dos cinco percursos read-only paralelos. Em Chromium desktop, o browser altera o título do bloco hero, grava explicitamente o rascunho, recarrega o editor e confirma o valor persistido e a pré-visualização. Depois verifica a criação de versão no Histórico, publica a página e abre o slug público para confirmar que o snapshot publicado contém o novo conteúdo.
 
 O percurso testa UI → save_draft → reload → versões → publish → renderer público. Não altera páginas reais, migrations ou contratos produtivos; a página e o conteúdo existem apenas na base efémera de testing.
+
+
+## P1 — Resultados: diálogo de registo responsivo
+
+A revisão residual de diálogos/grelhas encontrou no registo em massa de Resultados uma grelha fixa com colunas de 120/80/80/110 px dentro de um diálogo `max-w-6xl`. Em ecrãs estreitos, o conteúdo podia impor largura horizontal mesmo com o shell global já normalizado.
+
+O diálogo passa a respeitar explicitamente a largura útil do viewport e a esconder overflow horizontal. A grelha de edição deixa de impor as seis colunas fixas abaixo de desktop: usa uma coluna em mobile, duas a partir de `sm` e conserva a grelha operacional completa a partir de `lg`. Atleta e prova podem quebrar texto sem alargar o contentor. Campos, filtros, splits e ação de gravação são preservados; não há alteração de backend, dados, migrations ou regras desportivas.
+
+Este lote fecha um finding concreto do inventário residual P1; a CI multi-browser/mobile continua obrigatória antes do merge.
