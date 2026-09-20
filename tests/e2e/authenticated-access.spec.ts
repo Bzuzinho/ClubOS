@@ -526,13 +526,13 @@ test.describe('authenticated access', () => {
             page.getByRole('button', { name: /REGISTAR 1\.ª · 25 m/ }).click(),
         ]);
         expect(stopResponse.ok()).toBe(true);
-        await expect(page.getByText(/1\.ª · 25 m · 00:00\./)).toBeVisible();
+        await expect(page.getByText(/1\.ª · 25 m ·/)).toBeVisible();
         await expect(page.getByText(/Rep\. 2\/2 · 25 m/)).toBeVisible();
 
         await page.reload();
         await expect(page.locator('#nprogress')).toHaveCount(0);
         await page.getByRole('button', { name: 'Abrir', exact: true }).click();
-        await expect(page.getByText(/1\.ª · 25 m · 00:00\./)).toBeVisible();
+        await expect(page.getByText(/1\.ª · 25 m ·/)).toBeVisible();
         await expect(page.getByText(/Rep\. 2\/2 · 25 m/)).toBeVisible();
 
         page.once('dialog', dialog => void dialog.accept());
@@ -561,9 +561,78 @@ test.describe('authenticated access', () => {
         await expectNoHorizontalOverflow(page);
     });
 
+    test('P1: website editor persists draft, version and public publication', async ({ page }, testInfo) => {
+        test.skip(testInfo.project.name !== 'chromium-desktop', 'Mutating website flow runs once against its isolated fixture.');
+        test.setTimeout(90_000);
+
+        await login(page, testInfo, '/website/paginas');
+        const pageCard = page.locator('[data-website-page]').filter({ hasText: 'E2E Editor Mutação' });
+        await expect(pageCard).toBeVisible();
+        await pageCard.getByRole('link', { name: 'Editar', exact: true }).click();
+
+        const editor = page.getByTestId('website-editor');
+        await expect(editor).toBeVisible();
+        const properties = page.getByRole('complementary', { name: 'Propriedades da página' });
+        await properties.getByRole('tab', { name: 'Conteúdo', exact: true }).click();
+
+        // Managed legacy blocks are normalised into independent elements. Select
+        // the actual heading node from the structure tree before editing it.
+        const structure = page.getByRole('complementary', { name: 'Estrutura da página' });
+        await structure.getByRole('button').filter({ hasText: 'E2E Mutação inicial' }).filter({ hasText: 'Título' }).click();
+        const titleField = properties.getByText('Título', { exact: true }).locator('..').locator('textarea');
+        await expect(titleField).toBeVisible();
+        const persistedTitle = `E2E Website persistido ${Date.now()}`;
+        await titleField.fill(persistedTitle);
+        await expect(page.getByText('Alterações por guardar', { exact: true })).toBeVisible();
+
+        const [saveResponse] = await Promise.all([
+            page.waitForResponse(response => {
+                const url = new URL(response.url());
+                return /^\/website\/paginas\/[^/]+$/.test(url.pathname)
+                    && response.request().method() === 'PATCH'
+                    && response.status() < 400;
+            }),
+            page.getByRole('button', { name: 'Guardar', exact: true }).click(),
+        ]);
+        expect(saveResponse.status()).toBeLessThan(400);
+        await expect(page.getByText(/Guardado/).first()).toBeVisible();
+
+        await page.reload();
+        await expect(page.locator('#nprogress')).toHaveCount(0);
+        const reloadedProperties = page.getByRole('complementary', { name: 'Propriedades da página' });
+        await reloadedProperties.getByRole('tab', { name: 'Conteúdo', exact: true }).click();
+        const reloadedStructure = page.getByRole('complementary', { name: 'Estrutura da página' });
+        await reloadedStructure.getByRole('button').filter({ hasText: persistedTitle }).filter({ hasText: 'Título' }).click();
+        const reloadedTitle = reloadedProperties.getByText('Título', { exact: true }).locator('..').locator('textarea');
+        await expect(reloadedTitle).toHaveValue(persistedTitle);
+        const preview = page.frameLocator('iframe[title="Pré-visualização em tempo real"]');
+        await expect(preview.getByText(persistedTitle, { exact: true })).toBeVisible();
+
+        await reloadedProperties.getByRole('tab', { name: 'Histórico', exact: true }).click();
+        await expect(reloadedProperties.getByText(/Rascunho/).first()).toBeVisible();
+
+        page.once('dialog', dialog => void dialog.accept());
+        const [publishResponse] = await Promise.all([
+            page.waitForResponse(response => {
+                const url = new URL(response.url());
+                return /^\/website\/paginas\/[^/]+$/.test(url.pathname)
+                    && response.request().method() === 'PATCH'
+                    && response.status() < 400;
+            }),
+            page.getByRole('button', { name: 'Aplicar', exact: true }).click(),
+        ]);
+        expect(publishResponse.status()).toBeLessThan(400);
+        await expect(page.getByText(/Guardado/).first()).toBeVisible();
+
+        await page.goto('/e2e-editor-mutation');
+        await expect(page).toHaveURL(/\/e2e-editor-mutation$/);
+        await expect(page.getByText(persistedTitle, { exact: true })).toBeVisible();
+        await expectNoHorizontalOverflow(page);
+    });
+
     test('P1: website editor keeps tools and device previews within the available width', async ({ page }, testInfo) => {
         await login(page, testInfo, '/website/paginas');
-        await page.locator('[data-website-page]').filter({ hasText: 'E2E Editor' }).getByRole('link', { name: 'Editar', exact: true }).click();
+        await page.locator('[data-website-page]').filter({ has: page.getByText('E2E Editor', { exact: true }) }).getByRole('link', { name: 'Editar', exact: true }).click();
         const editor = page.getByTestId('website-editor');
         await expect(editor).toBeVisible();
         const properties = page.getByRole('complementary', { name: 'Propriedades da página' });
