@@ -177,3 +177,12 @@ Sem alterações de backend, dados, migrations, permissões ou regras desportiva
 Depois do fecho dos diálogos de Convocatórias, o inventário residual encontrou no workspace de Competições a mesma exceção ao contrato visual: os seis separadores internos estavam num contentor `overflow-auto`, criando uma faixa horizontal em larguras reduzidas. Passam a quebrar linha com `flex-wrap`, mantendo todos os destinos e o estado ativo sem esconder opções.
 
 Sem alterações de backend, dados, migrations, permissões ou regras desportivas. CI multi-browser/mobile obrigatória.
+
+
+## P1 — Resultados: layouts internos residuais
+
+Após o diálogo principal ter sido tornado responsivo, a revisão residual encontrou três pontos internos ainda capazes de forçar largura: o contentor editável usava `overflow-auto` nos dois eixos, o cabeçalho de splits não quebrava linha e a vista “Todos os resultados” mantinha cinco colunas desde mobile.
+
+O conteúdo editável passa a ter apenas scroll vertical e contenção horizontal; o cabeçalho de splits pode quebrar linha; a vista de resultados usa 2 colunas em mobile, 3 em `sm` e conserva as 5 colunas em `lg`. Não são removidos campos nem alterada a gravação.
+
+Sem backend, dados, migrations, permissões ou regras desportivas. CI multi-browser/mobile obrigatória.
