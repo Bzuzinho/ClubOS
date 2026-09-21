@@ -186,3 +186,12 @@ Após o diálogo principal ter sido tornado responsivo, a revisão residual enco
 O conteúdo editável passa a ter apenas scroll vertical e contenção horizontal; o cabeçalho de splits pode quebrar linha; a vista de resultados usa 2 colunas em mobile, 3 em `sm` e conserva as 5 colunas em `lg`. Não são removidos campos nem alterada a gravação.
 
 Sem backend, dados, migrations, permissões ou regras desportivas. CI multi-browser/mobile obrigatória.
+
+
+## P1 — Desportivo: navegação interna residual sem scroll horizontal
+
+A pesquisa transversal após os lotes de Resultados, Convocatórias e Competições encontrou o mesmo padrão `flex + overflow-auto` ainda ativo em navegações internas de seis workspaces: Dashboard, Resultados, Análise, Registos, Competições e Convocatórias. Embora algumas listas internas devam continuar a poder fazer scroll, estes contentores são navegação/atalhos e violavam o requisito explícito de não usar deslocação horizontal.
+
+Os contentores de navegação passam a `flex-wrap`, preservando todos os botões, destinos e estados ativos. Não são alterados os contentores de dados/tabelas cujo scroll vertical é funcional.
+
+Sem backend, dados, migrations, permissões ou regras desportivas. CI multi-browser/mobile obrigatória.

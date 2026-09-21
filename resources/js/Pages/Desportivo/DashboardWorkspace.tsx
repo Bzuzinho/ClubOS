@@ -29,7 +29,7 @@ export default function DashboardWorkspace({stats,today,upcoming_trainings,upcom
   return <AuthenticatedLayout fullWidth header={<div><h1 className="text-lg font-semibold">Desportivo</h1><p className="text-xs text-muted-foreground">Visão operacional do módulo</p></div>}>
     <Head title="Dashboard · Desportivo"/>
     <div className="w-full min-w-0 space-y-3">
-      <div className="flex gap-1 overflow-auto pb-1">{quick_links.map(link=><Button key={link.route} size="sm" variant="outline" onClick={()=>router.get(route(link.route))}>{link.label}</Button>)}</div>
+      <div className="flex flex-wrap gap-1 pb-1">{quick_links.map(link=><Button key={link.route} size="sm" variant="outline" onClick={()=>router.get(route(link.route))}>{link.label}</Button>)}</div>
 
       <div className="grid grid-cols-2 gap-2 lg:grid-cols-6">
         <Metric icon={<UsersThree size={17}/>} label="Atletas ativos" value={stats.active_athletes}/>
