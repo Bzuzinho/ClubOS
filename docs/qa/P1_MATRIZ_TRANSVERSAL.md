@@ -195,3 +195,10 @@ A pesquisa transversal após os lotes de Resultados, Convocatórias e Competiç�
 Os contentores de navegação passam a `flex-wrap`, preservando todos os botões, destinos e estados ativos. Não são alterados os contentores de dados/tabelas cujo scroll vertical é funcional.
 
 Sem backend, dados, migrations, permissões ou regras desportivas. CI multi-browser/mobile obrigatória.
+
+
+## P1 — Layout partilhado: conteúdo modular apenas com scroll vertical
+
+Depois de eliminar o scroll horizontal das navegações Desportivo, a revisão do helper transversal encontrou `moduleScrollableContentClass` e `moduleTabbedContentClass` ainda definidos com `overflow-auto`, permitindo que qualquer consumidor reintroduzisse deslocação horizontal ao nível do conteúdo do módulo. Os dois contratos passam a permitir scroll vertical e a conter explicitamente o eixo horizontal.
+
+A alteração é transversal mas estritamente de layout: não remove conteúdo nem altera tabelas responsivas, dados, backend, permissões ou regras de negócio. A CI multi-browser/mobile é obrigatória para detetar qualquer consumidor que dependesse indevidamente de scroll horizontal.
