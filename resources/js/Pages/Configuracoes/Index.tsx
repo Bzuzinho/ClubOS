@@ -771,8 +771,8 @@ export default function SettingsIndex({
     const settingsViewportClass = 'flex min-h-0 min-w-0 w-full flex-1 flex-col';
     const rootTabsClass = 'flex h-full min-h-0 flex-col space-y-3';
     const sectionTabsClass = 'flex h-full min-h-0 flex-col space-y-4';
-    const scrollableTabContentClass = 'mt-0 min-h-0 flex-1 overflow-auto pr-1';
-    const nestedScrollableTabContentClass = 'min-h-0 flex-1 overflow-auto pr-1';
+    const scrollableTabContentClass = 'mt-0 min-h-0 flex-1 overflow-y-auto overflow-x-hidden pr-1';
+    const nestedScrollableTabContentClass = 'min-h-0 flex-1 overflow-y-auto overflow-x-hidden pr-1';
     const hasMonthlyFees = Object.prototype.hasOwnProperty.call(page.props, 'monthlyFees');
     const hasInvoiceTypes = Object.prototype.hasOwnProperty.call(page.props, 'invoiceTypes');
     const hasCostCenters = Object.prototype.hasOwnProperty.call(page.props, 'costCenters');
