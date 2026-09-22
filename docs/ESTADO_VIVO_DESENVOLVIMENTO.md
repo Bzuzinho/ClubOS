@@ -2,7 +2,7 @@
 
 > Fonte de verdade funcional e técnica do projeto ClubOS.
 >
-> Estado consolidado em 2026-09-09.
+> Estado consolidado em 2026-09-22.
 >
 > O histórico detalhado anterior à consolidação está preservado em `docs/history/ESTADO_VIVO_DESENVOLVIMENTO_ATE_2026-08-20.md`.
 
@@ -30,7 +30,7 @@ Não está recomendada uma reescrita do ClubOS.
 | Prontidão operacional | ~80% |
 | Arquitetura backend | Boa |
 | Testes backend | Fortes |
-| Frontend / E2E / mobile QA | Baseline automático autenticado ativo; cobertura profunda por fluxo a expandir |
+| Frontend / E2E / mobile QA | P1 transversal fechado: baseline autenticado, multi-browser/mobile, acessibilidade, percursos preenchidos e mutações críticas cobertas; cobertura funcional profunda continua a crescer nos workstreams P2+ |
 | Infraestrutura / Disaster Recovery | H0.1 e H0.2 concluídos operacionalmente em produção |
 
 Stack produtiva: Laravel 13, PHP 8.3, React 19 + TypeScript, Inertia 2, Vite, PostgreSQL 17 local na Oracle VM, Redis, GitHub Actions, Nginx e PHP-FPM.
@@ -63,6 +63,11 @@ Stack produtiva: Laravel 13, PHP 8.3, React 19 + TypeScript, Inertia 2, Vite, Po
 | Importação de recibos antigos | 60% | Falta corpus real representativo e regression dataset idempotente. |
 
 ---
+
+
+### Fecho P1 transversal — 22/09/2026
+
+P1 de interface fica concluído após as PRs #344–#369. A cobertura inclui navegação autenticada multi-browser/mobile, ausência de deslocação horizontal genérica, conciliação preenchida, ciclos de planeamento, persistência Cais/Live, importação efetiva de membros e persistência/publicação do editor Website. A PR #369 fechou o inventário residual de `overflow-auto` em UI ativa com CI final verde. O passo seguinte é P2, começando pela revisão de ownership/redundância entre catalogação bancária/aliases e conciliação manual. P3/P4 continuam separados.
 
 ## 4. H0 — Production Hardening
 
