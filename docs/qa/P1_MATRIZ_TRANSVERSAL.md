@@ -218,3 +218,10 @@ Com os helpers modulares e Configurações alinhados, o contentor `main` do `Aut
 O shell passa a declarar `min-w-0`, scroll vertical e contenção horizontal. A responsabilidade de adaptar conteúdo continua nos componentes internos; tabelas responsivas e áreas operacionais específicas mantêm os seus próprios contratos. A alteração não esconde deliberadamente informação: o browser QA continua a verificar overflow nos percursos cobertos.
 
 Sem backend, dados, migrations, permissões ou regras de negócio. CI multi-browser/mobile obrigatória.
+
+
+## P1 — Treinos: lista de atletas sem eixo horizontal
+
+Após fechar o shell autenticado, a pesquisa residual encontrou na ficha modal de Treinos uma lista simples de atletas com `overflow-auto`. Como esta área contém apenas nomes em linhas verticais, não existe motivo funcional para scroll horizontal. O contentor passa a permitir apenas scroll vertical e a conter o eixo horizontal.
+
+O diálogo, participantes, conteúdo do treino e ações operacionais permanecem inalterados. Sem backend, dados, migrations, permissões ou regras de negócio. CI multi-browser/mobile obrigatória.
