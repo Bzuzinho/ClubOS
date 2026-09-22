@@ -1,6 +1,6 @@
 # P1 — Matriz transversal de interface
 
-Base: `9fa4e91174169e02fc48d0e4aa7b4989f49014d3`. Atualização: 2026-09-10.
+Base histórica: `9fa4e91174169e02fc48d0e4aa7b4989f49014d3`. Fecho P1: 2026-09-22, sobre `6883afb312116dde67a396cd8926022f597b62a2`.
 
 A aprovação do mockup é conceptual: conservar componentes, cores e tipografia. Desktop usa a área disponível sem botão de maximização. Não aceitar deslocação horizontal nem ocultar informação para a disfarçar. Cais e Live conservam os seus shells operacionais.
 
@@ -252,3 +252,16 @@ A pesquisa final no source ativo encontrou apenas três ocorrências restantes: 
 Após este lote, a pesquisa dirigida por `overflow-auto` deixa de identificar ocorrências em UI ativa que representem scroll horizontal genérico; scrolls explícitos `overflow-y-auto`, `overflow-x-hidden` e shells operacionais mantêm-se conforme o respetivo contrato. Isto fecha o inventário técnico específico de deslocação horizontal, mas o fecho global P1 continua dependente da CI e da revisão dos critérios funcionais/documentados restantes.
 
 Sem backend, dados, migrations, permissões ou regras de negócio. CI multi-browser/mobile obrigatória.
+
+
+## Fecho P1 — 22/09/2026
+
+P1 fica fechado como workstream transversal de interface. A sequência #344–#369 validou percursos preenchidos, importação efetiva de membros, persistência Cais/Live, gravação/publicação do editor Website, tabelas e diálogos responsivos, navegação interna e contenção horizontal do shell autenticado.
+
+Critérios de saída revistos:
+1. CI final da PR #369 verde nos três gates canónicos: validate, PostgreSQL concurrency e Frontend browser QA.
+2. Conciliação preenchida, planeamento com ciclos, Cais/Live com escrita+reload e editor Website com save_draft+reload+versão+publish+renderer público têm cobertura de browser dedicada.
+3. A pesquisa dirigida por `overflow-auto` em `resources/js` não identifica ocorrências residuais do padrão genérico que permitia deslocação horizontal; os scrolls explícitos verticais e os shells operacionais permanecem intencionais.
+4. `AuthenticatedLayout` usa `h-dvh`, `min-h-0`, `flex-1` e scroll vertical no conteúdo, sem offsets fixos para calcular altura útil; Cais/Live mantêm os seus shells específicos.
+
+As secções históricas acima conservam o estado de cada incremento no momento em que foi escrito e não devem ser lidas como pendências atuais. O fecho P1 não fecha P2, P3 ou P4: ownership/redundâncias funcionais, histórico consolidado e contexto global modalidade/época continuam workstreams próprios.
