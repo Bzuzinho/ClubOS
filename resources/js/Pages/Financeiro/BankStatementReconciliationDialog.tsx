@@ -698,7 +698,7 @@ export function BankStatementReconciliationDialog({
                 ) : openInvoices.length === 0 ? (
                   <div className="py-8 text-center text-sm text-muted-foreground">Nao foram encontradas faturas em aberto para esta pesquisa.</div>
                 ) : (
-                  <div className="w-full min-w-0 max-h-[420px] overflow-auto rounded-lg border">
+                  <div className="w-full min-w-0 max-h-[420px] overflow-y-auto overflow-x-hidden rounded-lg border">
                     <Table responsive className="text-sm">
                       <TableHeader className="bg-muted/50 text-xs uppercase tracking-wide text-muted-foreground">
                         <TableRow>
@@ -772,7 +772,7 @@ export function BankStatementReconciliationDialog({
                 ) : openMovements.length === 0 ? (
                   <div className="py-8 text-center text-sm text-muted-foreground">Nao foram encontrados movimentos em aberto para esta pesquisa.</div>
                 ) : (
-                  <div className="w-full min-w-0 max-h-[420px] overflow-auto rounded-lg border">
+                  <div className="w-full min-w-0 max-h-[420px] overflow-y-auto overflow-x-hidden rounded-lg border">
                     <Table responsive className="text-sm">
                       <TableHeader className="bg-muted/50 text-xs uppercase tracking-wide text-muted-foreground">
                         <TableRow>
