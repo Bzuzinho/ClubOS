@@ -209,3 +209,12 @@ A alteração é transversal mas estritamente de layout: não remove conteúdo n
 A mesma revisão aplicada ao helper modular encontrou duas classes locais equivalentes em Configurações: `scrollableTabContentClass` e `nestedScrollableTabContentClass` ainda usavam `overflow-auto`. Passam a permitir scroll vertical e a conter o eixo horizontal, alinhando Configurações com o contrato transversal P1.
 
 As tabelas responsivas e listas com scroll funcional permanecem inalteradas. Sem backend, dados, migrations, permissões ou regras de negócio. CI multi-browser/mobile obrigatória.
+
+
+## P1 — Shell autenticado: contenção horizontal global
+
+Com os helpers modulares e Configurações alinhados, o contentor `main` do `AuthenticatedLayout` permanecia como último contentor estrutural global com `overflow-auto` nos dois eixos. Isto permitia que um consumidor interno mal dimensionado transformasse toda a aplicação autenticada numa página com deslocação horizontal.
+
+O shell passa a declarar `min-w-0`, scroll vertical e contenção horizontal. A responsabilidade de adaptar conteúdo continua nos componentes internos; tabelas responsivas e áreas operacionais específicas mantêm os seus próprios contratos. A alteração não esconde deliberadamente informação: o browser QA continua a verificar overflow nos percursos cobertos.
+
+Sem backend, dados, migrations, permissões ou regras de negócio. CI multi-browser/mobile obrigatória.
