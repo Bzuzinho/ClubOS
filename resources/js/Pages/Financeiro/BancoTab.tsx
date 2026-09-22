@@ -1971,7 +1971,7 @@ export function BancoTab({
                         </SelectContent>
                       </Select>
                     </div>
-                    <Card className="p-4 overflow-auto max-h-[240px]">
+                    <Card className="max-h-[240px] overflow-y-auto overflow-x-hidden p-4">
                       <Table responsive>
                         <TableBody>
                           {importPreview.map((row: any[], idx) => (
@@ -2368,7 +2368,7 @@ export function BancoTab({
           )}
         </div>
 
-        <div className="hidden max-h-[400px] overflow-auto md:block">
+        <div className="hidden max-h-[400px] overflow-y-auto overflow-x-hidden md:block">
             <Table responsive>
               <TableHeader>
                 <TableRow>
