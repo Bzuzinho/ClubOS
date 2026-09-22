@@ -243,3 +243,12 @@ Na continuação do Banco, a gestão de conciliação em Configurações mantinh
 Os três contentores passam a manter apenas o limite/scroll vertical e a conter horizontalmente o conteúdo. Aliases, regras canónicas e gestão de conciliação permanecem inalterados.
 
 Sem backend, dados, migrations, permissões ou regras financeiras. CI multi-browser/mobile obrigatória.
+
+
+## P1 — Fecho do inventário de `overflow-auto` em UI ativa
+
+A pesquisa final no source ativo encontrou apenas três ocorrências restantes: uma tabela desktop de Comunicações do membro e dois contentores de tabelas no diálogo de conciliação bancária. Todos envolvem `Table responsive`; os contentores externos passam a conservar apenas scroll vertical e a conter o eixo horizontal.
+
+Após este lote, a pesquisa dirigida por `overflow-auto` deixa de identificar ocorrências em UI ativa que representem scroll horizontal genérico; scrolls explícitos `overflow-y-auto`, `overflow-x-hidden` e shells operacionais mantêm-se conforme o respetivo contrato. Isto fecha o inventário técnico específico de deslocação horizontal, mas o fecho global P1 continua dependente da CI e da revisão dos critérios funcionais/documentados restantes.
+
+Sem backend, dados, migrations, permissões ou regras de negócio. CI multi-browser/mobile obrigatória.

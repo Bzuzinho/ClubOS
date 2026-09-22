@@ -50,7 +50,7 @@ class PortalUserUxContractTest extends TestCase
         $this->assertStringContainsString('grid grid-cols-3 gap-2 sm:gap-2.5 xl:grid-cols-5', $dashboard);
 
         $this->assertStringContainsString('className="divide-y divide-slate-100 lg:hidden"', $communications);
-        $this->assertStringContainsString('className="hidden max-h-[420px] overflow-auto lg:block"', $communications);
+        $this->assertStringContainsString('className="hidden max-h-[420px] overflow-y-auto overflow-x-hidden lg:block"', $communications);
         $this->assertStringContainsString('w-[calc(100vw-1.5rem)]', $communications);
         $this->assertStringContainsString('w-[calc(100vw-2rem)] max-w-[340px]', $communications);
     }
