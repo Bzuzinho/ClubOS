@@ -107,19 +107,10 @@ Route::prefix('financeiro')->name('financeiro.')->middleware('module.access:fina
         ->middleware('permission.access:financeiro.dashboard,edit')
         ->whereUuid('bankStatement')
         ->name('bank-statements.allocate');
-    Route::post('bank-aliases', [BankReconciliationAliasController::class, 'store'])
-        ->middleware('permission.access:financeiro.dashboard,edit')
-        ->name('bank-aliases.store');
-    Route::patch('bank-aliases/{alias}', [BankReconciliationAliasController::class, 'update'])
-        ->middleware('permission.access:financeiro.dashboard,edit')
-        ->name('bank-aliases.update');
     Route::post('bank-aliases/{alias}/deactivate', [BankReconciliationAliasController::class, 'deactivate'])
         ->middleware('permission.access:financeiro.dashboard,edit')
         ->name('bank-aliases.deactivate');
     Route::post('bank-aliases/{alias}/reactivate', [BankReconciliationAliasController::class, 'reactivate'])
         ->middleware('permission.access:financeiro.dashboard,edit')
         ->name('bank-aliases.reactivate');
-    Route::delete('bank-aliases/{alias}', [BankReconciliationAliasController::class, 'destroy'])
-        ->middleware('permission.access:financeiro.dashboard,delete')
-        ->name('bank-aliases.destroy');
 });
