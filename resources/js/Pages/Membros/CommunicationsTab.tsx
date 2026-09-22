@@ -594,7 +594,7 @@ export default function CommunicationsTab({
                             })}
                         </div>
 
-                        <div className="hidden max-h-[420px] overflow-auto lg:block">
+                        <div className="hidden max-h-[420px] overflow-y-auto overflow-x-hidden lg:block">
                             <div className="min-w-0">
                                 <Table responsive>
                                     <TableHeader>
