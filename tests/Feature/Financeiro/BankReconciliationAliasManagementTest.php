@@ -13,11 +13,23 @@ use App\Models\User;
 use App\Models\UserType;
 use App\Services\Financeiro\ReconciliationAliasService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Route;
 use Tests\TestCase;
 
 class BankReconciliationAliasManagementTest extends TestCase
 {
     use RefreshDatabase;
+
+    public function test_alias_management_exposes_only_read_and_state_controls(): void
+    {
+        $this->assertTrue(Route::has('financeiro.bank-aliases.index'));
+        $this->assertTrue(Route::has('financeiro.bank-aliases.deactivate'));
+        $this->assertTrue(Route::has('financeiro.bank-aliases.reactivate'));
+
+        $this->assertFalse(Route::has('financeiro.bank-aliases.store'));
+        $this->assertFalse(Route::has('financeiro.bank-aliases.update'));
+        $this->assertFalse(Route::has('financeiro.bank-aliases.destroy'));
+    }
 
     public function test_alias_index_lists_active_and_inactive_aliases(): void
     {
