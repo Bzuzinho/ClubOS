@@ -559,7 +559,7 @@ export default function AuthenticatedLayout({
                 )}
 
                 {/* Page Content */}
-                <main className="min-h-0 flex-1 overflow-auto">
+                <main className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden">
                     <div
                         className={cn(
                             fullWidth ? 'w-full px-[10px] py-[10px] sm:py-4' : 'spark-container py-3 sm:py-4',
