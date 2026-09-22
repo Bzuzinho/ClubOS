@@ -431,6 +431,11 @@ test.describe('authenticated access', () => {
 
     test('P1: populated Cais and Live retain athlete and series controls', async ({ page }, testInfo) => {
         await login(page, testInfo, '/desportivo/cais');
+        const sportsSession = page.getByRole('button').filter({ hasText: '#E2E-DESPORTIVO' }).first();
+        await expect(sportsSession).toBeVisible();
+        await sportsSession.click();
+        await expect(page).toHaveURL(/\/desportivo\/cais.*training_id=/);
+        await expect(page.locator('#nprogress')).toHaveCount(0);
         await expect(page.getByText('Atleta E2E Desportivo', { exact: true })).toBeVisible();
         await expect(page.getByRole('button', { name: 'Comportamento', exact: true })).toBeVisible();
         await expectNoHorizontalOverflow(page);
