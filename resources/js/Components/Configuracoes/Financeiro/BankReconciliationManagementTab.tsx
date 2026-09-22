@@ -651,7 +651,7 @@ export function BankReconciliationManagementTab({ canEdit }: { canEdit: boolean 
             </div>
           </div>
 
-          <div className="max-h-[360px] overflow-auto">
+          <div className="max-h-[360px] overflow-y-auto overflow-x-hidden">
             <Table responsive>
               <TableHeader>
                 <TableRow>
@@ -771,7 +771,7 @@ export function BankReconciliationManagementTab({ canEdit }: { canEdit: boolean 
             </div>
           </div>
 
-          <div className="max-h-[360px] overflow-auto">
+          <div className="max-h-[360px] overflow-y-auto overflow-x-hidden">
             <Table responsive>
               <TableHeader>
                 <TableRow>
@@ -1072,7 +1072,7 @@ export function BankReconciliationManagementTab({ canEdit }: { canEdit: boolean 
             </div>
           </div>
 
-          <div className="max-h-[460px] overflow-auto">
+          <div className="max-h-[460px] overflow-y-auto overflow-x-hidden">
             <Table responsive>
               <TableHeader>
                 <TableRow>

@@ -234,3 +234,12 @@ A revisão residual encontrou dois contentores em Banco com `overflow-auto`: a p
 Os contentores externos passam a permitir apenas scroll vertical e a conter o eixo horizontal. A tabela responsiva, mapeamento/importação, ações e dados financeiros permanecem inalterados.
 
 Sem backend, dados, migrations, permissões ou regras financeiras. CI multi-browser/mobile obrigatória.
+
+
+## P1 — Configurações financeiras: gestão de conciliação sem scroll horizontal externo
+
+Na continuação do Banco, a gestão de conciliação em Configurações mantinha três contentores de tabelas com `overflow-auto` (dois a 360 px e um a 460 px). As tabelas já usam o contrato responsivo comum, pelo que o eixo horizontal no contentor exterior era redundante e podia criar scroll aninhado.
+
+Os três contentores passam a manter apenas o limite/scroll vertical e a conter horizontalmente o conteúdo. Aliases, regras canónicas e gestão de conciliação permanecem inalterados.
+
+Sem backend, dados, migrations, permissões ou regras financeiras. CI multi-browser/mobile obrigatória.
