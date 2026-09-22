@@ -202,3 +202,10 @@ Sem backend, dados, migrations, permissões ou regras desportivas. CI multi-brow
 Depois de eliminar o scroll horizontal das navegações Desportivo, a revisão do helper transversal encontrou `moduleScrollableContentClass` e `moduleTabbedContentClass` ainda definidos com `overflow-auto`, permitindo que qualquer consumidor reintroduzisse deslocação horizontal ao nível do conteúdo do módulo. Os dois contratos passam a permitir scroll vertical e a conter explicitamente o eixo horizontal.
 
 A alteração é transversal mas estritamente de layout: não remove conteúdo nem altera tabelas responsivas, dados, backend, permissões ou regras de negócio. A CI multi-browser/mobile é obrigatória para detetar qualquer consumidor que dependesse indevidamente de scroll horizontal.
+
+
+## P1 — Configurações: conteúdo de tabs apenas com scroll vertical
+
+A mesma revisão aplicada ao helper modular encontrou duas classes locais equivalentes em Configurações: `scrollableTabContentClass` e `nestedScrollableTabContentClass` ainda usavam `overflow-auto`. Passam a permitir scroll vertical e a conter o eixo horizontal, alinhando Configurações com o contrato transversal P1.
+
+As tabelas responsivas e listas com scroll funcional permanecem inalteradas. Sem backend, dados, migrations, permissões ou regras de negócio. CI multi-browser/mobile obrigatória.
