@@ -530,7 +530,7 @@ export function BankReconciliationManagementTab({ canEdit }: { canEdit: boolean 
         {
           method: 'POST',
           body: {
-            reason: 'Limpeza manual em Configuracoes > Financeiro > Conciliacao Bancaria',
+            reason: 'Limpeza manual em Configuracoes > Financeiro > Aprendizagem e Auditoria',
           },
           fallbackMessage: 'Nao foi possivel limpar rejeicao.',
         }
@@ -550,9 +550,9 @@ export function BankReconciliationManagementTab({ canEdit }: { canEdit: boolean 
     <div className="space-y-4">
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle className="text-lg">Conciliação Bancária</CardTitle>
+          <CardTitle className="text-lg">Aprendizagem e Auditoria Bancária</CardTitle>
           <CardDescription className="text-sm">
-            Aliases bancários ajudam o sistema a reconhecer transferencias futuras. Sugestoes rejeitadas impedem que propostas erradas reaparecam automaticamente.
+            Esta área não concilia movimentos nem liquida faturas. Gere aprendizagem para sugestões futuras, rejeições e auditoria do histórico de conciliação.
           </CardDescription>
         </CardHeader>
         <CardContent className="pt-0">
