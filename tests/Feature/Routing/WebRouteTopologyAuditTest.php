@@ -257,7 +257,11 @@ final class WebRouteTopologyAuditTest extends TestCase
         $this->assertStringContainsString("->name('monthly-fees.generate');", $financeRoutes);
         $this->assertStringContainsString("->name('bank-reconciliation-audit.export-summary');", $financeRoutes);
         $this->assertStringContainsString("->name('bank-reconciliation-suggestions.confirm');", $financeRoutes);
-        $this->assertStringContainsString("->name('bank-aliases.destroy');", $financeRoutes);
+        $this->assertStringNotContainsString("->name('bank-aliases.store');", $financeRoutes);
+        $this->assertStringNotContainsString("->name('bank-aliases.update');", $financeRoutes);
+        $this->assertStringNotContainsString("->name('bank-aliases.destroy');", $financeRoutes);
+        $this->assertStringContainsString("->name('bank-aliases.deactivate');", $financeRoutes);
+        $this->assertStringContainsString("->name('bank-aliases.reactivate');", $financeRoutes);
         $this->assertStringNotContainsString('LogisticaController::class', $financeRoutes);
     }
 
