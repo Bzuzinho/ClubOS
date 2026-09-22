@@ -225,3 +225,12 @@ Sem backend, dados, migrations, permissões ou regras de negócio. CI multi-brow
 Após fechar o shell autenticado, a pesquisa residual encontrou na ficha modal de Treinos uma lista simples de atletas com `overflow-auto`. Como esta área contém apenas nomes em linhas verticais, não existe motivo funcional para scroll horizontal. O contentor passa a permitir apenas scroll vertical e a conter o eixo horizontal.
 
 O diálogo, participantes, conteúdo do treino e ações operacionais permanecem inalterados. Sem backend, dados, migrations, permissões ou regras de negócio. CI multi-browser/mobile obrigatória.
+
+
+## P1 — Financeiro / Banco: contentores de tabelas sem scroll horizontal externo
+
+A revisão residual encontrou dois contentores em Banco com `overflow-auto`: a pré-visualização de importação e a lista desktop de movimentos. Ambas usam o componente `Table responsive`, que já é responsável pela adaptação interna dos campos; manter um segundo scroll horizontal no contentor externo contrariava o contrato P1 e podia criar scroll aninhado.
+
+Os contentores externos passam a permitir apenas scroll vertical e a conter o eixo horizontal. A tabela responsiva, mapeamento/importação, ações e dados financeiros permanecem inalterados.
+
+Sem backend, dados, migrations, permissões ou regras financeiras. CI multi-browser/mobile obrigatória.
