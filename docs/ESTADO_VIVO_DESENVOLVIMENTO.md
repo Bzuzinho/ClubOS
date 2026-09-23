@@ -77,6 +77,8 @@ P2.2 separa os dois domínios de resultados sem migrar dados: `Desportivo > Comp
 
 P2.3 separa Marketing de Comunicação por responsabilidade: Marketing é planeamento/brief/orçamento/alcance; Comunicação é execução multicanal, segmentos, agendamento, entregas e retries. A UI deixa de apresentar ambos genericamente como a mesma “campanha”, e contract tests impedem dependência direta entre os respetivos modelos/controllers.
 
+P2.4 fecha a última mutação financeira identificada dentro da ficha do membro: `club-movimentos`/`club-movimento-itens` permanecem apenas como histórico legacy read-only, com acesso condicionado à permissão da tab financeira. Escritas KV são bloqueadas no backend; alterações de movimentos pertencem exclusivamente ao módulo Financeiro e os movimentos canónicos da ficha continuam a vir de `Movement`.
+
 ## 4. H0 — Production Hardening
 
 ### H0.1a — CI/CD e segurança SSH — concluída
