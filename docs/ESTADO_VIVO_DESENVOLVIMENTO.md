@@ -69,6 +69,12 @@ Stack produtiva: Laravel 13, PHP 8.3, React 19 + TypeScript, Inertia 2, Vite, Po
 
 P1 de interface fica concluído após as PRs #344–#369. A cobertura inclui navegação autenticada multi-browser/mobile, ausência de deslocação horizontal genérica, conciliação preenchida, ciclos de planeamento, persistência Cais/Live, importação efetiva de membros e persistência/publicação do editor Website. A PR #369 fechou o inventário residual de `overflow-auto` em UI ativa com CI final verde. O passo seguinte é P2, começando pela revisão de ownership/redundância entre catalogação bancária/aliases e conciliação manual. P3/P4 continuam separados.
 
+### P2 — Ownership funcional — iniciado em 22/09/2026
+
+P2.1 separou a conciliação bancária operacional da área auxiliar de aprendizagem/auditoria: `Financeiro > Banco` é o único owner da decisão de conciliar/alocar; `Configurações > Financeiro` consulta, audita e ativa/desativa aliases, sem CRUD paralelo de catalogação.
+
+P2.2 separa os dois domínios de resultados sem migrar dados: `Desportivo > Competições / Resultados` mantém ownership dos resultados oficiais canónicos (`results → provas → competitions`), enquanto `Eventos > Resultados` mantém ownership dos registos de Eventos expostos por `club-resultados-provas`. A ficha do membro passa a ser exclusivamente de consulta para Resultados de Eventos e o backend reserva `edit/delete` dessa chave a `eventos.resultados`; permissões de Desportivo/ficha continuam válidas apenas para leitura.
+
 ## 4. H0 — Production Hardening
 
 ### H0.1a — CI/CD e segurança SSH — concluída
