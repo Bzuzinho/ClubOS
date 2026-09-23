@@ -64,3 +64,22 @@ O resumo da ficha também passa a chamar estes dados de “Resultados de Eventos
 No backend, `club-resultados-provas` e `club-resultados` continuam legíveis para permissões de Eventos, Desportivo e ficha do membro, mas `edit/delete` ficam reservados a `eventos.resultados`.
 
 Não existe migração, unificação ou eliminação automática de registos neste lote. As duas fontes mantêm ownership semântico distinto.
+
+
+## P2.3 — Marketing: planeamento vs. Comunicação: execução
+
+### Owners funcionais
+
+- **Marketing** gere o plano da campanha: objetivo/descrição, tipo de ação, datas, estado, orçamento, alcance estimado e notas.
+- **Comunicação** gere a execução/distribuição: destinatários/segmentos, canais, conteúdos, agendamento, dispatch, entregas, retries e alertas.
+- Um plano de Marketing não representa um envio efetuado; uma campanha de Comunicação não é o orçamento/brief de Marketing.
+
+### Decisão deste lote
+
+A UI passa a tornar a fronteira explícita:
+- Marketing usa “Planos de Campanha” e identifica que os envios são executados em Comunicação;
+- Comunicação descreve as suas campanhas como campanhas de envio/execução.
+
+Os modelos e controllers continuam separados (`MarketingCampaign` vs. `CommunicationCampaign`). Contract tests impedem dependência cruzada direta entre os dois controllers.
+
+Não existe migration, fusão de tabelas, sincronização automática ou criação de relação implícita entre planos e envios neste lote.
