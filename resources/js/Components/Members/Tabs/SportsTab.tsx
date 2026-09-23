@@ -91,7 +91,7 @@ export function SportsTab({ user, onChange, isAdmin, onNavigate }: SportsTabProp
         </TabsContent>
 
         <TabsContent value="resultados" className="mt-1 bg-white p-0 rounded-lg border border-white">
-          <ResultadosTab user={user} isAdmin={isAdmin} />
+          <ResultadosTab user={user} />
         </TabsContent>
 
         <TabsContent value="treinos" className="mt-1 bg-white p-0 rounded-lg border border-white">
