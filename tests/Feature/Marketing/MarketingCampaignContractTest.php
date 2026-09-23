@@ -79,4 +79,29 @@ class MarketingCampaignContractTest extends TestCase
         $this->assertStringContainsString("route('campanhas-marketing.index')", $controller);
         $this->assertStringNotContainsString("route('marketing.index')", $controller);
     }
+
+    public function test_marketing_planning_and_communication_execution_keep_separate_owners(): void
+    {
+        $marketingController = file_get_contents(app_path('Http/Controllers/CampanhasMarketingController.php'));
+        $communicationController = file_get_contents(app_path('Http/Controllers/Communication/CommunicationCampaignController.php'));
+        $marketingPage = file_get_contents(resource_path('js/Pages/CampanhasMarketing/Index.tsx'));
+        $communicationPage = file_get_contents(resource_path('js/Pages/Comunicacao/Index.tsx'));
+
+        $this->assertIsString($marketingController);
+        $this->assertIsString($communicationController);
+        $this->assertIsString($marketingPage);
+        $this->assertIsString($communicationPage);
+
+        $this->assertStringContainsString('MarketingCampaign', $marketingController);
+        $this->assertStringNotContainsString('CommunicationCampaign', $marketingController);
+        $this->assertStringContainsString('CommunicationCampaign', $communicationController);
+        $this->assertStringNotContainsString('MarketingCampaign', $communicationController);
+
+        $this->assertStringContainsString('Planeamento de campanhas, orçamento, datas e alcance estimado', $marketingPage);
+        $this->assertStringContainsString('Planos de Campanha', $marketingPage);
+        $this->assertStringContainsString('execução e os envios são geridos em Comunicação', $marketingPage);
+        $this->assertStringContainsString('Execução de campanhas de comunicação', $communicationPage);
+        $this->assertStringContainsString('Campanha de envio', $communicationPage);
+    }
+
 }
