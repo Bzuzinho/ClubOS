@@ -42,3 +42,25 @@ Desativar/reativar permanece disponível porque controla apenas a participação
 - `BankReconciliationManualMemberEditingContractTest` fixa a separação textual entre aprendizagem/auditoria e conciliação operacional.
 
 Sem migrations, backfill ou alteração automática de dados neste lote.
+
+
+## P2.2 — Resultados: Competições vs. Eventos
+
+### Owners operacionais
+
+- **Desportivo > Competições / Resultados** é o owner dos resultados oficiais competitivos, na cadeia canónica `results → provas → competitions`.
+- **Eventos > Resultados** é o owner dos registos associados a Eventos expostos pela compatibilidade `club-resultados-provas`.
+- A ficha do membro é uma superfície de consulta dos dois históricos; não é uma terceira porta de escrita.
+
+### Decisão deste lote
+
+`Membros > Desportivo > Resultados` deixa de criar, editar ou eliminar `club-resultados-provas`. Mantém:
+- histórico oficial de Competições via `CompetitionHistory`;
+- leitura separada de Resultados de Eventos;
+- identificação explícita do owner de edição em `Eventos > Resultados`.
+
+O resumo da ficha também passa a chamar estes dados de “Resultados de Eventos”, evitando apresentá-los como se fossem o histórico competitivo oficial.
+
+No backend, `club-resultados-provas` e `club-resultados` continuam legíveis para permissões de Eventos, Desportivo e ficha do membro, mas `edit/delete` ficam reservados a `eventos.resultados`.
+
+Não existe migração, unificação ou eliminação automática de registos neste lote. As duas fontes mantêm ownership semântico distinto.

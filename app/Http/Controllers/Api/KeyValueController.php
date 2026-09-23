@@ -126,11 +126,13 @@ class KeyValueController extends Controller
                 'desportivo.presencas',
                 'membros.ficha.desportivo.presencas',
             ],
-            'club-resultados', 'club-resultados-provas' => [
-                'eventos.resultados',
-                'desportivo.resultados',
-                'membros.ficha.desportivo.resultados',
-            ],
+            'club-resultados', 'club-resultados-provas' => $capability === 'view'
+                ? [
+                    'eventos.resultados',
+                    'desportivo.resultados',
+                    'membros.ficha.desportivo.resultados',
+                ]
+                : ['eventos.resultados'],
             default => [],
         };
 

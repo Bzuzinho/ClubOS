@@ -322,7 +322,7 @@ export function DashboardTab({ user, faturas = [] }: DashboardTabProps) {
               </div>
 
               <div className="pt-1 border-t mt-1">
-                <h4 className="text-xs font-medium mb-1">Últimos Resultados</h4>
+                <h4 className="text-xs font-medium mb-1">Últimos Resultados de Eventos</h4>
                 <div className="space-y-0.5">
                   {atletaResultados.slice(0, 3).map((resultado) => (
                     <div key={resultado.id} className="flex items-center justify-between text-xs bg-muted/50 rounded p-2">
@@ -343,7 +343,7 @@ export function DashboardTab({ user, faturas = [] }: DashboardTabProps) {
                   ))}
                   {atletaResultados.length === 0 && (
                     <p className="text-xs text-muted-foreground text-center py-2">
-                      Sem resultados registados
+                      Sem resultados de Eventos registados
                     </p>
                   )}
                 </div>
@@ -373,7 +373,7 @@ export function DashboardTab({ user, faturas = [] }: DashboardTabProps) {
             </div>
 
             <div className="text-center p-2 bg-amber-50 rounded border border-amber-100">
-              <div className="text-xs text-amber-600 font-medium">Resultados</div>
+              <div className="text-xs text-amber-600 font-medium">Resultados de Eventos</div>
               <div className="text-lg font-bold text-amber-700">{estatisticasPeriodo.resultados}</div>
             </div>
           </div>
