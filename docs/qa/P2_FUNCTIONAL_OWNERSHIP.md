@@ -83,3 +83,26 @@ A UI passa a tornar a fronteira explícita:
 Os modelos e controllers continuam separados (`MarketingCampaign` vs. `CommunicationCampaign`). Contract tests impedem dependência cruzada direta entre os dois controllers.
 
 Não existe migration, fusão de tabelas, sincronização automática ou criação de relação implícita entre planos e envios neste lote.
+
+
+## P2.4 — Membros: consulta financeira vs. Financeiro: mutação
+
+### Owner operacional
+
+- **Financeiro** é o único owner de criação/edição/eliminação de movimentos financeiros e respetivos itens.
+- **Membros > Ficha > Financeiro** configura apenas atributos do membro (plano de mensalidade, centro de custo, desconto) e consulta o histórico/conta corrente.
+
+### Problema encontrado
+
+A ficha ainda consumia `club-movimentos` e `club-movimento-itens` através do KV genérico e expunha edição de itens de inscrições em Eventos. Estas chaves não têm adapter canónico para `Movement`/itens financeiros, pelo que a alteração gravava uma fonte paralela no `KeyValueStore`.
+
+### Decisão deste lote
+
+- a ficha mantém a leitura do histórico KV legado para não ocultar dados antigos;
+- essa secção passa a estar explicitamente identificada como histórico legado e read-only;
+- são removidos setters, diálogo de edição e ações de mutação no `FinancialTab`;
+- `PUT/DELETE` de `club-movimentos`, `club-movimento-itens` e do alias histórico `club-movimento-items` passam a ser bloqueados no backend;
+- a leitura dessas chaves exige `membros.ficha.financeiro:view`;
+- movimentos canónicos continuam a ser lidos do payload `Movement` entregue pelo `MembrosController`.
+
+Sem migration, backfill ou eliminação de histórico neste lote.

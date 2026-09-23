@@ -5,12 +5,10 @@ import { Card } from '@/Components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/Components/ui/table';
 import { Badge } from '@/Components/ui/badge';
 import { ScrollArea } from '@/Components/ui/scroll-area';
-import { Button } from '@/Components/ui/button';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/Components/ui/dialog';
 import { format } from 'date-fns';
-import { useState, useMemo } from 'react';
-import { useKV } from '@github/spark/hooks';
-import { DollarSign, TrendingUp, TrendingDown, Pencil, Trash2, Plus } from 'lucide-react';
+import { useMemo } from 'react';
+import { useKV } from '@/hooks/useKV';
+import { DollarSign, TrendingUp, TrendingDown } from 'lucide-react';
 
 interface MonthlyFee {
   id: string;
@@ -45,13 +43,8 @@ export function FinancialTab({
   costCenters = [],
 }: FinancialTabProps) {
   // Load from KV for convocation-related movements
-  const [movimentosKV, setMovimentosKV] = useKV<any[]>('club-movimentos', []);
-  const [movimentoItensKV, setMovimentoItensKV] = useKV<any[]>('club-movimento-itens', []);
-  
-  // Estado para edição de movimento
-  const [editingMovimento, setEditingMovimento] = useState<any | null>(null);
-  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
-  const [editingItens, setEditingItens] = useState<any[]>([]);
+  const [movimentosKV] = useKV<any[]>('club-movimentos', []);
+  const [movimentoItensKV] = useKV<any[]>('club-movimento-itens', []);
   const toNumber = (value: unknown) => {
     if (typeof value === 'number') return value;
     if (typeof value === 'string') {
@@ -135,66 +128,6 @@ export function FinancialTab({
       })
       .sort((a, b) => new Date(b.data_emissao).getTime() - new Date(a.data_emissao).getTime());
   }, [movimentos, user.id]);
-
-  // Handlers para edição de movimento
-  const handleOpenEditDialog = (linha: any) => {
-    if (!linha || !linha.movimento) {
-      console.error('Movimento não encontrado');
-      return;
-    }
-    const movimento = linha.movimento;
-    const itens = (movimentoItensKV || []).filter(item => item.movimento_id === movimento.id);
-    setEditingMovimento(movimento);
-    setEditingItens(itens);
-    setIsEditDialogOpen(true);
-  };
-
-  const handleCloseEditDialog = () => {
-    setIsEditDialogOpen(false);
-    setEditingMovimento(null);
-    setEditingItens([]);
-  };
-
-  const handleUpdateItemValor = (itemIndex: number, novoValor: string | number) => {
-    const valor = toNumber(novoValor);
-    const novoItens = [...editingItens];
-    novoItens[itemIndex] = {
-      ...novoItens[itemIndex],
-      valor_unitario: valor,
-      total_linha: valor * (novoItens[itemIndex].quantidade || 1),
-    };
-    setEditingItens(novoItens);
-  };
-
-  const handleRemoveItem = (itemIndex: number) => {
-    setEditingItens(editingItens.filter((_, i) => i !== itemIndex));
-  };
-
-  const handleSaveMovimento = async () => {
-    if (!editingMovimento) return;
-
-    // Recalcular valor total do movimento
-    const novoValorTotal = editingItens.reduce((sum, item) => sum + toNumber(item.valor_unitario), 0);
-    
-    // Atualizar movimento
-    const movimentoAtualizado = {
-      ...editingMovimento,
-      valor_total: -Math.abs(novoValorTotal),
-    };
-
-    // Atualizar em KV
-    setMovimentosKV(current => 
-      (current || []).map(m => m.id === editingMovimento.id ? movimentoAtualizado : m)
-    );
-
-    // Remover itens antigos e adicionar novos
-    setMovimentoItensKV(current => [
-      ...((current || []).filter(item => item.movimento_id !== editingMovimento.id)),
-      ...editingItens.map(item => ({ ...item, movimento_id: editingMovimento.id })),
-    ]);
-
-    handleCloseEditDialog();
-  };
 
   // Linhas de responsabilidade - movimentos de convocatória onde o atleta foi convocado
   const linhasResponsabilidade = useMemo(() => {
@@ -464,8 +397,11 @@ export function FinancialTab({
       {linhasResponsabilidade.length > 0 && (
         <Card className="p-2">
           <h3 className="text-xs font-semibold mb-1.5 flex items-center gap-1.5">
-            <span>📋</span> Inscrições em Eventos
+            <span>📋</span> Inscrições em Eventos — histórico legado
           </h3>
+          <p className="mb-2 text-xs text-muted-foreground">
+            Consulta histórica. Alterações financeiras são efetuadas apenas no módulo Financeiro.
+          </p>
           <ScrollArea className="h-[300px]">
             <Table responsive>
               <TableHeader>
@@ -473,7 +409,6 @@ export function FinancialTab({
                   <TableHead className="text-xs h-7 py-1">Data</TableHead>
                   <TableHead className="text-xs h-7 py-1">Inscrição</TableHead>
                   <TableHead className="text-xs h-7 py-1 text-right">Valor</TableHead>
-                  <TableHead className="text-xs h-7 py-1 text-right">Ações</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -490,17 +425,6 @@ export function FinancialTab({
                     <TableCell label="Valor" className="py-1 text-right font-semibold">
                       €{toNumber(linha.valor_unitario).toFixed(2)}
                     </TableCell>
-                    <TableCell label="Ações" className="py-1 text-right">
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => handleOpenEditDialog(linha)}
-                        className="h-6 w-6 p-0"
-                        title="Editar"
-                      >
-                        <Pencil size={14} />
-                      </Button>
-                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -509,78 +433,6 @@ export function FinancialTab({
         </Card>
       )}
 
-      {/* Dialog para editar movimento */}
-      {isEditDialogOpen && editingMovimento && editingItens.length > 0 && (
-        <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
-          <DialogContent className="max-w-4xl">
-            <DialogHeader>
-              <DialogTitle>Editar Movimento - {editingMovimento?.nome_manual || 'Sem nome'}</DialogTitle>
-            </DialogHeader>
-
-            <ScrollArea className="h-64 w-full border rounded-lg">
-              <Table className="text-xs">
-                <TableHeader>
-                  <TableRow className="bg-muted">
-                    <TableHead className="text-xs h-7 py-1">Descrição</TableHead>
-                    <TableHead className="text-xs h-7 py-1 text-right">Valor (€)</TableHead>
-                    <TableHead className="text-xs h-7 py-1 text-right w-8">Remover</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {editingItens.map((item, index) => (
-                    <TableRow key={index} className="hover:bg-muted/50">
-                      <TableCell className="py-1">
-                        <Input
-                          value={item.descricao || ''}
-                          onChange={(e) => {
-                            const updated = [...editingItens];
-                            updated[index].descricao = e.target.value;
-                            setEditingItens(updated);
-                          }}
-                          className="h-6 text-xs"
-                          placeholder="Descrição"
-                        />
-                      </TableCell>
-                      <TableCell className="py-1 text-right">
-                        <Input
-                          type="number"
-                          step="0.01"
-                          value={toNumber(item.valor_unitario).toFixed(2)}
-                          onChange={(e) => handleUpdateItemValor(index, e.target.value)}
-                          className="h-6 text-xs text-right"
-                        />
-                      </TableCell>
-                      <TableCell className="py-1 text-right">
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => handleRemoveItem(index)}
-                          className="h-6 w-6 p-0 text-destructive hover:text-destructive"
-                        >
-                          <Trash2 size={14} />
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </ScrollArea>
-
-            <div className="flex justify-end pt-2 border-t text-sm font-semibold">
-              Total: €{Math.abs(editingItens.reduce((sum, item) => sum + toNumber(item.valor_unitario), 0)).toFixed(2)}
-            </div>
-
-            <DialogFooter>
-              <Button variant="outline" onClick={handleCloseEditDialog}>
-                Cancelar
-              </Button>
-              <Button onClick={handleSaveMovimento} disabled={editingItens.length === 0}>
-                Guardar
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-      )}
     </div>
   );
 }

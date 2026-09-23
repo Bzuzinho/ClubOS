@@ -11,6 +11,12 @@ use Illuminate\Http\JsonResponse;
 
 class KeyValueController extends Controller
 {
+    private const READ_ONLY_LEGACY_FINANCIAL_KEYS = [
+        'club-movimentos',
+        'club-movimento-itens',
+        'club-movimento-items',
+    ];
+
     public function __construct(
         private readonly UserTypeAccessControlService $accessControlService,
         private readonly EventosKeyValueService $eventosSync,
@@ -26,6 +32,10 @@ class KeyValueController extends Controller
     {
         $scope = $request->get('scope', 'global');
         $userId = $scope === 'user' ? auth()->id() : null;
+
+        if ($this->isReadOnlyLegacyFinancialKey($key)) {
+            $this->authorizeLegacyFinancialRead($request);
+        }
 
         if ($this->eventosSync->supports($key)) {
             $this->authorizeEventosKey($request, $key, 'view');
@@ -61,6 +71,12 @@ class KeyValueController extends Controller
         $scope = $validated['scope'] ?? 'global';
         $userId = $scope === 'user' ? auth()->id() : null;
 
+        abort_if(
+            $this->isReadOnlyLegacyFinancialKey($key),
+            403,
+            'Este histórico financeiro legado é apenas de leitura. Utilize o módulo Financeiro para alterações.'
+        );
+
         if ($this->eventosSync->supports($key)) {
             $this->authorizeEventosKey($request, $key, 'edit');
             $this->eventosSync->set($key, $validated['value'], $userId);
@@ -89,6 +105,12 @@ class KeyValueController extends Controller
         $scope = $request->get('scope', 'global');
         $userId = $scope === 'user' ? auth()->id() : null;
 
+        abort_if(
+            $this->isReadOnlyLegacyFinancialKey($key),
+            403,
+            'Este histórico financeiro legado é apenas de leitura. Utilize o módulo Financeiro para alterações.'
+        );
+
         if ($this->eventosSync->supports($key)) {
             $this->authorizeEventosKey($request, $key, 'delete');
             $this->eventosSync->delete($key, $userId);
@@ -105,6 +127,24 @@ class KeyValueController extends Controller
             'message' => 'Value deleted successfully',
             'key' => $key,
         ]);
+    }
+
+    private function isReadOnlyLegacyFinancialKey(string $key): bool
+    {
+        return in_array($key, self::READ_ONLY_LEGACY_FINANCIAL_KEYS, true);
+    }
+
+    private function authorizeLegacyFinancialRead(Request $request): void
+    {
+        abort_unless(
+            $this->accessControlService->canAccessPermission(
+                $request->user(),
+                'membros.ficha.financeiro',
+                'view'
+            ),
+            403,
+            'Sem permissão para consultar o histórico financeiro da ficha do membro.'
+        );
     }
 
     private function authorizeEventosKey(Request $request, string $key, string $capability): void
