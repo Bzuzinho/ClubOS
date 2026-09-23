@@ -6,6 +6,17 @@ use Tests\TestCase;
 
 class BankReconciliationManualMemberEditingContractTest extends TestCase
 {
+    public function test_settings_bank_area_is_explicitly_learning_and_audit_only(): void
+    {
+        $settings = file_get_contents(resource_path('js/Pages/Configuracoes/Index.tsx'));
+        $management = file_get_contents(resource_path('js/Components/Configuracoes/Financeiro/BankReconciliationManagementTab.tsx'));
+
+        $this->assertStringContainsString('Aprendizagem e Auditoria', $settings);
+        $this->assertStringContainsString('Aprendizagem e Auditoria Bancária', $management);
+        $this->assertStringContainsString('Esta área não concilia movimentos nem liquida faturas.', $management);
+        $this->assertStringContainsString('Abrir conciliação manual', file_get_contents(resource_path('js/Pages/Financeiro/BancoTab.tsx')));
+    }
+
     public function test_suggestion_ui_exposes_manual_member_add_and_remove_controls(): void
     {
         $bankTab = file_get_contents(resource_path('js/Pages/Financeiro/BancoTab.tsx'));

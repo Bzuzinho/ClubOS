@@ -35,7 +35,7 @@ A área administrativa deve comportar-se como uma única aplicação. Portal, Ca
 | Páginas, media e pedidos públicos | Website |
 | Organização, acesso, sistema e credenciais | Configurações |
 
-Operações como conciliação bancária e importação de recibos pertencem ao Financeiro. Produtos, fornecedores e patrocinadores não devem ter ecrãs concorrentes em Configurações.
+Operações como conciliação bancária e importação de recibos pertencem ao Financeiro. Configurações pode alojar gestão auxiliar de aprendizagem/auditoria bancária, mas não uma segunda ação de conciliar ou liquidar. Produtos, fornecedores e patrocinadores não devem ter ecrãs concorrentes em Configurações.
 
 ## Navegação global alvo
 

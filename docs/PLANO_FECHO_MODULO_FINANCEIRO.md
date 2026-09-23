@@ -1156,7 +1156,7 @@ Cobertos em `tests/Feature/Financeiro/BankReconciliationAliasManagementTest.php`
 
 ### Testes manuais para o utilizador
 
-1. Entrar em `Configurações > Financeiro > Conciliação Bancária`.
+1. Entrar em `Configurações > Financeiro > Aprendizagem e Auditoria`.
 2. Em `Aliases bancários`, validar filtros por estado/tipo/origem e pesquisa por descrição/nome.
 3. Desativar um alias conhecido e confirmar mensagem de sucesso.
 4. Gerar sugestão numa linha que dependia desse alias e confirmar que deixa de aparecer por esse caminho.
@@ -1166,7 +1166,7 @@ Cobertos em `tests/Feature/Financeiro/BankReconciliationAliasManagementTest.php`
 
 ### Validação manual confirmada
 
-- Configurações > Financeiro > Conciliação Bancária abre corretamente: OK.
+- Configurações > Financeiro > Aprendizagem e Auditoria abre corretamente: OK.
 - Aliases aparecem com paginação server-side: OK.
 - Pesquisa/filtros de aliases funcionam: OK.
 - Alterar tamanho de página em aliases funciona: OK.
@@ -1184,7 +1184,7 @@ Sprint F4.3 fica fechada operacionalmente.
 
 Conclusão desta sprint:
 
-- a gestão de aliases e rejeições passa a estar visível em Configurações > Financeiro > Conciliação Bancária;
+- a gestão de aliases e rejeições passa a estar visível em Configurações > Financeiro > Aprendizagem e Auditoria;
 - aliases podem ser consultados, filtrados, paginados, desativados e reativados;
 - rejeições podem ser consultadas, filtradas, paginadas e limpas/revertidas;
 - o motor de pagamentos, alocação, desconciliação, importação XLS e conta corrente não foi alterado.
@@ -1204,7 +1204,7 @@ Criar uma camada operacional de auditoria para consulta e controlo da conciliaç
 ### Escopo entregue
 
 - novo endpoint de leitura paginado: `GET /financeiro/banco/auditoria`;
-- integração na área existente: `Configurações > Financeiro > Conciliação Bancária` com nova subtab `Auditoria`;
+- integração na área existente: `Configurações > Financeiro > Aprendizagem e Auditoria` com nova subtab `Auditoria`;
 - resumo operacional no topo (totais de linhas, estados, valor alocado, valor por alocar e crédito criado);
 - tabela principal com colunas operacionais de estado, valores, método, alvo, conciliado por/em;
 - ação `Ver detalhe` por linha com alocações (faturas/movimentos/crédito), histórico de desconciliações, flags e estado fiscal quando disponível;
@@ -1247,7 +1247,7 @@ Cobertos em `tests/Feature/Financeiro/BankReconciliationAuditEndpointTest.php`:
 
 ### Testes manuais para o utilizador
 
-1. Entrar em `Configurações > Financeiro > Conciliação Bancária > Auditoria`.
+1. Entrar em `Configurações > Financeiro > Aprendizagem e Auditoria > Auditoria`.
 2. Confirmar cards de resumo com e sem filtros.
 3. Testar filtros por estado, datas, pesquisa, método e crédito.
 4. Validar ordenação por data e valor.
@@ -1277,7 +1277,7 @@ Permitir exportar a auditoria bancária filtrada para formato operacional e adic
 - endpoint de exportação de resumo operacional por período: `GET /financeiro/banco/auditoria/export-summary`;
 - exportação detalhada ignora paginação visual e exporta todas as linhas filtradas até limite seguro (`5000` linhas);
 - resumo operacional inclui totais por estado, totais monetários, data/hora, utilizador exportador, período e sinalização de truncagem por limite;
-- subtab `Auditoria` em `Configurações > Financeiro > Conciliação Bancária` passou a incluir:
+- subtab `Auditoria` em `Configurações > Financeiro > Aprendizagem e Auditoria` passou a incluir:
    - botão `Exportar CSV`;
    - botão `Exportar resumo CSV`;
    - informação operacional de que o export usa todas as linhas filtradas e não apenas a página atual;
@@ -1326,7 +1326,7 @@ Cobertos em `tests/Feature/Financeiro/BankReconciliationAuditEndpointTest.php`:
 
 ### Testes manuais para o utilizador
 
-1. Entrar em `Configurações > Financeiro > Conciliação Bancária > Auditoria`.
+1. Entrar em `Configurações > Financeiro > Aprendizagem e Auditoria > Auditoria`.
 2. Aplicar filtros de estado, datas, pesquisa, método e crédito.
 3. Clicar `Exportar CSV` e confirmar que o ficheiro contém as linhas filtradas completas.
 4. Confirmar no CSV os campos operacionais principais (estado, alocado/por alocar, método, alvo, conciliado por/em, faturas/movimentos, crédito, fiscal, bloqueios e histórico).
@@ -1356,7 +1356,7 @@ Executar hardening final do módulo financeiro sem criar novas funcionalidades g
 
 - auditoria final de rotas F4 em `routes/web.php` (sugestões, aliases, rejeições, auditoria e exportação);
 - revisão de permissões em backend e UI para `financeiro.dashboard` e `financeiro.importacao_recibos`;
-- uniformização de microcopy e labels operacionais em Banco e Configurações > Financeiro > Conciliação Bancária;
+- uniformização de microcopy e labels operacionais em Banco e Configurações > Financeiro > Aprendizagem e Auditoria;
 - confirmação explícita para ações perigosas:
    - criar despesa a partir de extrato;
    - confirmar alocação assistida;
@@ -1380,7 +1380,7 @@ Executar hardening final do módulo financeiro sem criar novas funcionalidades g
 - Não aparecem termos técnicos como payload, metadata, signature ou hash na UI principal: OK.
 - Botões ficam protegidos contra submissão repetida: OK.
 - Mensagens de erro são claras: OK.
-- Configurações > Financeiro > Conciliação Bancária mantém estados vazios claros em aliases, rejeições e auditoria: OK.
+- Configurações > Financeiro > Aprendizagem e Auditoria mantém estados vazios claros em aliases, rejeições e auditoria: OK.
 - Ações perigosas mantêm confirmação: OK.
 - Paginação/filtros continuam funcionais: OK.
 - Exportação CSV continua funcional: OK.

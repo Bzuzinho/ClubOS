@@ -1816,7 +1816,7 @@ export default function SettingsIndex({
                                 <TabsTrigger value="financeiro-centros-custos">Centros de Custos</TabsTrigger>
                                 <TabsTrigger value="financeiro-metodos-pagamento">Métodos de Pagamento</TabsTrigger>
                                 {hasFinanceiroDashboardViewPermission ? (
-                                    <TabsTrigger value="financeiro-conciliacao-bancaria">Conciliação Bancária</TabsTrigger>
+                                    <TabsTrigger value="financeiro-conciliacao-bancaria">Aprendizagem e Auditoria</TabsTrigger>
                                 ) : null}
                                 {hasReceiptImportViewPermission ? (
                                     <TabsTrigger value="financeiro-importacao-recibos">Importar Recibos</TabsTrigger>
