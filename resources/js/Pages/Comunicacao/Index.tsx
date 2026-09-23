@@ -1344,7 +1344,7 @@ export default function ComunicacaoIndex({
       header={
         <ModuleHeader
           title="Comunicação"
-          description="Campanhas, envios, modelos, segmentos e alertas internos."
+          description="Execução de campanhas de comunicação: destinatários, canais, agendamento, envios e entregas."
         />
       }
     >
@@ -1383,7 +1383,7 @@ export default function ComunicacaoIndex({
             {activeTab === 'dashboard' ? (
             <>
             <div className="grid gap-2 grid-cols-2 lg:grid-cols-4">
-              <Card className="p-3"><div className="text-xs text-muted-foreground">Campanhas agendadas</div><div className="text-xl font-semibold">{stats.scheduled_campaigns}</div></Card>
+              <Card className="p-3"><div className="text-xs text-muted-foreground">Campanhas de envio agendadas</div><div className="text-xl font-semibold">{stats.scheduled_campaigns}</div></Card>
               <Card className="p-3"><div className="text-xs text-muted-foreground">Envios concluídos</div><div className="text-xl font-semibold">{stats.completed_deliveries}</div></Card>
               <Card className="p-3"><div className="text-xs text-muted-foreground">Falhas</div><div className="text-xl font-semibold">{stats.failed_deliveries}</div></Card>
               <Card className="p-3"><div className="text-xs text-muted-foreground">Templates ativos</div><div className="text-xl font-semibold">{stats.active_templates}</div></Card>
@@ -1634,7 +1634,7 @@ export default function ComunicacaoIndex({
                   <Table className="table-fixed">
                     <TableHeader>
                       <TableRow>
-                        <TableHead className="h-9 w-[22%] px-2 py-2 whitespace-normal">Campanha</TableHead>
+                        <TableHead className="h-9 w-[22%] px-2 py-2 whitespace-normal">Campanha de envio</TableHead>
                         <TableHead className="h-9 w-[8%] px-2 py-2 whitespace-normal">Canal</TableHead>
                         <TableHead className="h-9 w-[14%] px-2 py-2 whitespace-normal">Audiência</TableHead>
                         <TableHead className="h-9 w-[14%] px-2 py-2 whitespace-normal">Data/Hora</TableHead>

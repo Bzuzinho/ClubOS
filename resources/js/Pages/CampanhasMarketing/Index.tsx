@@ -177,7 +177,7 @@ export default function MarketingIndex({ campaigns, stats }: Props) {
                 <div>
                     <h1 className="text-lg font-semibold tracking-tight sm:text-xl">Marketing</h1>
                     <p className="mt-0.5 text-xs text-muted-foreground">
-                        Campanhas e ações de divulgação do clube
+                        Planeamento de campanhas, orçamento, datas e alcance estimado. A execução e os envios são geridos em Comunicação.
                     </p>
                 </div>
             }
@@ -193,7 +193,7 @@ export default function MarketingIndex({ campaigns, stats }: Props) {
                                     <MegaphoneSimple className="text-blue-600" size={18} weight="bold" />
                                 </div>
                                 <div>
-                                    <h3 className="text-xs font-semibold sm:text-sm">Total Campanhas</h3>
+                                    <h3 className="text-xs font-semibold sm:text-sm">Total de Planos</h3>
                                     <p className="mt-0.5 text-lg font-bold">{stats.total_campaigns}</p>
                                 </div>
                             </div>
@@ -205,7 +205,7 @@ export default function MarketingIndex({ campaigns, stats }: Props) {
                                     <ShareNetwork className="text-green-600" size={18} weight="bold" />
                                 </div>
                                 <div>
-                                    <h3 className="text-xs font-semibold sm:text-sm">Campanhas Ativas</h3>
+                                    <h3 className="text-xs font-semibold sm:text-sm">Planos Ativos</h3>
                                     <p className="mt-0.5 text-lg font-bold">{stats.active_campaigns}</p>
                                 </div>
                             </div>
@@ -237,7 +237,7 @@ export default function MarketingIndex({ campaigns, stats }: Props) {
                     </div>
 
                     <div className="flex items-center justify-between">
-                        <h2 className="text-base font-semibold sm:text-lg">Campanhas</h2>
+                        <h2 className="text-base font-semibold sm:text-lg">Planos de Campanha</h2>
                         <Button
                             size="sm"
                             onClick={() => {
@@ -247,7 +247,7 @@ export default function MarketingIndex({ campaigns, stats }: Props) {
                             }}
                         >
                             <Plus size={16} className="mr-1" />
-                            Nova Campanha
+                            Novo Plano
                         </Button>
                     </div>
 
@@ -297,7 +297,7 @@ export default function MarketingIndex({ campaigns, stats }: Props) {
                                 <div className="text-center text-muted-foreground">
                                     <MegaphoneSimple className="mx-auto mb-2" size={36} weight="thin" />
                                     <p className="text-sm font-medium">Nenhuma campanha encontrada</p>
-                                    <p className="mt-0.5 text-xs">Crie a primeira campanha de marketing</p>
+                                    <p className="mt-0.5 text-xs">Crie o primeiro plano de campanha de marketing</p>
                                 </div>
                             </Card>
                         )}
@@ -306,12 +306,12 @@ export default function MarketingIndex({ campaigns, stats }: Props) {
                     <Dialog open={showDialog} onOpenChange={setShowDialog}>
                         <DialogContent>
                             <DialogHeader>
-                                <DialogTitle>{editingCampaign ? 'Editar Campanha' : 'Nova Campanha'}</DialogTitle>
+                                <DialogTitle>{editingCampaign ? 'Editar Plano' : 'Novo Plano'}</DialogTitle>
                             </DialogHeader>
 
                             <form onSubmit={handleSubmit} className="space-y-4">
                                 <div>
-                                    <Label htmlFor="name">Nome da Campanha</Label>
+                                    <Label htmlFor="name">Nome do Plano</Label>
                                     <Input
                                         id="name"
                                         value={formData.name}
@@ -332,7 +332,7 @@ export default function MarketingIndex({ campaigns, stats }: Props) {
 
                                 <div className="grid grid-cols-2 gap-3">
                                     <div>
-                                        <Label htmlFor="type">Tipo</Label>
+                                        <Label htmlFor="type">Tipo de ação planeada</Label>
                                         <select
                                             id="type"
                                             value={formData.type}
