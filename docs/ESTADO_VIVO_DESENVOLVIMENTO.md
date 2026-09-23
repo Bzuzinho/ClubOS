@@ -75,6 +75,8 @@ P2.1 separou a conciliação bancária operacional da área auxiliar de aprendiz
 
 P2.2 separa os dois domínios de resultados sem migrar dados: `Desportivo > Competições / Resultados` mantém ownership dos resultados oficiais canónicos (`results → provas → competitions`), enquanto `Eventos > Resultados` mantém ownership dos registos de Eventos expostos por `club-resultados-provas`. A ficha do membro passa a ser exclusivamente de consulta para Resultados de Eventos e o backend reserva `edit/delete` dessa chave a `eventos.resultados`; permissões de Desportivo/ficha continuam válidas apenas para leitura.
 
+P2.3 separa Marketing de Comunicação por responsabilidade: Marketing é planeamento/brief/orçamento/alcance; Comunicação é execução multicanal, segmentos, agendamento, entregas e retries. A UI deixa de apresentar ambos genericamente como a mesma “campanha”, e contract tests impedem dependência direta entre os respetivos modelos/controllers.
+
 ## 4. H0 — Production Hardening
 
 ### H0.1a — CI/CD e segurança SSH — concluída
