@@ -72,7 +72,7 @@ class EventResultsOwnershipContractTest extends TestCase
 
         $this->assertIsString($source);
         $this->assertStringContainsString("useKV<ResultadoProva[]>('club-resultados-provas', [])", $source);
-        $this->assertStringContainsString('Eventos > Resultados', $source);
+        $this->assertStringContainsString('Eventos &gt; Resultados', $source);
         $this->assertStringNotContainsString('setResultadosProvas', $source);
         $this->assertStringNotContainsString('Adicionar Resultado', $source);
         $this->assertStringNotContainsString('Editar Resultado', $source);
