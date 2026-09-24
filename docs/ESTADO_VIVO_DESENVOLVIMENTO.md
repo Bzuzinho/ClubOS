@@ -89,7 +89,7 @@ P2.8 restringe as projeções KV de Eventos ao owner de mutação correto: Despo
 
 P2.9 retira o adapter KV `club-eventos-tipos`: não existem consumidores runtime no frontend e o catálogo `EventType` já é gerido pelo CRUD canónico de Configurações. A chave passa a responder `410 Gone` e deixa de poder sincronizar ou apagar globalmente `event_types`.
 
-P2.10 fecha a escrita KV residual de Convocatórias: `Desportivo > Convocatórias` fica como única superfície operacional de grupos/atletas e publicação; as projeções KV permanecem apenas para leitura na ficha/compatibilidade, enquanto `PUT/DELETE` devolvem `410`. A árvore frontend legacy de Convocatórias foi retirada e os testes de lifecycle deixaram de usar o endpoint KV como atalho.
+P2.10 fecha a escrita KV residual de Convocatórias: `Desportivo > Convocatórias` fica como única superfície operacional de grupos/atletas e publicação; as projeções KV permanecem apenas para leitura na ficha/compatibilidade, enquanto `PUT/DELETE` devolvem `410`. A árvore frontend legacy de Convocatórias foi retirada e os testes de lifecycle deixaram de usar o endpoint KV como atalho. Edições administrativas de hora/local/notas no workspace canónico deixam de disparar recálculo financeiro; qualquer alteração efetiva de custos continua sujeita aos guards de liquidação/conciliação/fiscal.
 
 ## 4. H0 — Production Hardening
 
