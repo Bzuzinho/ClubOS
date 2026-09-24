@@ -129,3 +129,28 @@ O próprio endpoint `/api/prova-tipos` também não aplicava `SportsClubContext`
 - dados históricos eventualmente existentes no `KeyValueStore` não são apagados automaticamente.
 
 Sem migration, backfill ou eliminação de dados neste lote.
+
+
+## P2.6 — Importação de recibos: operação financeira fora de Configurações
+
+### Owner operacional
+
+- **Financeiro > Importar recibos** é o owner da importação, matching, revisão e commit de recibos antigos.
+- **Configurações > Financeiro** mantém apenas configuração, aprendizagem/auditoria e parâmetros do ciclo financeiro; não executa imports que liquidam obrigações.
+
+### Problema encontrado
+
+A funcionalidade usava exclusivamente rotas, policies e serviços do domínio Financeiro (`financeiro.receipt-imports.*`, `financeiro.importacao_recibos`, `ReceiptCommitService`, `FinancialSettlementService`), mas a UI tinha sido relocalizada em 2026-06-02 para `Configurações > Financeiro > Importar Recibos`.
+
+Essa localização fazia uma operação financeira transacional parecer configuração e obrigava o `ConfiguracoesController` a carregar opções de membros e faturas abertas.
+
+### Decisão deste lote
+
+- `ReceiptImportsTab` passa para a navegação principal de `Financeiro`;
+- a permissão existente `financeiro.importacao_recibos` continua a controlar leitura/edição;
+- o próprio endpoint `financeiro.receipt-imports.index` fornece, quando `include_options=1`, as opções de membros e faturas abertas necessárias à revisão;
+- `ReceiptImportsTab` torna-se autocontida e deixa de receber esses lookups por props;
+- Configurações deixa de expor a tab, o componente e os payloads `receiptImportUsers` / `receiptImportInvoices`;
+- endpoints, matching, commit, pagamentos, conciliação e regras fiscais não são alterados.
+
+Sem migrations, backfill ou alteração automática de dados.

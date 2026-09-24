@@ -17,7 +17,6 @@ use App\Models\ClubSetting;
 use App\Models\CommunicationAlertCategory;
 use App\Models\CommunicationDynamicSource;
 use App\Models\CostCenter;
-use App\Models\Invoice;
 use App\Models\InvoiceType;
 use App\Models\MonthlyFee;
 use App\Models\PaymentMethod;
@@ -85,8 +84,6 @@ class ConfiguracoesController extends Controller
             'invoiceTypes' => Inertia::lazy(fn () => $this->buildFinanceiroPayload($useDefaultCache)['invoiceTypes']),
             'costCenters' => Inertia::lazy(fn () => $this->buildFinanceiroPayload($useDefaultCache)['costCenters']),
             'paymentMethods' => Inertia::lazy(fn () => $this->buildFinanceiroPayload($useDefaultCache)['paymentMethods']),
-            'receiptImportUsers' => Inertia::lazy(fn () => $this->buildFinanceiroPayload($useDefaultCache)['receiptImportUsers']),
-            'receiptImportInvoices' => Inertia::lazy(fn () => $this->buildFinanceiroPayload($useDefaultCache)['receiptImportInvoices']),
             'products' => Inertia::lazy(fn () => $this->buildLogisticaPayload($useDefaultCache)['products']),
             'sponsors' => Inertia::lazy(fn () => $this->buildLogisticaPayload($useDefaultCache)['sponsors']),
             'suppliers' => Inertia::lazy(fn () => $this->buildLogisticaPayload($useDefaultCache)['suppliers']),
@@ -149,29 +146,11 @@ class ConfiguracoesController extends Controller
             return Cache::remember('configuracoes:financeiro', now()->addMinutes(5), fn () => $this->buildFinanceiroPayload(false));
         }
 
-        $identityResolver = app(MemberIdentityDisplayResolver::class);
-
         return [
             'monthlyFees' => MonthlyFee::all(),
             'invoiceTypes' => InvoiceType::orderBy('nome')->get(),
             'costCenters' => CostCenter::all(),
             'paymentMethods' => PaymentMethod::query()->ordenado()->get(),
-            'receiptImportUsers' => User::query()
-                ->with('dadosPessoais:id,user_id,nome_completo')
-                ->select('id', 'numero_socio', 'name')
-                ->orderByRaw('COALESCE(nome_completo, name)')
-                ->get()
-                ->map(fn (User $user): array => [
-                    'id' => $user->id,
-                    'numero_socio' => $user->numero_socio,
-                    'nome_completo' => $identityResolver->displayName($user),
-                ])
-                ->values(),
-            'receiptImportInvoices' => Invoice::query()
-                ->select('id', 'user_id', 'tipo', 'mes', 'valor_total', 'valor_em_aberto', 'estado_pagamento')
-                ->whereIn('estado_pagamento', ['pendente', 'vencido', 'parcial'])
-                ->orderByDesc('data_vencimento')
-                ->get(),
         ];
     }
 

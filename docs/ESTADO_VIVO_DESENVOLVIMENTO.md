@@ -81,6 +81,8 @@ P2.4 fecha a última mutação financeira identificada dentro da ficha do membro
 
 P2.5 elimina o shadow catalog `club-prova-tipos`: a ficha de membro deixa de persistir a resposta do catálogo em KV e passa a ler diretamente `/api/prova-tipos`. O endpoint fica scoped por `SportsClubContext`, apenas com `ProvaTipo` ativos/não arquivados e ordenação canónica; o antigo KV responde `410 Gone` sem apagar histórico existente.
 
+P2.6 devolve a Importação de Recibos ao owner operacional correto: a tab passa de Configurações para Financeiro, mantendo `financeiro.importacao_recibos` e todos os endpoints/serviços financeiros existentes. O endpoint de importação fornece os lookups de membros/faturas abertas apenas quando pedidos; Configurações deixa de carregar ou expor dados operacionais de importação.
+
 ## 4. H0 — Production Hardening
 
 ### H0.1a — CI/CD e segurança SSH — concluída

@@ -31,14 +31,14 @@ interface ReceiptImportInvoiceOption {
 }
 
 interface ReceiptImportsTabProps {
-  users: ReceiptImportUserOption[];
-  invoices: ReceiptImportInvoiceOption[];
   canEdit: boolean;
 }
 
 interface ReceiptImportResponse {
   batches: ReceiptImportBatch[];
   latest_batch_id?: string | null;
+  users?: ReceiptImportUserOption[];
+  invoices?: ReceiptImportInvoiceOption[];
 }
 
 const displayStatusStyles: Record<string, string> = {
@@ -54,8 +54,10 @@ const displayStatusStyles: Record<string, string> = {
 
 const formatCurrency = (value?: number | null) => (value === null || value === undefined ? '-' : `€${value.toFixed(2)}`);
 
-export function ReceiptImportsTab({ users, invoices, canEdit }: ReceiptImportsTabProps) {
+export function ReceiptImportsTab({ canEdit }: ReceiptImportsTabProps) {
   const [batches, setBatches] = useState<ReceiptImportBatch[]>([]);
+  const [userOptions, setUserOptions] = useState<ReceiptImportUserOption[]>([]);
+  const [invoiceOptions, setInvoiceOptions] = useState<ReceiptImportInvoiceOption[]>([]);
   const [selectedBatchId, setSelectedBatchId] = useState<string>('');
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
@@ -104,14 +106,14 @@ export function ReceiptImportsTab({ users, invoices, canEdit }: ReceiptImportsTa
   const filteredInvoices = useMemo(() => {
     if (!editForm.user_id) return [];
 
-    return invoices.filter((invoice) => (
+    return invoiceOptions.filter((invoice) => (
       invoice.user_id === editForm.user_id
       && ['pendente', 'vencido', 'parcial'].includes(invoice.estado_pagamento)
     ));
-  }, [editForm.user_id, invoices]);
+  }, [editForm.user_id, invoiceOptions]);
 
   useEffect(() => {
-    void loadBatches();
+    void loadBatches(undefined, true);
   }, []);
 
   useEffect(() => {
@@ -132,13 +134,16 @@ export function ReceiptImportsTab({ users, invoices, canEdit }: ReceiptImportsTa
     void loadStatements(statementSearch);
   }, [statementPickerOpen, statementPickerItemId, statementSearch]);
 
-  const loadBatches = async (batchId?: string) => {
+  const loadBatches = async (batchId?: string, includeOptions = false) => {
     setLoading(true);
 
     try {
       const url = new URL(route('financeiro.receipt-imports.index'), window.location.origin);
       if (batchId) {
         url.searchParams.set('batch_id', batchId);
+      }
+      if (includeOptions) {
+        url.searchParams.set('include_options', '1');
       }
 
       const response = await fetch(url.toString(), {
@@ -153,6 +158,12 @@ export function ReceiptImportsTab({ users, invoices, canEdit }: ReceiptImportsTa
 
       const payload = await response.json() as ReceiptImportResponse;
       setBatches(payload.batches ?? []);
+      if (Array.isArray(payload.users)) {
+        setUserOptions(payload.users);
+      }
+      if (Array.isArray(payload.invoices)) {
+        setInvoiceOptions(payload.invoices);
+      }
       if (payload.latest_batch_id) {
         setSelectedBatchId(payload.latest_batch_id);
       }
@@ -551,7 +562,7 @@ export function ReceiptImportsTab({ users, invoices, canEdit }: ReceiptImportsTa
               <Label>Utilizador</Label>
               <select className="w-full rounded-md border px-3 py-2 text-sm" value={editForm.user_id} onChange={(event) => setEditForm((current) => ({ ...current, user_id: event.target.value, invoice_id: '' }))}>
                 <option value="">Selecionar...</option>
-                {users.map((user) => (
+                {userOptions.map((user) => (
                   <option key={user.id} value={user.id}>{user.nome_completo} {user.numero_socio ? `(${user.numero_socio})` : ''}</option>
                 ))}
               </select>
