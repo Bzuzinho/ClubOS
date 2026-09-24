@@ -106,3 +106,26 @@ A ficha ainda consumia `club-movimentos` e `club-movimento-itens` através do KV
 - movimentos canónicos continuam a ser lidos do payload `Movement` entregue pelo `MembrosController`.
 
 Sem migration, backfill ou eliminação de histórico neste lote.
+
+
+## P2.5 — Catálogo de provas: ProvaTipo vs. shadow KV
+
+### Owner operacional
+
+- **Configuração Desportiva / `ProvaTipo`** é a única fonte canónica do catálogo de tipos de prova.
+- Superfícies de Eventos, Desportivo e ficha do membro podem consultar esse catálogo, mas não mantêm cópias persistentes próprias.
+
+### Problema encontrado
+
+`Membros > Desportivo > Convocatórias` consultava corretamente `/api/prova-tipos`, mas gravava depois a resposta em `KeyValueStore` através da chave `club-prova-tipos`. Isso criava uma segunda fonte persistente, potencialmente desatualizada e sem scope de clube.
+
+O próprio endpoint `/api/prova-tipos` também não aplicava `SportsClubContext`, apesar de `ProvaTipo` possuir `forClub()`, `ativo()` e `ordenado()`.
+
+### Decisão deste lote
+
+- a ficha passa a manter apenas estado local da resposta da API canónica;
+- `/api/prova-tipos` fica limitado ao clube atual e apenas a registos ativos/não arquivados, com ordenação canónica;
+- `club-prova-tipos` é marcado como shadow catalog descontinuado e passa a responder `410 Gone` em GET/PUT/DELETE;
+- dados históricos eventualmente existentes no `KeyValueStore` não são apagados automaticamente.
+
+Sem migration, backfill ou eliminação de dados neste lote.

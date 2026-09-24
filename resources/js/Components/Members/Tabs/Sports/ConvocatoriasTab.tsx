@@ -31,17 +31,12 @@ export function ConvocatoriasTab({ user, onNavigate }: ConvocatoriasTabProps) {
   const [convocatoriasAtleta] = useKV<ConvocatoriaAtleta[]>('club-convocatorias-atleta', []);
   const [convocatoriasGrupo] = useKV<ConvocatoriaGrupo[]>('club-convocatorias-grupo', []);
   const [events] = useKV<Event[]>('club-events', []);
-  const [cachedProvas, setCachedProvas] = useKV<Prova[]>('club-prova-tipos', []);
+  const [provas, setProvas] = useState<Prova[]>([]);
   const [selectedConvocatoria, setSelectedConvocatoria] = useState<any | null>(null);
-  const [provasLoading, setProvasLoading] = useState((cachedProvas || []).length === 0);
+  const [provasLoading, setProvasLoading] = useState(true);
   const hasRequestedProvasRef = useRef(false);
 
   useEffect(() => {
-    if ((cachedProvas || []).length > 0) {
-      setProvasLoading(false);
-      return;
-    }
-
     if (hasRequestedProvasRef.current) {
       return;
     }
@@ -55,7 +50,7 @@ export function ConvocatoriasTab({ user, onNavigate }: ConvocatoriasTabProps) {
         if (!active) return;
 
         const payload = Array.isArray(response.data) ? response.data : [];
-        void setCachedProvas(payload.map((prova: any) => ({
+        setProvas(payload.map((prova: any) => ({
           id: String(prova.id),
           name: prova.nome || prova.name || prova.id,
         })));
@@ -63,15 +58,14 @@ export function ConvocatoriasTab({ user, onNavigate }: ConvocatoriasTabProps) {
       })
       .catch(() => {
         if (!active) return;
+        setProvas([]);
         setProvasLoading(false);
       });
 
     return () => {
       active = false;
     };
-  }, [cachedProvas, setCachedProvas]);
-
-  const provas = cachedProvas || [];
+  }, []);
 
   const provaNameById = useMemo(() => {
     return new Map((provas || []).map((prova) => [prova.id, prova.name]));

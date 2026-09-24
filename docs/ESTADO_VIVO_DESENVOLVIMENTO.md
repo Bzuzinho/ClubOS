@@ -79,6 +79,8 @@ P2.3 separa Marketing de Comunicação por responsabilidade: Marketing é planea
 
 P2.4 fecha a última mutação financeira identificada dentro da ficha do membro: `club-movimentos`/`club-movimento-itens` permanecem apenas como histórico legacy read-only, com acesso condicionado à permissão da tab financeira. Escritas KV são bloqueadas no backend; alterações de movimentos pertencem exclusivamente ao módulo Financeiro e os movimentos canónicos da ficha continuam a vir de `Movement`.
 
+P2.5 elimina o shadow catalog `club-prova-tipos`: a ficha de membro deixa de persistir a resposta do catálogo em KV e passa a ler diretamente `/api/prova-tipos`. O endpoint fica scoped por `SportsClubContext`, apenas com `ProvaTipo` ativos/não arquivados e ordenação canónica; o antigo KV responde `410 Gone` sem apagar histórico existente.
+
 ## 4. H0 — Production Hardening
 
 ### H0.1a — CI/CD e segurança SSH — concluída
