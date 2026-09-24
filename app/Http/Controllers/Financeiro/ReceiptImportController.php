@@ -3,11 +3,14 @@
 namespace App\Http\Controllers\Financeiro;
 
 use App\Http\Controllers\Controller;
+use App\Models\Invoice;
 use App\Models\ReceiptImportBatch;
 use App\Models\ReceiptImportItem;
+use App\Models\User;
 use App\Services\Financeiro\ReceiptCommitService;
 use App\Services\Financeiro\ReceiptImportService;
 use App\Services\Financeiro\ReceiptMatchingService;
+use App\Services\Members\MemberIdentityDisplayResolver;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
@@ -19,6 +22,7 @@ class ReceiptImportController extends Controller
         private readonly ReceiptImportService $receiptImportService,
         private readonly ReceiptMatchingService $receiptMatchingService,
         private readonly ReceiptCommitService $receiptCommitService,
+        private readonly MemberIdentityDisplayResolver $identityResolver,
     ) {
     }
 
@@ -29,6 +33,7 @@ class ReceiptImportController extends Controller
         $data = $request->validate([
             'status' => ['nullable', 'string', 'max:30'],
             'batch_id' => ['nullable', 'uuid', 'exists:receipt_import_batches,id'],
+            'include_options' => ['nullable', 'boolean'],
         ]);
 
         $query = ReceiptImportBatch::query()
@@ -50,10 +55,46 @@ class ReceiptImportController extends Controller
 
         $batches = $query->get()->map(fn (ReceiptImportBatch $batch) => $this->serializeBatch($batch));
 
-        return response()->json([
+        $payload = [
             'batches' => $batches,
             'latest_batch_id' => $batches->first()['id'] ?? null,
-        ]);
+        ];
+
+        if ((bool) ($data['include_options'] ?? false)) {
+            $payload['users'] = User::query()
+                ->with('dadosPessoais:id,user_id,nome_completo')
+                ->select('id', 'numero_socio', 'name')
+                ->orderByRaw('COALESCE(nome_completo, name)')
+                ->get()
+                ->map(fn (User $user): array => [
+                    'id' => $user->id,
+                    'numero_socio' => $user->numero_socio,
+                    'nome_completo' => $this->identityResolver->displayName($user),
+                ])
+                ->values()
+                ->all();
+
+            $payload['invoices'] = Invoice::query()
+                ->select('id', 'user_id', 'tipo', 'mes', 'valor_total', 'valor_em_aberto', 'estado_pagamento')
+                ->whereIn('estado_pagamento', ['pendente', 'vencido', 'parcial'])
+                ->orderByDesc('data_vencimento')
+                ->get()
+                ->map(function (Invoice $invoice): array {
+                    return [
+                        'id' => $invoice->id,
+                        'user_id' => $invoice->user_id,
+                        'tipo' => $invoice->tipo,
+                        'mes' => $invoice->mes,
+                        'valor_total' => (float) $invoice->valor_total,
+                        'valor_em_aberto' => $invoice->valor_em_aberto !== null ? (float) $invoice->valor_em_aberto : null,
+                        'estado_pagamento' => $invoice->estado_pagamento,
+                    ];
+                })
+                ->values()
+                ->all();
+        }
+
+        return response()->json($payload);
     }
 
     public function store(Request $request): JsonResponse
