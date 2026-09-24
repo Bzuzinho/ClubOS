@@ -11,7 +11,6 @@ use App\Models\Event;
 use App\Models\EventAttendance;
 use App\Models\EventConvocation;
 use App\Models\EventResult;
-use App\Models\EventType;
 use App\Models\ResultProva;
 use App\Models\User;
 use App\Services\Eventos\DeleteConvocationGroupAction;
@@ -48,7 +47,6 @@ class EventosKeyValueService
 
     private const SUPPORTED_KEYS = [
         'club-events',
-        'club-eventos-tipos',
         'club-presencas',
         'club-resultados',
         'club-resultados-provas',
@@ -67,7 +65,6 @@ class EventosKeyValueService
     {
         return match ($key) {
             'club-events' => $this->getEvents(),
-            'club-eventos-tipos' => $this->getEventTypeConfigs(),
             'club-presencas' => $this->getAttendances(),
             'club-resultados' => $this->getEventResults(),
             'club-resultados-provas' => $this->getResultProvas(),
@@ -85,7 +82,6 @@ class EventosKeyValueService
 
         match ($key) {
             'club-events' => $this->rejectLegacyLifecycleWrite('Os eventos são geridos pelo CRUD transacional do módulo de Eventos.'),
-            'club-eventos-tipos' => $this->syncEventTypeConfigs($items),
             'club-presencas' => $this->syncAttendances($items, $userId),
             'club-resultados' => $this->syncEventResults($items, $userId),
             'club-resultados-provas' => $this->syncResultProvas($items),
@@ -101,7 +97,6 @@ class EventosKeyValueService
     {
         match ($key) {
             'club-events' => $this->rejectLegacyLifecycleWrite('Os eventos são eliminados pelo CRUD transacional do módulo de Eventos.'),
-            'club-eventos-tipos' => EventType::query()->delete(),
             'club-presencas' => EventAttendance::query()->delete(),
             'club-resultados' => EventResult::query()->delete(),
             'club-resultados-provas' => ResultProva::query()->delete(),
@@ -204,30 +199,6 @@ class EventosKeyValueService
                     'recorrencia_data_fim' => $this->formatDate($event->recorrencia_data_fim),
                     'recorrencia_dias_semana' => $event->recorrencia_dias_semana,
                     'evento_pai_id' => $event->evento_pai_id,
-                ];
-            })
-            ->all();
-    }
-
-    private function getEventTypeConfigs(): array
-    {
-        return EventType::query()
-            ->orderBy('nome')
-            ->get()
-            ->map(function (EventType $type) {
-                return [
-                    'id' => $type->id,
-                    'nome' => $type->nome,
-                    'cor' => $type->cor,
-                    'icon' => $type->icon,
-                    'ativo' => $type->ativo,
-                    'gera_taxa' => $type->gera_taxa,
-                    'permite_convocatoria' => $type->permite_convocatoria,
-                    'requer_convocatoria' => $type->permite_convocatoria,
-                    'gera_presencas' => $type->gera_presencas,
-                    'requer_transporte' => $type->requer_transporte,
-                    'visibilidade_default' => $type->visibilidade_default,
-                    'created_at' => $this->formatDateTime($type->created_at),
                 ];
             })
             ->all();
@@ -462,46 +433,6 @@ class EventosKeyValueService
             }
 
             Event::whereNotIn('id', $ids)->delete();
-        });
-    }
-
-    private function syncEventTypeConfigs(array $items): void
-    {
-        DB::transaction(function () use ($items) {
-            $ids = [];
-
-            foreach ($items as $item) {
-                if (!is_array($item)) {
-                    continue;
-                }
-
-                $id = $item['id'] ?? (string) Str::uuid();
-                $ids[] = $id;
-
-                EventType::updateOrCreate(
-                    ['id' => $id],
-                    [
-                        'nome' => $item['nome'] ?? '',
-                        'descricao' => $item['descricao'] ?? null,
-                        'categoria' => $item['categoria'] ?? null,
-                        'cor' => $item['cor'] ?? '#3b82f6',
-                        'icon' => $item['icon'] ?? 'flag',
-                        'ativo' => $item['ativo'] ?? true,
-                        'gera_taxa' => $item['gera_taxa'] ?? false,
-                        'permite_convocatoria' => $item['permite_convocatoria'] ?? $item['requer_convocatoria'] ?? false,
-                        'gera_presencas' => $item['gera_presencas'] ?? false,
-                        'requer_transporte' => $item['requer_transporte'] ?? false,
-                        'visibilidade_default' => $item['visibilidade_default'] ?? 'restrito',
-                    ]
-                );
-            }
-
-            if (count($ids) === 0) {
-                EventType::query()->delete();
-                return;
-            }
-
-            EventType::whereNotIn('id', $ids)->delete();
         });
     }
 
