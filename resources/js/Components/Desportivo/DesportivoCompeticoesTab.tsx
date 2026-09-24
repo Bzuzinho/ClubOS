@@ -4,7 +4,6 @@
  * Sub-tabs internas:
  * - Competições (vista atual)
  * - Resultados (fluxo por competição -> resultados CRUD)
- * - Convocatórias (reuso da lógica do módulo de eventos)
  */
 
 import { useEffect, useMemo, useState } from 'react';
@@ -15,7 +14,6 @@ import { Badge } from '@/Components/ui/badge';
 import { Input } from '@/Components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/Components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/Components/ui/tabs';
-import { ConvocatoriasList } from '@/Components/Eventos/ConvocatoriasList';
 import { ResultadosCompeticoesForm } from './ResultadosCompeticoesForm';
 import {
   Table,
@@ -105,7 +103,6 @@ interface Props {
   ageGroups?: Array<{ id: string; nome: string }>;
   costCenters?: CostCenterItem[];
   eventTypes?: EventTypeItem[];
-  convocations?: any[];
   convocationGroups?: ConvocationGroupItem[];
   provaTipos?: ProvaTipoItem[];
 }
@@ -199,11 +196,10 @@ export function DesportivoCompeticoesTab({
   ageGroups = [],
   costCenters = [],
   eventTypes = [],
-  convocations = [],
   convocationGroups = [],
   provaTipos = [],
 }: Props) {
-  const [subTab, setSubTab] = useState<'competicoes' | 'resultados' | 'convocatorias'>('competicoes');
+  const [subTab, setSubTab] = useState<'competicoes' | 'resultados'>('competicoes');
   const [search, setSearch] = useState('');
   const [view, setView] = useState<'list' | 'calendar'>('list');
   const [selectedCompetitionId, setSelectedCompetitionId] = useState<string>('');
@@ -385,9 +381,8 @@ export function DesportivoCompeticoesTab({
   return (
     <div className="space-y-3">
       <Tabs value={subTab} onValueChange={(value) => setSubTab(value as typeof subTab)} className="w-full">
-        <TabsList className="grid w-full grid-cols-3 h-9">
+        <TabsList className="grid w-full grid-cols-2 h-9">
           <TabsTrigger value="competicoes" className="text-xs">Competições</TabsTrigger>
-          <TabsTrigger value="convocatorias" className="text-xs">Convocatórias</TabsTrigger>
           <TabsTrigger value="resultados" className="text-xs">Resultados</TabsTrigger>
         </TabsList>
 
@@ -632,16 +627,7 @@ export function DesportivoCompeticoesTab({
           </div>
         </TabsContent>
 
-        <TabsContent value="convocatorias" className="mt-3">
-          <ConvocatoriasList
-            events={eventos}
-            convocations={convocations}
-            users={users}
-            ageGroups={ageGroups}
-            costCenters={costCenters}
-          />
-        </TabsContent>
-      </Tabs>
+              </Tabs>
 
       <Dialog open={Boolean(summaryCompetition)} onOpenChange={(open) => !open && setSummaryCompetitionId('')}>
         <DialogContent className="max-w-4xl p-3 pt-2 gap-0.5">

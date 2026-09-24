@@ -27,6 +27,7 @@ use App\Models\Supplier;
 use App\Models\SupplierPurchase;
 use App\Models\User;
 use App\Models\UserType;
+use App\Services\Desportivo\SportsConvocationWorkspaceService;
 use App\Services\Eventos\SyncConvocationGroupFinancialMovementAction;
 use App\Services\Financeiro\CurrentAccountService;
 use App\Services\Financeiro\FinanceDashboardService;
@@ -341,38 +342,22 @@ class CrossModuleFinancialIntegrationTest extends TestCase
         $convocationEntry = $convocationSettlement['financial_entry'];
         $this->assertSingleMovementEntryFact($convocationMovement->fresh(), $convocationEntry->fresh(), 'despesa', (float) $convocationEntry->valor_pago);
 
-        $this->actingAs($convocationOwner)->putJson('/api/kv/club-convocatorias-grupo', [
-            'scope' => 'global',
-            'value' => [[
-                'id' => $convocationGroup->id,
-                'evento_id' => $convocationEvent->id,
-                'data_criacao' => now()->toISOString(),
-                'criado_por' => $convocationOwner->id,
-                'atletas_ids' => [$convocationAthlete->id],
-                'tipo_custo' => 'por_salto',
-                'valor_por_salto' => 99,
-                'valor_por_estafeta' => 1,
-                'valor_inscricao_unitaria' => 20,
-            ]],
-        ])->assertStatus(422);
+        try {
+            app(SportsConvocationWorkspaceService::class)->update($convocationGroup->fresh(), [
+                'value_per_race' => 99,
+            ]);
+            $this->fail('Expected convocation financial update to be blocked after settlement.');
+        } catch (ValidationException) {
+        }
 
-        $this->actingAs($convocationOwner)->putJson('/api/kv/club-convocatorias-grupo', [
-            'scope' => 'global',
-            'value' => [[
-                'id' => $convocationGroup->id,
-                'evento_id' => $convocationEvent->id,
-                'data_criacao' => now()->toISOString(),
-                'criado_por' => $convocationOwner->id,
-                'atletas_ids' => [$convocationAthlete->id],
-                'tipo_custo' => 'por_salto',
-                'valor_por_salto' => 5,
-                'valor_por_estafeta' => 1,
-                'valor_inscricao_unitaria' => 20,
-                'hora_encontro' => '08:15',
-                'local_encontro' => 'Piscina A',
-                'observacoes' => 'Ajuste administrativo',
-            ]],
-        ])->assertOk();
+        $convocationGroup = app(SportsConvocationWorkspaceService::class)->update($convocationGroup->fresh(), [
+            'meeting_time' => '08:15',
+            'meeting_location' => 'Piscina A',
+            'notes' => 'Ajuste administrativo',
+        ]);
+
+        $this->assertSame('08:15', $convocationGroup->hora_encontro);
+        $this->assertSame('Piscina A', $convocationGroup->local_encontro);
 
         [$sponsorship, $moneyItemA, $moneyItemB] = $this->createSponsorshipWithTwoMoneyItems();
         $movementA = Movement::query()->findOrFail($moneyItemA->financial_movement_id);

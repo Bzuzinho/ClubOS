@@ -186,7 +186,7 @@ Sem migrations, backfill ou alteração automática de dados neste lote.
 ### Owners operacionais
 
 - **Eventos > Calendário** é o owner do lifecycle de eventos.
-- **Eventos > Convocatórias** é o owner das projeções de grupos/atletas de convocatória.
+- **Desportivo > Convocatórias** é o owner operacional do lifecycle de grupos/atletas; Eventos/Portal consomem respostas e projeções. O P2.10 formaliza este owner final e aposenta a escrita KV provisoriamente restringida no P2.8.
 - **Eventos > Resultados** é o owner das presenças e resultados associados a Eventos.
 - Desportivo e a ficha do membro podem consultar estas projeções quando necessário, mas não são portas alternativas de escrita.
 
@@ -230,3 +230,33 @@ Isto constituía uma segunda porta de escrita e uma operação destrutiva global
 - dados `event_types` existentes não são migrados, apagados ou reescritos.
 
 Sem migrations, backfill ou alteração automática de dados neste lote.
+
+
+## P2.10 — Convocatórias: workspace canónica vs. escrita KV legacy
+
+### Owner operacional
+
+- **Desportivo > Convocatórias** é a única superfície operacional de criação, atualização e publicação de `ConvocationGroup` / `ConvocationAthlete`.
+- `EventConvocation` continua a ser a fonte canónica das respostas do membro e é consumida por Portal/Eventos.
+- A ficha do membro mantém apenas consulta das projeções `club-convocatorias-grupo` e `club-convocatorias-atleta`.
+
+### Problema encontrado
+
+O frontend antigo `DesportivoCompeticoesTab → ConvocatoriasList → Create/EditConvocatoriaDialog` ainda continha setters KV para:
+- `club-convocatorias-grupo`;
+- `club-convocatorias-atleta`.
+
+Essa árvore já não tinha consumidor operacional ativo. Em paralelo, o endpoint KV continuava a aceitar `PUT/DELETE` dessas projeções e de `club-convocatorias` / `movimentos-convocatoria`, embora a workspace canónica já disponha de rotas próprias, publicação versionada, comunicação e lifecycle financeiro.
+
+### Decisão deste lote
+
+- `GET` das projeções de convocatórias é preservado para compatibilidade de leitura;
+- `PUT/DELETE` de `club-convocatorias`, `club-convocatorias-grupo`, `club-convocatorias-atleta` e `movimentos-convocatoria` passam a responder `410 Gone`;
+- a UI legacy de criação/edição de convocatórias é removida;
+- a antiga subtab de Convocatórias em `DesportivoCompeticoesTab` é retirada;
+- testes de lifecycle deixam de usar o endpoint KV como atalho e passam a validar diretamente actions/services canónicos;
+- o workspace canónico só sincroniza o movimento financeiro quando campos de custo mudam; hora/local/notas podem ser ajustados após liquidação sem reabrir o facto financeiro, enquanto alterações de custo continuam fail-closed;
+- o workspace `desportivo.convocatorias.*` permanece como write surface;
+- dados existentes não são migrados, apagados ou reescritos.
+
+Sem migrations, backfill ou alteração automática de dados.

@@ -16,6 +16,13 @@ class KeyValueController extends Controller
         'club-eventos-tipos',
     ];
 
+    private const READ_ONLY_CONVOCATION_KV_KEYS = [
+        'club-convocatorias',
+        'club-convocatorias-grupo',
+        'club-convocatorias-atleta',
+        'movimentos-convocatoria',
+    ];
+
     private const READ_ONLY_LEGACY_FINANCIAL_KEYS = [
         'club-movimentos',
         'club-movimento-itens',
@@ -89,6 +96,12 @@ class KeyValueController extends Controller
         );
 
         abort_if(
+            $this->isReadOnlyConvocationKvKey($key),
+            410,
+            'A escrita KV de convocatórias foi descontinuada. Utilize Desportivo > Convocatórias.'
+        );
+
+        abort_if(
             $this->isReadOnlyLegacyFinancialKey($key),
             403,
             'Este histórico financeiro legado é apenas de leitura. Utilize o módulo Financeiro para alterações.'
@@ -129,6 +142,12 @@ class KeyValueController extends Controller
         );
 
         abort_if(
+            $this->isReadOnlyConvocationKvKey($key),
+            410,
+            'A escrita KV de convocatórias foi descontinuada. Utilize Desportivo > Convocatórias.'
+        );
+
+        abort_if(
             $this->isReadOnlyLegacyFinancialKey($key),
             403,
             'Este histórico financeiro legado é apenas de leitura. Utilize o módulo Financeiro para alterações.'
@@ -155,6 +174,11 @@ class KeyValueController extends Controller
     private function isRetiredShadowCatalogKey(string $key): bool
     {
         return in_array($key, self::RETIRED_SHADOW_CATALOG_KEYS, true);
+    }
+
+    private function isReadOnlyConvocationKvKey(string $key): bool
+    {
+        return in_array($key, self::READ_ONLY_CONVOCATION_KV_KEYS, true);
     }
 
     private function isReadOnlyLegacyFinancialKey(string $key): bool

@@ -154,18 +154,35 @@ final class SportsConvocationWorkspaceService
     public function update(ConvocationGroup $group, array $data): ConvocationGroup
     {
         return DB::transaction(function () use ($group, $data): ConvocationGroup {
-            $group->update([
+            $group = ConvocationGroup::query()
+                ->lockForUpdate()
+                ->findOrFail($group->id);
+
+            $group->fill([
                 'hora_encontro' => $data['meeting_time'] ?? $group->hora_encontro,
                 'local_encontro' => $data['meeting_location'] ?? $group->local_encontro,
-                'observacoes' => array_key_exists('notes',$data) ? $data['notes'] : $group->observacoes,
+                'observacoes' => array_key_exists('notes', $data) ? $data['notes'] : $group->observacoes,
                 'tipo_custo' => $data['cost_type'] ?? $group->tipo_custo,
                 'valor_por_salto' => $data['value_per_race'] ?? $group->valor_por_salto,
                 'valor_por_estafeta' => $data['value_per_relay'] ?? $group->valor_por_estafeta,
                 'valor_inscricao_unitaria' => $data['unit_registration_value'] ?? $group->valor_inscricao_unitaria,
                 'centro_custo_id' => $data['cost_center_id'] ?? $group->centro_custo_id,
             ]);
-            $this->financialSync->execute($group);
-            return $group->fresh(['evento','convocationAthletes.atleta']);
+
+            $financialFieldsChanged = $group->isDirty([
+                'tipo_custo',
+                'valor_por_salto',
+                'valor_por_estafeta',
+                'valor_inscricao_unitaria',
+            ]);
+
+            $group->save();
+
+            if ($financialFieldsChanged) {
+                $this->financialSync->execute($group);
+            }
+
+            return $group->fresh(['evento', 'convocationAthletes.atleta']);
         });
     }
 

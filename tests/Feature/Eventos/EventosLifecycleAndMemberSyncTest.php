@@ -14,6 +14,7 @@ use App\Models\FinancialEntry;
 use App\Models\Movement;
 use App\Models\ResultProva;
 use App\Models\User;
+use App\Services\Eventos\SyncConvocationGroupFinancialMovementAction;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
 use Inertia\Testing\AssertableInertia as Assert;
@@ -186,68 +187,6 @@ class EventosLifecycleAndMemberSyncTest extends TestCase
         ]);
     }
 
-    public function test_convocation_group_syncs_portal_records_and_preserves_member_response(): void
-    {
-        $admin = User::factory()->admin()->create();
-        $ageGroup = AgeGroup::query()->create(['nome' => 'Infantil', 'ativo' => true]);
-        $firstAthlete = $this->createAthlete($ageGroup);
-        $secondAthlete = $this->createAthlete($ageGroup);
-        $event = Event::query()->create([
-            'titulo' => 'Prova com convocatória',
-            'descricao' => '',
-            'data_inicio' => now()->addWeek()->toDateString(),
-            'tipo' => 'prova',
-            'estado' => 'agendado',
-            'criado_por' => $admin->id,
-        ]);
-        $event->ageGroups()->sync([$ageGroup->id]);
-        $groupId = (string) Str::uuid();
-
-        $this->actingAs($admin)->putJson('/api/kv/club-convocatorias-grupo', [
-            'value' => [[
-                'id' => $groupId,
-                'evento_id' => $event->id,
-                'atletas_ids' => [$firstAthlete->id],
-                'tipo_custo' => 'por_salto',
-            ]],
-        ])->assertOk();
-
-        $convocation = EventConvocation::query()
-            ->where('evento_id', $event->id)
-            ->where('user_id', $firstAthlete->id)
-            ->firstOrFail();
-        $convocation->update([
-            'estado_confirmacao' => 'confirmado',
-            'data_resposta' => now(),
-        ]);
-
-        $this->actingAs($admin)->putJson('/api/kv/club-convocatorias-grupo', [
-            'value' => [[
-                'id' => $groupId,
-                'evento_id' => $event->id,
-                'atletas_ids' => [$firstAthlete->id, $secondAthlete->id],
-                'tipo_custo' => 'por_salto',
-            ]],
-        ])->assertOk();
-
-        $this->assertDatabaseHas('event_convocations', [
-            'evento_id' => $event->id,
-            'user_id' => $firstAthlete->id,
-            'estado_confirmacao' => 'confirmado',
-        ]);
-        $this->assertDatabaseHas('event_convocations', [
-            'evento_id' => $event->id,
-            'user_id' => $secondAthlete->id,
-            'estado_confirmacao' => 'pendente',
-        ]);
-
-        $this->actingAs($admin)->putJson('/api/kv/club-convocatorias-grupo', [
-            'value' => [],
-        ])->assertOk();
-
-        $this->assertDatabaseMissing('event_convocations', ['evento_id' => $event->id]);
-    }
-
     public function test_member_can_answer_a_convocation_until_the_end_of_the_event_day(): void
     {
         $athlete = User::factory()->athlete()->create();
@@ -317,20 +256,19 @@ class EventosLifecycleAndMemberSyncTest extends TestCase
             'estado' => 'agendado',
             'criado_por' => $admin->id,
         ]);
-        $groupId = (string) Str::uuid();
-
-        $this->actingAs($admin)->putJson('/api/kv/club-convocatorias-grupo', [
-            'value' => [[
-                'id' => $groupId,
-                'evento_id' => $event->id,
-                'atletas_ids' => [$athlete->id],
-                'tipo_custo' => 'por_salto',
-                'valor_por_salto' => 2,
-                'valor_inscricao_unitaria' => 10,
-            ]],
-        ])->assertOk();
-
-        $group = ConvocationGroup::query()->findOrFail($groupId);
+        $group = ConvocationGroup::query()->create([
+            'id' => (string) Str::uuid(),
+            'evento_id' => $event->id,
+            'data_criacao' => now(),
+            'criado_por' => $admin->id,
+            'atletas_ids' => [$athlete->id],
+            'tipo_custo' => 'por_salto',
+            'valor_por_salto' => 2,
+            'valor_inscricao_unitaria' => 10,
+        ]);
+        app(SyncConvocationGroupFinancialMovementAction::class)->execute($group);
+        $group = $group->fresh();
+        $groupId = (string) $group->id;
         $movement = Movement::query()->findOrFail($group->movimento_id);
         $movement->update(['estado_pagamento' => 'parcial']);
         FinancialEntry::query()->create([
