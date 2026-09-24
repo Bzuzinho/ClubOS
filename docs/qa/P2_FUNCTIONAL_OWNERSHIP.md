@@ -206,3 +206,27 @@ O risco era especialmente elevado porque o endpoint KV genérico suporta sincron
 - contract tests provam que permissões de Desportivo/ficha continuam a ler, mas recebem `403` em `PUT/DELETE`.
 
 Sem migrations, backfill, alteração de dados ou mudança dos formatos das projeções.
+
+## P2.9 — Tipos de evento: retirar adapter KV órfão
+
+### Owner operacional
+
+- **Configurações > Tipos de Evento** é o owner do catálogo `EventType`.
+- Eventos, Desportivo e restantes superfícies consomem diretamente a tabela/modelo canónico ou payloads construídos a partir dela.
+- O endpoint KV genérico não é uma superfície de configuração deste catálogo.
+
+### Problema encontrado
+
+`club-eventos-tipos` permanecia suportado por `EventosKeyValueService`, apesar de não existir qualquer consumidor runtime no frontend. O adapter permitia sincronizar toda a tabela `event_types` e, em `DELETE`, executar `EventType::query()->delete()`.
+
+Isto constituía uma segunda porta de escrita e uma operação destrutiva global fora do CRUD canónico de Configurações.
+
+### Decisão deste lote
+
+- `club-eventos-tipos` passa a catálogo KV descontinuado e responde `410 Gone` em GET/PUT/DELETE;
+- `EventosKeyValueService` deixa de suportar a chave e remove os métodos de leitura/sincronização associados;
+- o CRUD `configuracoes.tipos-evento.*` permanece inalterado como única porta de gestão;
+- o runtime frontend mantém zero consumidores desta chave;
+- dados `event_types` existentes não são migrados, apagados ou reescritos.
+
+Sem migrations, backfill ou alteração automática de dados neste lote.

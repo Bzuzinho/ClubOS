@@ -87,6 +87,8 @@ P2.7 devolve a entidade `Sponsor` ao owner funcional correto: a base de entidade
 
 P2.8 restringe as projeções KV de Eventos ao owner de mutação correto: Desportivo e ficha do membro mantêm leitura de eventos, convocatórias e presenças quando aplicável, mas `PUT/DELETE` passam a exigir exclusivamente as permissões de Eventos correspondentes. O formato das projeções e os writers canónicos existentes não mudam.
 
+P2.9 retira o adapter KV `club-eventos-tipos`: não existem consumidores runtime no frontend e o catálogo `EventType` já é gerido pelo CRUD canónico de Configurações. A chave passa a responder `410 Gone` e deixa de poder sincronizar ou apagar globalmente `event_types`.
+
 ## 4. H0 — Production Hardening
 
 ### H0.1a — CI/CD e segurança SSH — concluída
