@@ -11,6 +11,10 @@ use Illuminate\Http\JsonResponse;
 
 class KeyValueController extends Controller
 {
+    private const RETIRED_SHADOW_CATALOG_KEYS = [
+        'club-prova-tipos',
+    ];
+
     private const READ_ONLY_LEGACY_FINANCIAL_KEYS = [
         'club-movimentos',
         'club-movimento-itens',
@@ -32,6 +36,12 @@ class KeyValueController extends Controller
     {
         $scope = $request->get('scope', 'global');
         $userId = $scope === 'user' ? auth()->id() : null;
+
+        abort_if(
+            $this->isRetiredShadowCatalogKey($key),
+            410,
+            'Este catálogo KV foi descontinuado. Utilize o endpoint canónico de tipos de prova.'
+        );
 
         if ($this->isReadOnlyLegacyFinancialKey($key)) {
             $this->authorizeLegacyFinancialRead($request);
@@ -72,6 +82,12 @@ class KeyValueController extends Controller
         $userId = $scope === 'user' ? auth()->id() : null;
 
         abort_if(
+            $this->isRetiredShadowCatalogKey($key),
+            410,
+            'Este catálogo KV foi descontinuado. Utilize o endpoint canónico de tipos de prova.'
+        );
+
+        abort_if(
             $this->isReadOnlyLegacyFinancialKey($key),
             403,
             'Este histórico financeiro legado é apenas de leitura. Utilize o módulo Financeiro para alterações.'
@@ -106,6 +122,12 @@ class KeyValueController extends Controller
         $userId = $scope === 'user' ? auth()->id() : null;
 
         abort_if(
+            $this->isRetiredShadowCatalogKey($key),
+            410,
+            'Este catálogo KV foi descontinuado. Utilize o endpoint canónico de tipos de prova.'
+        );
+
+        abort_if(
             $this->isReadOnlyLegacyFinancialKey($key),
             403,
             'Este histórico financeiro legado é apenas de leitura. Utilize o módulo Financeiro para alterações.'
@@ -127,6 +149,11 @@ class KeyValueController extends Controller
             'message' => 'Value deleted successfully',
             'key' => $key,
         ]);
+    }
+
+    private function isRetiredShadowCatalogKey(string $key): bool
+    {
+        return in_array($key, self::RETIRED_SHADOW_CATALOG_KEYS, true);
     }
 
     private function isReadOnlyLegacyFinancialKey(string $key): bool
