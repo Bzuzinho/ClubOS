@@ -27,6 +27,7 @@ use App\Models\Supplier;
 use App\Models\SupplierPurchase;
 use App\Models\User;
 use App\Models\UserType;
+use App\Services\Desportivo\SportsConvocationWorkspaceService;
 use App\Services\Eventos\SyncConvocationGroupFinancialMovementAction;
 use App\Services\Financeiro\CurrentAccountService;
 use App\Services\Financeiro\FinanceDashboardService;
@@ -43,7 +44,6 @@ use App\Services\Patrocinios\SponsorshipService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Tests\TestCase;
@@ -343,24 +343,21 @@ class CrossModuleFinancialIntegrationTest extends TestCase
         $this->assertSingleMovementEntryFact($convocationMovement->fresh(), $convocationEntry->fresh(), 'despesa', (float) $convocationEntry->valor_pago);
 
         try {
-            DB::transaction(function () use ($convocationGroup): void {
-                $locked = ConvocationGroup::query()->lockForUpdate()->findOrFail($convocationGroup->id);
-                $locked->forceFill(['valor_por_salto' => 99])->save();
-                app(SyncConvocationGroupFinancialMovementAction::class)->execute($locked);
-            });
+            app(SportsConvocationWorkspaceService::class)->update($convocationGroup->fresh(), [
+                'value_per_race' => 99,
+            ]);
             $this->fail('Expected convocation financial update to be blocked after settlement.');
         } catch (ValidationException) {
         }
 
-        DB::transaction(function () use ($convocationGroup): void {
-            $locked = ConvocationGroup::query()->lockForUpdate()->findOrFail($convocationGroup->id);
-            $locked->forceFill([
-                'hora_encontro' => '08:15',
-                'local_encontro' => 'Piscina A',
-                'observacoes' => 'Ajuste administrativo',
-            ])->save();
-            app(SyncConvocationGroupFinancialMovementAction::class)->execute($locked);
-        });
+        $convocationGroup = app(SportsConvocationWorkspaceService::class)->update($convocationGroup->fresh(), [
+            'meeting_time' => '08:15',
+            'meeting_location' => 'Piscina A',
+            'notes' => 'Ajuste administrativo',
+        ]);
+
+        $this->assertSame('08:15', $convocationGroup->hora_encontro);
+        $this->assertSame('Piscina A', $convocationGroup->local_encontro);
 
         [$sponsorship, $moneyItemA, $moneyItemB] = $this->createSponsorshipWithTwoMoneyItems();
         $movementA = Movement::query()->findOrFail($moneyItemA->financial_movement_id);
