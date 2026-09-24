@@ -1,4 +1,4 @@
-import { Head } from '@inertiajs/react';
+import { Head, usePage } from '@inertiajs/react';
 import { Suspense, lazy, useEffect, useState } from 'react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { ModuleHeader } from '@/Components/layout/ModuleHeader';
@@ -34,11 +34,29 @@ const MovimentosTab = lazy(() => import('./MovimentosTab').then((module) => ({ d
 const BancoTab = lazy(() => import('./BancoTab').then((module) => ({ default: module.BancoTab })));
 const RelatoriosTab = lazy(() => import('./RelatoriosTab').then((module) => ({ default: module.RelatoriosTab })));
 const FiscalDocumentsTab = lazy(() => import('./FiscalDocumentsTab').then((module) => ({ default: module.FiscalDocumentsTab })));
+const ReceiptImportsTab = lazy(() => import('./ReceiptImportsTab').then((module) => ({ default: module.ReceiptImportsTab })));
 
-const FINANCE_TABS = ['dashboard', 'mensalidades', 'movimentos', 'banco', 'relatorios', 'emissao-fiscal'] as const;
+const FINANCE_TABS = ['dashboard', 'mensalidades', 'movimentos', 'banco', 'importacao-recibos', 'relatorios', 'emissao-fiscal'] as const;
 
 function TabFallback() {
   return <div className="py-8 text-sm text-muted-foreground">A carregar...</div>;
+}
+
+interface AccessPermission {
+  permission_node_id: string;
+  can_view: boolean;
+  can_edit: boolean;
+}
+
+interface SharedPageProps {
+  auth?: {
+    user?: {
+      perfil?: string | null;
+    } | null;
+  };
+  accessControl?: {
+    permissions?: AccessPermission[];
+  };
 }
 
 interface Props {
@@ -84,6 +102,12 @@ export default function FinanceiroIndex({
   dashboardData,
   fiscalRequests,
 }: Props) {
+  const page = usePage<Props & SharedPageProps & Record<string, unknown>>();
+  const accessPermissions = page.props.accessControl?.permissions ?? [];
+  const hasReceiptImportViewPermission = page.props.auth?.user?.perfil === 'admin'
+    || accessPermissions.some((permission) => permission.permission_node_id === 'financeiro.importacao_recibos' && permission.can_view);
+  const canEditReceiptImports = page.props.auth?.user?.perfil === 'admin'
+    || accessPermissions.some((permission) => permission.permission_node_id === 'financeiro.importacao_recibos' && permission.can_edit);
   const [activeTab, setActiveTab] = useUrlTab(FINANCE_TABS, 'dashboard');
   const [faturasState, setFaturas] = useState<Fatura[]>(faturas || []);
   const [mensalidadesFaturasState, setMensalidadesFaturas] = useState<Fatura[]>(mensalidadesFaturas || []);
@@ -136,6 +160,12 @@ export default function FinanceiroIndex({
     setProducts(products || []);
   }, [products]);
 
+  useEffect(() => {
+    if (activeTab === 'importacao-recibos' && !hasReceiptImportViewPermission) {
+      setActiveTab('dashboard');
+    }
+  }, [activeTab, hasReceiptImportViewPermission, setActiveTab]);
+
   const updateFaturasState = (updater: React.SetStateAction<Fatura[]>) => {
     setFaturas((current) => {
       const next = typeof updater === 'function'
@@ -154,7 +184,7 @@ export default function FinanceiroIndex({
       header={
         <ModuleHeader
           title="Financeiro"
-          description="Mensalidades, movimentos, banco, fiscalidade e relatórios."
+          description="Mensalidades, movimentos, banco, importação de recibos, fiscalidade e relatórios."
         />
       }
     >
@@ -179,6 +209,12 @@ export default function FinanceiroIndex({
                 <Bank size={14} />
                 <span>Banco</span>
               </TabsTrigger>
+              {hasReceiptImportViewPermission ? (
+                <TabsTrigger value="importacao-recibos" className="flex h-8 items-center justify-center gap-1 px-2 py-1 text-[11px] leading-none sm:h-7 sm:text-xs">
+                  <Receipt size={14} />
+                  <span>Importar recibos</span>
+                </TabsTrigger>
+              ) : null}
               <TabsTrigger value="relatorios" className="flex h-8 items-center justify-center gap-1 px-2 py-1 text-[11px] leading-none sm:h-7 sm:text-xs">
                 <ChartBar size={14} />
                 <span>Relatórios</span>
@@ -265,6 +301,16 @@ export default function FinanceiroIndex({
               </Suspense>
             ) : null}
           </TabsContent>
+
+          {hasReceiptImportViewPermission ? (
+            <TabsContent value="importacao-recibos" className={moduleTabbedContentClass}>
+              {activeTab === 'importacao-recibos' ? (
+                <Suspense fallback={<TabFallback />}>
+                  <ReceiptImportsTab canEdit={canEditReceiptImports} />
+                </Suspense>
+              ) : null}
+            </TabsContent>
+          ) : null}
 
           <TabsContent value="relatorios" className={moduleTabbedContentClass}>
             {activeTab === 'relatorios' ? (
