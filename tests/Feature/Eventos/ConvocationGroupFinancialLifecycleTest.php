@@ -12,6 +12,7 @@ use App\Models\Movement;
 use App\Models\Payment;
 use App\Models\PaymentAllocation;
 use App\Models\User;
+use App\Services\Desportivo\SportsConvocationWorkspaceService;
 use App\Services\Eventos\DeleteConvocationGroupAction;
 use App\Services\Eventos\SyncConvocationGroupFinancialMovementAction;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -224,13 +225,23 @@ class ConvocationGroupFinancialLifecycleTest extends TestCase
 
     private function updateGroupCanonical(ConvocationGroup $group, array $attributes): ConvocationGroup
     {
-        return DB::transaction(function () use ($group, $attributes): ConvocationGroup {
-            $locked = ConvocationGroup::query()->lockForUpdate()->findOrFail($group->id);
-            $locked->update($attributes);
-            app(SyncConvocationGroupFinancialMovementAction::class)->execute($locked);
+        $mapping = [
+            'hora_encontro' => 'meeting_time',
+            'local_encontro' => 'meeting_location',
+            'observacoes' => 'notes',
+            'tipo_custo' => 'cost_type',
+            'valor_por_salto' => 'value_per_race',
+            'valor_por_estafeta' => 'value_per_relay',
+            'valor_inscricao_unitaria' => 'unit_registration_value',
+            'centro_custo_id' => 'cost_center_id',
+        ];
 
-            return $locked->fresh();
-        });
+        $payload = [];
+        foreach ($attributes as $field => $value) {
+            $payload[$mapping[$field] ?? $field] = $value;
+        }
+
+        return app(SportsConvocationWorkspaceService::class)->update($group->fresh(), $payload);
     }
 
     /**
