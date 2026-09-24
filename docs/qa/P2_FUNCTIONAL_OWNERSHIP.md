@@ -255,6 +255,7 @@ Essa árvore já não tinha consumidor operacional ativo. Em paralelo, o endpoin
 - a UI legacy de criação/edição de convocatórias é removida;
 - a antiga subtab de Convocatórias em `DesportivoCompeticoesTab` é retirada;
 - testes de lifecycle deixam de usar o endpoint KV como atalho e passam a validar diretamente actions/services canónicos;
+- o workspace canónico só sincroniza o movimento financeiro quando campos de custo mudam; hora/local/notas podem ser ajustados após liquidação sem reabrir o facto financeiro, enquanto alterações de custo continuam fail-closed;
 - o workspace `desportivo.convocatorias.*` permanece como write surface;
 - dados existentes não são migrados, apagados ou reescritos.
 
