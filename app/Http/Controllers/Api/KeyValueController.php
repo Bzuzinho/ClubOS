@@ -13,6 +13,7 @@ class KeyValueController extends Controller
 {
     private const RETIRED_SHADOW_CATALOG_KEYS = [
         'club-prova-tipos',
+        'club-eventos-tipos',
     ];
 
     private const READ_ONLY_LEGACY_FINANCIAL_KEYS = [
@@ -40,7 +41,7 @@ class KeyValueController extends Controller
         abort_if(
             $this->isRetiredShadowCatalogKey($key),
             410,
-            'Este catálogo KV foi descontinuado. Utilize o endpoint canónico de tipos de prova.'
+            'Este catálogo KV foi descontinuado. Utilize a fonte canónica correspondente.'
         );
 
         if ($this->isReadOnlyLegacyFinancialKey($key)) {
@@ -84,7 +85,7 @@ class KeyValueController extends Controller
         abort_if(
             $this->isRetiredShadowCatalogKey($key),
             410,
-            'Este catálogo KV foi descontinuado. Utilize o endpoint canónico de tipos de prova.'
+            'Este catálogo KV foi descontinuado. Utilize a fonte canónica correspondente.'
         );
 
         abort_if(
@@ -124,7 +125,7 @@ class KeyValueController extends Controller
         abort_if(
             $this->isRetiredShadowCatalogKey($key),
             410,
-            'Este catálogo KV foi descontinuado. Utilize o endpoint canónico de tipos de prova.'
+            'Este catálogo KV foi descontinuado. Utilize a fonte canónica correspondente.'
         );
 
         abort_if(
@@ -177,7 +178,6 @@ class KeyValueController extends Controller
     private function authorizeEventosKey(Request $request, string $key, string $capability): void
     {
         $permissionKeys = match ($key) {
-            'club-eventos-tipos' => ['eventos.calendario'],
             'club-events' => $capability === 'view'
                 ? [
                     'eventos.calendario',
