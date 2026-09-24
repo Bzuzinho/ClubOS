@@ -180,3 +180,29 @@ A localização anterior associava indevidamente o CRUD à permissão/middleware
 - `Sponsorship`, integrações financeiras/logísticas e dados existentes não são migrados nem reescritos.
 
 Sem migrations, backfill ou alteração automática de dados neste lote.
+
+## P2.8 — Projeções KV de Eventos: leitura transversal vs. mutação
+
+### Owners operacionais
+
+- **Eventos > Calendário** é o owner do lifecycle de eventos.
+- **Eventos > Convocatórias** é o owner das projeções de grupos/atletas de convocatória.
+- **Eventos > Resultados** é o owner das presenças e resultados associados a Eventos.
+- Desportivo e a ficha do membro podem consultar estas projeções quando necessário, mas não são portas alternativas de escrita.
+
+### Problema encontrado
+
+O `KeyValueController` autorizava `edit/delete` de `club-events`, `club-convocatorias*`, `movimentos-convocatoria` e `club-presencas` com as mesmas permissões usadas para leitura. Isso permitia que permissões de Desportivo ou da ficha do membro chegassem aos writers canónicos de Eventos, apesar de as superfícies runtime correspondentes serem apenas leitoras.
+
+O risco era especialmente elevado porque o endpoint KV genérico suporta sincronização e eliminação sobre tabelas canónicas de Eventos.
+
+### Decisão deste lote
+
+- leitura mantém compatibilidade transversal com Eventos, Desportivo e ficha do membro;
+- mutação de `club-events` fica reservada a `eventos.calendario`;
+- mutação de `club-convocatorias`, `club-convocatorias-grupo`, `club-convocatorias-atleta` e `movimentos-convocatoria` fica reservada a `eventos.convocatorias`;
+- mutação de `club-presencas` fica reservada a `eventos.resultados`;
+- o boundary já aplicado em P2.2 a `club-resultados*` mantém-se inalterado;
+- contract tests provam que permissões de Desportivo/ficha continuam a ler, mas recebem `403` em `PUT/DELETE`.
+
+Sem migrations, backfill, alteração de dados ou mudança dos formatos das projeções.

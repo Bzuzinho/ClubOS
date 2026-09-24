@@ -178,21 +178,27 @@ class KeyValueController extends Controller
     {
         $permissionKeys = match ($key) {
             'club-eventos-tipos' => ['eventos.calendario'],
-            'club-events' => [
-                'eventos.calendario',
-                'desportivo.competicoes',
-                'membros.ficha.desportivo.resultados',
-            ],
-            'club-convocatorias', 'club-convocatorias-grupo', 'club-convocatorias-atleta', 'movimentos-convocatoria' => [
-                'eventos.convocatorias',
-                'desportivo.competicoes',
-                'membros.ficha.desportivo.convocatorias',
-            ],
-            'club-presencas' => [
-                'eventos.resultados',
-                'desportivo.presencas',
-                'membros.ficha.desportivo.presencas',
-            ],
+            'club-events' => $capability === 'view'
+                ? [
+                    'eventos.calendario',
+                    'desportivo.competicoes',
+                    'membros.ficha.desportivo.resultados',
+                ]
+                : ['eventos.calendario'],
+            'club-convocatorias', 'club-convocatorias-grupo', 'club-convocatorias-atleta', 'movimentos-convocatoria' => $capability === 'view'
+                ? [
+                    'eventos.convocatorias',
+                    'desportivo.competicoes',
+                    'membros.ficha.desportivo.convocatorias',
+                ]
+                : ['eventos.convocatorias'],
+            'club-presencas' => $capability === 'view'
+                ? [
+                    'eventos.resultados',
+                    'desportivo.presencas',
+                    'membros.ficha.desportivo.presencas',
+                ]
+                : ['eventos.resultados'],
             'club-resultados', 'club-resultados-provas' => $capability === 'view'
                 ? [
                     'eventos.resultados',

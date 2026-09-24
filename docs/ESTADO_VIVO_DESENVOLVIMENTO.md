@@ -85,6 +85,8 @@ P2.6 devolve a Importação de Recibos ao owner operacional correto: a tab passa
 
 P2.7 devolve a entidade `Sponsor` ao owner funcional correto: a base de entidades patrocinadoras sai de `Configurações > Logística` e passa para `Patrocínios > Patrocinadores`. O CRUD fica protegido por `module.access:patrocinios`, `ConfiguracoesController` deixa de carregar/mutar patrocinadores e contratos `Sponsorship` continuam a referenciar a mesma tabela canónica, sem migrations nem reescrita de dados.
 
+P2.8 restringe as projeções KV de Eventos ao owner de mutação correto: Desportivo e ficha do membro mantêm leitura de eventos, convocatórias e presenças quando aplicável, mas `PUT/DELETE` passam a exigir exclusivamente as permissões de Eventos correspondentes. O formato das projeções e os writers canónicos existentes não mudam.
+
 ## 4. H0 — Production Hardening
 
 ### H0.1a — CI/CD e segurança SSH — concluída
