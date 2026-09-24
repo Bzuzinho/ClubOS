@@ -2,6 +2,7 @@ import { ModuleTabsList } from '@/Components/layout/ModuleTabsList';
 import { Head, router } from '@inertiajs/react';
 import { useEffect, useMemo, useState } from 'react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
+import { SponsorDirectoryTab } from '@/Pages/Patrocinios/SponsorDirectoryTab';
 import { moduleTabbedContentClass, moduleTabsClass, moduleViewportClass } from '@/lib/module-layout';
 import { Tabs, TabsContent, TabsTrigger } from '@/Components/ui/tabs';
 import { Card, CardContent, CardHeader, CardTitle } from '@/Components/ui/card';
@@ -41,6 +42,8 @@ type LookupSupplier = {
 type LookupSponsor = {
   id: string;
   nome: string;
+  descricao?: string | null;
+  logo?: string | null;
   tipo: 'principal' | 'secundario' | 'apoio';
   estado: 'ativo' | 'inativo' | 'expirado';
   email?: string | null;
@@ -157,7 +160,7 @@ type DashboardData = {
 };
 
 type Props = {
-  tab?: 'dashboard' | 'patrocinios' | 'integracoes';
+  tab?: 'dashboard' | 'patrocinadores' | 'patrocinios' | 'integracoes';
   filters: {
     search?: string;
     type?: string;
@@ -757,6 +760,10 @@ export default function SponsorshipsIndex({
               <Handshake size={14} />
               <span>Dashboard</span>
             </TabsTrigger>
+            <TabsTrigger value="patrocinadores" className="flex h-8 items-center justify-center gap-1 px-2 py-1 text-[11px] sm:h-7 sm:text-xs">
+              <Handshake size={14} />
+              <span>Patrocinadores</span>
+            </TabsTrigger>
             <TabsTrigger value="patrocinios" className="flex h-8 items-center justify-center gap-1 px-2 py-1 text-[11px] sm:h-7 sm:text-xs">
               <ShieldCheck size={14} />
               <span>Patrocínios</span>
@@ -971,6 +978,10 @@ export default function SponsorshipsIndex({
                 </div>
               </CardContent>
             </Card>
+          </TabsContent>
+
+          <TabsContent value="patrocinadores" className={`${moduleTabbedContentClass} space-y-3`}>
+            <SponsorDirectoryTab sponsors={lookups.sponsors} />
           </TabsContent>
 
           <TabsContent value="patrocinios" className={`${moduleTabbedContentClass} space-y-3`}>

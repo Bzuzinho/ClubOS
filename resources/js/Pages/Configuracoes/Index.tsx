@@ -178,21 +178,6 @@ interface Supplier {
     ativo: boolean;
 }
 
-interface Sponsor {
-    id: string;
-    nome: string;
-    descricao?: string | null;
-    logo?: string | null;
-    website?: string | null;
-    contacto?: string | null;
-    email?: string | null;
-    tipo: 'principal' | 'secundario' | 'apoio';
-    valor_anual?: number | null;
-    data_inicio: string;
-    data_fim?: string | null;
-    estado: 'ativo' | 'inativo' | 'expirado';
-}
-
 interface ProvaTipo {
     id: string;
     nome: string;
@@ -586,7 +571,6 @@ interface Props {
     costCenters?: CostCenter[];
     paymentMethods?: PaymentMethod[];
     products?: Product[];
-    sponsors?: Sponsor[];
     suppliers?: Supplier[];
     itemCategories?: ItemCategory[];
     provaTipos?: ProvaTipo[];
@@ -615,7 +599,6 @@ export default function SettingsIndex({
     costCenters = [],
     paymentMethods = [],
     products = [],
-    sponsors = [],
     suppliers = [],
     itemCategories = [],
     provaTipos = [],
@@ -655,7 +638,6 @@ export default function SettingsIndex({
     const [loadingRootTab, setLoadingRootTab] = useState<string | null>(null);
     const [dialogOpen, setDialogOpen] = useState(false);
     const [editingItem, setEditingItem] = useState<any>(null);
-    const [sponsorLogoPreview, setSponsorLogoPreview] = useState<string | null>(null);
     const [dynamicSourceDialogOpen, setDynamicSourceDialogOpen] = useState(false);
     const [editingDynamicSource, setEditingDynamicSource] = useState<CommunicationDynamicSource | null>(null);
     const [alertCategoryDialogOpen, setAlertCategoryDialogOpen] = useState(false);
@@ -757,7 +739,6 @@ export default function SettingsIndex({
     const hasCostCenters = Object.prototype.hasOwnProperty.call(page.props, 'costCenters');
     const hasPaymentMethods = Object.prototype.hasOwnProperty.call(page.props, 'paymentMethods');
     const hasProducts = Object.prototype.hasOwnProperty.call(page.props, 'products');
-    const hasSponsors = Object.prototype.hasOwnProperty.call(page.props, 'sponsors');
     const hasSuppliers = Object.prototype.hasOwnProperty.call(page.props, 'suppliers');
     const hasItemCategories = Object.prototype.hasOwnProperty.call(page.props, 'itemCategories');
     const hasNotificationPrefs = Object.prototype.hasOwnProperty.call(page.props, 'notificationPrefs');
@@ -853,7 +834,7 @@ export default function SettingsIndex({
                     'paymentMethods',
                 ],
             },
-            logistica: { ready: hasProducts && hasSponsors && hasSuppliers && hasItemCategories, props: ['products', 'sponsors', 'suppliers', 'itemCategories'] },
+            logistica: { ready: hasProducts && hasSuppliers && hasItemCategories, props: ['products', 'suppliers', 'itemCategories'] },
             notificacoes: { ready: hasNotificationPrefs && hasCommunicationDynamicSources && hasCommunicationAlertCategories && hasSocialAccounts, props: ['notificationPrefs', 'communicationDynamicSources', 'communicationAlertCategories', 'socialAccounts'] },
             'base-dados': { ready: hasUsers, props: ['users'] },
             desportivo: { ready: hasTrainingTypes && hasTrainingZones && hasInjuryReasons && hasPoolTypes && hasProvaTipos, props: ['trainingTypes', 'trainingZones', 'injuryReasons', 'poolTypes', 'provaTipos'] },
@@ -886,7 +867,6 @@ export default function SettingsIndex({
         hasPoolTypes,
         hasProducts,
         hasProvaTipos,
-        hasSponsors,
         hasSuppliers,
         hasTrainingTypes,
         hasTrainingZones,
@@ -896,14 +876,6 @@ export default function SettingsIndex({
     const openAddDialog = (type: string) => {
         reset();
         clearErrors();
-        if (type === 'sponsor') {
-            setData('tipo', 'secundario');
-            setData('estado', 'ativo');
-            setData('data_inicio', new Date().toISOString().slice(0, 10));
-            setData('valor_anual', '');
-            setData('logo', null);
-            setSponsorLogoPreview(null);
-        }
         if (type === 'product') {
             setData('ativo', true);
             setData('categoria_id', '');
@@ -943,12 +915,7 @@ export default function SettingsIndex({
 
     const openEditDialog = (item: any, type: string) => {
         clearErrors();
-        if (type === 'sponsor') {
-            setData({ ...item, logo: null });
-            setSponsorLogoPreview(item.logo || null);
-        } else {
-            setData(item);
-        }
+        setData(item);
         setEditingItem({ ...item, type });
         setDialogOpen(true);
     };
@@ -989,9 +956,6 @@ export default function SettingsIndex({
             'product': isEditing
                 ? route('configuracoes.artigos.update', editingItem.id)
                 : route('configuracoes.artigos.store'),
-            'sponsor': isEditing
-                ? route('configuracoes.patrocinadores.update', editingItem.id)
-                : route('configuracoes.patrocinadores.store'),
             'item-category': isEditing
                 ? route('configuracoes.categorias-itens.update', editingItem.id)
                 : route('configuracoes.categorias-itens.store'),
@@ -1010,12 +974,10 @@ export default function SettingsIndex({
         };
 
         const options = {
-            ...(type === 'sponsor' && { forceFormData: true }),
             onSuccess: () => {
                 setDialogOpen(false);
                 reset();
                 setEditingItem(null);
-                if (type === 'sponsor') setSponsorLogoPreview(null);
                 toast.success(isEditing ? 'Atualizado com sucesso!' : 'Criado com sucesso!');
             },
             onError: (formErrors: Record<string, string>) => {
@@ -1044,7 +1006,6 @@ export default function SettingsIndex({
             'cost-center': route('configuracoes.centros-custo.destroy', id),
             'payment-method': route('configuracoes.metodos-pagamento.destroy', id),
             'product': route('configuracoes.artigos.destroy', id),
-            'sponsor': route('configuracoes.patrocinadores.destroy', id),
             'item-category': route('configuracoes.categorias-itens.destroy', id),
             'supplier': route('configuracoes.fornecedores.destroy', id),
             'prova-tipo': route('configuracoes.provas.destroy', id),
@@ -2214,14 +2175,13 @@ export default function SettingsIndex({
                     {/* Tab: Logistica */}
                     <TabsContent value="logistica" className="mt-0 min-h-0 flex-1 overflow-hidden">
                         {currentTab === 'logistica' ? (
-                        !hasProducts || !hasSponsors || !hasSuppliers || !hasItemCategories || loadingRootTab === 'logistica' ? (
+                        !hasProducts || !hasSuppliers || !hasItemCategories || loadingRootTab === 'logistica' ? (
                         <TabFallback />
                         ) : (
                         <Tabs value={currentLogisticaTab} onValueChange={setCurrentLogisticaTab} className={sectionTabsClass}>
                             <ModuleTabsList label="Secções disponíveis">
                                 <TabsTrigger value="logistica-artigos">Artigos</TabsTrigger>
                                 <TabsTrigger value="logistica-categorias">Categorias de Itens</TabsTrigger>
-                                <TabsTrigger value="logistica-patrocinadores">Patrocinadores</TabsTrigger>
                                 <TabsTrigger value="logistica-fornecedores">Fornecedores</TabsTrigger>
                             </ModuleTabsList>
 
@@ -2386,102 +2346,6 @@ export default function SettingsIndex({
                                                                 variant="ghost"
                                                                 size="sm"
                                                                 onClick={() => handleDelete(category.id, 'item-category')}
-                                                            >
-                                                                <Trash size={16} />
-                                                            </Button>
-                                                        </div>
-                                                    </TableCell>
-                                                </TableRow>
-                                            ))
-                                        )}
-                                    </TableBody>
-                                </Table>
-                            </CardContent>
-                        </Card>
-                        ) : null}
-                        </TabsContent>
-
-                        <TabsContent value="logistica-patrocinadores" className={nestedScrollableTabContentClass}>
-                        {currentLogisticaTab === 'logistica-patrocinadores' ? (
-                        <Card>
-                            <CardHeader className="pb-3">
-                                <CardTitle className="text-lg">Patrocinadores</CardTitle>
-                                <CardDescription className="text-sm">
-                                    Gerir a base central de patrocinadores usada no módulo de patrocínios
-                                </CardDescription>
-                            </CardHeader>
-                            <CardContent>
-                                <div className="flex justify-end mb-3">
-                                    <Button onClick={() => openAddDialog('sponsor')} size="sm">
-                                        <Plus className="mr-2" size={16} />
-                                        Adicionar Patrocinador
-                                    </Button>
-                                </div>
-                                <Table responsive>
-                                    <TableHeader>
-                                        <TableRow>
-                                            <TableHead>Logo</TableHead>
-                                            <TableHead>Nome</TableHead>
-                                            <TableHead>Tipo</TableHead>
-                                            <TableHead>Contacto</TableHead>
-                                            <TableHead>Email</TableHead>
-                                            <TableHead>Website</TableHead>
-                                            <TableHead>Valor anual</TableHead>
-                                            <TableHead>Período</TableHead>
-                                            <TableHead>Estado</TableHead>
-                                            <TableHead className="text-right">Ações</TableHead>
-                                        </TableRow>
-                                    </TableHeader>
-                                    <TableBody>
-                                        {sponsors.length === 0 ? (
-                                            <TableRow>
-                                                <TableCell colSpan={10} className="text-center text-muted-foreground">
-                                                    Nenhum patrocinador cadastrado
-                                                </TableCell>
-                                            </TableRow>
-                                        ) : (
-                                            sponsors.map((sponsor) => (
-                                                <TableRow key={sponsor.id}>
-                                                    <TableCell label="Logo">
-                                                        {sponsor.logo ? (
-                                                            <img src={sponsor.logo} alt={sponsor.nome} className="h-10 w-10 rounded object-cover" />
-                                                        ) : (
-                                                            <span className="text-muted-foreground text-xs">—</span>
-                                                        )}
-                                                    </TableCell>
-                                                    <TableCell label="Nome">
-                                                        <div className="font-medium">{sponsor.nome}</div>
-                                                        <div className="text-xs text-muted-foreground line-clamp-1">{sponsor.descricao || 'Sem descrição'}</div>
-                                                    </TableCell>
-                                                    <TableCell label="Tipo" className="capitalize">{sponsor.tipo}</TableCell>
-                                                    <TableCell label="Contacto">{sponsor.contacto || '-'}</TableCell>
-                                                    <TableCell label="Email">{sponsor.email || '-'}</TableCell>
-                                                    <TableCell label="Website">
-                                                        {sponsor.website ? (
-                                                            <a href={sponsor.website} target="_blank" rel="noreferrer" className="text-primary hover:underline">
-                                                                {sponsor.website}
-                                                            </a>
-                                                        ) : '-'}
-                                                    </TableCell>
-                                                    <TableCell label="Valor anual">{sponsor.valor_anual ? `€${Number(sponsor.valor_anual).toFixed(2)}` : '-'}</TableCell>
-                                                    <TableCell label="Período">
-                                                        <div>{sponsor.data_inicio}</div>
-                                                        <div className="text-xs text-muted-foreground">até {sponsor.data_fim || 'sem fim'}</div>
-                                                    </TableCell>
-                                                    <TableCell label="Estado" className="capitalize">{sponsor.estado}</TableCell>
-                                                    <TableCell label="Ações" className="text-right">
-                                                        <div className="flex justify-end gap-2">
-                                                            <Button
-                                                                variant="ghost"
-                                                                size="sm"
-                                                                onClick={() => openEditDialog(sponsor, 'sponsor')}
-                                                            >
-                                                                <PencilSimple size={16} />
-                                                            </Button>
-                                                            <Button
-                                                                variant="ghost"
-                                                                size="sm"
-                                                                onClick={() => handleDelete(sponsor.id, 'sponsor')}
                                                             >
                                                                 <Trash size={16} />
                                                             </Button>
@@ -3055,7 +2919,6 @@ export default function SettingsIndex({
                             {editingItem?.type === 'cost-center' && 'Centro de Custos'}
                             {editingItem?.type === 'payment-method' && 'Método de Pagamento'}
                             {editingItem?.type === 'product' && 'Artigo'}
-                            {editingItem?.type === 'sponsor' && 'Patrocinador'}
                             {editingItem?.type === 'item-category' && 'Categoria de Item'}
                             {editingItem?.type === 'supplier' && 'Fornecedor'}
                             {editingItem?.type === 'prova-tipo' && 'Prova'}
@@ -3895,132 +3758,6 @@ export default function SettingsIndex({
                                         </div>
                                     </section>
                                 </div>
-                            )}
-
-                            {editingItem?.type === 'sponsor' && (
-                                <>
-                                    <div className="space-y-2">
-                                        <Label htmlFor="nome">Nome *</Label>
-                                        <Input
-                                            id="nome"
-                                            value={data.nome || ''}
-                                            onChange={e => setData('nome', e.target.value)}
-                                            required
-                                        />
-                                    </div>
-                                    <div className="space-y-2">
-                                        <Label htmlFor="tipo">Tipo *</Label>
-                                        <Select value={data.tipo || 'secundario'} onValueChange={(value) => setData('tipo', value)}>
-                                            <SelectTrigger id="tipo">
-                                                <SelectValue placeholder="Selecionar tipo" />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                <SelectItem value="principal">Principal</SelectItem>
-                                                <SelectItem value="secundario">Secundário</SelectItem>
-                                                <SelectItem value="apoio">Apoio</SelectItem>
-                                            </SelectContent>
-                                        </Select>
-                                    </div>
-                                    <div className="space-y-2">
-                                        <Label htmlFor="estado">Estado *</Label>
-                                        <Select value={data.estado || 'ativo'} onValueChange={(value) => setData('estado', value)}>
-                                            <SelectTrigger id="estado">
-                                                <SelectValue placeholder="Selecionar estado" />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                <SelectItem value="ativo">Ativo</SelectItem>
-                                                <SelectItem value="inativo">Inativo</SelectItem>
-                                                <SelectItem value="expirado">Expirado</SelectItem>
-                                            </SelectContent>
-                                        </Select>
-                                    </div>
-                                    <div className="space-y-2">
-                                        <Label htmlFor="contacto">Contacto</Label>
-                                        <Input
-                                            id="contacto"
-                                            value={data.contacto || ''}
-                                            onChange={e => setData('contacto', e.target.value)}
-                                        />
-                                    </div>
-                                    <div className="space-y-2">
-                                        <Label htmlFor="email">Email</Label>
-                                        <Input
-                                            id="email"
-                                            type="email"
-                                            value={data.email || ''}
-                                            onChange={e => setData('email', e.target.value)}
-                                        />
-                                    </div>
-                                    <div className="space-y-2">
-                                        <Label htmlFor="website">Website</Label>
-                                        <Input
-                                            id="website"
-                                            type="url"
-                                            value={data.website || ''}
-                                            onChange={e => setData('website', e.target.value)}
-                                        />
-                                    </div>
-                                    <div className="space-y-2">
-                                        <Label htmlFor="valor_anual">Valor anual (€)</Label>
-                                        <Input
-                                            id="valor_anual"
-                                            type="number"
-                                            step="0.01"
-                                            value={data.valor_anual ?? ''}
-                                            onChange={e => setData('valor_anual', e.target.value ? parseFloat(e.target.value) : '')}
-                                        />
-                                    </div>
-                                    <div className="space-y-2">
-                                        <Label htmlFor="data_inicio">Data de início *</Label>
-                                        <Input
-                                            id="data_inicio"
-                                            type="date"
-                                            value={data.data_inicio || ''}
-                                            onChange={e => setData('data_inicio', e.target.value)}
-                                            required
-                                        />
-                                    </div>
-                                    <div className="space-y-2">
-                                        <Label htmlFor="data_fim">Data de fim</Label>
-                                        <Input
-                                            id="data_fim"
-                                            type="date"
-                                            value={data.data_fim || ''}
-                                            onChange={e => setData('data_fim', e.target.value)}
-                                        />
-                                    </div>
-                                    <div className="space-y-2 md:col-span-2">
-                                        <Label htmlFor="descricao">Descrição</Label>
-                                        <Textarea
-                                            id="descricao"
-                                            value={data.descricao || ''}
-                                            onChange={e => setData('descricao', e.target.value)}
-                                        />
-                                    </div>
-                                    <div className="space-y-2 md:col-span-2">
-                                        <Label htmlFor="logo">Logotipo</Label>
-                                        <input
-                                            id="logo"
-                                            type="file"
-                                            accept="image/*"
-                                            className="block w-full text-sm text-muted-foreground file:mr-4 file:py-1 file:px-3 file:rounded file:border-0 file:text-sm file:font-medium file:bg-secondary file:text-secondary-foreground hover:file:bg-secondary/80 cursor-pointer"
-                                            onChange={(e) => {
-                                                const file = e.target.files?.[0] || null;
-                                                setData('logo', file);
-                                                if (file) {
-                                                    setSponsorLogoPreview(URL.createObjectURL(file));
-                                                }
-                                            }}
-                                        />
-                                        {sponsorLogoPreview && (
-                                            <img
-                                                src={sponsorLogoPreview}
-                                                alt="Logotipo do patrocinador"
-                                                className="h-20 w-20 rounded border object-cover"
-                                            />
-                                        )}
-                                    </div>
-                                </>
                             )}
 
                             {editingItem?.type === 'item-category' && (

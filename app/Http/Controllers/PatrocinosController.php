@@ -2,7 +2,9 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\StoreSponsorRequest;
 use App\Http\Requests\StoreSponsorshipRequest;
+use App\Http\Requests\UpdateSponsorRequest;
 use App\Http\Requests\UpdateSponsorshipRequest;
 use App\Models\CostCenter;
 use App\Models\Product;
@@ -15,6 +17,7 @@ use App\Services\Patrocinios\SponsorshipService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Support\Facades\Storage;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -75,12 +78,52 @@ class PatrocinosController extends Controller
             'sponsorships' => $sponsorships,
             'integrations' => $integrations,
             'lookups' => [
-                'sponsors' => Sponsor::query()->orderBy('nome')->get(['id', 'nome', 'tipo', 'estado', 'email', 'contacto', 'website', 'valor_anual', 'data_inicio', 'data_fim']),
+                'sponsors' => Sponsor::query()->orderBy('nome')->get(),
                 'suppliers' => Supplier::query()->orderBy('nome')->get(['id', 'nome']),
                 'costCenters' => CostCenter::query()->where('ativo', true)->orderBy('nome')->get(['id', 'codigo', 'nome']),
                 'products' => Product::query()->where('ativo', true)->orderBy('nome')->get(['id', 'codigo', 'nome', 'categoria', 'area_armazenamento']),
             ],
         ]);
+    }
+
+    public function storeSponsor(StoreSponsorRequest $request): RedirectResponse
+    {
+        $data = $request->validated();
+
+        if ($request->hasFile('logo')) {
+            $path = $request->file('logo')->store('sponsors', 'public');
+            $data['logo'] = Storage::url($path);
+        }
+
+        Sponsor::create($data);
+
+        return redirect()->route('patrocinios.index', ['tab' => 'patrocinadores'])
+            ->with('success', 'Patrocinador criado com sucesso!');
+    }
+
+    public function updateSponsor(UpdateSponsorRequest $request, Sponsor $sponsor): RedirectResponse
+    {
+        $data = $request->validated();
+
+        if ($request->hasFile('logo')) {
+            $path = $request->file('logo')->store('sponsors', 'public');
+            $data['logo'] = Storage::url($path);
+        }
+
+        $sponsor->update($data);
+
+        return redirect()->route('patrocinios.index', ['tab' => 'patrocinadores'])
+            ->with('success', 'Patrocinador atualizado com sucesso!');
+    }
+
+    public function destroySponsor(Sponsor $sponsor): RedirectResponse
+    {
+        abort_if($sponsor->sponsorships()->exists(), 422, 'Não é possível eliminar um patrocinador com patrocínios associados.');
+
+        $sponsor->delete();
+
+        return redirect()->route('patrocinios.index', ['tab' => 'patrocinadores'])
+            ->with('success', 'Patrocinador eliminado com sucesso!');
     }
 
     public function store(StoreSponsorshipRequest $request): RedirectResponse

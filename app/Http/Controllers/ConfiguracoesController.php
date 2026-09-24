@@ -2,8 +2,6 @@
 
 namespace App\Http\Controllers;
 
-use App\Http\Requests\StoreSponsorRequest;
-use App\Http\Requests\UpdateSponsorRequest;
 use App\Models\UserType;
 use App\Models\AgeGroup;
 use App\Models\EventType;
@@ -22,7 +20,6 @@ use App\Models\MonthlyFee;
 use App\Models\PaymentMethod;
 use App\Models\ItemCategory;
 use App\Models\Product;
-use App\Models\Sponsor;
 use App\Models\Supplier;
 use App\Models\UserTypePermission;
 use App\Models\NotificationPreference;
@@ -85,7 +82,6 @@ class ConfiguracoesController extends Controller
             'costCenters' => Inertia::lazy(fn () => $this->buildFinanceiroPayload($useDefaultCache)['costCenters']),
             'paymentMethods' => Inertia::lazy(fn () => $this->buildFinanceiroPayload($useDefaultCache)['paymentMethods']),
             'products' => Inertia::lazy(fn () => $this->buildLogisticaPayload($useDefaultCache)['products']),
-            'sponsors' => Inertia::lazy(fn () => $this->buildLogisticaPayload($useDefaultCache)['sponsors']),
             'suppliers' => Inertia::lazy(fn () => $this->buildLogisticaPayload($useDefaultCache)['suppliers']),
             'itemCategories' => Inertia::lazy(fn () => $this->buildLogisticaPayload($useDefaultCache)['itemCategories']),
             'notificationPrefs' => Inertia::lazy(fn () => $this->buildNotificacoesPayload($useDefaultCache)['notificationPrefs']),
@@ -168,7 +164,6 @@ class ConfiguracoesController extends Controller
                 ->with(['category:id,nome', 'supplier:id,nome'])
                 ->orderBy('nome')
                 ->get(),
-            'sponsors' => Sponsor::orderBy('nome')->get(),
             'suppliers' => Supplier::all(),
             'itemCategories' => ItemCategory::orderBy('nome')->get(),
         ];
@@ -772,47 +767,6 @@ class ConfiguracoesController extends Controller
 
         return redirect()->route('configuracoes')
             ->with('success', 'Artigo desativado sem apagar o histórico operacional.');
-    }
-
-    public function storeSponsor(StoreSponsorRequest $request): RedirectResponse
-    {
-        $data = $request->validated();
-
-        if ($request->hasFile('logo')) {
-            $path = $request->file('logo')->store('sponsors', 'public');
-            $data['logo'] = Storage::url($path);
-        }
-
-        Sponsor::create($data);
-        $this->forgetLogisticaCaches();
-
-        return redirect()->route('configuracoes')
-            ->with('success', 'Patrocinador criado com sucesso!');
-    }
-
-    public function updateSponsor(UpdateSponsorRequest $request, Sponsor $sponsor): RedirectResponse
-    {
-        $data = $request->validated();
-
-        if ($request->hasFile('logo')) {
-            $path = $request->file('logo')->store('sponsors', 'public');
-            $data['logo'] = Storage::url($path);
-        }
-
-        $sponsor->update($data);
-        $this->forgetLogisticaCaches();
-
-        return redirect()->route('configuracoes')
-            ->with('success', 'Patrocinador atualizado com sucesso!');
-    }
-
-    public function destroySponsor(Sponsor $sponsor): RedirectResponse
-    {
-        $sponsor->delete();
-        $this->forgetLogisticaCaches();
-
-        return redirect()->route('configuracoes')
-            ->with('success', 'Patrocinador eliminado com sucesso!');
     }
 
     public function storeSupplier(Request $request): RedirectResponse
