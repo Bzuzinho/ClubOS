@@ -43,6 +43,7 @@ use App\Services\Patrocinios\SponsorshipService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Tests\TestCase;
@@ -341,38 +342,25 @@ class CrossModuleFinancialIntegrationTest extends TestCase
         $convocationEntry = $convocationSettlement['financial_entry'];
         $this->assertSingleMovementEntryFact($convocationMovement->fresh(), $convocationEntry->fresh(), 'despesa', (float) $convocationEntry->valor_pago);
 
-        $this->actingAs($convocationOwner)->putJson('/api/kv/club-convocatorias-grupo', [
-            'scope' => 'global',
-            'value' => [[
-                'id' => $convocationGroup->id,
-                'evento_id' => $convocationEvent->id,
-                'data_criacao' => now()->toISOString(),
-                'criado_por' => $convocationOwner->id,
-                'atletas_ids' => [$convocationAthlete->id],
-                'tipo_custo' => 'por_salto',
-                'valor_por_salto' => 99,
-                'valor_por_estafeta' => 1,
-                'valor_inscricao_unitaria' => 20,
-            ]],
-        ])->assertStatus(422);
+        try {
+            DB::transaction(function () use ($convocationGroup): void {
+                $locked = ConvocationGroup::query()->lockForUpdate()->findOrFail($convocationGroup->id);
+                $locked->forceFill(['valor_por_salto' => 99])->save();
+                app(SyncConvocationGroupFinancialMovementAction::class)->execute($locked);
+            });
+            $this->fail('Expected convocation financial update to be blocked after settlement.');
+        } catch (ValidationException) {
+        }
 
-        $this->actingAs($convocationOwner)->putJson('/api/kv/club-convocatorias-grupo', [
-            'scope' => 'global',
-            'value' => [[
-                'id' => $convocationGroup->id,
-                'evento_id' => $convocationEvent->id,
-                'data_criacao' => now()->toISOString(),
-                'criado_por' => $convocationOwner->id,
-                'atletas_ids' => [$convocationAthlete->id],
-                'tipo_custo' => 'por_salto',
-                'valor_por_salto' => 5,
-                'valor_por_estafeta' => 1,
-                'valor_inscricao_unitaria' => 20,
+        DB::transaction(function () use ($convocationGroup): void {
+            $locked = ConvocationGroup::query()->lockForUpdate()->findOrFail($convocationGroup->id);
+            $locked->forceFill([
                 'hora_encontro' => '08:15',
                 'local_encontro' => 'Piscina A',
                 'observacoes' => 'Ajuste administrativo',
-            ]],
-        ])->assertOk();
+            ])->save();
+            app(SyncConvocationGroupFinancialMovementAction::class)->execute($locked);
+        });
 
         [$sponsorship, $moneyItemA, $moneyItemB] = $this->createSponsorshipWithTwoMoneyItems();
         $movementA = Movement::query()->findOrFail($moneyItemA->financial_movement_id);
