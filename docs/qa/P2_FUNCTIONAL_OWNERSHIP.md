@@ -154,3 +154,29 @@ Essa localização fazia uma operação financeira transacional parecer configur
 - endpoints, matching, commit, pagamentos, conciliação e regras fiscais não são alterados.
 
 Sem migrations, backfill ou alteração automática de dados.
+
+## P2.7 — Patrocinadores: entidade canónica no módulo de Patrocínios
+
+### Owner operacional
+
+- **Patrocínios > Patrocinadores** é o owner da entidade `Sponsor` e da respetiva identificação, contactos, período, tipologia, estado e logótipo.
+- **Patrocínios > Patrocínios** continua a gerir os contratos/apoios `Sponsorship`, que referenciam uma entidade patrocinadora por `sponsor_id`.
+- **Configurações > Logística** mantém apenas catálogo de artigos, categorias e fornecedores; não gere entidades patrocinadoras.
+
+### Problema encontrado
+
+A base central de patrocinadores era carregada por `ConfiguracoesController`, apresentada dentro de `Configurações > Logística > Patrocinadores` e gravada por rotas `configuracoes.patrocinadores.*`. No entanto, o único domínio que consome `Sponsor` como entidade funcional é Patrocínios, onde `Sponsorship` já referencia essa tabela diretamente.
+
+A localização anterior associava indevidamente o CRUD à permissão/middleware de Configurações e ao cache de Logística, apesar de não existir responsabilidade logística sobre a identidade do patrocinador.
+
+### Decisão deste lote
+
+- a gestão da entidade `Sponsor` passa para uma área própria `Patrocínios > Patrocinadores`;
+- as rotas CRUD passam a `patrocinios.patrocinadores.*` sob `module.access:patrocinios`;
+- `PatrocinosController` passa a ser o boundary HTTP do diretório de patrocinadores;
+- `ConfiguracoesController` deixa de importar, carregar, cachear ou mutar `Sponsor`;
+- a tab `Configurações > Logística > Patrocinadores` e as rotas `configuracoes.patrocinadores.*` são retiradas;
+- a eliminação de uma entidade com patrocínios associados falha fechada, preservando a integridade histórica;
+- `Sponsorship`, integrações financeiras/logísticas e dados existentes não são migrados nem reescritos.
+
+Sem migrations, backfill ou alteração automática de dados neste lote.
