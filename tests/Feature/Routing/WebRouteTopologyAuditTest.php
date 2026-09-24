@@ -136,7 +136,7 @@ final class WebRouteTopologyAuditTest extends TestCase
         $settingsRoutes = File::get(base_path('routes/web_settings.php'));
 
         $this->assertTrue($routeFiles['routes/web_settings.php']['loaded']);
-        $this->assertSame(68, $routeFiles['routes/web_settings.php']['route_call_count']);
+        $this->assertSame(65, $routeFiles['routes/web_settings.php']['route_call_count']);
         $this->assertStringContainsString("require __DIR__.'/web_settings.php';", $webRoutes);
         $this->assertStringNotContainsString('ConfiguracoesController::class', $webRoutes);
         $this->assertStringNotContainsString('ConfiguracoesDesportivoController::class', $webRoutes);
@@ -144,6 +144,7 @@ final class WebRouteTopologyAuditTest extends TestCase
         $this->assertStringContainsString("->name('configuracoes');", $settingsRoutes);
         $this->assertStringContainsString("->name('configuracoes.clube.update');", $settingsRoutes);
         $this->assertStringContainsString("->name('configuracoes.desportivo.index');", $settingsRoutes);
+        $this->assertStringNotContainsString('configuracoes.patrocinadores', $settingsRoutes);
     }
 
     public function test_administrative_website_routes_are_loaded_from_the_dedicated_module(): void
@@ -319,10 +320,13 @@ final class WebRouteTopologyAuditTest extends TestCase
         $sponsorshipRoutes = File::get(base_path('routes/web_sponsorships.php'));
 
         $this->assertTrue($routeFiles['routes/web_sponsorships.php']['loaded']);
-        $this->assertSame(5, $routeFiles['routes/web_sponsorships.php']['route_call_count']);
+        $this->assertSame(8, $routeFiles['routes/web_sponsorships.php']['route_call_count']);
         $this->assertStringContainsString("require __DIR__.'/web_sponsorships.php';", $webRoutes);
         $this->assertStringNotContainsString('PatrocinosController::class', $webRoutes);
         $this->assertStringContainsString("Route::prefix('patrocinios')->middleware('module.access:patrocinios')", $sponsorshipRoutes);
+        $this->assertStringContainsString("->name('patrocinios.patrocinadores.store');", $sponsorshipRoutes);
+        $this->assertStringContainsString("->name('patrocinios.patrocinadores.update');", $sponsorshipRoutes);
+        $this->assertStringContainsString("->name('patrocinios.patrocinadores.destroy');", $sponsorshipRoutes);
         $this->assertStringContainsString("->name('patrocinios.integrations.index');", $sponsorshipRoutes);
         $this->assertStringContainsString("->name('patrocinios.integrations.retry');", $sponsorshipRoutes);
         $this->assertStringContainsString("->name('patrocinios.close');", $sponsorshipRoutes);
