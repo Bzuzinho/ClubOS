@@ -24,7 +24,6 @@ import { cn } from '@/lib/utils';
 
 const UserTypePermissionSettings = lazy(() => import('@/Components/Configuracoes/Permissions/UserTypePermissionSettings').then((module) => ({ default: module.UserTypePermissionSettings })));
 const ConfiguracoesDesportivoIndex = lazy(() => import('@/Pages/Configuracoes/Desportivo/Index'));
-const ReceiptImportsTab = lazy(() => import('@/Pages/Financeiro/ReceiptImportsTab').then((module) => ({ default: module.ReceiptImportsTab })));
 
 interface AgeGroup {
     id: string;
@@ -258,22 +257,6 @@ interface DbUser {
     email_utilizador?: string | null;
     perfil?: string | null;
     estado?: string | null;
-}
-
-interface ReceiptImportUserOption {
-    id: string;
-    numero_socio?: string | null;
-    nome_completo?: string | null;
-}
-
-interface ReceiptImportInvoiceOption {
-    id: string;
-    user_id: string;
-    tipo: string;
-    mes?: string | null;
-    valor_total: number;
-    valor_em_aberto?: number | null;
-    estado_pagamento: string;
 }
 
 interface AccessPermission {
@@ -602,8 +585,6 @@ interface Props {
     invoiceTypes?: InvoiceType[];
     costCenters?: CostCenter[];
     paymentMethods?: PaymentMethod[];
-    receiptImportUsers?: ReceiptImportUserOption[];
-    receiptImportInvoices?: ReceiptImportInvoiceOption[];
     products?: Product[];
     sponsors?: Sponsor[];
     suppliers?: Supplier[];
@@ -633,8 +614,6 @@ export default function SettingsIndex({
     invoiceTypes = [],
     costCenters = [],
     paymentMethods = [],
-    receiptImportUsers = [],
-    receiptImportInvoices = [],
     products = [],
     sponsors = [],
     suppliers = [],
@@ -777,8 +756,6 @@ export default function SettingsIndex({
     const hasInvoiceTypes = Object.prototype.hasOwnProperty.call(page.props, 'invoiceTypes');
     const hasCostCenters = Object.prototype.hasOwnProperty.call(page.props, 'costCenters');
     const hasPaymentMethods = Object.prototype.hasOwnProperty.call(page.props, 'paymentMethods');
-    const hasReceiptImportUsers = Object.prototype.hasOwnProperty.call(page.props, 'receiptImportUsers');
-    const hasReceiptImportInvoices = Object.prototype.hasOwnProperty.call(page.props, 'receiptImportInvoices');
     const hasProducts = Object.prototype.hasOwnProperty.call(page.props, 'products');
     const hasSponsors = Object.prototype.hasOwnProperty.call(page.props, 'sponsors');
     const hasSuppliers = Object.prototype.hasOwnProperty.call(page.props, 'suppliers');
@@ -794,10 +771,6 @@ export default function SettingsIndex({
     const hasPoolTypes = Object.prototype.hasOwnProperty.call(page.props, 'poolTypes');
     const hasProvaTipos = Object.prototype.hasOwnProperty.call(page.props, 'provaTipos');
     const accessPermissions = page.props.accessControl?.permissions ?? [];
-    const hasReceiptImportViewPermission = page.props.auth?.user?.perfil === 'admin'
-        || accessPermissions.some((permission) => permission.permission_node_id === 'financeiro.importacao_recibos' && permission.can_view);
-    const canEditReceiptImports = page.props.auth?.user?.perfil === 'admin'
-        || accessPermissions.some((permission) => permission.permission_node_id === 'financeiro.importacao_recibos' && permission.can_edit);
     const hasFinanceiroDashboardViewPermission = page.props.auth?.user?.perfil === 'admin'
         || accessPermissions.some((permission) => permission.permission_node_id === 'financeiro.dashboard' && permission.can_view);
     const canEditFinanceiroDashboard = page.props.auth?.user?.perfil === 'admin'
@@ -872,14 +845,12 @@ export default function SettingsIndex({
                 ready: hasMonthlyFees
                     && hasInvoiceTypes
                     && hasCostCenters
-                    && hasPaymentMethods
-                    && (!hasReceiptImportViewPermission || (hasReceiptImportUsers && hasReceiptImportInvoices)),
+                    && hasPaymentMethods,
                 props: [
                     'monthlyFees',
                     'invoiceTypes',
                     'costCenters',
                     'paymentMethods',
-                    ...(hasReceiptImportViewPermission ? ['receiptImportUsers', 'receiptImportInvoices'] : []),
                 ],
             },
             logistica: { ready: hasProducts && hasSponsors && hasSuppliers && hasItemCategories, props: ['products', 'sponsors', 'suppliers', 'itemCategories'] },
@@ -915,9 +886,6 @@ export default function SettingsIndex({
         hasPoolTypes,
         hasProducts,
         hasProvaTipos,
-        hasReceiptImportInvoices,
-        hasReceiptImportUsers,
-        hasReceiptImportViewPermission,
         hasSponsors,
         hasSuppliers,
         hasTrainingTypes,
@@ -1806,7 +1774,7 @@ export default function SettingsIndex({
                     {/* Tab: Financeiro */}
                     <TabsContent value="financeiro" className="mt-0 min-h-0 flex-1 overflow-hidden">
                         {currentTab === 'financeiro' ? (
-                        !hasMonthlyFees || !hasInvoiceTypes || !hasCostCenters || !hasPaymentMethods || (hasReceiptImportViewPermission && (!hasReceiptImportUsers || !hasReceiptImportInvoices)) || loadingRootTab === 'financeiro' ? (
+                        !hasMonthlyFees || !hasInvoiceTypes || !hasCostCenters || !hasPaymentMethods || loadingRootTab === 'financeiro' ? (
                         <TabFallback />
                         ) : (
                         <Tabs value={currentFinanceiroTab} onValueChange={setCurrentFinanceiroTab} className={sectionTabsClass}>
@@ -1817,9 +1785,6 @@ export default function SettingsIndex({
                                 <TabsTrigger value="financeiro-metodos-pagamento">Métodos de Pagamento</TabsTrigger>
                                 {hasFinanceiroDashboardViewPermission ? (
                                     <TabsTrigger value="financeiro-conciliacao-bancaria">Aprendizagem e Auditoria</TabsTrigger>
-                                ) : null}
-                                {hasReceiptImportViewPermission ? (
-                                    <TabsTrigger value="financeiro-importacao-recibos">Importar Recibos</TabsTrigger>
                                 ) : null}
                                 <TabsTrigger value="financeiro-ciclo">Ciclo Financeiro</TabsTrigger>
                             </ModuleTabsList>
@@ -2033,20 +1998,6 @@ export default function SettingsIndex({
                         <TabsContent value="financeiro-conciliacao-bancaria" className={nestedScrollableTabContentClass}>
                         {currentFinanceiroTab === 'financeiro-conciliacao-bancaria' ? (
                         <BankReconciliationManagementTab canEdit={canEditFinanceiroDashboard} />
-                        ) : null}
-                        </TabsContent>
-                        ) : null}
-
-                        {hasReceiptImportViewPermission ? (
-                        <TabsContent value="financeiro-importacao-recibos" className={nestedScrollableTabContentClass}>
-                        {currentFinanceiroTab === 'financeiro-importacao-recibos' ? (
-                        <Suspense fallback={<TabFallback />}>
-                            <ReceiptImportsTab
-                                users={receiptImportUsers}
-                                invoices={receiptImportInvoices}
-                                canEdit={canEditReceiptImports}
-                            />
-                        </Suspense>
                         ) : null}
                         </TabsContent>
                         ) : null}
