@@ -83,6 +83,8 @@ P2.5 elimina o shadow catalog `club-prova-tipos`: a ficha de membro deixa de per
 
 P2.6 devolve a Importação de Recibos ao owner operacional correto: a tab passa de Configurações para Financeiro, mantendo `financeiro.importacao_recibos` e todos os endpoints/serviços financeiros existentes. O endpoint de importação fornece os lookups de membros/faturas abertas apenas quando pedidos; Configurações deixa de carregar ou expor dados operacionais de importação.
 
+P2.7 devolve a entidade `Sponsor` ao owner funcional correto: a base de entidades patrocinadoras sai de `Configurações > Logística` e passa para `Patrocínios > Patrocinadores`. O CRUD fica protegido por `module.access:patrocinios`, `ConfiguracoesController` deixa de carregar/mutar patrocinadores e contratos `Sponsorship` continuam a referenciar a mesma tabela canónica, sem migrations nem reescrita de dados.
+
 ## 4. H0 — Production Hardening
 
 ### H0.1a — CI/CD e segurança SSH — concluída
