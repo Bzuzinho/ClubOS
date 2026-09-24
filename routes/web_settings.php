@@ -95,9 +95,6 @@ Route::middleware('module.access:configuracoes')->group(function () {
     Route::put('/configuracoes/categorias-itens/{itemCategory}', [ConfiguracoesController::class, 'updateItemCategory'])->name('configuracoes.categorias-itens.update');
     Route::delete('/configuracoes/categorias-itens/{itemCategory}', [ConfiguracoesController::class, 'destroyItemCategory'])->name('configuracoes.categorias-itens.destroy');
 
-    Route::post('/configuracoes/patrocinadores', [ConfiguracoesController::class, 'storeSponsor'])->name('configuracoes.patrocinadores.store');
-    Route::put('/configuracoes/patrocinadores/{sponsor}', [ConfiguracoesController::class, 'updateSponsor'])->name('configuracoes.patrocinadores.update');
-    Route::delete('/configuracoes/patrocinadores/{sponsor}', [ConfiguracoesController::class, 'destroySponsor'])->name('configuracoes.patrocinadores.destroy');
 
     Route::post('/configuracoes/fornecedores', [ConfiguracoesController::class, 'storeSupplier'])->name('configuracoes.fornecedores.store');
     Route::put('/configuracoes/fornecedores/{supplier}', [ConfiguracoesController::class, 'updateSupplier'])->name('configuracoes.fornecedores.update');
