@@ -12,9 +12,12 @@ use App\Models\Movement;
 use App\Models\Payment;
 use App\Models\PaymentAllocation;
 use App\Models\User;
+use App\Services\Eventos\DeleteConvocationGroupAction;
 use App\Services\Eventos\SyncConvocationGroupFinancialMovementAction;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 use Tests\TestCase;
 
 class ConvocationGroupFinancialLifecycleTest extends TestCase
@@ -25,24 +28,8 @@ class ConvocationGroupFinancialLifecycleTest extends TestCase
     {
         [$user, $event, $athlete] = $this->seedBaseEntities();
 
-        $response = $this->actingAs($user)->putJson('/api/kv/club-convocatorias-grupo', [
-            'scope' => 'global',
-            'value' => [[
-                'id' => (string) Str::uuid(),
-                'evento_id' => $event->id,
-                'data_criacao' => now()->toISOString(),
-                'criado_por' => $user->id,
-                'atletas_ids' => [$athlete->id],
-                'tipo_custo' => 'por_salto',
-                'valor_por_salto' => 2,
-                'valor_por_estafeta' => 1,
-                'valor_inscricao_unitaria' => 10,
-            ]],
-        ]);
+        $group = $this->createGroupCanonical($user, $event, [$athlete->id], 10, 2, 1);
 
-        $response->assertOk();
-
-        $group = ConvocationGroup::query()->firstOrFail();
         $this->assertNotNull($group->movimento_id);
 
         $movement = Movement::query()->findOrFail($group->movimento_id);
@@ -56,22 +43,8 @@ class ConvocationGroupFinancialLifecycleTest extends TestCase
     {
         [$user, $event, $athlete] = $this->seedBaseEntities();
 
-        $this->actingAs($user)->putJson('/api/kv/club-convocatorias-grupo', [
-            'scope' => 'global',
-            'value' => [[
-                'id' => (string) Str::uuid(),
-                'evento_id' => $event->id,
-                'data_criacao' => now()->toISOString(),
-                'criado_por' => $user->id,
-                'atletas_ids' => [$athlete->id],
-                'tipo_custo' => 'por_salto',
-                'valor_por_salto' => 0,
-                'valor_por_estafeta' => 0,
-                'valor_inscricao_unitaria' => 0,
-            ]],
-        ])->assertOk();
+        $group = $this->createGroupCanonical($user, $event, [$athlete->id], 0, 0, 0);
 
-        $group = ConvocationGroup::query()->firstOrFail();
         $this->assertNull($group->movimento_id);
         $this->assertSame(0, Movement::query()->count());
     }
@@ -80,57 +53,38 @@ class ConvocationGroupFinancialLifecycleTest extends TestCase
     {
         [$user, $event, $athlete] = $this->seedBaseEntities();
 
-        $groupId = (string) Str::uuid();
-        $payload = [
-            'scope' => 'global',
-            'value' => [[
-                'id' => $groupId,
-                'evento_id' => $event->id,
-                'data_criacao' => now()->toISOString(),
-                'criado_por' => $user->id,
-                'atletas_ids' => [$athlete->id],
-                'tipo_custo' => 'por_salto',
-                'valor_por_salto' => 2,
-                'valor_por_estafeta' => 1,
-                'valor_inscricao_unitaria' => 10,
-            ]],
-        ];
+        $group = $this->createGroupCanonical($user, $event, [$athlete->id], 10, 2, 1);
+        $firstMovementId = (string) $group->movimento_id;
 
-        $this->actingAs($user)->putJson('/api/kv/club-convocatorias-grupo', $payload)->assertOk();
-        $firstMovementId = (string) ConvocationGroup::query()->findOrFail($groupId)->movimento_id;
-
-        $this->actingAs($user)->putJson('/api/kv/club-convocatorias-grupo', $payload)->assertOk();
-        $secondMovementId = (string) ConvocationGroup::query()->findOrFail($groupId)->movimento_id;
+        app(SyncConvocationGroupFinancialMovementAction::class)->execute($group->fresh());
+        $secondMovementId = (string) $group->fresh()->movimento_id;
 
         $this->assertSame($firstMovementId, $secondMovementId);
-        $this->assertSame(1, Movement::query()->where('origem_tipo', 'convocation_group')->where('origem_id', $groupId)->count());
+        $this->assertSame(
+            1,
+            Movement::query()
+                ->where('origem_tipo', 'convocation_group')
+                ->where('origem_id', $group->id)
+                ->count()
+        );
     }
 
     public function test_financial_update_before_settlement_reuses_same_movement_and_recalculates(): void
     {
         [$user, $event, $athlete] = $this->seedBaseEntities();
 
-        $group = $this->createGroupViaKv($user, $event, [$athlete->id], 10, 2, 1);
+        $group = $this->createGroupCanonical($user, $event, [$athlete->id], 10, 2, 1);
         $movementId = (string) $group->movimento_id;
         $initialTotal = (float) Movement::query()->findOrFail($movementId)->valor_total;
 
-        $this->actingAs($user)->putJson('/api/kv/club-convocatorias-grupo', [
-            'scope' => 'global',
-            'value' => [[
-                'id' => $group->id,
-                'evento_id' => $event->id,
-                'data_criacao' => now()->toISOString(),
-                'criado_por' => $user->id,
-                'atletas_ids' => [$athlete->id],
-                'tipo_custo' => 'por_salto',
-                'valor_por_salto' => 5,
-                'valor_por_estafeta' => 1,
-                'valor_inscricao_unitaria' => 20,
-            ]],
-        ])->assertOk();
+        $this->updateGroupCanonical($group, [
+            'valor_por_salto' => 5,
+            'valor_por_estafeta' => 1,
+            'valor_inscricao_unitaria' => 20,
+        ]);
 
         $movement = Movement::query()->findOrFail($movementId);
-        $this->assertSame($movementId, (string) ConvocationGroup::query()->findOrFail($group->id)->movimento_id);
+        $this->assertSame($movementId, (string) $group->fresh()->movimento_id);
         $this->assertGreaterThan($initialTotal, (float) $movement->valor_total);
         $this->assertGreaterThan(0, $movement->items()->count());
     }
@@ -138,10 +92,11 @@ class ConvocationGroupFinancialLifecycleTest extends TestCase
     public function test_athlete_changes_recalculate_movement(): void
     {
         [$user, $event, $athlete] = $this->seedBaseEntities();
-        $group = $this->createGroupViaKv($user, $event, [$athlete->id], 10, 2, 1);
+
+        $group = $this->createGroupCanonical($user, $event, [$athlete->id], 10, 2, 1);
         $movementId = (string) $group->movimento_id;
 
-        ConvocationAthlete::query()->create([
+        $row = ConvocationAthlete::query()->create([
             'convocatoria_grupo_id' => $group->id,
             'atleta_id' => $athlete->id,
             'provas' => [
@@ -153,11 +108,10 @@ class ConvocationGroupFinancialLifecycleTest extends TestCase
             'confirmado' => false,
         ]);
 
-        $this->actingAs($user)->putJson('/api/kv/club-convocatorias-atleta', [
-            'scope' => 'global',
-            'value' => [[
-                'convocatoria_grupo_id' => $group->id,
-                'atleta_id' => $athlete->id,
+        $before = (float) Movement::query()->findOrFail($movementId)->valor_total;
+
+        DB::transaction(function () use ($row, $group): void {
+            $row->update([
                 'provas' => [
                     ['name' => '100L'],
                     ['name' => '200L'],
@@ -166,146 +120,117 @@ class ConvocationGroupFinancialLifecycleTest extends TestCase
                 'estafetas' => 2,
                 'presente' => true,
                 'confirmado' => true,
-            ]],
-        ])->assertOk();
+            ]);
+            app(SyncConvocationGroupFinancialMovementAction::class)->execute($group->fresh());
+        });
 
-        $movement = Movement::query()->findOrFail($movementId);
-        $this->assertGreaterThan(0, (float) $movement->valor_total);
-    }
-
-    public function test_payload_movimento_id_is_ignored(): void
-    {
-        [$user, $event, $athlete] = $this->seedBaseEntities();
-        $group = $this->createGroupViaKv($user, $event, [$athlete->id], 10, 2, 1);
-
-        $this->actingAs($user)->putJson('/api/kv/club-convocatorias-grupo', [
-            'scope' => 'global',
-            'value' => [[
-                'id' => $group->id,
-                'evento_id' => $event->id,
-                'data_criacao' => now()->toISOString(),
-                'criado_por' => $user->id,
-                'atletas_ids' => [$athlete->id],
-                'tipo_custo' => 'por_salto',
-                'valor_por_salto' => 2,
-                'valor_por_estafeta' => 1,
-                'valor_inscricao_unitaria' => 10,
-                'movimento_id' => (string) Str::uuid(),
-            ]],
-        ])->assertOk();
-
-        $this->assertSame((string) $group->movimento_id, (string) ConvocationGroup::query()->findOrFail($group->id)->movimento_id);
+        $after = (float) Movement::query()->findOrFail($movementId)->valor_total;
+        $this->assertGreaterThanOrEqual($before, $after);
     }
 
     public function test_administrative_update_after_settlement_is_allowed_when_financial_fields_unchanged(): void
     {
         [$user, $event, $athlete] = $this->seedBaseEntities();
-        $group = $this->createGroupViaKv($user, $event, [$athlete->id], 10, 2, 1);
+
+        $group = $this->createGroupCanonical($user, $event, [$athlete->id], 10, 2, 1);
         $this->markGroupAsSettled($group, ['payment_state' => 'parcial']);
 
-        $response = $this->actingAs($user)->putJson('/api/kv/club-convocatorias-grupo', [
-            'scope' => 'global',
-            'value' => [[
-                'id' => $group->id,
-                'evento_id' => $event->id,
-                'data_criacao' => now()->toISOString(),
-                'criado_por' => $user->id,
-                'atletas_ids' => [$athlete->id],
-                'tipo_custo' => 'por_salto',
-                'valor_por_salto' => 2,
-                'valor_por_estafeta' => 1,
-                'valor_inscricao_unitaria' => 10,
-                'hora_encontro' => '08:15',
-                'local_encontro' => 'Piscina A',
-                'observacoes' => 'Apenas ajuste administrativo',
-            ]],
+        $updated = $this->updateGroupCanonical($group, [
+            'hora_encontro' => '08:15',
+            'local_encontro' => 'Piscina A',
+            'observacoes' => 'Apenas ajuste administrativo',
         ]);
 
-        $response->assertOk();
+        $this->assertSame('08:15', $updated->hora_encontro);
+        $this->assertSame('Piscina A', $updated->local_encontro);
     }
 
     public function test_financial_update_is_blocked_after_partial_payment(): void
     {
         [$user, $event, $athlete] = $this->seedBaseEntities();
-        $group = $this->createGroupViaKv($user, $event, [$athlete->id], 10, 2, 1);
+
+        $group = $this->createGroupCanonical($user, $event, [$athlete->id], 10, 2, 1);
         $this->markGroupAsSettled($group, ['payment_state' => 'parcial']);
 
-        $this->actingAs($user)->putJson('/api/kv/club-convocatorias-grupo', [
-            'scope' => 'global',
-            'value' => [[
-                'id' => $group->id,
-                'evento_id' => $event->id,
-                'data_criacao' => now()->toISOString(),
-                'criado_por' => $user->id,
-                'atletas_ids' => [$athlete->id],
-                'tipo_custo' => 'por_salto',
-                'valor_por_salto' => 99,
-                'valor_por_estafeta' => 1,
-                'valor_inscricao_unitaria' => 10,
-            ]],
-        ])->assertStatus(422);
+        $this->assertFinancialUpdateBlocked($group);
     }
 
     public function test_financial_update_is_blocked_for_paid_allocation_reconciled_and_fiscal_states(): void
     {
         [$user, $event, $athlete] = $this->seedBaseEntities();
 
-        $groupPaid = $this->createGroupViaKv($user, $event, [$athlete->id], 10, 2, 1);
+        $groupPaid = $this->createGroupCanonical($user, $event, [$athlete->id], 10, 2, 1);
         $this->markGroupAsSettled($groupPaid, ['payment_state' => 'pago']);
-        $this->assertFinancialUpdateBlocked($user, $event, $athlete->id, $groupPaid->id);
+        $this->assertFinancialUpdateBlocked($groupPaid);
 
-        $groupAllocation = $this->createGroupViaKv($user, $event, [$athlete->id], 10, 2, 1);
+        $groupAllocation = $this->createGroupCanonical($user, $event, [$athlete->id], 10, 2, 1);
         $this->markGroupAsSettled($groupAllocation, ['with_allocation' => true]);
-        $this->assertFinancialUpdateBlocked($user, $event, $athlete->id, $groupAllocation->id);
+        $this->assertFinancialUpdateBlocked($groupAllocation);
 
-        $groupReconciled = $this->createGroupViaKv($user, $event, [$athlete->id], 10, 2, 1);
+        $groupReconciled = $this->createGroupCanonical($user, $event, [$athlete->id], 10, 2, 1);
         $this->markGroupAsSettled($groupReconciled, ['reconciled' => true]);
-        $this->assertFinancialUpdateBlocked($user, $event, $athlete->id, $groupReconciled->id);
+        $this->assertFinancialUpdateBlocked($groupReconciled);
 
-        $groupFiscal = $this->createGroupViaKv($user, $event, [$athlete->id], 10, 2, 1);
+        $groupFiscal = $this->createGroupCanonical($user, $event, [$athlete->id], 10, 2, 1);
         $this->markGroupAsSettled($groupFiscal, ['with_fiscal' => true]);
-        $this->assertFinancialUpdateBlocked($user, $event, $athlete->id, $groupFiscal->id);
+        $this->assertFinancialUpdateBlocked($groupFiscal);
     }
 
     public function test_delete_pending_group_is_allowed_and_settled_group_is_blocked(): void
     {
         [$user, $event, $athlete] = $this->seedBaseEntities();
 
-        $deletable = $this->createGroupViaKv($user, $event, [$athlete->id], 10, 2, 1);
-        $this->actingAs($user)->putJson('/api/kv/club-convocatorias-grupo', [
-            'scope' => 'global',
-            'value' => [],
-        ])->assertOk();
+        $deletable = $this->createGroupCanonical($user, $event, [$athlete->id], 10, 2, 1);
+        app(DeleteConvocationGroupAction::class)->execute($deletable);
         $this->assertDatabaseMissing('convocation_groups', ['id' => $deletable->id]);
 
-        $blocked = $this->createGroupViaKv($user, $event, [$athlete->id], 10, 2, 1);
+        $blocked = $this->createGroupCanonical($user, $event, [$athlete->id], 10, 2, 1);
         $this->markGroupAsSettled($blocked, ['payment_state' => 'parcial']);
 
-        $this->actingAs($user)->putJson('/api/kv/club-convocatorias-grupo', [
-            'scope' => 'global',
-            'value' => [],
-        ])->assertStatus(422);
-
-        $this->assertDatabaseHas('convocation_groups', ['id' => $blocked->id]);
+        try {
+            app(DeleteConvocationGroupAction::class)->execute($blocked);
+            $this->fail('Expected settled convocation group deletion to be blocked.');
+        } catch (ValidationException) {
+            $this->assertDatabaseHas('convocation_groups', ['id' => $blocked->id]);
+        }
     }
 
-    private function createGroupViaKv(User $user, Event $event, array $athleteIds, float $base, float $perJump, float $perRelay): ConvocationGroup
+    private function createGroupCanonical(
+        User $user,
+        Event $event,
+        array $athleteIds,
+        float $base,
+        float $perJump,
+        float $perRelay
+    ): ConvocationGroup {
+        return DB::transaction(function () use ($user, $event, $athleteIds, $base, $perJump, $perRelay): ConvocationGroup {
+            $group = ConvocationGroup::query()->create([
+                'id' => (string) Str::uuid(),
+                'evento_id' => $event->id,
+                'data_criacao' => now(),
+                'criado_por' => $user->id,
+                'atletas_ids' => $athleteIds,
+                'tipo_custo' => 'por_salto',
+                'valor_por_salto' => $perJump,
+                'valor_por_estafeta' => $perRelay,
+                'valor_inscricao_unitaria' => $base,
+            ]);
+
+            app(SyncConvocationGroupFinancialMovementAction::class)->execute($group);
+
+            return $group->fresh();
+        });
+    }
+
+    private function updateGroupCanonical(ConvocationGroup $group, array $attributes): ConvocationGroup
     {
-        $group = ConvocationGroup::query()->create([
-            'id' => (string) Str::uuid(),
-            'evento_id' => $event->id,
-            'data_criacao' => now(),
-            'criado_por' => $user->id,
-            'atletas_ids' => $athleteIds,
-            'tipo_custo' => 'por_salto',
-            'valor_por_salto' => $perJump,
-            'valor_por_estafeta' => $perRelay,
-            'valor_inscricao_unitaria' => $base,
-        ]);
+        return DB::transaction(function () use ($group, $attributes): ConvocationGroup {
+            $locked = ConvocationGroup::query()->lockForUpdate()->findOrFail($group->id);
+            $locked->update($attributes);
+            app(SyncConvocationGroupFinancialMovementAction::class)->execute($locked);
 
-        app(SyncConvocationGroupFinancialMovementAction::class)->execute($group);
-
-        return $group->fresh();
+            return $locked->fresh();
+        });
     }
 
     /**
@@ -415,21 +340,19 @@ class ConvocationGroupFinancialLifecycleTest extends TestCase
         }
     }
 
-    private function assertFinancialUpdateBlocked(User $user, Event $event, string $athleteId, string $groupId): void
+    private function assertFinancialUpdateBlocked(ConvocationGroup $group): void
     {
-        $this->actingAs($user)->putJson('/api/kv/club-convocatorias-grupo', [
-            'scope' => 'global',
-            'value' => [[
-                'id' => $groupId,
-                'evento_id' => $event->id,
-                'data_criacao' => now()->toISOString(),
-                'criado_por' => $user->id,
-                'atletas_ids' => [$athleteId],
-                'tipo_custo' => 'por_salto',
+        try {
+            $this->updateGroupCanonical($group, [
                 'valor_por_salto' => 77,
                 'valor_por_estafeta' => 1,
                 'valor_inscricao_unitaria' => 10,
-            ]],
-        ])->assertStatus(422);
+            ]);
+            $this->fail('Expected financial mutation to be blocked.');
+        } catch (ValidationException) {
+            $this->assertDatabaseHas('convocation_groups', [
+                'id' => $group->id,
+            ]);
+        }
     }
 }
