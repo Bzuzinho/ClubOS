@@ -54,6 +54,38 @@ class EventKvOwnershipContractTest extends TestCase
         }
     }
 
+    public function test_member_dashboard_can_read_required_event_projections_without_gaining_write_access(): void
+    {
+        $user = User::factory()->create();
+
+        $access = Mockery::mock(UserTypeAccessControlService::class);
+        $access->shouldReceive('canAccessPermission')
+            ->andReturnUsing(fn ($actualUser, string $permission, string $capability): bool =>
+                $actualUser->is($user)
+                && $permission === 'membros.ficha.dashboard'
+                && $capability === 'view'
+            );
+        $this->app->instance(UserTypeAccessControlService::class, $access);
+
+        $eventos = Mockery::mock(EventosKeyValueService::class);
+        $eventos->shouldReceive('supports')->andReturnTrue();
+        $eventos->shouldReceive('get')->times(3)->andReturn([]);
+        $eventos->shouldReceive('set')->never();
+        $eventos->shouldReceive('delete')->never();
+        $this->app->instance(EventosKeyValueService::class, $eventos);
+
+        foreach (['club-events', 'club-presencas', 'club-resultados-provas'] as $key) {
+            $this->actingAs($user)->getJson("/api/kv/{$key}")->assertOk();
+            $this->actingAs($user)->putJson("/api/kv/{$key}", ['value' => []])->assertForbidden();
+            $this->actingAs($user)->deleteJson("/api/kv/{$key}")->assertForbidden();
+        }
+
+        $this->actingAs($user)
+            ->getJson('/api/kv/club-resultados')
+            ->assertForbidden();
+    }
+
+
     public function test_event_permissions_keep_event_and_presence_writers_but_not_convocation_kv_writers(): void
     {
         $user = User::factory()->create();
