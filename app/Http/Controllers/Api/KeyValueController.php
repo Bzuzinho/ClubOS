@@ -29,6 +29,11 @@ class KeyValueController extends Controller
         'club-movimento-items',
     ];
 
+    private const MEMBER_DISCIPLINE_KV_KEYS = [
+        'club-discipline-status',
+        'club-discipline-records',
+    ];
+
     public function __construct(
         private readonly UserTypeAccessControlService $accessControlService,
         private readonly EventosKeyValueService $eventosSync,
@@ -53,6 +58,10 @@ class KeyValueController extends Controller
 
         if ($this->isReadOnlyLegacyFinancialKey($key)) {
             $this->authorizeLegacyFinancialRead($request);
+        }
+
+        if ($this->isMemberDisciplineKvKey($key)) {
+            $this->authorizeMemberDiscipline($request, 'view');
         }
 
         if ($this->eventosSync->supports($key)) {
@@ -107,6 +116,10 @@ class KeyValueController extends Controller
             'Este histórico financeiro legado é apenas de leitura. Utilize o módulo Financeiro para alterações.'
         );
 
+        if ($this->isMemberDisciplineKvKey($key)) {
+            $this->authorizeMemberDiscipline($request, 'edit');
+        }
+
         if ($this->eventosSync->supports($key)) {
             $this->authorizeEventosKey($request, $key, 'edit');
             $this->eventosSync->set($key, $validated['value'], $userId);
@@ -153,6 +166,10 @@ class KeyValueController extends Controller
             'Este histórico financeiro legado é apenas de leitura. Utilize o módulo Financeiro para alterações.'
         );
 
+        if ($this->isMemberDisciplineKvKey($key)) {
+            $this->authorizeMemberDiscipline($request, 'delete');
+        }
+
         if ($this->eventosSync->supports($key)) {
             $this->authorizeEventosKey($request, $key, 'delete');
             $this->eventosSync->delete($key, $userId);
@@ -186,6 +203,11 @@ class KeyValueController extends Controller
         return in_array($key, self::READ_ONLY_LEGACY_FINANCIAL_KEYS, true);
     }
 
+    private function isMemberDisciplineKvKey(string $key): bool
+    {
+        return in_array($key, self::MEMBER_DISCIPLINE_KV_KEYS, true);
+    }
+
     private function authorizeLegacyFinancialRead(Request $request): void
     {
         abort_unless(
@@ -196,6 +218,19 @@ class KeyValueController extends Controller
             ),
             403,
             'Sem permissão para consultar o histórico financeiro da ficha do membro.'
+        );
+    }
+
+    private function authorizeMemberDiscipline(Request $request, string $capability): void
+    {
+        abort_unless(
+            $this->accessControlService->canAccessPermission(
+                $request->user(),
+                'membros.ficha.desportivo.disciplina',
+                $capability
+            ),
+            403,
+            'Sem permissão para executar esta ação sobre a disciplina do membro.'
         );
     }
 
