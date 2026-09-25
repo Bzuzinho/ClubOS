@@ -241,6 +241,7 @@ class KeyValueController extends Controller
                 ? [
                     'eventos.calendario',
                     'desportivo.competicoes',
+                    'membros.ficha.dashboard',
                     'membros.ficha.desportivo.resultados',
                 ]
                 : ['eventos.calendario'],
@@ -255,13 +256,22 @@ class KeyValueController extends Controller
                 ? [
                     'eventos.resultados',
                     'desportivo.presencas',
+                    'membros.ficha.dashboard',
                     'membros.ficha.desportivo.presencas',
                 ]
                 : ['eventos.resultados'],
-            'club-resultados', 'club-resultados-provas' => $capability === 'view'
+            'club-resultados' => $capability === 'view'
                 ? [
                     'eventos.resultados',
                     'desportivo.resultados',
+                    'membros.ficha.desportivo.resultados',
+                ]
+                : ['eventos.resultados'],
+            'club-resultados-provas' => $capability === 'view'
+                ? [
+                    'eventos.resultados',
+                    'desportivo.resultados',
+                    'membros.ficha.dashboard',
                     'membros.ficha.desportivo.resultados',
                 ]
                 : ['eventos.resultados'],
