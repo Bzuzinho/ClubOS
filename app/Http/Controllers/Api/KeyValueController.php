@@ -166,6 +166,10 @@ class KeyValueController extends Controller
             'Este histórico financeiro legado é apenas de leitura. Utilize o módulo Financeiro para alterações.'
         );
 
+        if ($this->isMemberDisciplineKvKey($key)) {
+            $this->authorizeMemberDiscipline($request, 'delete');
+        }
+
         if ($this->eventosSync->supports($key)) {
             $this->authorizeEventosKey($request, $key, 'delete');
             $this->eventosSync->delete($key, $userId);
