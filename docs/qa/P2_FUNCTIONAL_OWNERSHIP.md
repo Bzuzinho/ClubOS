@@ -285,3 +285,31 @@ Isso significava que qualquer utilizador autenticado que alcançasse diretamente
 - testes de contrato garantem leitura autorizada, bloqueio sem permissão e correspondência entre capabilities e mutações.
 
 Sem migrations, backfill, alteração automática ou eliminação de dados neste lote.
+
+
+## P2.12 — Dashboard do membro: leitura transversal de projeções de Eventos
+
+### Owner operacional
+
+- **Eventos > Calendário** continua a ser o owner do lifecycle de eventos.
+- **Eventos > Resultados** continua a ser o owner das presenças e resultados de Eventos.
+- **Membros > Ficha > Dashboard** é apenas consumidor de leitura das projeções necessárias ao resumo desportivo do membro.
+
+### Problema encontrado
+
+O Dashboard da ficha consulta:
+- `club-events` para próximos eventos;
+- `club-presencas` para estatísticas de presença;
+- `club-resultados-provas` para resultados recentes.
+
+O boundary do `KeyValueController` não incluía `membros.ficha.dashboard` nas permissões de leitura destas projeções. Assim, um utilizador com acesso legítimo ao Dashboard mas sem acesso às subtabs desportivas podia abrir a ficha e receber `403` nos pedidos KV necessários ao próprio Dashboard.
+
+### Decisão deste lote
+
+- `membros.ficha.dashboard:view` passa a permitir apenas `GET` de `club-events`, `club-presencas` e `club-resultados-provas`;
+- `PUT/DELETE` continuam reservados aos owners operacionais de Eventos;
+- `club-resultados` não é alargado ao Dashboard porque não é consumido por essa superfície;
+- não é criada qualquer nova fonte de verdade nem nova porta de escrita;
+- contract tests fixam o acesso de leitura e garantem que o Dashboard não ganha mutações.
+
+Sem migrations, backfill, alteração automática ou eliminação de dados neste lote.
