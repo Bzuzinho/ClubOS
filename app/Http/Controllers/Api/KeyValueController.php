@@ -74,6 +74,12 @@ class KeyValueController extends Controller
             ]);
         }
 
+        abort_unless(
+            $this->isPersistedLegacyKvKey($key),
+            410,
+            'O armazenamento KV genérico foi descontinuado. Utilize a superfície funcional canónica.'
+        );
+
         $value = KeyValueStore::getValue($key, $userId);
 
         return response()->json([
@@ -130,6 +136,12 @@ class KeyValueController extends Controller
             ]);
         }
 
+        abort_unless(
+            $this->isMemberDisciplineKvKey($key),
+            410,
+            'O armazenamento KV genérico foi descontinuado. Utilize a superfície funcional canónica.'
+        );
+
         KeyValueStore::setValue($key, $validated['value'], $userId);
 
         return response()->json([
@@ -180,6 +192,12 @@ class KeyValueController extends Controller
             ]);
         }
 
+        abort_unless(
+            $this->isMemberDisciplineKvKey($key),
+            410,
+            'O armazenamento KV genérico foi descontinuado. Utilize a superfície funcional canónica.'
+        );
+
         KeyValueStore::deleteValue($key, $userId);
 
         return response()->json([
@@ -206,6 +224,12 @@ class KeyValueController extends Controller
     private function isMemberDisciplineKvKey(string $key): bool
     {
         return in_array($key, self::MEMBER_DISCIPLINE_KV_KEYS, true);
+    }
+
+    private function isPersistedLegacyKvKey(string $key): bool
+    {
+        return $this->isReadOnlyLegacyFinancialKey($key)
+            || $this->isMemberDisciplineKvKey($key);
     }
 
     private function authorizeLegacyFinancialRead(Request $request): void
