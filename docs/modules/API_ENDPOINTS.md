@@ -73,42 +73,15 @@ Body: Partial user object (only fields to update)
 
 ## Events
 
-### List Events
-**GET** `/api/events`
+Event lifecycle is managed through the canonical Eventos module routes:
 
-Query Parameters:
-- `type` (optional): Filter by event type
-- `status` (optional): Filter by status
-- `start_date` (optional): Filter by start date (>=)
-- `end_date` (optional): Filter by end date (<=)
+- **GET** `/eventos`
+- **POST** `/eventos`
+- **PUT/PATCH** `/eventos/{evento}`
+- **DELETE** `/eventos/{evento}`
 
-### Get Event
-**GET** `/api/events/{id}`
+The former generic `/api/events` resource is retired and is no longer part of the runtime contract.
 
-### Create Event
-**POST** `/api/events`
-
-Body:
-```json
-{
-  "title": "Treino Técnico",
-  "description": "Sessão focada em técnica de nado",
-  "start_date": "2026-02-10",
-  "start_time": "18:00",
-  "end_time": "20:00",
-  "location": "Piscina Municipal",
-  "type": "training",
-  "status": "published"
-}
-```
-
-### Update Event
-**PUT** `/api/events/{id}`
-
-Body: Partial event object
-
-### Delete Event
-**DELETE** `/api/events/{id}`
 
 ---
 
@@ -256,9 +229,6 @@ All endpoints have corresponding React hooks for easy integration:
 
 ### Users
 - `useUsers()`, `useUser(id)`, `useCreateUser()`, `useUpdateUser()`, `useDeleteUser()`
-
-### Events
-- `useEvents(filters?)`, `useEvent(id)`, `useCreateEvent()`, `useUpdateEvent()`, `useDeleteEvent()`
 
 ### Provas
 - `useProvas()`, `useProva(id)`, `useCreateProva()`, `useUpdateProva()`, `useDeleteProva()`

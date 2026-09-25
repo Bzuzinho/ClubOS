@@ -372,3 +372,32 @@ O hook `useResults` existia apenas como wrapper desta API e também não tinha c
 - contract tests impedem o regresso da rota genérica e confirmam a presença da API canónica.
 
 Sem migrations, backfill ou alteração automática de dados neste lote.
+
+
+## P2.15 — Eventos: retirar API REST genérica duplicada
+
+### Owner operacional
+
+- **Eventos > Calendário/Eventos** é o owner do lifecycle de `Event`.
+- A superfície canónica de mutação é o módulo web `/eventos`, servido por `EventosController` e `EventLifecycleService`.
+- As restantes áreas podem consumir projeções de leitura conforme os boundaries já definidos, mas não mantêm um segundo CRUD de eventos.
+
+### Problema encontrado
+
+Persistia o recurso REST genérico `/api/events`, servido por `App\\Http\\Controllers\\Api\\EventsController`, sobre a mesma tabela/modelo `Event`.
+
+A UI ativa de Eventos já cria, atualiza e elimina eventos por `/eventos`. O único consumidor frontend de `/api/events` era `useEvents.ts`, e esse hook não tinha qualquer import runtime fora do próprio barrel de hooks.
+
+Isto deixava duas portas de CRUD para o mesmo lifecycle, com contratos de payload e navegação distintos.
+
+### Decisão deste lote
+
+- o recurso `/api/events` é removido do routing;
+- `Api\\EventsController` é retirado;
+- `useEvents.ts` e os respetivos exports são removidos;
+- `/eventos` permanece como única superfície canónica de criação, atualização e eliminação de eventos;
+- as projeções KV de leitura e os payloads do módulo Eventos mantêm-se inalterados;
+- nenhum registo da tabela `events` é migrado, alterado ou apagado;
+- contract tests impedem o regresso da API genérica e confirmam a presença das rotas canónicas.
+
+Sem migrations, backfill ou alteração automática de dados neste lote.

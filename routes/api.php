@@ -15,7 +15,6 @@ use App\Http\Controllers\Api\ClubSettingController;
 use App\Http\Controllers\Api\KeyValueController;
 use App\Http\Controllers\Api\UsersController;
 use App\Http\Controllers\Api\MemberReportsController;
-use App\Http\Controllers\Api\EventsController;
 use App\Http\Controllers\Api\ProvasController;
 use App\Http\Controllers\Api\EventAttendancesController;
 use App\Http\Controllers\Api\EventResultsController;
@@ -94,11 +93,6 @@ Route::middleware(['auth'])->group(function () {
         ->middlewareFor(['index', 'show'], 'permission.access:membros.ficha,view')
         ->middlewareFor(['store', 'update'], 'permission.access:membros.ficha,edit')
         ->middlewareFor(['destroy'], 'permission.access:membros.ficha,delete');
-    Route::apiResource('events', EventsController::class)
-        ->middleware('module.access:eventos')
-        ->middlewareFor(['index', 'show'], 'permission.access:eventos.calendario,view')
-        ->middlewareFor(['store', 'update'], 'permission.access:eventos.calendario,edit')
-        ->middlewareFor(['destroy'], 'permission.access:eventos.calendario,delete');
     Route::apiResource('provas', ProvasController::class)
         ->middleware('module.access:desportivo')
         ->middlewareFor(['index', 'show'], 'permission.access:desportivo.competicoes,view')
