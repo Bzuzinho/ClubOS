@@ -313,3 +313,30 @@ O boundary do `KeyValueController` não incluía `membros.ficha.dashboard` nas p
 - contract tests fixam o acesso de leitura e garantem que o Dashboard não ganha mutações.
 
 Sem migrations, backfill, alteração automática ou eliminação de dados neste lote.
+
+
+## P2.13 — API KV: aposentar fallback genérico
+
+### Owner operacional
+
+- A API `/api/kv/{key}` deixa de ser uma superfície de persistência genérica.
+- Projeções de Eventos continuam delegadas no adapter canónico `EventosKeyValueService` e respeitam os owners funcionais já definidos.
+- Histórico financeiro KV permanece apenas de leitura com permissão da ficha financeira.
+- `club-discipline-status` e `club-discipline-records` continuam como persistência legacy explicitamente owned por **Membros > Ficha > Desportivo > Disciplina**.
+
+### Problema encontrado
+
+Depois dos lotes P2.1–P2.12, todos os consumidores runtime de `useKV` ficaram identificados e protegidos, mas o `KeyValueController` ainda mantinha um fallback final para `KeyValueStore::getValue/setValue/deleteValue`.
+
+Na prática, qualquer utilizador autenticado podia inventar uma chave e usar `/api/kv/<qualquer-chave>` como armazenamento global ou por utilizador, fora da árvore de permissões e sem owner funcional.
+
+### Decisão deste lote
+
+- chaves desconhecidas passam a responder `410 Gone` em `GET/PUT/DELETE`;
+- o fallback genérico de escrita e eliminação deixa de aceitar novas chaves;
+- leituras persistidas continuam apenas para as chaves legacy explicitamente reconhecidas;
+- mutações persistidas continuam apenas para as duas chaves de Disciplina, protegidas por `membros.ficha.desportivo.disciplina`;
+- registos históricos de chaves desconhecidas não são apagados automaticamente;
+- documentação e comentários do hook deixam de apresentar KV como armazenamento livre.
+
+Sem migrations, backfill, alteração automática ou eliminação de dados neste lote.
