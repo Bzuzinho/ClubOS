@@ -260,3 +260,28 @@ Essa árvore já não tinha consumidor operacional ativo. Em paralelo, o endpoin
 - dados existentes não são migrados, apagados ou reescritos.
 
 Sem migrations, backfill ou alteração automática de dados.
+
+
+## P2.11 — Disciplina do membro: ownership do KV legado
+
+### Owner operacional
+
+- **Membros > Ficha > Desportivo > Disciplina** é o owner dos registos disciplinares atualmente persistidos em `club-discipline-status` e `club-discipline-records`.
+- O módulo **Desportivo > Planeamento** mantém o ownership da periodização, sessões, recorrências e objetivos desportivos; não é uma superfície alternativa para estes registos disciplinares.
+
+### Problema encontrado
+
+A subtab Disciplina usa `useKV` para ler e gravar as duas chaves disciplinares. Como estas chaves não pertencem ao adapter de Eventos nem a outro boundary específico, o `KeyValueController` caía no fallback genérico de `KeyValueStore`.
+
+Isso significava que qualquer utilizador autenticado que alcançasse diretamente `/api/kv/{key}` podia tentar ler ou mutar estes dados sem o controller verificar a permissão funcional `membros.ficha.desportivo.disciplina`.
+
+### Decisão deste lote
+
+- `club-discipline-status` e `club-discipline-records` passam a ser chaves explicitamente owned pela ficha do membro;
+- `GET` exige capability `view` de `membros.ficha.desportivo.disciplina`;
+- `PUT` exige capability `edit`;
+- `DELETE` exige capability `delete`;
+- a UI e o formato atual dos dados mantêm-se inalterados;
+- testes de contrato garantem leitura autorizada, bloqueio sem permissão e correspondência entre capabilities e mutações.
+
+Sem migrations, backfill, alteração automática ou eliminação de dados neste lote.
