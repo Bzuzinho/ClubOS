@@ -340,3 +340,35 @@ Na prática, qualquer utilizador autenticado podia inventar uma chave e usar `/a
 - documentação e comentários do hook deixam de apresentar KV como armazenamento livre.
 
 Sem migrations, backfill, alteração automática ou eliminação de dados neste lote.
+
+
+## P2.14 — Resultados competitivos: retirar API genérica duplicada
+
+### Owner operacional
+
+- **Desportivo > Resultados / Competições** é o owner dos resultados competitivos canónicos.
+- A API canónica é `/api/desportivo/competition-results`, suportada por `CompetitionResultController`.
+- A ficha do membro consulta o histórico competitivo através desta mesma superfície.
+
+### Problema encontrado
+
+Persistia um segundo recurso REST `/api/results`, servido por `ResultsController`, que escrevia diretamente no mesmo modelo `Result`.
+
+Esta API genérica:
+- não tinha consumidores runtime no frontend;
+- não aplicava o mesmo boundary de clube do `SportsClubContext`;
+- não exigia inscrição prévia do atleta na prova antes de criar um resultado;
+- duplicava CRUD sobre a mesma fonte canónica.
+
+O hook `useResults` existia apenas como wrapper desta API e também não tinha consumidores runtime.
+
+### Decisão deste lote
+
+- o recurso `/api/results` é removido do routing;
+- `ResultsController` é retirado;
+- `useResults.ts` e os respetivos exports são removidos;
+- `/api/desportivo/competition-results` permanece como única API de escrita de resultados competitivos;
+- nenhum registo da tabela `results` é migrado, alterado ou apagado;
+- contract tests impedem o regresso da rota genérica e confirmam a presença da API canónica.
+
+Sem migrations, backfill ou alteração automática de dados neste lote.

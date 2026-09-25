@@ -37,15 +37,6 @@ export {
   useDeleteProva,
 } from './useProvas';
 
-// Results Hooks
-export {
-  useResults,
-  useResult,
-  useCreateResult,
-  useUpdateResult,
-  useDeleteResult,
-} from './useResults';
-
 // Event Attendances Hooks
 export {
   useEventAttendances,

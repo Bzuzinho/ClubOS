@@ -142,40 +142,17 @@ Body:
 
 ---
 
-## Results
+## Competition Results
 
-### List Results
-**GET** `/api/results`
+Competition results are managed only through the canonical Desportivo API:
 
-Query Parameters:
-- `athlete_id` (optional): Filter by athlete
-- `event_id` (optional): Filter by event
+- **GET** `/api/desportivo/competition-results`
+- **POST** `/api/desportivo/competition-results`
+- **GET** `/api/desportivo/competition-results/{id}`
+- **PUT/PATCH** `/api/desportivo/competition-results/{id}`
+- **DELETE** `/api/desportivo/competition-results/{id}`
 
-### Get Result
-**GET** `/api/results/{id}`
-
-### Create Result
-**POST** `/api/results`
-
-Body:
-```json
-{
-  "athlete_id": "uuid",
-  "event_id": "uuid",
-  "event_name": "Campeonato Nacional",
-  "race": "100m Livres",
-  "location": "Lisboa",
-  "date": "2026-03-15",
-  "pool": "piscina_25m",
-  "final_time": "00:58:45"
-}
-```
-
-### Update Result
-**PUT** `/api/results/{id}`
-
-### Delete Result
-**DELETE** `/api/results/{id}`
+The former generic `/api/results` resource is retired and is no longer part of the runtime contract.
 
 ---
 
@@ -285,9 +262,6 @@ All endpoints have corresponding React hooks for easy integration:
 
 ### Provas
 - `useProvas()`, `useProva(id)`, `useCreateProva()`, `useUpdateProva()`, `useDeleteProva()`
-
-### Results
-- `useResults(filters?)`, `useResult(id)`, `useCreateResult()`, `useUpdateResult()`, `useDeleteResult()`
 
 ### Attendances
 - `useEventAttendances(filters?)`, `useEventAttendance(id)`, `useCreateEventAttendance()`, `useUpdateEventAttendance()`, `useDeleteEventAttendance()`
