@@ -19,15 +19,6 @@ export {
   useDeleteUser,
 } from './useUsers';
 
-// Events Hooks
-export {
-  useEvents,
-  useEvent,
-  useCreateEvent,
-  useUpdateEvent,
-  useDeleteEvent,
-} from './useEvents';
-
 // Provas Hooks
 export {
   useProvas,
