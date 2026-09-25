@@ -31,18 +31,23 @@ class EventLifecycleOwnershipContractTest extends TestCase
 
         $this->assertContains('GET', $collectionMethods);
         $this->assertContains('POST', $collectionMethods);
-        $this->assertContains('GET', $itemMethods);
         $this->assertContains('PUT', $itemMethods);
         $this->assertContains('DELETE', $itemMethods);
 
         $indexRoute = $collectionRoutes->first(fn ($route) => in_array('GET', $route->methods(), true));
         $storeRoute = $collectionRoutes->first(fn ($route) => in_array('POST', $route->methods(), true));
+        $updateRoute = $itemRoutes->first(fn ($route) => in_array('PUT', $route->methods(), true));
+        $destroyRoute = $itemRoutes->first(fn ($route) => in_array('DELETE', $route->methods(), true));
 
         $this->assertNotNull($indexRoute);
         $this->assertNotNull($storeRoute);
+        $this->assertNotNull($updateRoute);
+        $this->assertNotNull($destroyRoute);
         $this->assertContains('module.access:eventos', $indexRoute->gatherMiddleware());
         $this->assertContains('permission.access:eventos.calendario,view', $indexRoute->gatherMiddleware());
         $this->assertContains('permission.access:eventos.calendario,edit', $storeRoute->gatherMiddleware());
+        $this->assertContains('permission.access:eventos.calendario,edit', $updateRoute->gatherMiddleware());
+        $this->assertContains('permission.access:eventos.calendario,delete', $destroyRoute->gatherMiddleware());
     }
 
     public function test_legacy_events_hook_is_absent_from_runtime_exports(): void
