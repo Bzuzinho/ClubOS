@@ -20,18 +20,32 @@ class CompetitionResultsOwnershipContractTest extends TestCase
     {
         $routes = collect(Route::getRoutes());
 
-        $index = $routes->first(fn ($route) => $route->uri() === 'api/desportivo/competition-results');
-        $item = $routes->first(fn ($route) => $route->uri() === 'api/desportivo/competition-results/{competition_result}');
+        $indexRoutes = $routes->filter(
+            fn ($route) => $route->uri() === 'api/desportivo/competition-results'
+        );
+        $itemRoutes = $routes->filter(
+            fn ($route) => $route->uri() === 'api/desportivo/competition-results/{competition_result}'
+        );
 
-        $this->assertNotNull($index);
-        $this->assertNotNull($item);
-        $this->assertContains('GET', $index->methods());
-        $this->assertContains('POST', $index->methods());
-        $this->assertContains('GET', $item->methods());
-        $this->assertContains('PUT', $item->methods());
-        $this->assertContains('DELETE', $item->methods());
-        $this->assertContains('module.access:desportivo', $index->gatherMiddleware());
-        $this->assertContains('permission.access:desportivo.resultados,view', $index->gatherMiddleware());
+        $this->assertNotEmpty($indexRoutes);
+        $this->assertNotEmpty($itemRoutes);
+
+        $indexMethods = $indexRoutes->flatMap(fn ($route) => $route->methods())->unique()->values()->all();
+        $itemMethods = $itemRoutes->flatMap(fn ($route) => $route->methods())->unique()->values()->all();
+
+        $this->assertContains('GET', $indexMethods);
+        $this->assertContains('POST', $indexMethods);
+        $this->assertContains('GET', $itemMethods);
+        $this->assertContains('PUT', $itemMethods);
+        $this->assertContains('DELETE', $itemMethods);
+
+        $indexRoute = $indexRoutes->first(
+            fn ($route) => in_array('GET', $route->methods(), true)
+        );
+
+        $this->assertNotNull($indexRoute);
+        $this->assertContains('module.access:desportivo', $indexRoute->gatherMiddleware());
+        $this->assertContains('permission.access:desportivo.resultados,view', $indexRoute->gatherMiddleware());
     }
 
     public function test_legacy_results_hook_is_absent_from_runtime_exports(): void
