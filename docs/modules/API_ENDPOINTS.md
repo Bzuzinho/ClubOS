@@ -11,41 +11,25 @@ Authorization: Bearer {token}
 
 ---
 
-## Key-Value Store
+## Key-Value Store (compatibilidade)
 
-Generic key-value storage for flexible data persistence.
+A rota `/api/kv/{key}` existe apenas como camada de compatibilidade para chaves legacy explicitamente mapeadas. Não é um armazenamento genérico e chaves desconhecidas respondem `410 Gone`.
 
-### Get Value
-**GET** `/api/kv/{key}`
+### Categorias suportadas
 
-Query Parameters:
-- `scope` (optional): `global` or `user` (default: `global`)
+- Projeções de Eventos: `club-events`, `club-presencas`, `club-resultados`, `club-resultados-provas` e projeções de convocatórias, sujeitas às permissões funcionais correspondentes.
+- Histórico financeiro legacy: `club-movimentos`, `club-movimento-itens`, `club-movimento-items`, apenas leitura.
+- Disciplina do membro: `club-discipline-status` e `club-discipline-records`, com `view/edit/delete` controlados por `membros.ficha.desportivo.disciplina`.
+- Catálogos KV aposentados devolvem `410 Gone`.
 
-Response:
-```json
-{
-  "key": "club-users",
-  "value": [...],
-  "scope": "global"
-}
-```
+### Scope
 
-### Set Value
-**PUT** `/api/kv/{key}`
+O parâmetro `scope` pode ser `global` ou `user` quando a chave suportada usa persistência em `KeyValueStore`. O scope não transforma uma chave desconhecida numa chave válida.
 
-Body:
-```json
-{
-  "value": "any JSON serializable value",
-  "scope": "global"
-}
-```
+### Chaves desconhecidas
 
-### Delete Value
-**DELETE** `/api/kv/{key}`
+`GET`, `PUT` e `DELETE /api/kv/{key}` devolvem `410 Gone` quando `{key}` não pertence ao contrato de compatibilidade.
 
-Query Parameters:
-- `scope` (optional): `global` or `user`
 
 ---
 
