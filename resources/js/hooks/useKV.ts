@@ -6,11 +6,10 @@ interface UseKVOptions {
 }
 
 /**
- * Hook compatível com Spark useKV, mas usando backend Laravel
- * 
- * @example
- * const [users, setUsers] = useKV<User[]>('club-users', []);
- * setUsers(prev => [...prev, newUser]); // Salva no Laravel
+ * Hook de compatibilidade para chaves KV legacy explicitamente suportadas pelo backend.
+ *
+ * Não utilizar para criar novas chaves: o endpoint devolve 410 para chaves fora
+ * do contrato funcional mapeado no KeyValueController.
  */
 export function useKV<T>(
   key: string,
