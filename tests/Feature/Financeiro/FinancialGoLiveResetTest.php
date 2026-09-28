@@ -151,6 +151,31 @@ final class FinancialGoLiveResetTest extends TestCase
         $this->assertDatabaseCount('invoices', 1);
     }
 
+    public function test_reset_does_not_apply_without_explicit_confirmation_token(): void
+    {
+        $member = User::factory()->create();
+
+        Invoice::query()->create([
+            'user_id' => $member->id,
+            'data_fatura' => '2026-09-01',
+            'mes' => '2026-09',
+            'data_emissao' => '2026-09-01',
+            'data_vencimento' => '2026-09-08',
+            'valor_total' => 25,
+            'estado_pagamento' => 'pendente',
+            'tipo' => 'mensalidade',
+        ]);
+
+        putenv('CLUBOS_FINANCIAL_RESET_20260928');
+        unset($_ENV['CLUBOS_FINANCIAL_RESET_20260928'], $_SERVER['CLUBOS_FINANCIAL_RESET_20260928']);
+
+        $migration = require database_path('migrations/2026_09_28_130000_reset_financial_operational_data_for_go_live.php');
+        $migration->up();
+
+        $this->assertDatabaseCount('invoices', 1);
+        $this->assertDatabaseHas('users', ['id' => $member->id]);
+    }
+
     public function test_deploy_requires_backup_before_reset_and_audit_after_migration(): void
     {
         $script = file_get_contents(base_path('bin/remote-deploy-backend.sh'));
