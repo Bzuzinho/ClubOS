@@ -400,6 +400,9 @@ if printf '%s\n' "${MIGRATION_STATUS}" | grep -F "${FINANCIAL_RESET_MIGRATION}" 
   FINANCIAL_RESET_PENDING=true
   FINANCIAL_RESET_BACKUP_DIR="/var/backups/clubmanager/pre-financial-reset/${EXPECTED_SHA}"
 
+  log 'reset financeiro pendente: inventário agregado pré-reset'
+  run_as_runtime php "${RELEASE_DIR}/artisan" finance:audit-go-live-reset --json --no-ansi
+
   log 'reset financeiro pendente: criar backup PostgreSQL dedicado antes de qualquer migration'
   install -d -o root -g root -m 700 "${FINANCIAL_RESET_BACKUP_DIR}"
   BACKUP_DIR="${FINANCIAL_RESET_BACKUP_DIR}" \
@@ -422,7 +425,7 @@ run_as_runtime php "${RELEASE_DIR}/artisan" migrate --force --no-ansi
 
 if [[ "${FINANCIAL_RESET_PENDING}" == "true" ]]; then
   log 'validar baseline financeiro vazio após a migration de reset'
-  run_as_runtime php "${RELEASE_DIR}/artisan" finance:audit-go-live-reset --fail-on-data --no-ansi
+  run_as_runtime php "${RELEASE_DIR}/artisan" finance:audit-go-live-reset --json --fail-on-data --no-ansi
 fi
 
 run_as_runtime php "${RELEASE_DIR}/artisan" access-control:sync-permission-nodes --no-ansi
