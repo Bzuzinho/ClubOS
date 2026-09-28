@@ -543,58 +543,30 @@ final class OperationalDataResetService
     }
 
     /**
+     * Todos os movimentos destas origens pertencem aos fluxos operacionais
+     * fictícios autorizados para reset. O filtro por tipo de origem apanha
+     * também movimentos cujos itens-fonte já foram substituídos/apagados.
+     *
      * @param array<string,list<string>> $context
      * @return list<string>
      */
     private function targetStockMovementIds(array $context): array
     {
-        if (! Schema::hasTable('stock_movements')) {
+        if (! Schema::hasTable('stock_movements') || ! Schema::hasColumn('stock_movements', 'reference_type')) {
             return [];
         }
 
-        $ids = collect();
-
-        $supplierPurchaseIds = $context['supplier_purchase_ids'] ?? [];
-        if ($supplierPurchaseIds !== []) {
-            $ids->push(...DB::table('stock_movements')
-                ->where('reference_type', 'supplier_purchase')
-                ->whereIn('reference_id', $supplierPurchaseIds)
-                ->pluck('id')
-                ->all());
-        }
-
-        $supplierPurchaseItemIds = $context['supplier_purchase_item_ids'] ?? [];
-        if ($supplierPurchaseItemIds !== []) {
-            $ids->push(...DB::table('stock_movements')
-                ->whereIn('reference_type', [
-                    'supplier_purchase_update_entry',
-                    'supplier_purchase_update_reversal',
-                    'supplier_purchase_delete',
-                ])
-                ->whereIn('reference_id', $supplierPurchaseItemIds)
-                ->pluck('id')
-                ->all());
-        }
-
-        $logisticsRequestIds = $context['logistics_request_ids'] ?? [];
-        if ($logisticsRequestIds !== []) {
-            $ids->push(...DB::table('stock_movements')
-                ->where('reference_type', 'logistics_request')
-                ->whereIn('reference_id', $logisticsRequestIds)
-                ->pluck('id')
-                ->all());
-        }
-
-        $storeOrderItemIds = $context['store_order_item_ids'] ?? [];
-        if ($storeOrderItemIds !== []) {
-            $ids->push(...DB::table('stock_movements')
-                ->whereIn('reference_type', ['store_order_item', 'loja_encomenda_item'])
-                ->whereIn('reference_id', $storeOrderItemIds)
-                ->pluck('id')
-                ->all());
-        }
-
-        return $ids
+        return DB::table('stock_movements')
+            ->whereIn('reference_type', [
+                'supplier_purchase',
+                'supplier_purchase_update_entry',
+                'supplier_purchase_update_reversal',
+                'supplier_purchase_delete',
+                'logistics_request',
+                'store_order_item',
+                'loja_encomenda_item',
+            ])
+            ->pluck('id')
             ->filter(fn (mixed $id): bool => filled($id))
             ->map('strval')
             ->unique()
