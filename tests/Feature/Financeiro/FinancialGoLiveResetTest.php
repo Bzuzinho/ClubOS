@@ -123,6 +123,8 @@ final class FinancialGoLiveResetTest extends TestCase
         $this->assertTrue($payload['summary']['ready']);
         $this->assertSame(0, $payload['summary']['transaction_row_count']);
         $this->assertSame(0, $payload['summary']['linked_reference_count']);
+        $this->assertSame(0, $payload['summary']['monthly_fee_generation_enabled_count']);
+        $this->assertSame(0, $payload['summary']['monthly_fee_auto_activate_enabled_count']);
 
         Invoice::query()->create([
             'user_id' => $member->id,
