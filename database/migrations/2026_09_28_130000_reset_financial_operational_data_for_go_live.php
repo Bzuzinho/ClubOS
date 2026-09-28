@@ -75,6 +75,18 @@ return new class extends Migration
 
     public function up(): void
     {
+        $confirmation = (string) env('CLUBOS_FINANCIAL_RESET_20260928', '');
+
+        if ($confirmation !== 'APPLY') {
+            if (app()->environment('production')) {
+                throw new RuntimeException(
+                    'Financial go-live reset refused: CLUBOS_FINANCIAL_RESET_20260928=APPLY is required in production.'
+                );
+            }
+
+            return;
+        }
+
         DB::transaction(function (): void {
             $preservedBefore = $this->snapshotCounts(self::PRESERVED_TABLES);
 
