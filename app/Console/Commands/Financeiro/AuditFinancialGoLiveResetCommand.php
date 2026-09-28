@@ -72,10 +72,21 @@ final class AuditFinancialGoLiveResetCommand extends Command
 
         $transactionRowCount = array_sum($tableCounts);
         $linkedReferenceCount = array_sum($referenceCounts);
+        $monthlyFeeGenerationEnabledCount = Schema::hasTable('club_settings')
+            && Schema::hasColumn('club_settings', 'monthly_fee_generation_enabled')
+                ? DB::table('club_settings')->where('monthly_fee_generation_enabled', true)->count()
+                : 0;
+        $monthlyFeeAutoActivateEnabledCount = Schema::hasTable('club_settings')
+            && Schema::hasColumn('club_settings', 'monthly_fee_auto_activate_due')
+                ? DB::table('club_settings')->where('monthly_fee_auto_activate_due', true)->count()
+                : 0;
+
         $ready = $transactionRowCount === 0
             && $linkedReferenceCount === 0
             && $legacyKvCount === 0
-            && $manualBalanceCount === 0;
+            && $manualBalanceCount === 0
+            && $monthlyFeeGenerationEnabledCount === 0
+            && $monthlyFeeAutoActivateEnabledCount === 0;
 
         $payload = [
             'version' => 'financial-go-live-reset-v1',
@@ -87,6 +98,8 @@ final class AuditFinancialGoLiveResetCommand extends Command
                 'linked_reference_count' => $linkedReferenceCount,
                 'legacy_financial_kv_count' => $legacyKvCount,
                 'non_zero_manual_balance_count' => $manualBalanceCount,
+                'monthly_fee_generation_enabled_count' => $monthlyFeeGenerationEnabledCount,
+                'monthly_fee_auto_activate_enabled_count' => $monthlyFeeAutoActivateEnabledCount,
                 'users_count' => Schema::hasTable('users') ? DB::table('users')->count() : 0,
                 'athlete_sports_data_count' => Schema::hasTable('athlete_sports_data') ? DB::table('athlete_sports_data')->count() : 0,
                 'monthly_fee_plan_count' => Schema::hasTable('monthly_fees') ? DB::table('monthly_fees')->count() : 0,
@@ -110,6 +123,8 @@ final class AuditFinancialGoLiveResetCommand extends Command
                     ['linked_reference_count', $linkedReferenceCount],
                     ['legacy_financial_kv_count', $legacyKvCount],
                     ['non_zero_manual_balance_count', $manualBalanceCount],
+                    ['monthly_fee_generation_enabled_count', $monthlyFeeGenerationEnabledCount],
+                    ['monthly_fee_auto_activate_enabled_count', $monthlyFeeAutoActivateEnabledCount],
                     ['users_count', $payload['summary']['users_count']],
                     ['athlete_sports_data_count', $payload['summary']['athlete_sports_data_count']],
                     ['monthly_fee_plan_count', $payload['summary']['monthly_fee_plan_count']],
