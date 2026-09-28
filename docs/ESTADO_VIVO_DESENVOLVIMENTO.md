@@ -2,7 +2,7 @@
 
 > Fonte de verdade funcional e técnica do projeto ClubOS.
 >
-> Estado consolidado em 2026-09-22.
+> Estado consolidado em 2026-09-28.
 >
 > O histórico detalhado anterior à consolidação está preservado em `docs/history/ESTADO_VIVO_DESENVOLVIMENTO_ATE_2026-08-20.md`.
 
@@ -90,6 +90,31 @@ P2.8 restringe as projeções KV de Eventos ao owner de mutação correto: Despo
 P2.9 retira o adapter KV `club-eventos-tipos`: não existem consumidores runtime no frontend e o catálogo `EventType` já é gerido pelo CRUD canónico de Configurações. A chave passa a responder `410 Gone` e deixa de poder sincronizar ou apagar globalmente `event_types`.
 
 P2.10 fecha a escrita KV residual de Convocatórias: `Desportivo > Convocatórias` fica como única superfície operacional de grupos/atletas e publicação; as projeções KV permanecem apenas para leitura na ficha/compatibilidade, enquanto `PUT/DELETE` devolvem `410`. A árvore frontend legacy de Convocatórias foi retirada e os testes de lifecycle deixaram de usar o endpoint KV como atalho. Edições administrativas de hora/local/notas no workspace canónico deixam de disparar recálculo financeiro; qualquer alteração efetiva de custos continua sujeita aos guards de liquidação/conciliação/fiscal.
+
+P2.11 protege o ownership da Disciplina do membro: `club-discipline-status` e `club-discipline-records` passam a exigir explicitamente `membros.ficha.desportivo.disciplina` nas capabilities `view/edit/delete`, deixando de cair no fallback KV genérico.
+
+P2.12 alinha o Dashboard da ficha como consumidor read-only das projeções de Eventos necessárias ao resumo (`club-events`, `club-presencas`, `club-resultados-provas`), sem lhe atribuir qualquer capacidade de mutação.
+
+P2.13 aposenta o fallback genérico de `/api/kv/{key}`: chaves desconhecidas passam a responder `410 Gone`; dados históricos desconhecidos permanecem preservados e apenas chaves legacy explicitamente reconhecidas continuam disponíveis.
+
+P2.14 remove a API genérica `/api/results`, o respetivo controller e hook órfão, mantendo `/api/desportivo/competition-results` como única API de escrita de resultados competitivos canónicos.
+
+P2.15 remove a API REST genérica `/api/events`, o respetivo controller e hook órfão, mantendo `/eventos` + `EventosController` + `EventLifecycleService` como superfície canónica do lifecycle de Eventos.
+
+### Fecho P2 e baseline de go-live — 28/09/2026
+
+P2 fica encerrado para a versão operacional atual. Os lotes P2.1–P2.15 removeram ou fecharam as redundâncias funcionais identificadas como risco de dual write/ownership concorrente sem introduzir migrations destrutivas ou reescrita automática de dados.
+
+A versão de go-live fica presa ao commit produtivo validado após P2.15 e aos gates canónicos de CI/produção. A partir deste ponto, novas alterações devem ser tratadas como backlog pós-go-live, bugfix ou evolução funcional explícita; não continuar numericamente P2 apenas para procurar dívida não bloqueante.
+
+Pendências conhecidas que **não bloqueiam** a utilização operacional do âmbito implementado:
+- reporting avançado e relatórios transversais;
+- refinamentos UX/mobile/PWA e QA físico em dispositivos reais;
+- melhorias adicionais do Website público/construtor;
+- corpus/regression dataset da importação de recibos antigos;
+- issue #64, com 5 datas legacy de atestado médico sem backfill automático seguro (0 casos `ready_for_backfill`).
+
+Nenhuma destas pendências reabre uma fonte de verdade concorrente ou invalida os gates produtivos atuais.
 
 ## 4. H0 — Production Hardening
 
