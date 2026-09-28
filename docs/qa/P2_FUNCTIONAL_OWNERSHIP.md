@@ -401,3 +401,25 @@ Isto deixava duas portas de CRUD para o mesmo lifecycle, com contratos de payloa
 - contract tests impedem o regresso da API genérica e confirmam a presença das rotas canónicas.
 
 Sem migrations, backfill ou alteração automática de dados neste lote.
+
+
+## Fecho P2 — baseline operacional de 28/09/2026
+
+### Decisão
+
+O workstream P2 fica encerrado após P2.15 para a versão operacional atual.
+
+Critérios de saída confirmados:
+- P2.1–P2.15 integrados em `main`;
+- nenhuma PR funcional P2 aberta;
+- CI pós-merge do último lote verde em `validate`, `postgres-concurrency` e `Frontend browser QA`;
+- deploy produtivo atómico concluído com healthcheck HTTP 200 em `/`, `/login` e `/up`;
+- auditorias produtivas de Desportivo legacy, Access Control, Família, Stock/Logística, Comunicação e Fiscal concluídas sem gate crítico;
+- DR monitor produtivo mantém integridade local, off-site e restore test em estado `ok`;
+- não existem writers KV genéricos nem APIs REST genéricas de Eventos/Resultados reintroduzindo ownership paralelo.
+
+### Regra pós-fecho
+
+Não criar P2.16 por continuidade numérica. Novo trabalho só reabre ownership funcional quando existir evidência concreta de dual write, owner concorrente ou boundary de autorização incorreto.
+
+Melhorias de reporting, UX, PWA/mobile, Website e cobertura E2E profunda passam para backlog pós-go-live e não bloqueiam a utilização operacional do âmbito atualmente implementado.
