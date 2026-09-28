@@ -53,11 +53,18 @@ return new class extends Migration
         'competition_finance_policies',
         'competitions',
         'events',
+        'competition_registrations',
+        'competition_financial_obligations',
         'convocation_groups',
+        'store_orders',
         'loja_encomendas',
+        'loja_encomenda_devolucoes',
         'logistics_requests',
         'supplier_purchases',
         'sponsorships',
+        'sponsorship_money_items',
+        'sponsorship_goods_items',
+        'club_settings',
     ];
 
     private const LEGACY_FINANCIAL_KV_KEYS = [
