@@ -152,7 +152,6 @@ final class AuditFinancialGoLiveResetCommand extends Command
             'competition_registrations.movimento_id' => ['competition_registrations', 'movimento_id'],
             'convocation_groups.movimento_id' => ['convocation_groups', 'movimento_id'],
             'competition_financial_obligations.invoice_id' => ['competition_financial_obligations', 'invoice_id'],
-            'store_orders.financial_invoice_id' => ['store_orders', 'financial_invoice_id'],
             'logistics_requests.financial_invoice_id' => ['logistics_requests', 'financial_invoice_id'],
             'supplier_purchases.financial_movement_id' => ['supplier_purchases', 'financial_movement_id'],
             'supplier_purchases.financial_entry_id' => ['supplier_purchases', 'financial_entry_id'],
