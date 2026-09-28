@@ -185,7 +185,7 @@ final class FinancialGoLiveResetTest extends TestCase
         $backupPosition = strpos($script, 'backup-local-postgres.sh');
         $offsitePosition = strpos($script, 'backup-offsite.sh');
         $migratePosition = strpos($script, 'artisan" migrate --force');
-        $auditPosition = strpos($script, 'finance:audit-go-live-reset --fail-on-data');
+        $auditPosition = strrpos($script, 'finance:audit-go-live-reset --json --fail-on-data');
 
         $this->assertNotFalse($backupPosition);
         $this->assertNotFalse($offsitePosition);
