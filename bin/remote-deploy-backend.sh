@@ -418,10 +418,20 @@ if printf '%s\n' "${MIGRATION_STATUS}" | grep -F "${FINANCIAL_RESET_MIGRATION}" 
 fi
 
 log 'migration preflight'
-run_as_runtime php "${RELEASE_DIR}/artisan" migrate --pretend --force --no-ansi
+if [[ "${FINANCIAL_RESET_PENDING}" == "true" ]]; then
+  run_as_runtime env CLUBOS_FINANCIAL_RESET_20260928=APPLY \
+    php "${RELEASE_DIR}/artisan" migrate --pretend --force --no-ansi
+else
+  run_as_runtime php "${RELEASE_DIR}/artisan" migrate --pretend --force --no-ansi
+fi
 
 log 'aplicar migrations antes do cutover; migrations devem ser backward-compatible'
-run_as_runtime php "${RELEASE_DIR}/artisan" migrate --force --no-ansi
+if [[ "${FINANCIAL_RESET_PENDING}" == "true" ]]; then
+  run_as_runtime env CLUBOS_FINANCIAL_RESET_20260928=APPLY \
+    php "${RELEASE_DIR}/artisan" migrate --force --no-ansi
+else
+  run_as_runtime php "${RELEASE_DIR}/artisan" migrate --force --no-ansi
+fi
 
 if [[ "${FINANCIAL_RESET_PENDING}" == "true" ]]; then
   log 'validar baseline financeiro vazio após a migration de reset'
