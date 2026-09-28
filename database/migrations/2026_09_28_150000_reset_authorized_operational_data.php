@@ -5,7 +5,6 @@ declare(strict_types=1);
 use App\Services\Financeiro\OperationalDataResetService;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Support\Facades\File;
-use RuntimeException;
 
 return new class extends Migration
 {
@@ -34,7 +33,7 @@ return new class extends Migration
             || data_get($preview, 'interpretation.monthly_fee_catalog_preserved') !== true
             || data_get($preview, 'interpretation.monthly_fee_assignments_preserved') !== true
         ) {
-            throw new RuntimeException('Production reset dry-run validation failed before any data was changed.');
+            throw new \RuntimeException('Production reset dry-run validation failed before any data was changed.');
         }
 
         $report = $reset->execute();
@@ -44,7 +43,7 @@ return new class extends Migration
             || ($report['already_executed'] ?? true) !== false
             || in_array(false, is_array($report['assertions'] ?? null) ? $report['assertions'] : [false], true)
         ) {
-            throw new RuntimeException('Production reset completed without satisfying all post-reset assertions.');
+            throw new \RuntimeException('Production reset completed without satisfying all post-reset assertions.');
         }
 
         $manifestPath = storage_path('app/operations/finance-reset-2026-09-28-backup.json');
@@ -73,7 +72,7 @@ return new class extends Migration
         $config = config("database.connections.{$connection}", []);
 
         if ($connection !== 'pgsql' || ! is_array($config)) {
-            throw new RuntimeException('Production finance reset requires the PostgreSQL production connection.');
+            throw new \RuntimeException('Production finance reset requires the PostgreSQL production connection.');
         }
 
         $pgDump = $this->resolvePg17Tool('/usr/lib/postgresql/17/bin/pg_dump', 'pg_dump');
@@ -92,7 +91,7 @@ return new class extends Migration
         $password = (string) ($config['password'] ?? '');
 
         if ($database === '' || $username === '') {
-            throw new RuntimeException('PostgreSQL production connection is incomplete.');
+            throw new \RuntimeException('PostgreSQL production connection is incomplete.');
         }
 
         $this->runProcess([
@@ -111,13 +110,13 @@ return new class extends Migration
 
         clearstatcache(true, $path);
         if (! File::exists($path) || File::size($path) <= 0) {
-            throw new RuntimeException('Pre-reset PostgreSQL snapshot was not created or is empty.');
+            throw new \RuntimeException('Pre-reset PostgreSQL snapshot was not created or is empty.');
         }
 
         @chmod($path, 0600);
         $sha256 = hash_file('sha256', $path);
         if (! is_string($sha256) || $sha256 === '') {
-            throw new RuntimeException('Unable to calculate the pre-reset PostgreSQL snapshot checksum.');
+            throw new \RuntimeException('Unable to calculate the pre-reset PostgreSQL snapshot checksum.');
         }
 
         File::put($path.'.sha256', $sha256.'  '.basename($path).PHP_EOL);
@@ -140,7 +139,7 @@ return new class extends Migration
         $version = trim($this->runProcess([$tool, '--version']));
 
         if (! preg_match('/\b17(?:\.\d+)?\b/', $version)) {
-            throw new RuntimeException("PostgreSQL 17 {$fallback} is required; found: {$version}");
+            throw new \RuntimeException("PostgreSQL 17 {$fallback} is required; found: {$version}");
         }
 
         return $tool;
@@ -150,7 +149,7 @@ return new class extends Migration
     {
         $path = trim($this->runProcess(['/usr/bin/env', 'which', $command]));
         if ($path === '' || ! is_executable($path)) {
-            throw new RuntimeException("Required command not found: {$command}");
+            throw new \RuntimeException("Required command not found: {$command}");
         }
 
         return $path;
@@ -176,7 +175,7 @@ return new class extends Migration
         );
 
         if (! is_resource($process)) {
-            throw new RuntimeException('Unable to start required pre-reset process.');
+            throw new \RuntimeException('Unable to start required pre-reset process.');
         }
 
         $stdout = stream_get_contents($pipes[1]);
@@ -186,7 +185,7 @@ return new class extends Migration
 
         $exitCode = proc_close($process);
         if ($exitCode !== 0) {
-            throw new RuntimeException('Pre-reset process failed: '.trim((string) $stderr));
+            throw new \RuntimeException('Pre-reset process failed: '.trim((string) $stderr));
         }
 
         return (string) $stdout;
