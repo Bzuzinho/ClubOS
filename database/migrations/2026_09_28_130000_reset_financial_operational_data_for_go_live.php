@@ -110,6 +110,14 @@ return new class extends Migration
         ] as $key) {
             Cache::forget($key);
         }
+
+        if (Schema::hasTable('users')) {
+            DB::table('users')->orderBy('id')->pluck('id')->each(function ($userId): void {
+                Cache::forget("athlete_dashboard:{$userId}:current_account");
+                Cache::forget("athlete_dashboard:{$userId}:pending_invoice");
+                Cache::forget("athlete_dashboard:{$userId}:invoices");
+            });
+        }
     }
 
     public function down(): void
