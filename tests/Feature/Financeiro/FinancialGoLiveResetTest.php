@@ -90,8 +90,17 @@ final class FinancialGoLiveResetTest extends TestCase
         KeyValueStore::setValue('club-movimento-itens', [['legacy' => true]]);
         KeyValueStore::setValue('unrelated-key', ['keep' => true]);
 
-        $migration = require database_path('migrations/2026_09_28_130000_reset_financial_operational_data_for_go_live.php');
-        $migration->up();
+        putenv('CLUBOS_FINANCIAL_RESET_20260928=APPLY');
+        $_ENV['CLUBOS_FINANCIAL_RESET_20260928'] = 'APPLY';
+        $_SERVER['CLUBOS_FINANCIAL_RESET_20260928'] = 'APPLY';
+
+        try {
+            $migration = require database_path('migrations/2026_09_28_130000_reset_financial_operational_data_for_go_live.php');
+            $migration->up();
+        } finally {
+            putenv('CLUBOS_FINANCIAL_RESET_20260928');
+            unset($_ENV['CLUBOS_FINANCIAL_RESET_20260928'], $_SERVER['CLUBOS_FINANCIAL_RESET_20260928']);
+        }
 
         $this->assertDatabaseHas('users', ['id' => $member->id]);
         $this->assertDatabaseHas('athlete_sports_data', ['user_id' => $member->id]);
