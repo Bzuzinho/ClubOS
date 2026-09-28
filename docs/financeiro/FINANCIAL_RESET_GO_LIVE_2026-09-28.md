@@ -68,6 +68,8 @@ O deploy deteta especificamente se a migration one-shot do reset está pendente.
 4. cifra e envia esse snapshot para o DR off-site/R2;
 5. só depois executa `migrate --force`.
 
+A migration exige ainda o token explícito de processo `CLUBOS_FINANCIAL_RESET_20260928=APPLY`. O deploy só fornece este token quando detetou esta migration como pendente e concluiu os backups pré-reset. Sem o token, produção recusa a operação; em ambientes não produtivos a migration não apaga dados por omissão.
+
 Se o backup local ou o off-site falhar, o deploy termina antes do reset.
 
 ## Validação após o reset
