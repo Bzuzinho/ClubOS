@@ -1,0 +1,11 @@
+One-time production operational reset approved on 2026-09-28/29.
+
+Scope:
+- preserve members/athletes, family and sports training history;
+- preserve configuration/catalogues including monthly fees and member monthly-fee assignment;
+- clear operational finance/bank/invoicing/receipts;
+- clear fictitious store orders, logistics requests/purchases/loans and stock ledger;
+- reset product/variant stock snapshots to zero;
+- clear fictitious competitions, races, registrations and results.
+
+Execution is performed once by CI after a dedicated PostgreSQL backup.

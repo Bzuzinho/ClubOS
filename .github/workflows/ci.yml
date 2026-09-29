@@ -321,8 +321,86 @@ jobs:
             "${VM_USER}@${VM_HOST}" \
             'echo SSH_OK'
 
+      - name: Create dedicated pre-reset PostgreSQL backup
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ ! -f "${GITHUB_WORKSPACE}/ops/financial-reset-2026-09-29.enabled" ]]; then
+            echo "Reset marker not present; skipping dedicated backup."
+            exit 0
+          fi
+
+          ssh \
+            -o BatchMode=yes \
+            -o ConnectTimeout=15 \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="${HOME}/.ssh/known_hosts" \
+            "${VM_USER}@${VM_HOST}" \
+            "if [[ -f '${VM_APP_DIR}/storage/app/private/financial-reset-2026-09-29.done.json' ]]; then
+               echo 'Operational reset already completed; dedicated backup skipped.'
+             else
+               sudo env BACKUP_DIR=/var/backups/clubmanager/pre-financial-reset-20260929 \
+                 bash '${VM_APP_DIR}/scripts/ops/database/backup-local-postgres.sh'
+             fi"
+
       - name: Deploy main to production
         run: npm run deploy:vm
+
+      - name: Execute one-time operational data reset
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ ! -f "${GITHUB_WORKSPACE}/ops/financial-reset-2026-09-29.enabled" ]]; then
+            echo "Reset marker not present; skipping."
+            exit 0
+          fi
+
+          local_report="${GITHUB_WORKSPACE}/operational-reset-2026-09-29.json"
+          remote_report="/tmp/clubos-operational-reset-2026-09-29-${GITHUB_SHA}.json"
+
+          ssh \
+            -o BatchMode=yes \
+            -o ConnectTimeout=15 \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="${HOME}/.ssh/known_hosts" \
+            "${VM_USER}@${VM_HOST}" \
+            "cd '${VM_APP_DIR}' && php artisan ops:reset-operational-data \
+              --execute \
+              --confirm=RESET_OPERATIONAL_2026_09_29 \
+              --report-path='${remote_report}' >/dev/null && \
+              cat '${remote_report}' && rm -f '${remote_report}'" \
+            > "${local_report}"
+
+          jq -e '
+            .version == "operational-data-reset-2026-09-29-v1"
+            and .mode == "executed"
+            and .preserved_invariants_ok == true
+            and (.after.delete_counts | to_entries | all(.value == 0))
+          ' "${local_report}" >/dev/null
+
+          {
+            echo '## One-time operational data reset'
+            echo ''
+            echo "- Commit: `${GITHUB_SHA}`"
+            echo "- Mode: `$(jq -r '.mode' "${local_report}")`"
+            echo "- Preserved invariants: `$(jq -r '.preserved_invariants_ok' "${local_report}")`"
+            echo "- Users after reset: `$(jq -r '.after.preserved_counts.users // 0' "${local_report}")`"
+            echo "- Monthly fee definitions after reset: `$(jq -r '.after.preserved_counts.monthly_fees // 0' "${local_report}")`"
+            echo "- Invoices after reset: `$(jq -r '.after.delete_counts.invoices // 0' "${local_report}")`"
+            echo "- Bank statements after reset: `$(jq -r '.after.delete_counts.bank_statements // 0' "${local_report}")`"
+            echo "- Competitions after reset: `$(jq -r '.after.delete_counts.competitions // 0' "${local_report}")`"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload operational reset report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: operational-reset-2026-09-29-${{ github.sha }}
+          path: operational-reset-2026-09-29.json
+          if-no-files-found: ignore
+          retention-days: 90
 
       - name: Collect Desportivo production legacy readiness audit
         id: sports_legacy_audit
