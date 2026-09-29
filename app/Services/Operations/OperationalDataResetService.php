@@ -19,8 +19,6 @@ final class OperationalDataResetService
         'loja_encomenda_devolucoes',
         'loja_encomenda_itens',
         'loja_encomendas',
-        'store_order_items',
-        'store_orders',
 
         // Receipt import / settlement graph.
         'bank_transaction_allocations',
