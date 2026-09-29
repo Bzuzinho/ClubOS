@@ -30,14 +30,16 @@ final class OperationalDataResetServiceTest extends TestCase
             'updated_at' => now(),
         ]);
 
-        DB::table('dados_financeiros')->insert([
-            'id' => (string) Str::uuid(),
-            'user_id' => $user->id,
-            'mensalidade_id' => $feeId,
-            'conta_corrente_manual' => 99,
-            'created_at' => now(),
-            'updated_at' => now(),
-        ]);
+        DB::table('dados_financeiros')->updateOrInsert(
+            ['user_id' => $user->id],
+            [
+                'id' => (string) Str::uuid(),
+                'mensalidade_id' => $feeId,
+                'conta_corrente_manual' => 99,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]
+        );
 
         $invoiceId = (string) Str::uuid();
         DB::table('invoices')->insert([
