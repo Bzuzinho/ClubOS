@@ -113,7 +113,7 @@ final class OperationalDataResetService
 
         $competitionEventIds = $this->competitionEventIds();
 
-        DB::transaction(function () use ($competitionEventIds): void {
+        DB::transaction(function () use ($competitionEventIds, $before): void {
             foreach (self::DELETE_ORDER as $table) {
                 if (! Schema::hasTable($table)) {
                     continue;
@@ -161,15 +161,16 @@ final class OperationalDataResetService
             if ($notEmpty !== []) {
                 throw new RuntimeException('Operational reset incomplete: '.json_encode($notEmpty, JSON_THROW_ON_ERROR));
             }
+
+            $preservedAfter = $this->counts(self::PRESERVED_TABLES);
+            foreach ($before['preserved_counts'] as $table => $count) {
+                if (($preservedAfter[$table] ?? null) !== $count) {
+                    throw new RuntimeException("Preserved table count changed unexpectedly: {$table}");
+                }
+            }
         }, 3);
 
         $after = $this->preview();
-
-        foreach ($before['preserved_counts'] as $table => $count) {
-            if (($after['preserved_counts'][$table] ?? null) !== $count) {
-                throw new RuntimeException("Preserved table count changed unexpectedly: {$table}");
-            }
-        }
 
         return [
             'version' => self::VERSION,
