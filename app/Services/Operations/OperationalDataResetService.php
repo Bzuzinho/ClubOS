@@ -87,7 +87,6 @@ final class OperationalDataResetService
         'financial_categories',
         'payment_methods',
         'invoice_types',
-        'events',
         'trainings',
     ];
 
@@ -112,13 +111,19 @@ final class OperationalDataResetService
     {
         $before = $this->preview();
 
-        DB::transaction(function (): void {
+        $competitionEventIds = $this->competitionEventIds();
+
+        DB::transaction(function () use ($competitionEventIds): void {
             foreach (self::DELETE_ORDER as $table) {
                 if (! Schema::hasTable($table)) {
                     continue;
                 }
 
                 DB::table($table)->delete();
+            }
+
+            if ($competitionEventIds !== [] && Schema::hasTable('events')) {
+                DB::table('events')->whereIn('id', $competitionEventIds)->delete();
             }
 
             if (Schema::hasTable('products')) {
@@ -173,6 +178,33 @@ final class OperationalDataResetService
             'after' => $after,
             'preserved_invariants_ok' => true,
         ];
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function competitionEventIds(): array
+    {
+        $ids = collect();
+
+        if (Schema::hasTable('competition_event_projections') && Schema::hasColumn('competition_event_projections', 'event_id')) {
+            $ids = $ids->merge(
+                DB::table('competition_event_projections')->whereNotNull('event_id')->pluck('event_id')
+            );
+        }
+
+        if (Schema::hasTable('competitions') && Schema::hasColumn('competitions', 'evento_id')) {
+            $ids = $ids->merge(
+                DB::table('competitions')->whereNotNull('evento_id')->pluck('evento_id')
+            );
+        }
+
+        return $ids
+            ->filter(fn ($id): bool => is_string($id) && trim($id) !== '')
+            ->map(fn ($id): string => (string) $id)
+            ->unique()
+            ->values()
+            ->all();
     }
 
     /**
