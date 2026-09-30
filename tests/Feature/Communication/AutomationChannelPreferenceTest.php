@@ -3,6 +3,7 @@
 namespace Tests\Feature\Communication;
 
 use App\Jobs\ProcessCommunicationCampaignJob;
+use App\Models\CommunicationAlertCategory;
 use App\Models\CommunicationCampaign;
 use App\Models\CommunicationDelivery;
 use App\Models\InAppAlert;
@@ -123,6 +124,56 @@ class AutomationChannelPreferenceTest extends TestCase
             $campaign->channels()->pluck('channel')->all(),
         );
         $this->assertSame(1, InAppAlert::query()->where('user_id', $recipient->id)->count());
+    }
+
+    public function test_monthly_fee_automation_respects_configured_alert_category_channels(): void
+    {
+        $recipient = $this->preparePreferences([
+            'email_notificacoes' => true,
+            'alertas_aplicacao' => true,
+        ]);
+
+        CommunicationAlertCategory::query()->create([
+            'code' => 'mensalidade',
+            'name' => 'Mensalidade',
+            'description' => 'Alertas financeiros de mensalidade.',
+            'channels' => ['alert_app'],
+            'sort_order' => 1,
+            'is_active' => true,
+        ]);
+
+        $this->createInvoice($recipient);
+
+        $campaign = CommunicationCampaign::query()->sole();
+
+        $this->assertSame(['alert_app'], $campaign->channels()->pluck('channel')->all());
+    }
+
+    public function test_monthly_fee_automation_uses_sms_when_category_allows_it_and_provider_is_configured(): void
+    {
+        $recipient = $this->preparePreferences([
+            'email_notificacoes' => false,
+            'alertas_aplicacao' => false,
+        ]);
+
+        config()->set('services.sms.enabled', true);
+        config()->set('services.sms.api_url', 'https://sms.example.test/send');
+        config()->set('services.sms.token', 'test-token');
+
+        CommunicationAlertCategory::query()->create([
+            'code' => 'mensalidade',
+            'name' => 'Mensalidade',
+            'description' => 'Alertas financeiros de mensalidade.',
+            'channels' => ['sms'],
+            'sort_order' => 1,
+            'is_active' => true,
+        ]);
+
+        $this->createInvoice($recipient);
+
+        $campaign = CommunicationCampaign::query()->sole();
+
+        $this->assertSame(['sms'], $campaign->channels()->pluck('channel')->all());
     }
 
     public function test_invoice_automation_creates_no_campaign_when_all_channels_are_disabled(): void
