@@ -373,6 +373,8 @@ class CommunicationFlowsTest extends TestCase
 
         try {
             ClubSetting::query()->create([
+                'nome_clube' => 'Clube Teste',
+                'sigla' => 'CT',
                 'monthly_fee_auto_activate_due' => true,
             ]);
 
