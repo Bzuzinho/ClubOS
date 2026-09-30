@@ -40,4 +40,7 @@ CLUBOS_MONTHLY_FEE_SCHEDULER=true
 - Nao altera faturas pagas, parciais ou fiscalizadas; apenas evita duplicar periodos que ja existem.
 - Mensalidades futuras podem ser criadas ocultas e so passam a visiveis quando se tornam devidas.
 - A geracao automatica nao envia emails nem cria `CommunicationCampaign`, `CommunicationDelivery` ou `InAppAlert`.
+- Alertas de mensalidade so podem ser libertados quando `data_vencimento <= hoje`; `data_fatura` e o momento em que a geracao foi despoletada nao antecipam o aviso.
+- `comunicacao:libertar-alertas-faturas` nao altera a visibilidade das mensalidades: a ativacao de mensalidades ocultas pertence exclusivamente a `finance:activate-due-monthly-fees`/`MonthlyFeeGenerationService::activateDueInvoices`.
+- Os canais automaticos respeitam os canais ativos da categoria de alerta configurada; SMS so entra no envio automatico quando a categoria o permite e o provider SMS esta configurado.
 - A conciliacao bancaria considera apenas mensalidades visiveis e em aberto.
