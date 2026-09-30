@@ -124,6 +124,14 @@ O comando `ops:reset-operational-data` mantém comportamento idempotente: se o m
 
 ---
 
+### Movimentos pontuais em massa — atletas ativos — 30/09/2026
+
+O separador `Financeiro > Movimentos` passa a permitir criar um lançamento pontual para todos os atletas ativos, mantendo um `Movement` individual por atleta para preservar conta corrente, pagamento, conciliação e rastreabilidade fiscal por pessoa. A elegibilidade reutiliza a regra desportiva canónica de atleta ativo (membro ativo + tipo atleta + atividade desportiva ativa).
+
+Cada lançamento em massa exige uma referência de lote estável (por exemplo, `inscricao-2026`). A repetição da mesma referência é idempotente por atleta: não duplica movimentos já criados e pode acrescentar atletas que entretanto ficaram ativos e ainda não receberam esse lançamento. O fluxo não altera o ciclo de mensalidades, não cria migrations e mantém liquidação/conciliação nos caminhos financeiros canónicos.
+
+---
+
 ### Go-live Financeiro / alertas de mensalidade — 30/09/2026
 
 A auditoria final de arranque confirmou o percurso financeiro canónico (geração de mensalidades, banco/importação, alocação/conciliação, conta corrente e pedido fiscal) e isolou um desvio no timing das comunicações automáticas: a libertação de alertas ainda aceitava `data_fatura` como referência temporal.
