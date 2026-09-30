@@ -31,7 +31,16 @@ final class ResetOperationalDataCommand extends Command
 
         if ((bool) $this->option('execute') && File::exists($marker)) {
             $this->info('Operational reset already completed; marker exists.');
-            $this->line(File::get($marker));
+
+            $json = File::get($marker);
+            $reportPath = trim((string) $this->option('report-path'));
+
+            if ($reportPath !== '') {
+                File::ensureDirectoryExists(dirname($reportPath));
+                File::put($reportPath, rtrim($json).PHP_EOL);
+            }
+
+            $this->line($json);
 
             return self::SUCCESS;
         }
