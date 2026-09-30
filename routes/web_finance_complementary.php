@@ -23,6 +23,7 @@ Route::prefix('financeiro')->middleware('module.access:financeiro')->group(funct
 
     Route::get('/movimentos/{movimento}', [FinanceiroController::class, 'showMovimento'])->name('financeiro.movimentos.show');
     Route::post('/movimentos', [FinanceiroController::class, 'storeMovimento'])->name('financeiro.movimentos.store');
+    Route::post('/movimentos/bulk-active-athletes', [FinanceiroController::class, 'storeBulkActiveAthleteMovements'])->name('financeiro.movimentos.bulk-active-athletes');
     Route::put('/movimentos/{movimento}', [FinanceiroController::class, 'updateMovimento'])->name('financeiro.movimentos.update');
     Route::delete('/movimentos/{movimento}', [FinanceiroController::class, 'destroyMovimento'])->name('financeiro.movimentos.destroy');
     Route::post('/movimentos/{movimento}/liquidar', [FinanceiroController::class, 'liquidarMovimento'])->name('financeiro.movimentos.liquidar');
