@@ -7,7 +7,9 @@ namespace Tests\Feature\Operations;
 use App\Models\User;
 use App\Services\Operations\OperationalDataResetService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Tests\TestCase;
@@ -121,4 +123,50 @@ final class OperationalDataResetServiceTest extends TestCase
             $this->assertDatabaseCount('competitions', 0);
         }
     }
+
+    public function test_idempotent_command_rerun_writes_requested_report_from_completion_marker(): void
+    {
+        $marker = storage_path('app/private/financial-reset-2026-09-29.done.json');
+        $reportPath = storage_path('framework/testing/operational-reset-idempotent-report.json');
+
+        $payload = [
+            'version' => OperationalDataResetService::VERSION,
+            'mode' => 'executed',
+            'preserved_invariants_ok' => true,
+            'after' => [
+                'delete_counts' => [
+                    'invoices' => 0,
+                    'bank_statements' => 0,
+                    'competitions' => 0,
+                ],
+                'preserved_counts' => [
+                    'users' => 79,
+                    'monthly_fees' => 4,
+                ],
+            ],
+        ];
+
+        File::ensureDirectoryExists(dirname($marker));
+        File::put($marker, json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR).PHP_EOL);
+        File::delete($reportPath);
+
+        try {
+            $exitCode = Artisan::call('ops:reset-operational-data', [
+                '--execute' => true,
+                '--confirm' => 'RESET_OPERATIONAL_2026_09_29',
+                '--report-path' => $reportPath,
+            ]);
+
+            $this->assertSame(0, $exitCode);
+            $this->assertFileExists($reportPath);
+            $this->assertSame(
+                json_decode(File::get($marker), true, 512, JSON_THROW_ON_ERROR),
+                json_decode(File::get($reportPath), true, 512, JSON_THROW_ON_ERROR),
+            );
+        } finally {
+            File::delete($marker);
+            File::delete($reportPath);
+        }
+    }
+
 }
