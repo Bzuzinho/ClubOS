@@ -11,6 +11,7 @@ use App\Models\Movement;
 use App\Models\NotificationPreference;
 use App\Models\SupplierPurchase;
 use App\Models\User;
+use App\Support\Communication\AlertCategoryRegistry;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
@@ -60,7 +61,7 @@ class CommunicationAutomationService
             'channels' => $this->buildChannels('mensalidade', $subject, $message, [
                 'email' => ['Automação Financeiro - Fatura Email'],
                 'alert_app' => ['Automação Financeiro - Fatura App'],
-            ]),
+            ], ['email', 'sms', 'alert_app']),
         ], 'invoice', $invoice->id);
     }
 
@@ -69,15 +70,6 @@ class CommunicationAutomationService
         if (!$this->canRun() || !$this->canSendFinancialInvoiceAutomation()) {
             return 0;
         }
-
-        $today = now()->startOfDay();
-
-        Invoice::query()
-            ->where('tipo', 'mensalidade')
-            ->where('oculta', true)
-            ->where('estado_pagamento', '!=', 'cancelado')
-            ->whereDate('data_fatura', '<=', $today)
-            ->update(['oculta' => false]);
 
         $released = 0;
 
@@ -260,6 +252,19 @@ class CommunicationAutomationService
 
     private function buildChannels(string $category, string $subject, string $message, array $preferredTemplates = [], array $allowedChannels = ['email', 'alert_app']): array
     {
+        $categoryConfig = AlertCategoryRegistry::find($category, false);
+        if ($categoryConfig !== null) {
+            if (($categoryConfig['is_active'] ?? false) !== true) {
+                return [];
+            }
+
+            $configuredChannels = array_values(array_filter(
+                (array) ($categoryConfig['channels'] ?? []),
+                static fn (mixed $channel): bool => is_string($channel) && $channel !== '',
+            ));
+            $allowedChannels = array_values(array_intersect($allowedChannels, $configuredChannels));
+        }
+
         $channels = collect();
 
         if (in_array('email', $allowedChannels, true) && $this->automationEnabled('email_notificacoes')) {
@@ -268,6 +273,16 @@ class CommunicationAutomationService
                 'is_enabled' => true,
                 'template_id' => $this->resolveTemplateId($category, 'email', $preferredTemplates['email'] ?? []),
                 'subject' => $subject,
+                'message_body' => $message,
+            ]);
+        }
+
+        if (in_array('sms', $allowedChannels, true) && $this->smsProviderConfigured()) {
+            $channels->push([
+                'channel' => 'sms',
+                'is_enabled' => true,
+                'template_id' => $this->resolveTemplateId($category, 'sms', $preferredTemplates['sms'] ?? []),
+                'subject' => null,
                 'message_body' => $message,
             ]);
         }
@@ -348,7 +363,21 @@ class CommunicationAutomationService
             return false;
         }
 
-        return !$invoice->data_fatura || $invoice->data_fatura->copy()->startOfDay()->lte(now()->startOfDay());
+        $today = now()->startOfDay();
+
+        if ($invoice->tipo === 'mensalidade') {
+            return $invoice->data_vencimento !== null
+                && $invoice->data_vencimento->copy()->startOfDay()->lte($today);
+        }
+
+        return !$invoice->data_fatura || $invoice->data_fatura->copy()->startOfDay()->lte($today);
+    }
+
+    private function smsProviderConfigured(): bool
+    {
+        return (bool) config('services.sms.enabled', false)
+            && filled(config('services.sms.api_url'))
+            && filled(config('services.sms.token'));
     }
 
     private function invoiceCommunicationAlreadyDispatched(Invoice $invoice): bool
