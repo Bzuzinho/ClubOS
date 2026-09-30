@@ -191,7 +191,7 @@ class AutomationChannelPreferenceTest extends TestCase
             'user_id' => $recipient->id,
             'data_fatura' => now()->toDateString(),
             'data_emissao' => now()->toDateString(),
-            'data_vencimento' => now()->addWeek()->toDateString(),
+            'data_vencimento' => now()->toDateString(),
             'mes' => now()->format('Y-m'),
             'valor_total' => 45,
             'oculta' => false,
