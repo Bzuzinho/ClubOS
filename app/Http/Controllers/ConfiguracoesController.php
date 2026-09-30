@@ -916,7 +916,6 @@ class ConfiguracoesController extends Controller
     {
         $fields = [
             'email_notificacoes',
-            'alertas_aplicacao',
             'alertas_pagamento',
             'alertas_atividade',
             'automacoes_financeiro',
@@ -931,7 +930,6 @@ class ConfiguracoesController extends Controller
 
         $request->validate([
             'email_notificacoes' => 'boolean',
-            'alertas_aplicacao' => 'boolean',
             'alertas_pagamento' => 'boolean',
             'alertas_atividade' => 'boolean',
             'automacoes_financeiro' => 'boolean',
