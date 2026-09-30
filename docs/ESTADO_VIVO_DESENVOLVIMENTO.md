@@ -116,6 +116,14 @@ Pendências conhecidas que **não bloqueiam** a utilização operacional do âmb
 
 Nenhuma destas pendências reabre uma fonte de verdade concorrente ou invalida os gates produtivos atuais.
 
+### Reset operacional one-shot — fecho 30/09/2026
+
+O reset operacional autorizado para o go-live foi executado com sucesso em produção em 29/09/2026, com backup PostgreSQL dedicado e preservação das estruturas/dados de membros, atletas e configuração definidos no contrato. O marcador versionado `ops/financial-reset-2026-09-29.enabled` foi retirado após conclusão para impedir reexecução em deployments posteriores.
+
+O comando `ops:reset-operational-data` mantém comportamento idempotente: se o marker persistente de produção já existir, não volta a executar operações destrutivas e, quando é pedido `--report-path`, materializa nesse path o relatório da execução original. Isto evita que um rerun seguro do comando bloqueie a pipeline de deploy.
+
+---
+
 ### Go-live Financeiro / alertas de mensalidade — 30/09/2026
 
 A auditoria final de arranque confirmou o percurso financeiro canónico (geração de mensalidades, banco/importação, alocação/conciliação, conta corrente e pedido fiscal) e isolou um desvio no timing das comunicações automáticas: a libertação de alertas ainda aceitava `data_fatura` como referência temporal.
