@@ -6,6 +6,7 @@ use App\Models\CommunicationCampaign;
 use App\Models\CommunicationDelivery;
 use App\Models\CommunicationSegment;
 use App\Models\CommunicationTemplate;
+use App\Models\ClubSetting;
 use App\Models\Event;
 use App\Models\EventConvocation;
 use App\Models\InAppAlert;
@@ -348,7 +349,7 @@ class CommunicationFlowsTest extends TestCase
             'data_fatura' => now()->toDateString(),
             'mes' => 'Abril',
             'data_emissao' => now()->toDateString(),
-            'data_vencimento' => now()->addWeek()->toDateString(),
+            'data_vencimento' => now()->toDateString(),
             'valor_total' => 45.50,
             'oculta' => false,
             'estado_pagamento' => 'pendente',
@@ -364,13 +365,19 @@ class CommunicationFlowsTest extends TestCase
         $this->assertSame([$recipient->id], $campaign->segment?->rules_json['user_ids'] ?? []);
     }
 
-    public function test_future_invoice_creation_defers_automatic_communication_until_visible(): void
+    public function test_future_monthly_fee_alert_is_released_only_when_the_fee_becomes_due(): void
     {
         Mail::fake();
 
         Carbon::setTestNow('2025-04-10 10:00:00');
 
         try {
+            ClubSetting::query()->create([
+                'nome_clube' => 'Clube Teste',
+                'sigla' => 'CT',
+                'monthly_fee_auto_activate_due' => true,
+            ]);
+
             $recipient = User::factory()->create([
                 'tipo_membro' => ['atleta'],
             ]);
@@ -378,9 +385,9 @@ class CommunicationFlowsTest extends TestCase
             $invoice = Invoice::create([
                 'user_id' => $recipient->id,
                 'data_fatura' => '2025-05-01',
-                'mes' => 'Maio',
+                'mes' => '2025-05',
                 'data_emissao' => now()->toDateString(),
-                'data_vencimento' => now()->addMonth()->toDateString(),
+                'data_vencimento' => '2025-05-10',
                 'valor_total' => 45.50,
                 'oculta' => true,
                 'estado_pagamento' => 'pendente',
@@ -391,18 +398,68 @@ class CommunicationFlowsTest extends TestCase
 
             Carbon::setTestNow('2025-05-01 09:00:00');
 
-            Artisan::call('comunicacao:libertar-alertas-faturas');
+            Artisan::call('finance:activate-due-monthly-fees');
+
+            $this->assertTrue((bool) $invoice->fresh()->oculta);
+            $this->assertSame(0, CommunicationCampaign::query()->count());
+
+            Carbon::setTestNow('2025-05-10 09:00:00');
+
+            Artisan::call('finance:activate-due-monthly-fees');
 
             $campaign = CommunicationCampaign::query()->latest('created_at')->first();
 
+            $this->assertFalse((bool) $invoice->fresh()->oculta);
             $this->assertNotNull($campaign);
             $this->assertSame('Nova fatura disponível', $campaign->alert_title);
             $this->assertStringContainsString('origem: invoice:' . $invoice->id, $campaign->notes ?? '');
             $this->assertSame([$recipient->id], $campaign->segment?->rules_json['user_ids'] ?? []);
 
+            Artisan::call('finance:activate-due-monthly-fees');
+
+            $this->assertSame(1, CommunicationCampaign::query()->count());
+        } finally {
+            Carbon::setTestNow();
+        }
+    }
+
+    public function test_visible_monthly_fee_created_before_due_date_does_not_alert_early(): void
+    {
+        Mail::fake();
+
+        Carbon::setTestNow('2025-05-01 09:00:00');
+
+        try {
+            $recipient = User::factory()->create([
+                'tipo_membro' => ['atleta'],
+            ]);
+
+            $invoice = Invoice::create([
+                'user_id' => $recipient->id,
+                'data_fatura' => '2025-05-01',
+                'mes' => '2025-05',
+                'data_emissao' => now()->toDateString(),
+                'data_vencimento' => '2025-05-10',
+                'valor_total' => 45.50,
+                'oculta' => false,
+                'estado_pagamento' => 'pendente',
+                'tipo' => 'mensalidade',
+            ]);
+
+            $this->assertSame(0, CommunicationCampaign::query()->count());
+
+            Artisan::call('comunicacao:libertar-alertas-faturas');
+            $this->assertSame(0, CommunicationCampaign::query()->count());
+
+            Carbon::setTestNow('2025-05-10 09:00:00');
+
             Artisan::call('comunicacao:libertar-alertas-faturas');
 
             $this->assertSame(1, CommunicationCampaign::query()->count());
+            $this->assertStringContainsString(
+                'origem: invoice:' . $invoice->id,
+                CommunicationCampaign::query()->sole()->notes ?? ''
+            );
         } finally {
             Carbon::setTestNow();
         }
@@ -438,7 +495,7 @@ class CommunicationFlowsTest extends TestCase
             'data_fatura' => now()->toDateString(),
             'mes' => 'Abril',
             'data_emissao' => now()->toDateString(),
-            'data_vencimento' => now()->addWeek()->toDateString(),
+            'data_vencimento' => now()->toDateString(),
             'valor_total' => 45.50,
             'oculta' => false,
             'estado_pagamento' => 'pendente',
@@ -486,7 +543,7 @@ class CommunicationFlowsTest extends TestCase
             'data_fatura' => now()->toDateString(),
             'mes' => 'Abril',
             'data_emissao' => now()->toDateString(),
-            'data_vencimento' => now()->addWeek()->toDateString(),
+            'data_vencimento' => now()->toDateString(),
             'valor_total' => 45.50,
             'oculta' => false,
             'estado_pagamento' => 'pendente',
@@ -516,7 +573,7 @@ class CommunicationFlowsTest extends TestCase
             'data_fatura' => now()->toDateString(),
             'mes' => 'Abril',
             'data_emissao' => now()->toDateString(),
-            'data_vencimento' => now()->addWeek()->toDateString(),
+            'data_vencimento' => now()->toDateString(),
             'valor_total' => 45.50,
             'oculta' => false,
             'estado_pagamento' => 'pendente',
@@ -580,7 +637,7 @@ class CommunicationFlowsTest extends TestCase
             'data_fatura' => now()->toDateString(),
             'mes' => 'Abril',
             'data_emissao' => now()->toDateString(),
-            'data_vencimento' => now()->addWeek()->toDateString(),
+            'data_vencimento' => now()->toDateString(),
             'valor_total' => 45.50,
             'oculta' => false,
             'estado_pagamento' => 'pendente',
@@ -621,7 +678,7 @@ class CommunicationFlowsTest extends TestCase
             'data_fatura' => now()->toDateString(),
             'mes' => 'Abril',
             'data_emissao' => now()->toDateString(),
-            'data_vencimento' => now()->addWeek()->toDateString(),
+            'data_vencimento' => now()->toDateString(),
             'valor_total' => 45.50,
             'oculta' => false,
             'estado_pagamento' => 'pendente',
@@ -662,7 +719,7 @@ class CommunicationFlowsTest extends TestCase
             'data_fatura' => now()->toDateString(),
             'mes' => 'Abril',
             'data_emissao' => now()->toDateString(),
-            'data_vencimento' => now()->addWeek()->toDateString(),
+            'data_vencimento' => now()->toDateString(),
             'valor_total' => 45.50,
             'oculta' => false,
             'estado_pagamento' => 'pendente',

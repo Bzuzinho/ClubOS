@@ -116,6 +116,21 @@ Pendências conhecidas que **não bloqueiam** a utilização operacional do âmb
 
 Nenhuma destas pendências reabre uma fonte de verdade concorrente ou invalida os gates produtivos atuais.
 
+### Go-live Financeiro / alertas de mensalidade — 30/09/2026
+
+A auditoria final de arranque confirmou o percurso financeiro canónico (geração de mensalidades, banco/importação, alocação/conciliação, conta corrente e pedido fiscal) e isolou um desvio no timing das comunicações automáticas: a libertação de alertas ainda aceitava `data_fatura` como referência temporal.
+
+O contrato fica endurecido para que:
+- gerar ou pré-gerar uma mensalidade nunca seja, por si só, motivo para enviar o alerta;
+- mensalidades só sejam elegíveis para alerta quando `data_vencimento <= hoje`;
+- mensalidades ocultas só sejam tornadas visíveis pelo lifecycle financeiro de ativação, nunca pelo serviço de Comunicação;
+- a mesma mensalidade mantenha idempotência de comunicação e não crie campanhas repetidas;
+- os canais automáticos sejam limitados pelos canais configurados na categoria de alerta; SMS só é incluído quando permitido pela categoria e o provider está configurado.
+
+Cobertura de regressão inclui mensalidade oculta pré-gerada, mensalidade já visível antes do vencimento, ativação na data devida, idempotência e canais configurados.
+
+---
+
 ## 4. H0 — Production Hardening
 
 ### H0.1a — CI/CD e segurança SSH — concluída
