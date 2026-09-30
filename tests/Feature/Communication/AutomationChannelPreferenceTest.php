@@ -133,12 +133,8 @@ class AutomationChannelPreferenceTest extends TestCase
             'alertas_aplicacao' => true,
         ]);
 
-        CommunicationAlertCategory::query()->create([
-            'code' => 'mensalidade',
-            'name' => 'Mensalidade',
-            'description' => 'Alertas financeiros de mensalidade.',
+        CommunicationAlertCategory::query()->where('code', 'mensalidade')->update([
             'channels' => ['alert_app'],
-            'sort_order' => 1,
             'is_active' => true,
         ]);
 
@@ -160,12 +156,8 @@ class AutomationChannelPreferenceTest extends TestCase
         config()->set('services.sms.api_url', 'https://sms.example.test/send');
         config()->set('services.sms.token', 'test-token');
 
-        CommunicationAlertCategory::query()->create([
-            'code' => 'mensalidade',
-            'name' => 'Mensalidade',
-            'description' => 'Alertas financeiros de mensalidade.',
+        CommunicationAlertCategory::query()->where('code', 'mensalidade')->update([
             'channels' => ['sms'],
-            'sort_order' => 1,
             'is_active' => true,
         ]);
 
