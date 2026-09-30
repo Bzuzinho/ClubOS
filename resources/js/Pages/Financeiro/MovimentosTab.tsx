@@ -1315,7 +1315,7 @@ export function MovimentosTab({
                     </Select>
                   </div>
 
-                  {formData.origem_tipo && (
+                  {!aplicarATodosAtletasAtivos && formData.origem_tipo && (
                     <div className="space-y-2 min-w-0">
                       <Label>Referencia</Label>
                       <Input
