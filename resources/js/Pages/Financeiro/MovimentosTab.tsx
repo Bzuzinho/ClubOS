@@ -166,6 +166,9 @@ export function MovimentosTab({
   const [usarDadosUtilizador, setUsarDadosUtilizador] = useState(false);
   const [usarDadosFornecedor, setUsarDadosFornecedor] = useState(false);
   const [documentoOriginalFile, setDocumentoOriginalFile] = useState<File | null>(null);
+  const [aplicarATodosAtletasAtivos, setAplicarATodosAtletasAtivos] = useState(false);
+  const [bulkReference, setBulkReference] = useState('');
+  const [savingMovimento, setSavingMovimento] = useState(false);
 
   const [formData, setFormData] = useState({
     user_id: '',
@@ -548,12 +551,12 @@ export function MovimentosTab({
   };
 
   const handleCriarMovimento = async () => {
-    if (usarDadosUtilizador && !formData.user_id) {
+    if (!aplicarATodosAtletasAtivos && usarDadosUtilizador && !formData.user_id) {
       toast.error('Selecione um utilizador');
       return;
     }
 
-    if (usarDadosFornecedor && !formData.supplier_id) {
+    if (!aplicarATodosAtletasAtivos && usarDadosFornecedor && !formData.supplier_id) {
       toast.error('Selecione um fornecedor');
       return;
     }
@@ -563,15 +566,75 @@ export function MovimentosTab({
       return;
     }
 
-    if (linhas.every((l) => !normalizeDescricaoWithAtleta(l) || l.valor_unitario <= 0)) {
+    const linhasValidas = linhas.filter((linha) => {
+      const descricao = aplicarATodosAtletasAtivos
+        ? stripAtletaMarker(linha.descricao || '').trim()
+        : normalizeDescricaoWithAtleta(linha);
+
+      return descricao.length > 0 && linha.valor_unitario > 0;
+    });
+
+    if (linhasValidas.length === 0) {
       toast.error('Adicione pelo menos uma linha valida');
       return;
     }
 
-    if (editingMovimentoId) {
-      const linhasValidas = linhas.filter((l) => normalizeDescricaoWithAtleta(l) && l.valor_unitario > 0);
+    if (aplicarATodosAtletasAtivos && !bulkReference.trim()) {
+      toast.error('Indique uma referencia para o lote');
+      return;
+    }
+
+    setSavingMovimento(true);
+
+    try {
+      if (aplicarATodosAtletasAtivos && !editingMovimentoId) {
+        const result = await fetchFinanceiro<{
+          summary: {
+            bulk_reference: string;
+            eligible_count: number;
+            created_count: number;
+            skipped_count: number;
+          };
+        }>(route('financeiro.movimentos.bulk-active-athletes'), {
+          method: 'POST',
+          body: {
+            bulk_reference: bulkReference.trim(),
+            categoria: formData.categoria || undefined,
+            data_emissao: formData.data_emissao,
+            data_vencimento: formData.data_vencimento,
+            centro_custo_id: formData.centro_custo_id,
+            tipo: formData.tipo,
+            observacoes: formData.observacoes || undefined,
+            items: linhasValidas.map((linha) => ({
+              descricao: stripAtletaMarker(linha.descricao || '').trim(),
+              quantidade: linha.quantidade,
+              valor_unitario: linha.valor_unitario,
+              imposto_percentual: linha.imposto_percentual,
+            })),
+          },
+          fallbackMessage: 'Erro ao criar movimentos para os atletas ativos',
+        });
+
+        const { eligible_count: elegiveis, created_count: criados, skipped_count: ignorados } = result.summary;
+
+        if (elegiveis === 0) {
+          toast.warning('Nao existem atletas ativos elegiveis para este lancamento.');
+        } else if (criados === 0 && ignorados > 0) {
+          toast.info(`O lote ja estava aplicado aos ${ignorados} atleta(s) ativo(s).`);
+        } else {
+          toast.success(
+            `${criados} movimento(s) criado(s) para atletas ativos${ignorados > 0 ? `; ${ignorados} ja existiam neste lote` : ''}.`
+          );
+        }
+
+        refreshMovimentos();
+        setDialogOpen(false);
+        resetForm();
+        return;
+      }
+
       const totalAbsoluto = linhasValidas.reduce(
-        (sum, l) => sum + l.valor_unitario * l.quantidade * (1 + l.imposto_percentual / 100),
+        (sum, linha) => sum + linha.valor_unitario * linha.quantidade * (1 + linha.imposto_percentual / 100),
         0
       );
       const total = formData.classificacao === 'despesa' ? -Math.abs(totalAbsoluto) : Math.abs(totalAbsoluto);
@@ -586,7 +649,11 @@ export function MovimentosTab({
         data_emissao: formData.data_emissao,
         data_vencimento: formData.data_vencimento,
         valor_total: total,
-        estado_pagamento: formData.estado_pagamento,
+        estado_pagamento: editingMovimentoId
+          ? formData.estado_pagamento
+          : formData.classificacao === 'despesa'
+            ? formData.estado_pagamento
+            : 'pendente',
         centro_custo_id: formData.centro_custo_id,
         tipo: formData.tipo,
         origem_tipo: formData.origem_tipo || null,
@@ -604,10 +671,15 @@ export function MovimentosTab({
         })),
       };
 
-      try {
-        const result = await sendMovimento(route('financeiro.movimentos.update', editingMovimentoId), 'PUT', payload, documentoOriginalFile);
+      if (editingMovimentoId) {
+        const result = await sendMovimento(
+          route('financeiro.movimentos.update', editingMovimentoId),
+          'PUT',
+          payload,
+          documentoOriginalFile,
+        );
         setMovimentos((current) =>
-          (current || []).map((m) => (m.id === editingMovimentoId ? result.movimento : m))
+          (current || []).map((movimento) => (movimento.id === editingMovimentoId ? result.movimento : movimento))
         );
         setMovimentoItens((current) => {
           const filtered = (current || []).filter((item) => item.movimento_id !== editingMovimentoId);
@@ -616,62 +688,27 @@ export function MovimentosTab({
         toast.success('Movimento atualizado com sucesso');
         refreshMovimentos();
         setEditingMovimentoId(null);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : 'Erro ao atualizar movimento';
-        toast.error(message);
-        return;
-      }
-    } else {
-      const linhasValidas = linhas.filter((l) => normalizeDescricaoWithAtleta(l) && l.valor_unitario > 0);
-      const totalAbsoluto = linhasValidas.reduce(
-        (sum, l) => sum + l.valor_unitario * l.quantidade * (1 + l.imposto_percentual / 100),
-        0
-      );
-      const total = formData.classificacao === 'despesa' ? -Math.abs(totalAbsoluto) : Math.abs(totalAbsoluto);
-      const payload = {
-        user_id: usarDadosUtilizador ? formData.user_id : null,
-        supplier_id: usarDadosFornecedor ? formData.supplier_id : null,
-        nome_manual: usarDadosUtilizador ? undefined : formData.nome_manual,
-        nif_manual: usarDadosUtilizador ? undefined : formData.nif_manual,
-        morada_manual: usarDadosUtilizador ? undefined : formData.morada_manual,
-        classificacao: formData.classificacao,
-        categoria: formData.categoria || undefined,
-        data_emissao: formData.data_emissao,
-        data_vencimento: formData.data_vencimento,
-        valor_total: total,
-        estado_pagamento: formData.classificacao === 'despesa' ? formData.estado_pagamento : 'pendente',
-        centro_custo_id: formData.centro_custo_id,
-        tipo: formData.tipo,
-        origem_tipo: formData.origem_tipo || null,
-        origem_id: formData.origem_id || null,
-        observacoes: formData.observacoes || undefined,
-        items: linhasValidas.map((linha) => ({
-          descricao: normalizeDescricaoWithAtleta(linha),
-          quantidade: linha.quantidade,
-          valor_unitario: linha.valor_unitario,
-          imposto_percentual: linha.imposto_percentual,
-          total_linha: linha.valor_unitario * linha.quantidade * (1 + linha.imposto_percentual / 100),
-          produto_id: linha.produto_id || undefined,
-          centro_custo_id: formData.centro_custo_id,
-          fatura_id: linha.fatura_id || undefined,
-        })),
-      };
-
-      try {
-        const result = await sendMovimento(route('financeiro.movimentos.store'), 'POST', payload, documentoOriginalFile);
+      } else {
+        const result = await sendMovimento(
+          route('financeiro.movimentos.store'),
+          'POST',
+          payload,
+          documentoOriginalFile,
+        );
         setMovimentos((current) => [...(current || []), result.movimento]);
         setMovimentoItens((current) => [...(current || []), ...result.items]);
         toast.success('Movimento criado com sucesso');
         refreshMovimentos();
-      } catch (error) {
-        const message = error instanceof Error ? error.message : 'Erro ao criar movimento';
-        toast.error(message);
-        return;
       }
-    }
 
-    setDialogOpen(false);
-    resetForm();
+      setDialogOpen(false);
+      resetForm();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Erro ao gravar movimento';
+      toast.error(message);
+    } finally {
+      setSavingMovimento(false);
+    }
   };
 
   const resetForm = () => {
@@ -697,10 +734,14 @@ export function MovimentosTab({
     setEditingMovimentoId(null);
     setUsarDadosUtilizador(false);
     setUsarDadosFornecedor(false);
+    setAplicarATodosAtletasAtivos(false);
+    setBulkReference('');
     setDocumentoOriginalFile(null);
   };
 
   const handleEditarMovimento = (movimentoId: string) => {
+    setAplicarATodosAtletasAtivos(false);
+    setBulkReference('');
     const movimento = (movimentos || []).find((m) => m.id === movimentoId);
     if (!movimento) return;
 
@@ -942,14 +983,72 @@ export function MovimentosTab({
               <DialogHeader>
                 <DialogTitle>{editingMovimentoId ? 'Editar Movimento' : 'Novo Movimento'}</DialogTitle>
                 <DialogDescription>
-                  {editingMovimentoId ? 'Altere os dados do movimento' : 'Registe um novo movimento manual'}
+                  {editingMovimentoId ? 'Altere os dados do movimento' : aplicarATodosAtletasAtivos ? 'Crie o mesmo movimento individual para todos os atletas ativos' : 'Registe um novo movimento manual'}
                 </DialogDescription>
               </DialogHeader>
               <div className="space-y-3 overflow-x-hidden">
+                {!editingMovimentoId && (
+                  <div className="rounded-lg border border-primary/30 bg-primary/5 p-3">
+                    <div className="flex items-start gap-2">
+                      <Checkbox
+                        id="aplicar-todos-atletas-ativos"
+                        checked={aplicarATodosAtletasAtivos}
+                        onCheckedChange={(checked) => {
+                          const enabled = checked === true;
+                          setAplicarATodosAtletasAtivos(enabled);
+
+                          if (enabled) {
+                            setUsarDadosUtilizador(false);
+                            setUsarDadosFornecedor(false);
+                            setDocumentoOriginalFile(null);
+                            setFormData((current) => ({
+                              ...current,
+                              user_id: '',
+                              supplier_id: '',
+                              nome_manual: '',
+                              nif_manual: '',
+                              morada_manual: '',
+                              classificacao: 'receita',
+                              estado_pagamento: 'pendente',
+                              origem_tipo: 'manual',
+                              origem_id: '',
+                            }));
+
+                            if (!bulkReference) {
+                              const year = formData.data_emissao?.slice(0, 4) || String(new Date().getFullYear());
+                              const base = formData.tipo === 'outro' ? 'movimento' : formData.tipo;
+                              setBulkReference(`${base}-${year}`);
+                            }
+
+                            setLinhas((current) =>
+                              current.map((linha) => ({
+                                ...linha,
+                                atleta_id: undefined,
+                                fatura_id: undefined,
+                                tipo_fatura: undefined,
+                                produto_id: undefined,
+                              }))
+                            );
+                          }
+                        }}
+                      />
+                      <div className="space-y-1">
+                        <Label htmlFor="aplicar-todos-atletas-ativos" className="cursor-pointer font-semibold">
+                          Aplicar a todos os atletas ativos
+                        </Label>
+                        <p className="text-xs text-muted-foreground">
+                          Cria um movimento individual em aberto para cada atleta ativo. O pagamento e a conciliacao continuam a ser feitos por atleta.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 <div className="flex items-center space-x-2 p-2 bg-muted rounded-lg">
                   <Checkbox
                     id="usar-dados-utilizador"
                     checked={usarDadosUtilizador}
+                    disabled={aplicarATodosAtletasAtivos}
                     onCheckedChange={(checked) => {
                       setUsarDadosUtilizador(checked === true);
                       if (checked === true) {
@@ -984,6 +1083,7 @@ export function MovimentosTab({
                   <Checkbox
                     id="usar-dados-fornecedor"
                     checked={usarDadosFornecedor}
+                    disabled={aplicarATodosAtletasAtivos}
                     onCheckedChange={(checked) => {
                       setUsarDadosFornecedor(checked === true);
                       if (checked === true) {
@@ -1014,7 +1114,14 @@ export function MovimentosTab({
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  {usarDadosUtilizador ? (
+                  {aplicarATodosAtletasAtivos ? (
+                    <div className="rounded-md border border-dashed border-primary/30 bg-muted/40 p-3 text-sm md:col-span-2">
+                      <p className="font-medium">Movimento em massa para atletas ativos</p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        O ClubOS usa a regra desportiva canonica: membro ativo, tipo atleta e atividade desportiva ativa.
+                      </p>
+                    </div>
+                  ) : usarDadosUtilizador ? (
                     <div className="space-y-1 md:col-span-2 min-w-0">
                       <Label className="text-sm">Utilizador *</Label>
                       <Select value={formData.user_id} onValueChange={handleUserChange}>
@@ -1078,10 +1185,31 @@ export function MovimentosTab({
                     </>
                   )}
 
+                  {aplicarATodosAtletasAtivos && (
+                    <div className="space-y-1 md:col-span-2 min-w-0">
+                      <Label>Referencia do lote *</Label>
+                      <Input
+                        value={bulkReference}
+                        onChange={(event) => {
+                          const normalized = event.target.value
+                            .toLowerCase()
+                            .replace(/[^a-z0-9_-]+/g, '-')
+                            .replace(/^-+|-+$/g, '');
+                          setBulkReference(normalized);
+                        }}
+                        placeholder="ex.: inscricao-2026"
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        A mesma referencia nunca duplica o custo no mesmo atleta; uma nova execucao apenas acrescenta atletas ativos ainda em falta.
+                      </p>
+                    </div>
+                  )}
+
                   <div className="space-y-1 min-w-0">
                     <Label>Classificacao *</Label>
                     <Select
                       value={formData.classificacao}
+                      disabled={aplicarATodosAtletasAtivos}
                       onValueChange={(v) => setFormData({ ...formData, classificacao: v as 'receita' | 'despesa' })}
                     >
                       <SelectTrigger>
@@ -1118,6 +1246,11 @@ export function MovimentosTab({
                             else if (tipo === 'patrocinio') origem = 'patrocinio';
                             else if (tipo === 'servico') origem = 'manual';
                             else origem = null;
+                          }
+
+                          if (aplicarATodosAtletasAtivos) {
+                            const year = current.data_emissao?.slice(0, 4) || String(new Date().getFullYear());
+                            setBulkReference(`${tipo === 'outro' ? 'movimento' : tipo}-${year}`);
                           }
 
                           return { ...current, tipo, origem_tipo: origem };
@@ -1161,6 +1294,7 @@ export function MovimentosTab({
                     <Label>Origem</Label>
                     <Select
                       value={formData.origem_tipo || 'none'}
+                      disabled={aplicarATodosAtletasAtivos}
                       onValueChange={(v) =>
                         setFormData((current) => ({
                           ...current,
@@ -1227,6 +1361,7 @@ export function MovimentosTab({
                     <Label>Documento Original (opcional)</Label>
                     <Input
                       type="file"
+                      disabled={aplicarATodosAtletasAtivos}
                       onChange={(e) => setDocumentoOriginalFile(e.target.files?.[0] || null)}
                     />
                   </div>
@@ -1269,6 +1404,7 @@ export function MovimentosTab({
                               <Label className="text-xxs font-semibold">Atleta</Label>
                               <Select
                                 value={linha.atleta_id || 'none'}
+                                disabled={aplicarATodosAtletasAtivos}
                                 onValueChange={(v) => {
                                   if (v && v !== 'none') {
                                     updateLinha(index, 'atleta_id', v);
@@ -1341,6 +1477,7 @@ export function MovimentosTab({
                               <Label className="text-xxs font-semibold">Movimento (opcional)</Label>
                               <Select
                                 value={linha.fatura_id && linha.tipo_fatura === 'movimento' ? linha.fatura_id : 'none'}
+                                disabled={aplicarATodosAtletasAtivos}
                                 onValueChange={(v) => {
                                   if (v && v !== 'none') {
                                     updateLinha(index, 'fatura_id', v);
@@ -1451,7 +1588,13 @@ export function MovimentosTab({
                 <Button variant="outline" onClick={() => { setDialogOpen(false); resetForm(); }}>
                   Cancelar
                 </Button>
-                <Button onClick={handleCriarMovimento}>{editingMovimentoId ? 'Guardar Alterações' : 'Criar Movimento'}</Button>
+                <Button onClick={handleCriarMovimento} disabled={savingMovimento}>
+                  {editingMovimentoId
+                    ? 'Guardar Alterações'
+                    : aplicarATodosAtletasAtivos
+                      ? 'Criar para atletas ativos'
+                      : 'Criar Movimento'}
+                </Button>
               </DialogFooter>
             </DialogContent>
           </Dialog>
