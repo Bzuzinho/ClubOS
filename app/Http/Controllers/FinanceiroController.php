@@ -24,6 +24,7 @@ use App\Models\Product;
 use App\Models\Supplier;
 use App\Models\User;
 use App\Services\Financeiro\BankReconciliationService;
+use App\Services\Financeiro\BulkActiveAthleteMovementService;
 use App\Services\Financeiro\CurrentAccountService;
 use App\Services\Financeiro\FinanceDashboardService;
 use App\Services\Financeiro\FinancialSettlementService;
@@ -66,6 +67,7 @@ class FinanceiroController extends Controller
         private readonly MonthlyFeeSettingsService $monthlyFeeSettingsService,
         private readonly FinancialSettlementService $financialSettlementService,
         private readonly BankReconciliationService $bankReconciliationService,
+        private readonly BulkActiveAthleteMovementService $bulkActiveAthleteMovementService,
         private readonly CurrentAccountService $currentAccountService,
         private readonly FinanceDashboardService $financeDashboardService,
         private readonly MonthlyInvoiceStatusService $monthlyInvoiceStatusService,
@@ -2204,6 +2206,34 @@ class FinanceiroController extends Controller
         return response()->json([
             'movimento' => $movimento,
             'items' => $createdItems,
+        ]);
+    }
+
+    public function storeBulkActiveAthleteMovements(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'bulk_reference' => ['required', 'string', 'max:80', 'alpha_dash'],
+            'categoria' => ['nullable', 'string', 'max:255'],
+            'data_emissao' => ['required', 'date'],
+            'data_vencimento' => ['required', 'date', 'after_or_equal:data_emissao'],
+            'centro_custo_id' => ['required', 'exists:cost_centers,id'],
+            'tipo' => ['required', 'in:inscricao,material,servico,patrocinio,outro'],
+            'observacoes' => ['nullable', 'string'],
+            'items' => ['required', 'array', 'min:1'],
+            'items.*.descricao' => ['required', 'string', 'max:255'],
+            'items.*.quantidade' => ['required', 'integer', 'min:1'],
+            'items.*.valor_unitario' => ['required', 'numeric', 'min:0.01'],
+            'items.*.imposto_percentual' => ['nullable', 'numeric', 'min:0'],
+        ], [
+            'bulk_reference.alpha_dash' => 'A referencia do lote so pode conter letras, numeros, tracos e underscores.',
+        ]);
+
+        $summary = $this->bulkActiveAthleteMovementService->create($data);
+
+        $this->invalidateFinanceiroCaches();
+
+        return response()->json([
+            'summary' => $summary,
         ]);
     }
 

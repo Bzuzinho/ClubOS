@@ -135,6 +135,108 @@ class ManualExpenseFlowsTest extends TestCase
             ->assertJsonPath('data.0.user_name', 'Atleta Movimento Manual');
     }
 
+    public function test_bulk_active_athlete_movement_creates_one_receivable_per_active_athlete_without_duplicates(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $costCenter = CostCenter::query()->firstOrFail();
+
+        $eligible = User::factory()->create([
+            'nome_completo' => 'Atleta Ativo Um',
+            'estado' => 'ativo',
+            'tipo_membro' => ['atleta'],
+            'ativo_desportivo' => true,
+        ]);
+
+        User::factory()->create([
+            'nome_completo' => 'Atleta Inativo',
+            'estado' => 'inativo',
+            'tipo_membro' => ['atleta'],
+            'ativo_desportivo' => true,
+        ]);
+
+        User::factory()->create([
+            'nome_completo' => 'Atleta Desportivo Inativo',
+            'estado' => 'ativo',
+            'tipo_membro' => ['atleta'],
+            'ativo_desportivo' => false,
+        ]);
+
+        User::factory()->create([
+            'nome_completo' => 'Treinador Ativo',
+            'estado' => 'ativo',
+            'tipo_membro' => ['treinador'],
+            'ativo_desportivo' => true,
+        ]);
+
+        $payload = [
+            'bulk_reference' => 'inscricao-2026',
+            'categoria' => 'inscricao_anual',
+            'data_emissao' => '2026-09-30',
+            'data_vencimento' => '2026-10-15',
+            'centro_custo_id' => $costCenter->id,
+            'tipo' => 'inscricao',
+            'observacoes' => 'Inscricao anual 2026',
+            'items' => [[
+                'descricao' => 'Inscricao anual 2026',
+                'quantidade' => 1,
+                'valor_unitario' => 25.00,
+                'imposto_percentual' => 0,
+            ]],
+        ];
+
+        $this->actingAs($admin)
+            ->postJson(route('financeiro.movimentos.bulk-active-athletes'), $payload)
+            ->assertOk()
+            ->assertJsonPath('summary.eligible_count', 1)
+            ->assertJsonPath('summary.created_count', 1)
+            ->assertJsonPath('summary.skipped_count', 0)
+            ->assertJsonPath('summary.bulk_reference', 'inscricao-2026');
+
+        $movement = Movement::query()->where('user_id', $eligible->id)->firstOrFail();
+
+        $this->assertSame('receita', $movement->classificacao);
+        $this->assertSame('inscricao', $movement->tipo);
+        $this->assertSame('pendente', $movement->estado_pagamento);
+        $this->assertSame(25.0, (float) $movement->valor_total);
+        $this->assertStringContainsString('bulk-active-athletes:', (string) $movement->origem_id);
+        $this->assertStringContainsString(':inscricao-2026:', (string) $movement->origem_id);
+        $this->assertDatabaseHas('movement_items', [
+            'movimento_id' => $movement->id,
+            'descricao' => 'Inscricao anual 2026',
+            'total_linha' => 25.00,
+        ]);
+
+        $this->actingAs($admin)
+            ->postJson(route('financeiro.movimentos.bulk-active-athletes'), $payload)
+            ->assertOk()
+            ->assertJsonPath('summary.eligible_count', 1)
+            ->assertJsonPath('summary.created_count', 0)
+            ->assertJsonPath('summary.skipped_count', 1);
+
+        $this->assertDatabaseCount('movements', 1);
+
+        $newEligible = User::factory()->create([
+            'nome_completo' => 'Atleta Ativo Dois',
+            'estado' => 'ativo',
+            'tipo_membro' => ['atleta'],
+            'ativo_desportivo' => true,
+        ]);
+
+        $this->actingAs($admin)
+            ->postJson(route('financeiro.movimentos.bulk-active-athletes'), $payload)
+            ->assertOk()
+            ->assertJsonPath('summary.eligible_count', 2)
+            ->assertJsonPath('summary.created_count', 1)
+            ->assertJsonPath('summary.skipped_count', 1);
+
+        $this->assertDatabaseCount('movements', 2);
+        $this->assertDatabaseHas('movements', [
+            'user_id' => $newEligible->id,
+            'tipo' => 'inscricao',
+            'estado_pagamento' => 'pendente',
+        ]);
+    }
+
     public function test_deleting_clean_pending_manual_expense_removes_its_financial_entry(): void
     {
         $admin = User::factory()->admin()->create();
