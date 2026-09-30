@@ -43,7 +43,7 @@ final class BulkActiveAthleteMovementService
         $clubId = $this->clubContext->id();
 
         $items = collect($data['items'])
-            ->map(function (array $item): array {
+            ->map(function (array $item) use ($data): array {
                 $quantity = (int) $item['quantidade'];
                 $unitValue = round((float) $item['valor_unitario'], 2);
                 $taxRate = round((float) ($item['imposto_percentual'] ?? 0), 4);
