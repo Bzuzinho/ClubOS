@@ -410,7 +410,7 @@ final class WebRouteTopologyAuditTest extends TestCase
         $financeRoutes = File::get(base_path('routes/web_finance_complementary.php'));
 
         $this->assertTrue($routeFiles['routes/web_finance_complementary.php']['loaded']);
-        $this->assertSame(36, $routeFiles['routes/web_finance_complementary.php']['route_call_count']);
+        $this->assertSame(37, $routeFiles['routes/web_finance_complementary.php']['route_call_count']);
         $this->assertStringContainsString("require __DIR__.'/web_finance_complementary.php';", $webRoutes);
         $this->assertStringNotContainsString('TransacoesController::class', $webRoutes);
         $this->assertStringNotContainsString('CategoriasFinanceirasController::class', $webRoutes);
