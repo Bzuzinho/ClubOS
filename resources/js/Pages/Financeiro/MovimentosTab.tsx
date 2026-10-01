@@ -166,6 +166,8 @@ export function MovimentosTab({
   const [usarDadosUtilizador, setUsarDadosUtilizador] = useState(false);
   const [usarDadosFornecedor, setUsarDadosFornecedor] = useState(false);
   const [documentoOriginalFile, setDocumentoOriginalFile] = useState<File | null>(null);
+  const [aplicarAtletasAtivos, setAplicarAtletasAtivos] = useState(false);
+  const [bulkBatchKey, setBulkBatchKey] = useState(() => crypto.randomUUID());
 
   const [formData, setFormData] = useState({
     user_id: '',
@@ -548,12 +550,12 @@ export function MovimentosTab({
   };
 
   const handleCriarMovimento = async () => {
-    if (usarDadosUtilizador && !formData.user_id) {
+    if (!aplicarAtletasAtivos && usarDadosUtilizador && !formData.user_id) {
       toast.error('Selecione um utilizador');
       return;
     }
 
-    if (usarDadosFornecedor && !formData.supplier_id) {
+    if (!aplicarAtletasAtivos && usarDadosFornecedor && !formData.supplier_id) {
       toast.error('Selecione um fornecedor');
       return;
     }
@@ -576,8 +578,8 @@ export function MovimentosTab({
       );
       const total = formData.classificacao === 'despesa' ? -Math.abs(totalAbsoluto) : Math.abs(totalAbsoluto);
       const payload = {
-        user_id: usarDadosUtilizador ? formData.user_id : null,
-        supplier_id: usarDadosFornecedor ? formData.supplier_id : null,
+        user_id: aplicarAtletasAtivos ? null : (usarDadosUtilizador ? formData.user_id : null),
+        supplier_id: aplicarAtletasAtivos ? null : (usarDadosFornecedor ? formData.supplier_id : null),
         nome_manual: usarDadosUtilizador ? undefined : formData.nome_manual,
         nif_manual: usarDadosUtilizador ? undefined : formData.nif_manual,
         morada_manual: usarDadosUtilizador ? undefined : formData.morada_manual,
@@ -629,8 +631,8 @@ export function MovimentosTab({
       );
       const total = formData.classificacao === 'despesa' ? -Math.abs(totalAbsoluto) : Math.abs(totalAbsoluto);
       const payload = {
-        user_id: usarDadosUtilizador ? formData.user_id : null,
-        supplier_id: usarDadosFornecedor ? formData.supplier_id : null,
+        user_id: aplicarAtletasAtivos ? null : (usarDadosUtilizador ? formData.user_id : null),
+        supplier_id: aplicarAtletasAtivos ? null : (usarDadosFornecedor ? formData.supplier_id : null),
         nome_manual: usarDadosUtilizador ? undefined : formData.nome_manual,
         nif_manual: usarDadosUtilizador ? undefined : formData.nif_manual,
         morada_manual: usarDadosUtilizador ? undefined : formData.morada_manual,
@@ -655,13 +657,36 @@ export function MovimentosTab({
           centro_custo_id: formData.centro_custo_id,
           fatura_id: linha.fatura_id || undefined,
         })),
+        ...(aplicarAtletasAtivos ? {
+          target_scope: 'all_active_athletes',
+          batch_key: bulkBatchKey,
+          classificacao: 'receita',
+          estado_pagamento: 'pendente',
+          origem_tipo: 'manual',
+          origem_id: null,
+        } : {}),
       };
 
       try {
-        const result = await sendMovimento(route('financeiro.movimentos.store'), 'POST', payload, documentoOriginalFile);
-        setMovimentos((current) => [...(current || []), result.movimento]);
-        setMovimentoItens((current) => [...(current || []), ...result.items]);
-        toast.success('Movimento criado com sucesso');
+        if (aplicarAtletasAtivos) {
+          const result = await fetchFinanceiro<{ bulk: true; created: number; skipped: number; eligible: number }>(
+            route('financeiro.movimentos.store'),
+            {
+              method: 'POST',
+              body: payload,
+              fallbackMessage: 'Erro ao criar lançamento para atletas ativos',
+            },
+          );
+          toast.success(
+            `Lançamento criado para ${result.created} atleta(s)${result.skipped > 0 ? `; ${result.skipped} já pertenciam a este lote` : ''}.`
+          );
+          setBulkBatchKey(crypto.randomUUID());
+        } else {
+          const result = await sendMovimento(route('financeiro.movimentos.store'), 'POST', payload, documentoOriginalFile);
+          setMovimentos((current) => [...(current || []), result.movimento]);
+          setMovimentoItens((current) => [...(current || []), ...result.items]);
+          toast.success('Movimento criado com sucesso');
+        }
         refreshMovimentos();
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Erro ao criar movimento';
@@ -698,6 +723,8 @@ export function MovimentosTab({
     setUsarDadosUtilizador(false);
     setUsarDadosFornecedor(false);
     setDocumentoOriginalFile(null);
+    setAplicarAtletasAtivos(false);
+    setBulkBatchKey(crypto.randomUUID());
   };
 
   const handleEditarMovimento = (movimentoId: string) => {
@@ -946,6 +973,45 @@ export function MovimentosTab({
                 </DialogDescription>
               </DialogHeader>
               <div className="space-y-3 overflow-x-hidden">
+                {!editingMovimentoId ? (
+                  <div className="rounded-lg border bg-muted/40 p-3">
+                    <div className="flex items-center space-x-2">
+                      <Checkbox
+                        id="aplicar-atletas-ativos"
+                        checked={aplicarAtletasAtivos}
+                        onCheckedChange={(checked) => {
+                          const enabled = checked === true;
+                          setAplicarAtletasAtivos(enabled);
+                          if (enabled) {
+                            setUsarDadosUtilizador(false);
+                            setUsarDadosFornecedor(false);
+                            setFormData((prev) => ({
+                              ...prev,
+                              user_id: '',
+                              supplier_id: '',
+                              nome_manual: '',
+                              nif_manual: '',
+                              morada_manual: '',
+                              classificacao: 'receita',
+                              estado_pagamento: 'pendente',
+                              origem_tipo: 'manual',
+                              origem_id: '',
+                            }));
+                          }
+                        }}
+                      />
+                      <Label htmlFor="aplicar-atletas-ativos" className="cursor-pointer font-medium">
+                        Aplicar a todos os atletas ativos
+                      </Label>
+                    </div>
+                    {aplicarAtletasAtivos ? (
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        Será criado um movimento individual em aberto para cada atleta com membro ativo e atividade desportiva ativa. O mesmo lote não será duplicado se o pedido for repetido.
+                      </p>
+                    ) : null}
+                  </div>
+                ) : null}
+                {!aplicarAtletasAtivos ? (
                 <div className="flex items-center space-x-2 p-2 bg-muted rounded-lg">
                   <Checkbox
                     id="usar-dados-utilizador"
@@ -979,7 +1045,9 @@ export function MovimentosTab({
                     Usar dados de utilizador existente
                   </Label>
                 </div>
+                ) : null}
 
+                {!aplicarAtletasAtivos ? (
                 <div className="flex items-center space-x-2 p-2 bg-muted rounded-lg">
                   <Checkbox
                     id="usar-dados-fornecedor"
@@ -1012,9 +1080,10 @@ export function MovimentosTab({
                     Usar dados de fornecedor existente
                   </Label>
                 </div>
+                ) : null}
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  {usarDadosUtilizador ? (
+                  {aplicarAtletasAtivos ? null : usarDadosUtilizador ? (
                     <div className="space-y-1 md:col-span-2 min-w-0">
                       <Label className="text-sm">Utilizador *</Label>
                       <Select value={formData.user_id} onValueChange={handleUserChange}>

@@ -124,6 +124,14 @@ O comando `ops:reset-operational-data` mantém comportamento idempotente: se o m
 
 ---
 
+### Financeiro / lançamento pontual coletivo — 01/10/2026
+
+O separador `Financeiro > Movimentos` passa a permitir criar um lançamento pontual para **todos os atletas ativos** através do mesmo fluxo canónico de criação de movimentos. O âmbito é resolvido exclusivamente por membros com `estado=ativo`, `ativo_desportivo=true` e tipo funcional `atleta` segundo o `MemberTypeResolver`.
+
+A operação cria um `Movement` individual em aberto por atleta, mantendo conta corrente, pagamento, liquidação e conciliação independentes por pessoa. O lote é idempotente para impedir duplicação por repetição do mesmo pedido e não admite produtos/stock. O modo coletivo é reservado a valores a cobrar ao atleta (`classificacao=receita`) e não cria pagamentos nem documentos fiscais automaticamente.
+
+---
+
 ### Go-live Financeiro / alertas de mensalidade — 30/09/2026
 
 A auditoria final de arranque confirmou o percurso financeiro canónico (geração de mensalidades, banco/importação, alocação/conciliação, conta corrente e pedido fiscal) e isolou um desvio no timing das comunicações automáticas: a libertação de alertas ainda aceitava `data_fatura` como referência temporal.
