@@ -24,6 +24,7 @@ use App\Models\Product;
 use App\Models\Supplier;
 use App\Models\User;
 use App\Services\Financeiro\BankReconciliationService;
+use App\Services\Financeiro\BulkActiveAthleteMovementService;
 use App\Services\Financeiro\CurrentAccountService;
 use App\Services\Financeiro\FinanceDashboardService;
 use App\Services\Financeiro\FinancialSettlementService;
@@ -2098,7 +2099,19 @@ class FinanceiroController extends Controller
             'items.*.produto_id' => ['nullable', 'exists:products,id'],
             'items.*.centro_custo_id' => ['nullable', 'exists:cost_centers,id'],
             'items.*.fatura_id' => ['nullable', 'string', 'max:255'],
+            'target_scope' => ['nullable', 'in:all_active_athletes'],
+            'batch_key' => ['nullable', 'string', 'max:80'],
         ]);
+
+        if (($data['target_scope'] ?? null) === 'all_active_athletes') {
+            $result = app(BulkActiveAthleteMovementService::class)->create($data, (string) ($data['batch_key'] ?? ''));
+            $this->invalidateFinanceiroCaches();
+
+            return response()->json([
+                'bulk' => true,
+                ...$result,
+            ]);
+        }
 
         $data = $this->normalizeManualMovementRequestData($request, $data);
         $data = $this->sanitizeMovementOriginData($data);
