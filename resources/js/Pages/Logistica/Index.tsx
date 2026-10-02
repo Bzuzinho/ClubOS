@@ -343,6 +343,11 @@ export default function LogisticaIndex({
     });
   }, [loans, loanSearch, loanStatusFilter]);
 
+  const activeRequestErrors = editingReqId ? requestEditForm.errors : requestForm.errors;
+  const activeRequestErrorMessages = Object.values(activeRequestErrors).filter(
+    (message): message is string => typeof message === 'string' && message.trim() !== '',
+  );
+
   const filteredSupplierPurchases = useMemo(() => {
     const s = purchaseSearch.trim().toLowerCase();
     return supplierPurchases.filter((p) => {
@@ -583,8 +588,21 @@ export default function LogisticaIndex({
                 <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
                   <DialogHeader>
                     <DialogTitle>{editingReqId ? 'Editar Requisição' : 'Nova Requisição'}</DialogTitle>
+                    <DialogDescription>
+                      Regista a necessidade de material. A disponibilidade de stock é validada quando a requisição é aprovada.
+                    </DialogDescription>
                   </DialogHeader>
                   <form onSubmit={editingReqId ? submitRequestUpdate : submitRequest} className="space-y-3">
+                    {activeRequestErrorMessages.length > 0 ? (
+                      <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                        <div className="font-medium">Não foi possível guardar a requisição.</div>
+                        <ul className="mt-1 list-disc space-y-1 pl-5">
+                          {activeRequestErrorMessages.map((message, index) => (
+                            <li key={`${message}-${index}`}>{message}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : null}
                     <div className="grid md:grid-cols-3 gap-3">
                       <div>
                         <Label>Utilizador (opcional)</Label>
@@ -640,7 +658,11 @@ export default function LogisticaIndex({
                               setReqItems(!!editingReqId, reqItems(!!editingReqId).map((l, i) => i === idx ? { ...l, article_id: v, unit_price: product ? String(product.preco) : l.unit_price } : l));
                             }}>
                               <SelectTrigger className={ws}><SelectValue placeholder="Artigo" /></SelectTrigger>
-                              <SelectContent>{requestableProducts.map((p) => <SelectItem key={p.id} value={p.id}>{p.codigo} · {p.nome}</SelectItem>)}</SelectContent>
+                              <SelectContent>{requestableProducts.map((p) => (
+                                <SelectItem key={p.id} value={p.id}>
+                                  {p.codigo} · {p.nome} · disponível {p.stock_disponivel}
+                                </SelectItem>
+                              ))}</SelectContent>
                             </Select>
                           </div>
                           <div className="col-span-3">
@@ -656,6 +678,9 @@ export default function LogisticaIndex({
                       <Button type="button" variant="secondary" onClick={() => setReqItems(!!editingReqId, [...reqItems(!!editingReqId), { article_id: '', quantity: 1, unit_price: '' }])}>
                         Adicionar item
                       </Button>
+                      <p className="text-xs text-muted-foreground">
+                        A requisição pode ser registada mesmo sem stock disponível. A reserva só acontece na aprovação.
+                      </p>
                     </div>
                     <Button type="submit" disabled={requestForm.processing || requestEditForm.processing}>
                       {editingReqId ? 'Guardar alterações' : 'Criar Requisição'}
