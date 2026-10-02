@@ -51,17 +51,6 @@ class CreateLogisticsRequestAction
 
                 $this->stockService->ensureRequestable($product, 'items');
 
-                $allowOverdraw = (bool) ($data['allow_overdraw'] ?? false);
-
-                if (! $allowOverdraw) {
-                    $this->stockService->ensureAvailable(
-                        $product,
-                        $quantity,
-                        'items',
-                        "Stock insuficiente para o artigo {$product->nome}.",
-                    );
-                }
-
                 $unitPrice = isset($item['unit_price'])
                     ? (float) $item['unit_price']
                     : $this->stockService->defaultUnitPrice($product);
