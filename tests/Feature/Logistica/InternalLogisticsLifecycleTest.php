@@ -95,6 +95,39 @@ final class InternalLogisticsLifecycleTest extends TestCase
             ->count());
     }
 
+    public function test_request_can_be_created_without_available_stock_but_approval_still_blocks_reservation(): void
+    {
+        $actor = User::factory()->create();
+        $product = $this->product(stock: 0);
+
+        $request = app(CreateLogisticsRequestAction::class)->execute([
+            'requester_name_snapshot' => 'Pedido sem stock',
+            'requester_area' => 'BSCN',
+            'requester_type' => 'Administrador',
+            'items' => [[
+                'article_id' => $product->id,
+                'quantity' => 1,
+                'unit_price' => 5,
+            ]],
+        ], $actor);
+
+        $this->assertSame('pending', $request->status);
+        $this->assertSame(1, LogisticsRequest::query()->count());
+        $this->assertSame(0, StockMovement::query()->count());
+        $this->assertSame(0, (int) $product->fresh()->stock_reservado);
+
+        try {
+            app(ApproveLogisticsRequestAction::class)->execute($request, $actor);
+            $this->fail('A aprovação deveria falhar enquanto não existir stock disponível.');
+        } catch (ValidationException $exception) {
+            $this->assertArrayHasKey('quantity', $exception->errors());
+        }
+
+        $this->assertSame('pending', $request->fresh()->status);
+        $this->assertSame(0, StockMovement::query()->count());
+        $this->assertSame(0, (int) $product->fresh()->stock_reservado);
+    }
+
     public function test_non_requestable_product_is_rejected_without_persistence(): void
     {
         $actor = User::factory()->create();
