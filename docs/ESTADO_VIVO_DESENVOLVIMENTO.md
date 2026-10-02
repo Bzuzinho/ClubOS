@@ -147,6 +147,14 @@ Cobertura de regressão inclui mensalidade oculta pré-gerada, mensalidade já v
 
 ---
 
+### Logística / criação de requisições — 02/10/2026
+
+Corrigido o contrato do lifecycle de requisições internas: a criação de uma requisição regista apenas a necessidade e **não depende de stock disponível**. A validação/reserva de stock permanece no passo de aprovação, que continua a bloquear quando a quantidade não pode ser reservada.
+
+A UI de `Logística > Requisições` passa também a apresentar os erros de validação devolvidos pelo backend dentro do modal e informa explicitamente que a disponibilidade é verificada na aprovação. O seletor de artigos mostra o stock disponível como contexto, sem impedir o registo da necessidade.
+
+---
+
 ## 4. H0 — Production Hardening
 
 ### H0.1a — CI/CD e segurança SSH — concluída
