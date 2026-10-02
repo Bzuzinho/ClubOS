@@ -66,7 +66,7 @@ final class BulkActiveAthleteMovementService
 
         DB::transaction(function () use ($athletes, $data, $batchKey, &$created, &$skipped, &$movementIds): void {
             foreach ($athletes as $athlete) {
-                $originId = sprintf('bulk-active-athletes:%s:%s', $batchKey, $athlete->id);
+                $originId = $this->deterministicOriginUuid($batchKey, (string) $athlete->id);
 
                 $existing = Movement::query()
                     ->where('origem_tipo', 'manual')
@@ -121,5 +121,19 @@ final class BulkActiveAthleteMovementService
             'eligible' => $athletes->count(),
             'movement_ids' => $movementIds,
         ];
+    }
+
+    private function deterministicOriginUuid(string $batchKey, string $athleteId): string
+    {
+        $hex = substr(hash('sha256', "bulk-active-athletes\0{$batchKey}\0{$athleteId}"), 0, 32);
+
+        return sprintf(
+            '%s-%s-%s-%s-%s',
+            substr($hex, 0, 8),
+            substr($hex, 8, 4),
+            substr($hex, 12, 4),
+            substr($hex, 16, 4),
+            substr($hex, 20, 12),
+        );
     }
 }

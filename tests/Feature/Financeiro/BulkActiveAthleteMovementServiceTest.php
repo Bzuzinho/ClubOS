@@ -70,6 +70,14 @@ final class BulkActiveAthleteMovementServiceTest extends TestCase
         ]);
         $this->assertDatabaseCount('movements', 2);
         $this->assertDatabaseCount('movement_items', 2);
+
+        Movement::query()->pluck('origem_id')->each(function (?string $originId): void {
+            $this->assertNotNull($originId);
+            $this->assertMatchesRegularExpression(
+                '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i',
+                $originId,
+            );
+        });
     }
 
     public function test_repeating_same_batch_is_idempotent(): void
