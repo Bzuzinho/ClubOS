@@ -238,7 +238,7 @@ final class SportsPlanningWorkspaceService
 
     private function normalizeSessionContext(array $data, ?Training $existing = null): array
     {
-        $microId = $data['microciclo_id'] ?? $existing?->microciclo_id;
+        $microId = array_key_exists('microciclo_id', $data) ? $data['microciclo_id'] : $existing?->microciclo_id;
         if (! $microId) {
             $season = $this->seasonForWrite((string) ($data['season_id'] ?? $existing?->epoca_id));
             $data['microciclo_id'] = null;
