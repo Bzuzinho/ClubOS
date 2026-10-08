@@ -196,7 +196,7 @@ class SportsPlanningWorkspaceController extends Controller
         $required = $update ? 'sometimes|required' : 'required';
         return [
             'season_id' => 'required|uuid|exists:seasons,id',
-            'microciclo_id' => 'required|uuid|exists:microcycles,id',
+            'microciclo_id' => 'nullable|uuid|exists:microcycles,id',
             'data' => "{$required}|date",
             'hora_inicio' => "{$required}|date_format:H:i",
             'hora_fim' => "{$required}|date_format:H:i|after:hora_inicio",
