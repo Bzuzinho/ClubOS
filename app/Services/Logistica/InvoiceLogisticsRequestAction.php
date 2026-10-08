@@ -26,9 +26,9 @@ class InvoiceLogisticsRequestAction
                 ->with(['items', 'requester'])
                 ->firstOrFail();
 
-            if (!in_array($request->status, ['approved', 'invoiced'], true)) {
+            if (!in_array($request->status, ['approved', 'invoiced', 'delivered'], true)) {
                 throw ValidationException::withMessages([
-                    'status' => 'Apenas requisições aprovadas podem ser faturadas.',
+                    'status' => 'Apenas requisições aprovadas ou entregues podem ser faturadas.',
                 ]);
             }
 
@@ -81,7 +81,7 @@ class InvoiceLogisticsRequestAction
             }
 
             $request->update([
-                'status' => 'invoiced',
+                'status' => $request->status === 'delivered' ? 'delivered' : 'invoiced',
                 'financial_invoice_id' => $invoice->id,
             ]);
 

@@ -761,7 +761,7 @@ export default function LogisticaIndex({
                         size="sm"
                         variant="secondary"
                         onClick={() => router.post(route('logistica.requisicoes.invoice', r.id), {}, { preserveState: true, preserveScroll: true, onSuccess: () => setActiveTab('requisicoes') })}
-                        disabled={r.status !== 'approved' || !!r.financial_invoice_id}
+                        disabled={!['approved', 'delivered'].includes(r.status) || !!r.financial_invoice_id}
                       >
                         Faturar
                       </Button>
@@ -810,7 +810,7 @@ export default function LogisticaIndex({
                               size="sm"
                               variant="secondary"
                               onClick={() => router.post(route('logistica.requisicoes.invoice', r.id), {}, { preserveState: true, preserveScroll: true, onSuccess: () => setActiveTab('requisicoes') })}
-                              disabled={r.status !== 'approved' || !!r.financial_invoice_id}
+                              disabled={!['approved', 'delivered'].includes(r.status) || !!r.financial_invoice_id}
                             >
                               Faturar
                             </Button>
