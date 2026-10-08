@@ -124,6 +124,28 @@ class SportsPlanningWorkspaceFunctionalTest extends TestCase
         $this->assertNotNull($micro->fresh()->archived_at);
     }
 
+    public function test_session_can_be_created_without_periodisation_but_keeps_its_season(): void
+    {
+        $actor = User::factory()->create();
+        $season = $this->season();
+        $service = app(SportsPlanningWorkspaceService::class);
+
+        $session = $service->createSession([
+            'season_id' => $season->id,
+            'data' => '2026-09-10',
+            'hora_inicio' => '18:00',
+            'hora_fim' => '19:00',
+            'tipo_treino' => 'Técnico',
+            'instrucao' => 'Trabalho de técnica',
+        ], $actor);
+
+        $this->assertSame($season->id, $session->epoca_id);
+        $this->assertNull($session->microciclo_id);
+        $this->assertNull($session->mesociclo_id);
+        $this->assertNull($session->macrocycle_id);
+        $this->assertDatabaseHas('trainings', ['id' => $session->id, 'epoca_id' => $season->id]);
+    }
+
     public function test_recurrence_uses_canonical_pool_lane_and_does_not_rewrite_generated_session(): void
     {
         $actor = User::factory()->create();
