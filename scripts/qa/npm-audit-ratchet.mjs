@@ -57,16 +57,26 @@ const summarize = (report) => {
 // Temporary, narrowly scoped exception for the unpatched upstream braces advisory.
 // This does not mean the dependency is fixed. Remove once an official patch is available.
 const UNPATCHED_BUILD_TOOL_ADVISORY = 'GHSA-vfj7-8cjw-p6xm';
-const remainingVulnerabilities = (report) => Object.fromEntries(
-  Object.entries(report.vulnerabilities).filter(([name, finding]) => {
-    const advisories = (finding.via ?? []).filter((entry) => typeof entry === 'object');
-    const onlyKnownAdvisory = advisories.length > 0 &&
-      advisories.every((entry) => entry.url?.toLowerCase().includes(UNPATCHED_BUILD_TOOL_ADVISORY.toLowerCase()));
-    const onlyTransitive = (finding.via ?? []).every((entry) => typeof entry === 'string' ||
-      (typeof entry === 'object' && entry.url?.toLowerCase().includes(UNPATCHED_BUILD_TOOL_ADVISORY.toLowerCase())));
-    return !(onlyKnownAdvisory && onlyTransitive);
-  }),
-);
+const remainingVulnerabilities = (report) => {
+  const findings = report.vulnerabilities;
+  const acceptedNames = new Set([
+    'braces', 'chokidar', 'fast-glob', 'micromatch', 'postcss-nested',
+    'postcss-selector-parser', 'source-map-js', 'tailwindcss', 'tailwindcss-animate',
+  ]);
+  const isAccepted = (name, visiting = new Set()) => {
+    if (!acceptedNames.has(name) || visiting.has(name)) return false;
+    const finding = findings[name];
+    if (!finding || !Array.isArray(finding.via) || finding.via.length === 0) return false;
+    const path = new Set([...visiting, name]);
+    return finding.via.every((entry) => {
+      if (typeof entry === 'string') return isAccepted(entry, path);
+      return entry && typeof entry === 'object' &&
+        entry.name === 'braces' &&
+        entry.url?.toLowerCase().includes(UNPATCHED_BUILD_TOOL_ADVISORY.toLowerCase());
+    });
+  };
+  return Object.fromEntries(Object.entries(findings).filter(([name]) => !isAccepted(name)));
+};
 
 const hasVulnerabilities = ({ names, total, critical, high, moderate, low, info }) => (
   total !== 0 ||
