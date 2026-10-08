@@ -160,6 +160,13 @@ for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     }
     if (Object.keys(unresolved).length > 0) {
       console.error(`Unresolved vulnerability findings: ${Object.keys(unresolved).join(', ')}.`);
+      // Explain each remaining advisory before widening any security exception.
+      for (const [packageName, finding] of Object.entries(unresolved)) {
+        const origins = (finding.via ?? []).map((entry) => typeof entry === 'string'
+          ? `dependency:${entry}`
+          : `advisory:${entry.url ?? entry.title ?? 'unknown'}`);
+        console.error(`  ${packageName}: ${origins.join(' | ')}`);
+      }
     }
     if (Object.keys(unresolved).length > 0) {
       appendSummary(finalSummary, attempt, exitCode);
