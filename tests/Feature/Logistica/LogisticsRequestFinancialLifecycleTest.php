@@ -21,6 +21,62 @@ class LogisticsRequestFinancialLifecycleTest extends TestCase
 {
     use RefreshDatabase;
 
+    public function test_delivered_request_can_be_invoiced_once_without_losing_delivery_or_stock_history(): void
+    {
+        $admin = User::factory()->create();
+        $requester = User::factory()->athlete()->create();
+        $product = Product::query()->create([
+            'codigo' => 'ART-DELIVERY-INVOICE',
+            'nome' => 'Material entregue antes de faturar',
+            'categoria' => 'Material',
+            'preco' => 10,
+            'stock' => 50,
+            'stock_reservado' => 0,
+            'stock_minimo' => 1,
+            'ativo' => true,
+            'allow_request' => true,
+        ]);
+
+        $this->actingAs($admin)->post(route('logistica.requisicoes.store'), [
+            'requester_user_id' => $requester->id,
+            'requester_name_snapshot' => $requester->nome_completo,
+            'requester_area' => 'Natação',
+            'items' => [['article_id' => $product->id, 'quantity' => 2, 'unit_price' => 10]],
+        ])->assertRedirect(route('logistica.index'));
+
+        $request = LogisticsRequest::query()->latest()->firstOrFail();
+        $this->actingAs($admin)->post(route('logistica.requisicoes.approve', $request->id))
+            ->assertRedirect(route('logistica.index'));
+        $this->actingAs($admin)->post(route('logistica.requisicoes.deliver', $request->id))
+            ->assertRedirect(route('logistica.index'));
+
+        $deliveredAt = $request->fresh()->delivered_at;
+        $this->assertSame('delivered', $request->fresh()->status);
+        $this->assertNull($request->fresh()->financial_invoice_id);
+        $this->assertSame(48, (int) $product->fresh()->stock);
+
+        $this->actingAs($admin)->post(route('logistica.requisicoes.invoice', $request->id))
+            ->assertRedirect(route('logistica.index'));
+
+        $invoiced = $request->fresh();
+        $this->assertSame('delivered', $invoiced->status);
+        $this->assertEquals($deliveredAt, $invoiced->delivered_at);
+        $this->assertNotNull($invoiced->financial_invoice_id);
+        $this->assertDatabaseHas('invoices', [
+            'id' => $invoiced->financial_invoice_id,
+            'origem_tipo' => 'logistics_request',
+            'origem_id' => $request->id,
+            'estado_pagamento' => 'pendente',
+        ]);
+
+        $this->actingAs($admin)->post(route('logistica.requisicoes.invoice', $request->id))
+            ->assertRedirect(route('logistica.index'));
+        $this->assertSame($invoiced->financial_invoice_id, $request->fresh()->financial_invoice_id);
+        $this->assertSame(1, Invoice::query()->where('origem_tipo', 'logistics_request')
+            ->where('origem_id', $request->id)->count());
+        $this->assertSame(48, (int) $product->fresh()->stock);
+    }
+
     public function test_update_is_blocked_when_invoice_is_paid(): void
     {
         [$admin, $request, $product] = $this->createInvoicedRequest();
