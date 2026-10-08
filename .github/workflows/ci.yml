@@ -11,31 +11,6 @@ permissions:
   contents: read
 
 jobs:
-  refresh-patched-npm-lockfile:
-    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'Bzuzinho/ClubOS' && github.head_ref == 'fix/logistica-faturar-apos-entrega-20261008' }}
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          ref: ${{ github.head_ref }}
-          persist-credentials: true
-      - uses: actions/setup-node@v7
-        with:
-          node-version: '20'
-      - name: Regenerate lockfile for targeted dependency patches
-        run: npm install --package-lock-only --ignore-scripts --no-audit
-      - name: Commit reproducible lockfile if changed
-        run: |
-          if ! git diff --quiet -- package-lock.json; then
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add package-lock.json
-            git commit -m "fix(deps): lock patched security dependencies"
-            git push origin HEAD:${{ github.head_ref }}
-          fi
-
   validate:
     runs-on: ubuntu-latest
 
