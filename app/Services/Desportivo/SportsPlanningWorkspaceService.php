@@ -276,9 +276,15 @@ final class SportsPlanningWorkspaceService
 
     private function normalizeRecurrenceContext(array $data, ?TrainingRecurrence $existing = null): array
     {
-        $microId = $data['microcycle_id'] ?? $existing?->microcycle_id;
+        $microId = array_key_exists('microcycle_id', $data) ? $data['microcycle_id'] : $existing?->microcycle_id;
         if (! $microId) {
-            throw ValidationException::withMessages(['microcycle_id' => 'O Microciclo é obrigatório na recorrência de Planeamento.']);
+            $season = $this->seasonForWrite((string) ($data['season_id'] ?? $existing?->season_id));
+            $data['microcycle_id'] = null;
+            $data['mesocycle_id'] = null;
+            $data['macrocycle_id'] = null;
+            $data['season_id'] = $season->id;
+
+            return $data;
         }
 
         $micro = Microcycle::forClub($this->clubContext->id())
