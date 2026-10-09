@@ -364,7 +364,7 @@ export default function PlanningWorkspace(props: Props) {
           </TabsContent>
 
           <TabsContent value="sessoes" className="space-y-3">
-            <div className="flex justify-end"><Button onClick={() => open('session')} disabled={planningLocked || allMicros.length === 0}><Plus size={15} className="mr-1" />Sessão</Button></div>
+            <div className="flex justify-end"><Button onClick={() => open('session')} disabled={planningLocked}><Plus size={15} className="mr-1" />Sessão</Button></div>
             <div className="grid gap-2">
               {sessions.map((session) => (
                 <Card key={session.id}>
