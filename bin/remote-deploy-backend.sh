@@ -38,6 +38,9 @@ MAINTENANCE_ENGAGED=false
 SWITCHED=false
 ROLLBACK_DONE=false
 DEPLOY_SUCCEEDED=false
+FINANCIAL_RESET_MIGRATION="2026_09_28_130000_reset_financial_operational_data_for_go_live"
+FINANCIAL_RESET_PENDING=false
+FINANCIAL_RESET_BACKUP_DIR=""
 
 log() { printf '[deploy] %s\n' "$*"; }
 warn() { printf '[deploy] WARN: %s\n' "$*" >&2; }
@@ -389,13 +392,52 @@ run_as_runtime php "${RELEASE_DIR}/artisan" config:clear
 run_as_runtime php "${RELEASE_DIR}/artisan" route:clear
 run_as_runtime php "${RELEASE_DIR}/artisan" config:cache
 run_as_runtime php "${RELEASE_DIR}/artisan" route:cache
-run_as_runtime php "${RELEASE_DIR}/artisan" migrate:status --no-ansi >/dev/null
+
+MIGRATION_STATUS="$(run_as_runtime php "${RELEASE_DIR}/artisan" migrate:status --no-ansi)"
+printf '%s\n' "${MIGRATION_STATUS}" >/dev/null
+
+if printf '%s\n' "${MIGRATION_STATUS}" | grep -F "${FINANCIAL_RESET_MIGRATION}" | grep -qi 'pending'; then
+  FINANCIAL_RESET_PENDING=true
+  FINANCIAL_RESET_BACKUP_DIR="/var/backups/clubmanager/pre-financial-reset/${EXPECTED_SHA}"
+
+  log 'reset financeiro pendente: inventário agregado pré-reset'
+  run_as_runtime php "${RELEASE_DIR}/artisan" finance:audit-go-live-reset --json --no-ansi
+
+  log 'reset financeiro pendente: criar backup PostgreSQL dedicado antes de qualquer migration'
+  install -d -o root -g root -m 700 "${FINANCIAL_RESET_BACKUP_DIR}"
+  BACKUP_DIR="${FINANCIAL_RESET_BACKUP_DIR}" \
+    ENV_FILE="${SHARED_ENV}" \
+    bash "${RELEASE_DIR}/scripts/ops/database/backup-local-postgres.sh"
+
+  log 'reset financeiro pendente: cifrar e copiar o snapshot dedicado para o DR off-site'
+  DR_LOCAL_BACKUP_DIR="${FINANCIAL_RESET_BACKUP_DIR}" \
+    DR_APP_DIR="${RELEASE_DIR}" \
+    bash "${RELEASE_DIR}/scripts/ops/dr/backup-offsite.sh"
+
+  log "backup pré-reset financeiro concluído: ${FINANCIAL_RESET_BACKUP_DIR}"
+fi
 
 log 'migration preflight'
-run_as_runtime php "${RELEASE_DIR}/artisan" migrate --pretend --force --no-ansi
+if [[ "${FINANCIAL_RESET_PENDING}" == "true" ]]; then
+  run_as_runtime env CLUBOS_FINANCIAL_RESET_20260928=APPLY \
+    php "${RELEASE_DIR}/artisan" migrate --pretend --force --no-ansi
+else
+  run_as_runtime php "${RELEASE_DIR}/artisan" migrate --pretend --force --no-ansi
+fi
 
 log 'aplicar migrations antes do cutover; migrations devem ser backward-compatible'
-run_as_runtime php "${RELEASE_DIR}/artisan" migrate --force --no-ansi
+if [[ "${FINANCIAL_RESET_PENDING}" == "true" ]]; then
+  run_as_runtime env CLUBOS_FINANCIAL_RESET_20260928=APPLY \
+    php "${RELEASE_DIR}/artisan" migrate --force --no-ansi
+else
+  run_as_runtime php "${RELEASE_DIR}/artisan" migrate --force --no-ansi
+fi
+
+if [[ "${FINANCIAL_RESET_PENDING}" == "true" ]]; then
+  log 'validar baseline financeiro vazio após a migration de reset'
+  run_as_runtime php "${RELEASE_DIR}/artisan" finance:audit-go-live-reset --json --fail-on-data --no-ansi
+fi
+
 run_as_runtime php "${RELEASE_DIR}/artisan" access-control:sync-permission-nodes --no-ansi
 run_as_runtime php "${RELEASE_DIR}/artisan" config:cache
 run_as_runtime php "${RELEASE_DIR}/artisan" route:cache
