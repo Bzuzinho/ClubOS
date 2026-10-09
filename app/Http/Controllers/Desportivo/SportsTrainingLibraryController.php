@@ -25,7 +25,7 @@ final class SportsTrainingLibraryController extends Controller
 
     public function index(): Response
     {
-        return Inertia::render('Desportivo/Index', ['tab' => 'biblioteca'] + $this->query->payload());
+        return Inertia::render('Desportivo/Biblioteca/Index', $this->query->payload());
     }
 
     public function store(Request $request): RedirectResponse
