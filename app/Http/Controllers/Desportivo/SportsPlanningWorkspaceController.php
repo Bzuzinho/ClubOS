@@ -107,7 +107,6 @@ class SportsPlanningWorkspaceController extends Controller
         $rules = $this->recurrenceRules();
         if ($request->boolean('generate_on_create')) {
             $rules['ends_on'] = 'required|date|after_or_equal:starts_on';
-            $rules['starts_on'] = 'required|date|after_or_equal:'.now()->subYears(3)->toDateString();
         }
         $data = $request->validate($rules);
         if ($request->boolean('generate_on_create') && \Carbon\CarbonImmutable::parse($data['starts_on'])->diffInDays(\Carbon\CarbonImmutable::parse($data['ends_on'])) > 730) {
