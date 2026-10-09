@@ -132,6 +132,12 @@ export default function PlanningWorkspace(props: Props) {
         session_status: item?.session_status ?? 'draft',
         volume_planeado_m: item?.volume_planeado_m ?? '',
         athlete_ids: (item?.athlete_records ?? []).map((row: { user_id: string }) => row.user_id),
+        id: item?.id ?? null,
+        recurring: false,
+        recurrence_frequency: 'weekly',
+        recurrence_interval: 1,
+        recurrence_ends_on: '',
+        recurrence_weekdays: [],
       };
       setAssignments(mapAssignments(item?.session_groups ?? []));
     }
@@ -213,6 +219,30 @@ export default function PlanningWorkspace(props: Props) {
     let payload: Record<string, any> = { ...form };
 
     if (dialog.kind === 'session') {
+      if (!item && form.recurring) {
+        const recurrencePayload = {
+          season_id: seasonId,
+          microcycle_id: form.microciclo_id || null,
+          name: form.tipo_treino || 'Treino recorrente',
+          starts_on: form.data,
+          ends_on: form.recurrence_ends_on || null,
+          frequency: form.recurrence_frequency,
+          interval: Number(form.recurrence_interval || 1),
+          weekdays: form.recurrence_frequency === 'weekly' ? (form.recurrence_weekdays.length ? form.recurrence_weekdays : [((new Date(`${form.data}T12:00:00`).getDay() + 6) % 7) + 1]) : [],
+          start_time: form.hora_inicio,
+          end_time: form.hora_fim,
+          sports_pool_id: form.sports_pool_id || null,
+          sports_venue_id: selectedPool?.venue.id ?? null,
+          responsavel_id: form.responsavel_id || null,
+          training_plan_version_id: form.training_plan_version_id || null,
+          training_type: form.tipo_treino,
+          instruction: form.instrucao,
+          session_status_template: form.session_status,
+          groups: mappedAssignments(),
+        };
+        router.post(route('desportivo.planeamento.recurrences.store'), recurrencePayload, opts);
+        return;
+      }
       payload = { ...payload, training_groups: mappedAssignments(), sports_venue_id: selectedPool?.venue.id ?? null };
     }
     if (dialog.kind === 'recurrence') {
@@ -502,7 +532,28 @@ function Editor({ kind, form, set, props, assignments, setAssignments, available
       {select('Microciclo', isSession ? 'microciclo_id' : 'microcycle_id', micros.filter((item) => item.active).map((item) => ({ id: item.id, name: item.semana })), true)}
 
       {isSession ? (
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">{field('Data', 'data', 'date')}{field('Início', 'hora_inicio', 'time')}{field('Fim', 'hora_fim', 'time')}</div>
+        <>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">{field('Data', 'data', 'date')}{field('Início', 'hora_inicio', 'time')}{field('Fim', 'hora_fim', 'time')}</div>
+          {!form.id && (
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={!!form.recurring} onChange={event => set('recurring', event.target.checked)} />
+              Repetir esta sessão
+            </label>
+          )}
+          {form.recurring && (
+            <div className="space-y-3 rounded-md border p-3">
+              <p className="text-sm text-muted-foreground">Configura a regra de repetição. As sessões serão geradas através da recorrência existente.</p>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                <div><Label>Frequência</Label><select className={selectClass} value={form.recurrence_frequency} onChange={event => set('recurrence_frequency', event.target.value)}><option value="weekly">Semanal</option><option value="daily">Diária</option></select></div>
+                {field('Intervalo', 'recurrence_interval', 'number')}
+                {field('Até', 'recurrence_ends_on', 'date')}
+              </div>
+              {form.recurrence_frequency === 'weekly' && (
+                <div className="flex flex-wrap gap-3">{weekdays.map(([day, label]) => <label key={day} className="text-sm"><input type="checkbox" className="mr-1" checked={(form.recurrence_weekdays ?? []).includes(day)} onChange={event => set('recurrence_weekdays', event.target.checked ? [...(form.recurrence_weekdays ?? []), day] : (form.recurrence_weekdays ?? []).filter((value: number) => value !== day))} />{label}</label>)}</div>
+              )}
+            </div>
+          )}
+        </>
       ) : (
         <>
           <div className="grid grid-cols-2 gap-2">{field('Início da regra', 'starts_on', 'date')}{field('Fim da regra', 'ends_on', 'date')}</div>
