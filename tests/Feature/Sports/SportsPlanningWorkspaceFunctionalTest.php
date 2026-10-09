@@ -146,6 +146,33 @@ class SportsPlanningWorkspaceFunctionalTest extends TestCase
         $this->assertDatabaseHas('trainings', ['id' => $session->id, 'epoca_id' => $season->id]);
     }
 
+    public function test_recurrence_can_generate_sessions_without_a_microcycle(): void
+    {
+        $actor = User::factory()->create();
+        $season = $this->season();
+        $service = app(SportsPlanningWorkspaceService::class);
+
+        $recurrence = $service->createRecurrence([
+            'season_id' => $season->id,
+            'name' => 'Sessão semanal',
+            'starts_on' => '2026-09-14',
+            'ends_on' => '2026-09-14',
+            'frequency' => 'weekly',
+            'weekdays' => [1],
+            'start_time' => '18:00',
+            'end_time' => '19:00',
+            'training_type' => 'Técnico',
+            'instruction' => 'Exercícios técnicos',
+        ], $actor);
+
+        $this->assertNull($recurrence->microcycle_id);
+        $this->assertSame($season->id, $recurrence->season_id);
+        $result = $service->generateRecurrence($recurrence, '2026-09-14', $actor);
+        $this->assertCount(1, $result['created']);
+        $this->assertSame($season->id, $result['created'][0]->epoca_id);
+        $this->assertNull($result['created'][0]->microciclo_id);
+    }
+
     public function test_recurrence_uses_canonical_pool_lane_and_does_not_rewrite_generated_session(): void
     {
         $actor = User::factory()->create();

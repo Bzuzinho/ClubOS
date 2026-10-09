@@ -386,7 +386,7 @@ export default function PlanningWorkspace(props: Props) {
           </TabsContent>
 
           <TabsContent value="recorrencias" className="space-y-3">
-            <div className="flex justify-end"><Button onClick={() => open('recurrence')} disabled={planningLocked || allMicros.length === 0}><Plus size={15} className="mr-1" />Recorrência</Button></div>
+            <div className="flex justify-end"><Button onClick={() => open('recurrence')} disabled={planningLocked}><Plus size={15} className="mr-1" />Recorrência</Button></div>
             <div className="grid gap-2">
               {recurrences.map((recurrence) => (
                 <Card key={recurrence.id}>
@@ -499,7 +499,7 @@ function Editor({ kind, form, set, props, assignments, setAssignments, available
   return (
     <div className="space-y-3">
       {!isSession && field('Nome', 'name')}
-      {select('Microciclo', isSession ? 'microciclo_id' : 'microcycle_id', micros.filter((item) => item.active).map((item) => ({ id: item.id, name: item.semana })), isSession)}
+      {select('Microciclo', isSession ? 'microciclo_id' : 'microcycle_id', micros.filter((item) => item.active).map((item) => ({ id: item.id, name: item.semana })), true)}
 
       {isSession ? (
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">{field('Data', 'data', 'date')}{field('Início', 'hora_inicio', 'time')}{field('Fim', 'hora_fim', 'time')}</div>

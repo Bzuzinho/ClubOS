@@ -235,7 +235,7 @@ class SportsPlanningWorkspaceController extends Controller
             'season_id' => 'required|uuid|exists:seasons,id',
             'macrocycle_id' => 'nullable|uuid|exists:macrocycles,id',
             'mesocycle_id' => 'nullable|uuid|exists:mesocycles,id',
-            'microcycle_id' => 'required|uuid|exists:microcycles,id',
+            'microcycle_id' => 'nullable|uuid|exists:microcycles,id',
             'sports_venue_id' => 'nullable|uuid|exists:sports_venues,id',
             'sports_pool_id' => 'nullable|uuid|exists:sports_pools,id',
             'responsavel_id' => 'nullable|uuid|exists:users,id',
