@@ -239,6 +239,7 @@ export default function PlanningWorkspace(props: Props) {
           instruction: form.instrucao,
           session_status_template: form.session_status,
           groups: mappedAssignments(),
+          generate_on_create: true,
         };
         router.post(route('desportivo.planeamento.recurrences.store'), recurrencePayload, opts);
         return;
