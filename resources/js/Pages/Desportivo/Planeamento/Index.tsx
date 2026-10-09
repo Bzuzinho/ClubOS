@@ -479,7 +479,7 @@ function Editor({ kind, form, set, props, assignments, setAssignments, available
   return (
     <div className="space-y-3">
       {!isSession && field('Nome', 'name')}
-      {select('Microciclo', isSession ? 'microciclo_id' : 'microcycle_id', micros.filter((item) => item.active).map((item) => ({ id: item.id, name: item.semana })))}
+      {select('Microciclo', isSession ? 'microciclo_id' : 'microcycle_id', micros.filter((item) => item.active).map((item) => ({ id: item.id, name: item.semana })), isSession)}
 
       {isSession ? (
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">{field('Data', 'data', 'date')}{field('Início', 'hora_inicio', 'time')}{field('Fim', 'hora_fim', 'time')}</div>

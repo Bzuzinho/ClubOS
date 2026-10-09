@@ -238,9 +238,16 @@ final class SportsPlanningWorkspaceService
 
     private function normalizeSessionContext(array $data, ?Training $existing = null): array
     {
-        $microId = $data['microciclo_id'] ?? $existing?->microciclo_id;
+        $microId = array_key_exists('microciclo_id', $data) ? $data['microciclo_id'] : $existing?->microciclo_id;
         if (! $microId) {
-            throw ValidationException::withMessages(['microciclo_id' => 'O Microciclo é obrigatório no Planeamento.']);
+            $season = $this->seasonForWrite((string) ($data['season_id'] ?? $existing?->epoca_id));
+            $data['microciclo_id'] = null;
+            $data['mesociclo_id'] = null;
+            $data['macrocycle_id'] = null;
+            $data['epoca_id'] = $season->id;
+            unset($data['season_id']);
+
+            return $data;
         }
 
         $micro = Microcycle::forClub($this->clubContext->id())
