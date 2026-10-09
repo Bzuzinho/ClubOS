@@ -104,7 +104,15 @@ class SportsPlanningWorkspaceController extends Controller
 
     public function storeRecurrence(Request $request): RedirectResponse
     {
-        $data = $request->validate($this->recurrenceRules());
+        $rules = $this->recurrenceRules();
+        if ($request->boolean('generate_on_create')) {
+            $rules['ends_on'] = 'required|date|after_or_equal:starts_on';
+            $rules['starts_on'] = 'required|date|after_or_equal:'.now()->subYears(3)->toDateString();
+        }
+        $data = $request->validate($rules);
+        if ($request->boolean('generate_on_create') && \Carbon\CarbonImmutable::parse($data['starts_on'])->diffInDays(\Carbon\CarbonImmutable::parse($data['ends_on'])) > 730) {
+            throw \Illuminate\Validation\ValidationException::withMessages(['ends_on' => 'A geração automática está limitada a 730 dias.']);
+        }
         $recurrence = $this->service->createRecurrence($data, $request->user());
         if ($request->boolean('generate_on_create')) {
             $until = $data['ends_on'] ?? null;
