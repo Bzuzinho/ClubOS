@@ -228,7 +228,7 @@ export default function PlanningWorkspace(props: Props) {
           ends_on: form.recurrence_ends_on || null,
           frequency: form.recurrence_frequency,
           interval: Number(form.recurrence_interval || 1),
-          weekdays: form.recurrence_frequency === 'weekly' ? form.recurrence_weekdays : [],
+          weekdays: form.recurrence_frequency === 'weekly' ? (form.recurrence_weekdays.length ? form.recurrence_weekdays : [((new Date(`${form.data}T12:00:00`).getDay() + 6) % 7) + 1]) : [],
           start_time: form.hora_inicio,
           end_time: form.hora_fim,
           sports_pool_id: form.sports_pool_id || null,
