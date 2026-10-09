@@ -1,5 +1,5 @@
 import { ModuleTabsList } from '@/Components/layout/ModuleTabsList';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Head, router } from '@inertiajs/react';
 import { CalendarBlank, GearSix, PencilSimple, Plus, Trash } from '@phosphor-icons/react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
@@ -42,6 +42,7 @@ const weekdays: Array<[number, string]> = [[1, 'Seg'], [2, 'Ter'], [3, 'Qua'], [
 export default function PlanningWorkspace(props: Props) {
   const { seasons, selectedSeason, macrocycles, sessions, recurrences, groups, athletes, coaches, locations, planVersions, objectives, competitions } = props;
   const [tab, setTab] = useState('periodizacao');
+  const initialDeepLinkHandled = useRef(false);
   const [dialog, setDialog] = useState<{ kind: Kind; item?: any; parentId?: string } | null>(null);
   const [form, setForm] = useState<Record<string, any>>({});
   const [assignments, setAssignments] = useState<AssignmentDraft[]>([]);
@@ -70,7 +71,7 @@ export default function PlanningWorkspace(props: Props) {
   }));
 
   const open = (kind: Kind, item?: any, parentId?: string) => {
-    const selectedMicroId = item?.microciclo_id ?? item?.microcycle_id ?? parentId ?? allMicros.find((micro) => micro.active)?.id ?? '';
+    const selectedMicroId = item?.microciclo_id ?? item?.microcycle_id ?? parentId ?? '';
     const selectedMicro = allMicros.find((micro) => micro.id === selectedMicroId);
     let values: Record<string, any> = { season_id: seasonId };
     setAssignments([]);
@@ -175,6 +176,25 @@ export default function PlanningWorkspace(props: Props) {
     setForm(values);
     setDialog({ kind, item, parentId });
   };
+
+  useEffect(() => {
+    if (initialDeepLinkHandled.current) return;
+    const params = new URLSearchParams(window.location.search);
+    const trainingId = params.get('training_id');
+    const planVersionId = params.get('training_plan_version_id');
+    if (!trainingId && !planVersionId) return;
+    const requestedSession = trainingId ? sessions.find((session) => session.id === trainingId) : null;
+    if (trainingId && !requestedSession) return;
+    initialDeepLinkHandled.current = true;
+    if (requestedSession) {
+      setTab('sessoes');
+      open('session', requestedSession);
+    } else if (planVersionId && planVersions.some((version) => version.id === planVersionId)) {
+      setTab('sessoes');
+      open('session');
+      setForm(previous => ({ ...previous, training_plan_version_id: planVersionId }));
+    }
+  }, [sessions, planVersions]);
 
   const mappedAssignments = () => assignments
     .filter((assignment) => assignment.training_group_id)
