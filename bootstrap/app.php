@@ -61,6 +61,7 @@ return Application::configure(basePath: dirname(__DIR__))
         \App\Console\Commands\GenerateMonthlyFeesCommand::class,
         \App\Console\Commands\ActivateDueMonthlyFeesCommand::class,
         \App\Console\Commands\Financeiro\AccountCreditAuditCommand::class,
+        \App\Console\Commands\Financeiro\AuditFinancialGoLiveResetCommand::class,
         \App\Console\Commands\Financeiro\ApplyAccountCreditCommand::class,
         \App\Console\Commands\Financeiro\AuditMemberCostCentersCommand::class,
         \App\Console\Commands\Financeiro\AuditMemberCurrentAccountsCommand::class,
