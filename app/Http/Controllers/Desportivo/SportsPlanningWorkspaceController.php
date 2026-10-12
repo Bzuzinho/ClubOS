@@ -88,6 +88,20 @@ class SportsPlanningWorkspaceController extends Controller
         return $this->back($request, 'Microciclo removido/arquivado.');
     }
 
+    public function replaceCycleAssignments(Request $request, \App\Services\Desportivo\SportsCycleAssignmentService $assignments): RedirectResponse
+    {
+        $data = $request->validate([
+            'season_id' => 'required|uuid|exists:seasons,id',
+            'cycle_type' => 'required|in:macro,meso,micro',
+            'cycle_id' => 'required|uuid',
+            'target_type' => 'required|in:group,athlete',
+            'target_ids' => 'required|array',
+            'target_ids.*' => 'uuid|distinct',
+        ]);
+        $assignments->replace($data['cycle_type'], $data['cycle_id'], $data['target_type'], $data['target_ids'], (string) $request->user()->id);
+        return $this->back($request, 'Atribuições de periodização atualizadas.');
+    }
+
     public function storeSession(Request $request): RedirectResponse
     {
         $data = $request->validate($this->sessionRules());
