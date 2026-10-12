@@ -75,8 +75,8 @@ final class SportsSessionCycleResolver
         if (count($values) > 1) {
             throw ValidationException::withMessages(['microciclo_id' => 'Os destinatários têm periodizações diferentes. Crie sessões separadas ou escolha explicitamente o microciclo.']);
         }
-        if ($individual !== [] && $group !== [] && count(array_unique($group)) > 1) {
-            throw ValidationException::withMessages(['microciclo_id' => 'Os grupos têm periodizações distintas. Confirme o microciclo da sessão.']);
+        if ($individual !== [] && $group !== [] && (count(array_unique($group)) > 1 || in_array(true, array_map(fn ($id) => $id !== $values[0], $group), true))) {
+            throw ValidationException::withMessages(['microciclo_id' => 'Existe conflito entre periodização individual e dos grupos nesta sessão. Separe os destinatários ou escolha o microciclo explicitamente.']);
         }
         return $values[0] ?? null;
     }
