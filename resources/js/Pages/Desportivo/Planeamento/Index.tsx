@@ -1,7 +1,7 @@
 import { ModuleTabsList } from '@/Components/layout/ModuleTabsList';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Head, router } from '@inertiajs/react';
-import { CalendarBlank, GearSix, PencilSimple, Plus, Trash } from '@phosphor-icons/react';
+import { CalendarBlank, PencilSimple, Plus, Trash } from '@phosphor-icons/react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { Badge } from '@/Components/ui/badge';
 import { Button } from '@/Components/ui/button';
@@ -297,9 +297,6 @@ export default function PlanningWorkspace(props: Props) {
             <h1 className="text-lg font-semibold">Planeamento Desportivo</h1>
             <p className="text-xs text-muted-foreground">Periodização, sessões, recorrências e objetivos</p>
           </div>
-          <Button variant="outline" size="sm" onClick={() => router.get(route('desportivo.estrutura.index'))}>
-            <GearSix size={15} className="mr-1" />Estrutura
-          </Button>
         </div>
       }
     >
