@@ -417,7 +417,7 @@ export default function PlanningWorkspace(props: Props) {
           </TabsContent>
 
           <TabsContent value="recorrencias" className="space-y-3">
-            <div className="flex justify-end"><Button onClick={() => open('recurrence')} disabled={planningLocked}><Plus size={15} className="mr-1" />Recorrência</Button></div>
+            <div className="flex flex-wrap items-center justify-between gap-2"><p className="text-sm text-muted-foreground">As novas repetições são configuradas na criação de uma sessão. As regras existentes continuam disponíveis para gestão.</p><Button onClick={() => { open('session'); setForm(previous => ({ ...previous, recurring: true })); }} disabled={planningLocked}><Plus size={15} className="mr-1" />Nova sessão recorrente</Button></div>
             <div className="grid gap-2">
               {recurrences.map((recurrence) => (
                 <Card key={recurrence.id}>
