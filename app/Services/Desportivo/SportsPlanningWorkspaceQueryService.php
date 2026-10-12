@@ -17,6 +17,7 @@ use App\Models\TrainingPlanVersion;
 use App\Models\TrainingRecurrence;
 use App\Models\User;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 final class SportsPlanningWorkspaceQueryService
 {
@@ -156,6 +157,7 @@ final class SportsPlanningWorkspaceQueryService
             'objectives' => $objectives,
             'competitions' => $competitions,
             'ageGroups' => $ageGroups,
+            'cycleAssignments' => $selected ? DB::table('sports_cycle_assignments')->where('club_id', $clubId)->where('season_id', $selected->id)->get(['cycle_type','cycle_id','target_type','target_id']) : [],
         ];
     }
 

@@ -279,6 +279,50 @@ class SportsPlanningWorkspaceFunctionalTest extends TestCase
         $this->assertSame(2, $objective->versions()->count());
     }
 
+    public function test_cycle_assignments_persist_for_active_athletes_without_touching_trainings(): void
+    {
+        $actor = User::factory()->create();
+        $athlete = User::factory()->athlete()->create();
+        $season = $this->season();
+        \App\Models\SportsAthleteParticipation::query()->create([
+            'club_id' => 'bscn', 'user_id' => $athlete->id,
+            'sports_modality_id' => $season->sports_modality_id,
+            'active' => true, 'current_slot' => 'current',
+        ]);
+        $macro = app(SportsPlanningWorkspaceService::class)->createMacrocycle([
+            'epoca_id' => $season->id, 'nome' => 'Base', 'tipo' => 'Preparação geral',
+            'data_inicio' => '2026-09-01', 'data_fim' => '2026-10-31',
+        ], $actor);
+        $service = app(\App\Services\Desportivo\SportsCycleAssignmentService::class);
+        $service->replace('macro', (string) $macro->id, 'athlete', [(string) $athlete->id], (string) $actor->id);
+        $this->assertDatabaseHas('sports_cycle_assignments', [
+            'club_id' => 'bscn', 'season_id' => $season->id, 'cycle_id' => $macro->id,
+            'target_type' => 'athlete', 'target_id' => $athlete->id,
+        ]);
+        $this->assertDatabaseCount('trainings', 0);
+        $service->replace('macro', (string) $macro->id, 'athlete', [], (string) $actor->id);
+        $this->assertDatabaseMissing('sports_cycle_assignments', [
+            'cycle_id' => $macro->id, 'target_id' => $athlete->id,
+        ]);
+    }
+
+    public function test_cycle_assignments_are_persisted_and_reject_outside_targets(): void
+    {
+        $actor = User::factory()->create();
+        $season = $this->season();
+        $macro = app(SportsPlanningWorkspaceService::class)->createMacrocycle([
+            'epoca_id' => $season->id, 'nome' => 'Base', 'tipo' => 'Preparação geral',
+            'data_inicio' => '2026-09-01', 'data_fim' => '2026-10-31',
+        ], $actor);
+        $assignments = app(\App\Services\Desportivo\SportsCycleAssignmentService::class);
+        $assignments->replace('macro', (string) $macro->id, 'group', [], (string) $actor->id);
+        $this->assertDatabaseMissing('sports_cycle_assignments', [
+            'cycle_type' => 'macro', 'cycle_id' => $macro->id,
+        ]);
+        $this->expectException(\Illuminate\Validation\ValidationException::class);
+        $assignments->replace('macro', (string) $macro->id, 'athlete', [(string) $actor->id], (string) $actor->id);
+    }
+
     private function season(): Season
     {
         $modality = SportsModality::query()

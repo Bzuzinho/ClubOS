@@ -29,7 +29,7 @@ interface RecurrenceGroup { training_group_id: Id; training_plan_version_id?: Id
 interface Recurrence { id: Id; name: string; starts_on: string; ends_on?: string | null; frequency: string; interval: number; weekdays?: number[]; start_time: string; end_time: string; active: boolean; last_generated_until?: string | null; microcycle_id?: Id | null; sports_pool_id?: Id | null; responsavel_id?: Id | null; training_plan_version_id?: Id | null; instruction?: string | null; training_type?: string | null; session_status_template: string; groups?: RecurrenceGroup[] }
 interface Objective { id: Id; target_type: string; target_id?: Id | null; due_at?: string | null; latest_version?: { title: string; description?: string | null; objective_type: string; target_value?: string | number | null; target_text?: string | null; target_unit?: string | null } }
 interface Competition { id: Id; nome: string; data_inicio: string; local?: string | null; status: string }
-interface Props { seasons: Season[]; selectedSeason?: Season | null; macrocycles: Macro[]; sessions: Session[]; recurrences: Recurrence[]; groups: Group[]; athletes: Person[]; coaches: Person[]; locations: Venue[]; planVersions: PlanVersion[]; objectives: Objective[]; competitions: Competition[]; ageGroups: AgeGroup[] }
+interface Props { seasons: Season[]; selectedSeason?: Season | null; macrocycles: Macro[]; sessions: Session[]; recurrences: Recurrence[]; groups: Group[]; athletes: Person[]; coaches: Person[]; locations: Venue[]; planVersions: PlanVersion[]; objectives: Objective[]; competitions: Competition[]; ageGroups: AgeGroup[]; cycleAssignments: Array<{cycle_type: string;cycle_id: Id;target_type: string;target_id: Id}> }
 
 type Kind = 'macro' | 'meso' | 'micro' | 'session' | 'recurrence' | 'objective';
 type AssignmentDraft = { training_group_id: string; training_plan_version_id: string; instruction: string; lane_ids: string[] };
@@ -42,6 +42,28 @@ const weekdays: Array<[number, string]> = [[1, 'Seg'], [2, 'Ter'], [3, 'Qua'], [
 export default function PlanningWorkspace(props: Props) {
   const { seasons, selectedSeason, macrocycles, sessions, recurrences, groups, athletes, coaches, locations, planVersions, objectives, competitions } = props;
   const [tab, setTab] = useState('periodizacao');
+  const [assignmentCycle, setAssignmentCycle] = useState('');
+  const [assignmentType, setAssignmentType] = useState<'group' | 'athlete'>('group');
+  const [assignmentIds, setAssignmentIds] = useState<string[]>([]);
+  const cycles = macrocycles.flatMap(macro => [
+    { id: macro.id, type: 'macro', name: macro.nome },
+    ...(macro.mesocycles ?? []).flatMap(meso => [
+      { id: meso.id, type: 'meso', name: `${macro.nome} / ${meso.nome}` },
+      ...(meso.microcycles ?? []).map(micro => ({ id: micro.id, type: 'micro', name: `${macro.nome} / ${meso.nome} / ${micro.semana}` })),
+    ]),
+  ]);
+  const chooseAssignments = (cycle: string, target: 'group' | 'athlete') => {
+    setAssignmentCycle(cycle);
+    setAssignmentType(target);
+    const [cycleType, cycleId] = cycle.split(':');
+    setAssignmentIds((props.cycleAssignments ?? []).filter(a => a.cycle_type === cycleType && a.cycle_id === cycleId && a.target_type === target).map(a => a.target_id));
+  };
+  const saveAssignments = () => {
+    const [cycle_type, cycle_id] = assignmentCycle.split(':');
+    if (!cycle_type || !cycle_id) return;
+    router.put(route('desportivo.planeamento.cycles.assign'), { season_id: selectedSeason?.id, cycle_type, cycle_id, target_type: assignmentType, target_ids: assignmentIds }, { preserveScroll: true });
+  };
+
   const initialDeepLinkHandled = useRef(false);
   const [dialog, setDialog] = useState<{ kind: Kind; item?: any; parentId?: string } | null>(null);
   const [form, setForm] = useState<Record<string, any>>({});
@@ -340,6 +362,8 @@ export default function PlanningWorkspace(props: Props) {
           </ModuleTabsList>
 
           <TabsContent value="periodizacao" className="space-y-3">
+
+
             <div className="flex justify-end"><Button onClick={() => open('macro')} disabled={planningLocked}><Plus size={15} className="mr-1" />Macrociclo</Button></div>
             {selectedSeason && <Timeline season={selectedSeason} macros={macrocycles} competitions={competitions} />}
             <div className="space-y-2">
@@ -389,6 +413,15 @@ export default function PlanningWorkspace(props: Props) {
                 </Card>
               ))}
             </div>
+            <Card><CardContent className="space-y-3 p-3">
+              <div><b>Atribuir periodização</b><p className="text-xs text-muted-foreground">Define grupos ou atletas para cada ciclo, sem alterar sessões já planeadas.</p></div>
+              <div className="grid gap-2 md:grid-cols-2">
+                <div><Label>Ciclo</Label><select className={selectClass} value={assignmentCycle} onChange={event => chooseAssignments(event.target.value, assignmentType)}><option value="">Selecionar ciclo</option>{cycles.map(c => <option key={c.id} value={`${c.type}:${c.id}`}>{c.name}</option>)}</select></div>
+                <div><Label>Destinatários</Label><select className={selectClass} value={assignmentType} onChange={event => chooseAssignments(assignmentCycle, event.target.value as 'group' | 'athlete')}><option value="group">Grupos de treino</option><option value="athlete">Atletas individuais</option></select></div>
+              </div>
+              <div><Label>{assignmentType === 'group' ? 'Grupos' : 'Atletas'}</Label><select multiple className="min-h-28 w-full rounded-md border bg-background p-2 text-sm" value={assignmentIds} onChange={event => setAssignmentIds(Array.from(event.currentTarget.selectedOptions).map(option => option.value))}>{(assignmentType === 'group' ? groups : athletes).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select><p className="text-xs text-muted-foreground">Podes selecionar vários destinatários. Grupos e atletas são guardados separadamente.</p></div>
+              <Button disabled={planningLocked || !assignmentCycle} onClick={saveAssignments}>Guardar atribuições</Button>
+            </CardContent></Card>
           </TabsContent>
 
           <TabsContent value="sessoes" className="space-y-3">

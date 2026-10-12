@@ -23,6 +23,8 @@ Route::middleware(['web', 'auth', 'verified', 'module.access:desportivo'])
             Route::put('/microciclos/{micro}', [SportsPlanningWorkspaceController::class, 'updateMicro'])->middleware('permission.access:desportivo.planeamento,edit')->name('desportivo.planeamento.micros.update');
             Route::delete('/microciclos/{micro}', [SportsPlanningWorkspaceController::class, 'destroyMicro'])->middleware('permission.access:desportivo.planeamento,delete')->name('desportivo.planeamento.micros.destroy');
 
+            Route::put('/ciclos/atribuicoes', [SportsPlanningWorkspaceController::class, 'replaceCycleAssignments'])->middleware('permission.access:desportivo.planeamento,edit')->name('desportivo.planeamento.cycles.assign');
+
             Route::post('/sessoes', [SportsPlanningWorkspaceController::class, 'storeSession'])->middleware('permission.access:desportivo.planeamento,edit')->name('desportivo.planeamento.sessions.store');
             Route::put('/sessoes/{training}', [SportsPlanningWorkspaceController::class, 'updateSession'])->middleware('permission.access:desportivo.planeamento,edit')->name('desportivo.planeamento.sessions.update');
 
