@@ -1,7 +1,7 @@
 import { ModuleTabsList } from '@/Components/layout/ModuleTabsList';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Head, router } from '@inertiajs/react';
-import { CalendarBlank, GearSix, PencilSimple, Plus, Trash } from '@phosphor-icons/react';
+import { CalendarBlank, PencilSimple, Plus, Trash } from '@phosphor-icons/react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { Badge } from '@/Components/ui/badge';
 import { Button } from '@/Components/ui/button';
@@ -297,9 +297,6 @@ export default function PlanningWorkspace(props: Props) {
             <h1 className="text-lg font-semibold">Planeamento Desportivo</h1>
             <p className="text-xs text-muted-foreground">Periodização, sessões, recorrências e objetivos</p>
           </div>
-          <Button variant="outline" size="sm" onClick={() => router.get(route('desportivo.estrutura.index'))}>
-            <GearSix size={15} className="mr-1" />Estrutura
-          </Button>
         </div>
       }
     >
@@ -417,7 +414,7 @@ export default function PlanningWorkspace(props: Props) {
           </TabsContent>
 
           <TabsContent value="recorrencias" className="space-y-3">
-            <div className="flex justify-end"><Button onClick={() => open('recurrence')} disabled={planningLocked}><Plus size={15} className="mr-1" />Recorrência</Button></div>
+            <div className="flex flex-wrap items-center justify-between gap-2"><p className="text-sm text-muted-foreground">As novas repetições são configuradas na criação de uma sessão. As regras existentes continuam disponíveis para gestão.</p><Button onClick={() => { open('session'); setForm(previous => ({ ...previous, recurring: true })); }} disabled={planningLocked}><Plus size={15} className="mr-1" />Nova sessão recorrente</Button></div>
             <div className="grid gap-2">
               {recurrences.map((recurrence) => (
                 <Card key={recurrence.id}>
