@@ -362,15 +362,7 @@ export default function PlanningWorkspace(props: Props) {
           </ModuleTabsList>
 
           <TabsContent value="periodizacao" className="space-y-3">
-            <Card><CardContent className="space-y-3 p-3">
-              <div><b>Atribuir periodização</b><p className="text-xs text-muted-foreground">Define grupos ou atletas para cada ciclo, sem alterar sessões já planeadas.</p></div>
-              <div className="grid gap-2 md:grid-cols-2">
-                <div><Label>Ciclo</Label><select className={selectClass} value={assignmentCycle} onChange={event => chooseAssignments(event.target.value, assignmentType)}><option value="">Selecionar ciclo</option>{cycles.map(c => <option key={c.id} value={`${c.type}:${c.id}`}>{c.name}</option>)}</select></div>
-                <div><Label>Destinatários</Label><select className={selectClass} value={assignmentType} onChange={event => chooseAssignments(assignmentCycle, event.target.value as 'group' | 'athlete')}><option value="group">Grupos de treino</option><option value="athlete">Atletas individuais</option></select></div>
-              </div>
-              <div><Label>{assignmentType === 'group' ? 'Grupos' : 'Atletas'}</Label><select multiple className="min-h-28 w-full rounded-md border bg-background p-2 text-sm" value={assignmentIds} onChange={event => setAssignmentIds(Array.from(event.currentTarget.selectedOptions).map(option => option.value))}>{(assignmentType === 'group' ? groups : athletes).map(item => <option key={item.id} value={item.id}>{'name' in item ? item.name : item.id}</option>)}</select><p className="text-xs text-muted-foreground">Podes selecionar vários destinatários. Grupos e atletas são guardados separadamente.</p></div>
-              <Button disabled={planningLocked || !assignmentCycle} onClick={saveAssignments}>Guardar atribuições</Button>
-            </CardContent></Card>
+
 
             <div className="flex justify-end"><Button onClick={() => open('macro')} disabled={planningLocked}><Plus size={15} className="mr-1" />Macrociclo</Button></div>
             {selectedSeason && <Timeline season={selectedSeason} macros={macrocycles} competitions={competitions} />}
@@ -421,6 +413,15 @@ export default function PlanningWorkspace(props: Props) {
                 </Card>
               ))}
             </div>
+            <Card><CardContent className="space-y-3 p-3">
+              <div><b>Atribuir periodização</b><p className="text-xs text-muted-foreground">Define grupos ou atletas para cada ciclo, sem alterar sessões já planeadas.</p></div>
+              <div className="grid gap-2 md:grid-cols-2">
+                <div><Label>Ciclo</Label><select className={selectClass} value={assignmentCycle} onChange={event => chooseAssignments(event.target.value, assignmentType)}><option value="">Selecionar ciclo</option>{cycles.map(c => <option key={c.id} value={`${c.type}:${c.id}`}>{c.name}</option>)}</select></div>
+                <div><Label>Destinatários</Label><select className={selectClass} value={assignmentType} onChange={event => chooseAssignments(assignmentCycle, event.target.value as 'group' | 'athlete')}><option value="group">Grupos de treino</option><option value="athlete">Atletas individuais</option></select></div>
+              </div>
+              <div><Label>{assignmentType === 'group' ? 'Grupos' : 'Atletas'}</Label><select multiple className="min-h-28 w-full rounded-md border bg-background p-2 text-sm" value={assignmentIds} onChange={event => setAssignmentIds(Array.from(event.currentTarget.selectedOptions).map(option => option.value))}>{(assignmentType === 'group' ? groups : athletes).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select><p className="text-xs text-muted-foreground">Podes selecionar vários destinatários. Grupos e atletas são guardados separadamente.</p></div>
+              <Button disabled={planningLocked || !assignmentCycle} onClick={saveAssignments}>Guardar atribuições</Button>
+            </CardContent></Card>
           </TabsContent>
 
           <TabsContent value="sessoes" className="space-y-3">
