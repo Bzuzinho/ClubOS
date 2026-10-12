@@ -352,7 +352,7 @@ export default function PlanningWorkspace(props: Props) {
                         <div className="text-xs text-muted-foreground">{dateOnly(macro.data_inicio)} → {dateOnly(macro.data_fim)} · {macro.objetivo_principal || 'Sem objetivo'}</div>
                       </div>
                       <div className="flex">
-                        <Button size="icon" variant="ghost" onClick={() => open('meso', undefined, macro.id)} disabled={planningLocked}><Plus size={15} /></Button>
+                        <Button size="sm" variant="outline" onClick={() => open('meso', undefined, macro.id)} disabled={planningLocked}><Plus size={15} className="mr-1" />Mesociclo</Button>
                         <Button size="icon" variant="ghost" onClick={() => open('macro', macro)} disabled={planningLocked}><PencilSimple size={15} /></Button>
                         <Button size="icon" variant="ghost" onClick={() => remove('desportivo.planeamento.macros.destroy', macro.id, macro.nome)} disabled={planningLocked}><Trash size={15} /></Button>
                       </div>
@@ -363,7 +363,7 @@ export default function PlanningWorkspace(props: Props) {
                           <div className="flex flex-wrap items-start justify-between gap-2">
                             <div><b className="text-sm">{meso.nome}</b><div className="text-xs text-muted-foreground">{dateOnly(meso.data_inicio)} → {dateOnly(meso.data_fim)} · {meso.objetivo_principal}</div></div>
                             <div className="flex">
-                              <Button size="icon" variant="ghost" onClick={() => open('micro', undefined, meso.id)} disabled={planningLocked}><Plus size={14} /></Button>
+                              <Button size="sm" variant="outline" onClick={() => open('micro', undefined, meso.id)} disabled={planningLocked}><Plus size={14} className="mr-1" />Microciclo</Button>
                               <Button size="icon" variant="ghost" onClick={() => open('meso', meso)} disabled={planningLocked}><PencilSimple size={14} /></Button>
                               <Button size="icon" variant="ghost" onClick={() => remove('desportivo.planeamento.mesos.destroy', meso.id, meso.nome)} disabled={planningLocked}><Trash size={14} /></Button>
                             </div>
