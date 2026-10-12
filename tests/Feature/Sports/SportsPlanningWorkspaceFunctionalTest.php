@@ -279,6 +279,23 @@ class SportsPlanningWorkspaceFunctionalTest extends TestCase
         $this->assertSame(2, $objective->versions()->count());
     }
 
+    public function test_cycle_assignments_are_persisted_and_reject_outside_targets(): void
+    {
+        $actor = User::factory()->create();
+        $season = $this->season();
+        $macro = app(SportsPlanningWorkspaceService::class)->createMacrocycle([
+            'epoca_id' => $season->id, 'nome' => 'Base', 'tipo' => 'Preparação geral',
+            'data_inicio' => '2026-09-01', 'data_fim' => '2026-10-31',
+        ], $actor);
+        $assignments = app(\App\Services\Desportivo\SportsCycleAssignmentService::class);
+        $assignments->replace('macro', (string) $macro->id, 'group', [], (string) $actor->id);
+        $this->assertDatabaseMissing('sports_cycle_assignments', [
+            'cycle_type' => 'macro', 'cycle_id' => $macro->id,
+        ]);
+        $this->expectException(\Illuminate\Validation\ValidationException::class);
+        $assignments->replace('macro', (string) $macro->id, 'athlete', [(string) $actor->id], (string) $actor->id);
+    }
+
     private function season(): Season
     {
         $modality = SportsModality::query()
