@@ -323,6 +323,42 @@ class SportsPlanningWorkspaceFunctionalTest extends TestCase
         $assignments->replace('macro', (string) $macro->id, 'athlete', [(string) $actor->id], (string) $actor->id);
     }
 
+    public function test_new_session_uses_individual_microcycle_assignment_without_rewriting_existing_sessions(): void
+    {
+        $actor = User::factory()->create();
+        $athlete = User::factory()->athlete()->create();
+        $season = $this->season();
+        \App\Models\SportsAthleteParticipation::query()->create([
+            'club_id' => 'bscn', 'user_id' => $athlete->id,
+            'sports_modality_id' => $season->sports_modality_id, 'active' => true,
+            'current_slot' => 'current',
+        ]);
+        $planning = app(SportsPlanningWorkspaceService::class);
+        $macro = $planning->createMacrocycle([
+            'epoca_id' => $season->id, 'nome' => 'Base', 'tipo' => 'Preparação geral',
+            'data_inicio' => '2026-09-01', 'data_fim' => '2026-10-31',
+        ], $actor);
+        $meso = $planning->createMesocycle([
+            'macrociclo_id' => $macro->id, 'nome' => 'Base 1',
+            'data_inicio' => '2026-09-01', 'data_fim' => '2026-09-30',
+            'objetivo_principal' => 'Técnica',
+        ], $actor);
+        $micro = $planning->createMicrocycle([
+            'mesociclo_id' => $meso->id, 'semana' => 'Semana 1',
+            'data_inicio' => '2026-09-01', 'data_fim' => '2026-09-07',
+        ], $actor);
+        app(\App\Services\Desportivo\SportsCycleAssignmentService::class)->replace(
+            'micro', (string) $micro->id, 'athlete', [(string) $athlete->id], (string) $actor->id
+        );
+        $training = $planning->createSession([
+            'season_id' => $season->id, 'data' => '2026-09-03',
+            'hora_inicio' => '18:00', 'hora_fim' => '19:00',
+            'tipo_treino' => 'Técnico', 'athlete_ids' => [(string) $athlete->id],
+        ], $actor);
+        $this->assertSame((string) $micro->id, (string) $training->microciclo_id);
+        $this->assertSame((string) $season->id, (string) $training->epoca_id);
+    }
+
     private function season(): Season
     {
         $modality = SportsModality::query()
