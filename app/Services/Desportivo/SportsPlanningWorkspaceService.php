@@ -21,6 +21,7 @@ final class SportsPlanningWorkspaceService
         private readonly UpdateTrainingScheduleAction $updateTrainingScheduleAction,
         private readonly TrainingRecurrenceService $recurrenceService,
         private readonly SportsObjectiveService $objectiveService,
+        private readonly SportsSessionCycleResolver $cycleResolver,
     ) {}
 
     public function createMacrocycle(array $data, User $actor): Macrocycle
@@ -160,6 +161,16 @@ final class SportsPlanningWorkspaceService
 
     public function createSession(array $data, User $actor): Training
     {
+        if (empty($data['microciclo_id']) && ! empty($data['data'])) {
+            $groupIds = collect($data['training_groups'] ?? [])->pluck('training_group_id')->filter()->all();
+            $microId = $this->cycleResolver->resolve(
+                (string) ($data['season_id'] ?? ''),
+                (string) $data['data'],
+                $data['athlete_ids'] ?? [],
+                $groupIds,
+            );
+            if ($microId !== null) $data['microciclo_id'] = $microId;
+        }
         return $this->createTrainingAction->execute($this->normalizeSessionContext($data), $actor);
     }
 
