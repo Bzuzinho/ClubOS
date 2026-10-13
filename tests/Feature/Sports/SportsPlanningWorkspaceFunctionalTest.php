@@ -216,6 +216,64 @@ class SportsPlanningWorkspaceFunctionalTest extends TestCase
         $this->assertNull($rule->fresh()->microcycle_id);
     }
 
+    public function test_recurrence_blocks_group_cycle_when_athlete_has_incompatible_individual_cycle(): void
+    {
+        $actor = User::factory()->create();
+        $athlete = User::factory()->athlete()->create();
+        $season = $this->season();
+        $planning = app(SportsPlanningWorkspaceService::class);
+        $macro = $planning->createMacrocycle([
+            'epoca_id' => $season->id, 'nome' => 'Macro',
+            'tipo' => 'Preparação geral', 'data_inicio' => '2026-09-01', 'data_fim' => '2026-10-31',
+        ], $actor);
+        $meso = $planning->createMesocycle([
+            'macrociclo_id' => $macro->id, 'nome' => 'Meso',
+            'data_inicio' => '2026-09-01', 'data_fim' => '2026-10-31',
+            'objetivo_principal' => 'Base',
+        ], $actor);
+        $groupMicro = $planning->createMicrocycle([
+            'mesociclo_id' => $meso->id, 'semana' => 'Grupo',
+            'data_inicio' => '2026-09-14', 'data_fim' => '2026-09-20',
+        ], $actor);
+        $individualMicro = $planning->createMicrocycle([
+            'mesociclo_id' => $meso->id, 'semana' => 'Individual',
+            'data_inicio' => '2026-09-14', 'data_fim' => '2026-09-20',
+        ], $actor);
+        $group = app(TrainingGroupService::class)->create([
+            'code' => 'EXCEPTION-' . substr((string) \Illuminate\Support\Str::uuid(), 0, 6),
+            'name' => 'Grupo exceção',
+        ], $actor);
+        $groupSeason = \App\Models\TrainingGroupSeason::query()->create([
+            'club_id' => 'bscn', 'training_group_id' => $group->id,
+            'season_id' => $season->id, 'active' => true,
+        ]);
+        \App\Models\TrainingGroupMembership::query()->create([
+            'club_id' => 'bscn', 'training_group_id' => $group->id,
+            'training_group_season_id' => $groupSeason->id, 'user_id' => $athlete->id,
+            'starts_at' => '2026-09-01', 'created_by' => $actor->id,
+        ]);
+        $assignments = app(\App\Services\Desportivo\SportsCycleAssignmentService::class);
+        $assignments->replace('micro', (string) $groupMicro->id, 'group', [(string) $group->id], (string) $actor->id);
+        \App\Models\SportsAthleteParticipation::query()->create([
+            'club_id' => 'bscn', 'user_id' => $athlete->id,
+            'sports_modality_id' => $season->sports_modality_id,
+            'active' => true, 'current_slot' => 'current',
+        ]);
+        $assignments->replace('micro', (string) $individualMicro->id, 'athlete', [(string) $athlete->id], (string) $actor->id);
+        $rule = $planning->createRecurrence([
+            'season_id' => $season->id, 'name' => 'Recorrência protegida',
+            'starts_on' => '2026-09-14', 'ends_on' => '2026-09-14',
+            'frequency' => 'weekly', 'weekdays' => [1],
+            'start_time' => '18:00', 'end_time' => '19:00',
+            'training_type' => 'Técnico',
+            'groups' => [['training_group_id' => $group->id]],
+        ], $actor);
+        $result = $planning->generateRecurrence($rule, '2026-09-14', $actor);
+        $this->assertCount(0, $result['created']);
+        $this->assertCount(1, $result['blocked']);
+        $this->assertDatabaseMissing('trainings', ['training_recurrence_id' => $rule->id]);
+    }
+
     public function test_recurrence_uses_canonical_pool_lane_and_does_not_rewrite_generated_session(): void
     {
         $actor = User::factory()->create();
