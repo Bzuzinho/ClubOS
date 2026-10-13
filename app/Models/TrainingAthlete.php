@@ -20,6 +20,7 @@ class TrainingAthlete extends Model
         'estado',
         'volume_real_m',
         'rpe',
+        'individual_microcycle_id',
         'observacoes_tecnicas',
         'registado_por',
         'registado_em',
@@ -34,6 +35,11 @@ class TrainingAthlete extends Model
         'registado_em' => 'datetime',
         'atualizado_por_utilizador_em' => 'datetime',
     ];
+
+    public function individualMicrocycle(): BelongsTo
+    {
+        return $this->belongsTo(Microcycle::class, 'individual_microcycle_id');
+    }
 
     public function training(): BelongsTo
     {
