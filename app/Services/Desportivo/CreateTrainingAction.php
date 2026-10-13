@@ -26,6 +26,7 @@ class CreateTrainingAction
         private TrainingSessionPlanService $sessionPlanService,
         private TrainingSessionGroupService $sessionGroupService,
         private TrainingScheduleConflictService $conflictService,
+        private SportsSessionCycleResolver $cycleResolver,
     ) {}
 
     public function execute(array $data, User $criadoPor): Training
@@ -59,6 +60,22 @@ class CreateTrainingAction
 
             if ($manualAthletes !== []) {
                 $this->prepareAthletesAction->executeForUsers($training->fresh(), $manualAthletes, ['source' => 'planning_manual']);
+            }
+
+            // A referência da sessão continua coletiva; cada atleta pode ter
+            // periodização específica, sem fragmentar o treino em vários registos.
+            if ($training->epoca_id && $training->data) {
+                foreach ($training->athleteRecords()->get() as $athleteRecord) {
+                    $individualCycle = $this->cycleResolver->resolve(
+                        (string) $training->epoca_id,
+                        $training->data->toDateString(),
+                        [(string) $athleteRecord->user_id],
+                        []
+                    );
+                    if ($individualCycle !== null) {
+                        $athleteRecord->forceFill(['individual_microcycle_id' => $individualCycle])->save();
+                    }
+                }
             }
 
             $this->conflictService->apply($training->fresh());
