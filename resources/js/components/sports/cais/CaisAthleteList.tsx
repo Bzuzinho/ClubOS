@@ -31,7 +31,7 @@ export function CaisAthleteList({ athletes, view, onPresence, onQuick, onFull }:
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
                 <div className="break-words text-xs font-semibold">{athlete.name}</div>
-                <div className="break-words text-[10px] text-muted-foreground">{[athlete.lane, athlete.group].filter(Boolean).join(' · ') || 'Sem pista/grupo'}</div>
+                <div className="break-words text-[10px] text-muted-foreground">{[athlete.lane, athlete.group].filter(Boolean).join(' · ') || 'Sem pista/grupo'}{athlete.individual_microcycle && <span className="ml-1 font-medium text-sky-700"> · Individual: {athlete.individual_microcycle}</span>}</div>
               </div>
               <span className="text-[10px] text-muted-foreground">{athlete.status}</span>
             </div>
@@ -57,7 +57,7 @@ export function CaisAthleteList({ athletes, view, onPresence, onQuick, onFull }:
         <div key={athlete.id} className="grid grid-cols-1 2xl:grid-cols-[minmax(0,1fr)_112px_minmax(0,1.2fr)_18px] items-center gap-3 border-b px-3 py-2 last:border-b-0 hover:bg-muted/20">
           <div className="min-w-0">
             <div className="break-words text-xs font-medium" title={athlete.name}>{athlete.name}</div>
-            <div className="break-words text-[10px] text-muted-foreground">{[athlete.lane, athlete.group].filter(Boolean).join(' · ') || 'Sem pista/grupo'}</div>
+            <div className="break-words text-[10px] text-muted-foreground">{[athlete.lane, athlete.group].filter(Boolean).join(' · ') || 'Sem pista/grupo'}{athlete.individual_microcycle && <span className="ml-1 font-medium text-sky-700"> · Individual: {athlete.individual_microcycle}</span>}</div>
           </div>
           <div className="flex gap-1 whitespace-nowrap">
             {STATUS_OPTIONS.map((option) => (
