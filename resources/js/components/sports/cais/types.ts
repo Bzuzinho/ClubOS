@@ -31,6 +31,7 @@ export interface CaisAthlete {
   status: CaisStatus;
   lane?: string | null;
   group?: string | null;
+  individual_microcycle?: string | null;
   register: AthleteRegister;
 }
 
