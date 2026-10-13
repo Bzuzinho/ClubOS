@@ -173,6 +173,49 @@ class SportsPlanningWorkspaceFunctionalTest extends TestCase
         $this->assertNull($result['created'][0]->microciclo_id);
     }
 
+    public function test_recurrence_generates_group_microcycle_without_changing_the_recurrence_rule(): void
+    {
+        $actor = User::factory()->create();
+        $season = $this->season();
+        $planning = app(SportsPlanningWorkspaceService::class);
+        $macro = $planning->createMacrocycle([
+            'epoca_id' => $season->id, 'nome' => 'Macro grupo',
+            'tipo' => 'Preparação geral', 'data_inicio' => '2026-09-01', 'data_fim' => '2026-10-31',
+        ], $actor);
+        $meso = $planning->createMesocycle([
+            'macrociclo_id' => $macro->id, 'nome' => 'Meso grupo',
+            'data_inicio' => '2026-09-01', 'data_fim' => '2026-10-31',
+            'objetivo_principal' => 'Base',
+        ], $actor);
+        $micro = $planning->createMicrocycle([
+            'mesociclo_id' => $meso->id, 'semana' => 'Semana grupo',
+            'data_inicio' => '2026-09-14', 'data_fim' => '2026-09-20',
+        ], $actor);
+        $group = app(TrainingGroupService::class)->create([
+            'code' => 'GROUP-' . substr((string) \Illuminate\Support\Str::uuid(), 0, 6),
+            'name' => 'Grupo recorrente',
+        ], $actor);
+        \App\Models\TrainingGroupSeason::query()->create([
+            'club_id' => 'bscn', 'training_group_id' => $group->id,
+            'season_id' => $season->id, 'active' => true,
+        ]);
+        app(\App\Services\Desportivo\SportsCycleAssignmentService::class)->replace(
+            'micro', (string) $micro->id, 'group', [(string) $group->id], (string) $actor->id
+        );
+        $rule = $planning->createRecurrence([
+            'season_id' => $season->id, 'name' => 'Recorrente',
+            'starts_on' => '2026-09-14', 'ends_on' => '2026-09-14',
+            'frequency' => 'weekly', 'weekdays' => [1],
+            'start_time' => '18:00', 'end_time' => '19:00',
+            'training_type' => 'Técnico',
+            'groups' => [['training_group_id' => $group->id]],
+        ], $actor);
+        $result = $planning->generateRecurrence($rule, '2026-09-14', $actor);
+        $this->assertCount(1, $result['created']);
+        $this->assertSame((string) $micro->id, (string) $result['created'][0]->microciclo_id);
+        $this->assertNull($rule->fresh()->microcycle_id);
+    }
+
     public function test_recurrence_uses_canonical_pool_lane_and_does_not_rewrite_generated_session(): void
     {
         $actor = User::factory()->create();

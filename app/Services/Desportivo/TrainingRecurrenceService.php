@@ -24,6 +24,7 @@ final class TrainingRecurrenceService
     public function __construct(
         private readonly SportsClubContext $clubContext,
         private readonly CreateTrainingAction $createTrainingAction,
+        private readonly SportsSessionCycleResolver $cycleResolver,
     ) {}
 
     public function create(array $data, User $actor): TrainingRecurrence
@@ -123,13 +124,31 @@ final class TrainingRecurrenceService
                 ])->values()->all(),
             ])->values()->all();
 
+            $resolvedCycle = null;
+            if (! $recurrence->microcycle_id && $recurrence->season_id && $groups !== []) {
+                try {
+                    $groupIds = collect($groups)->pluck('training_group_id')->filter()->all();
+                    $resolvedId = $this->cycleResolver->resolve((string) $recurrence->season_id, $key, [], $groupIds);
+                    if ($resolvedId) {
+                        $resolvedCycle = Microcycle::query()
+                            ->where('club_id', $this->clubContext->id())
+                            ->with('mesocycle.macrocycle')
+                            ->findOrFail($resolvedId);
+                    }
+                } catch (ValidationException $exception) {
+                    $blocked[] = ['date' => $key, 'errors' => $exception->errors()];
+                    continue;
+                }
+            }
+
             $ready = $this->isReadyForPublication($recurrence);
             $status = $recurrence->session_status_template === 'published' && $ready ? 'published' : 'draft';
             try {
                 $created[] = $this->createTrainingAction->execute([
                     'data' => $key, 'hora_inicio' => substr((string) $recurrence->start_time, 0, 5), 'hora_fim' => substr((string) $recurrence->end_time, 0, 5),
-                    'epoca_id' => $recurrence->season_id, 'macrocycle_id' => $recurrence->macrocycle_id,
-                    'mesociclo_id' => $recurrence->mesocycle_id, 'microciclo_id' => $recurrence->microcycle_id,
+                    'epoca_id' => $recurrence->season_id, 'macrocycle_id' => $resolvedCycle?->mesocycle?->macrociclo_id ?? $recurrence->macrocycle_id,
+                    'mesociclo_id' => $resolvedCycle?->mesociclo_id ?? $recurrence->mesocycle_id,
+                    'microciclo_id' => $resolvedCycle?->id ?? $recurrence->microcycle_id,
                     'sports_venue_id' => $recurrence->sports_venue_id, 'sports_pool_id' => $recurrence->sports_pool_id,
                     'local' => $recurrence->local_snapshot, 'training_plan_version_id' => $recurrence->training_plan_version_id,
                     'responsavel_id' => $recurrence->responsavel_id, 'tipo_treino' => $recurrence->training_type,
