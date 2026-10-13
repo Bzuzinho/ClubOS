@@ -166,7 +166,7 @@ final class SportsPlanningWorkspaceService
             $microId = $this->cycleResolver->resolve(
                 (string) ($data['season_id'] ?? ''),
                 (string) $data['data'],
-                $data['athlete_ids'] ?? [],
+                $groupIds === [] ? ($data['athlete_ids'] ?? []) : [],
                 $groupIds,
             );
             if ($microId !== null) $data['microciclo_id'] = $microId;
