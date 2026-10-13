@@ -216,7 +216,7 @@ class SportsPlanningWorkspaceFunctionalTest extends TestCase
         $this->assertNull($rule->fresh()->microcycle_id);
     }
 
-    public function test_recurrence_blocks_group_cycle_when_athlete_has_incompatible_individual_cycle(): void
+    public function test_recurrence_preserves_individual_cycle_inside_group_session(): void
     {
         $actor = User::factory()->create();
         $athlete = User::factory()->athlete()->create();
@@ -269,9 +269,14 @@ class SportsPlanningWorkspaceFunctionalTest extends TestCase
             'groups' => [['training_group_id' => $group->id]],
         ], $actor);
         $result = $planning->generateRecurrence($rule, '2026-09-14', $actor);
-        $this->assertCount(0, $result['created']);
-        $this->assertCount(1, $result['blocked']);
-        $this->assertDatabaseMissing('trainings', ['training_recurrence_id' => $rule->id]);
+        $this->assertCount(1, $result['created']);
+        $this->assertCount(0, $result['blocked']);
+        $this->assertSame((string) $groupMicro->id, (string) $result['created'][0]->microciclo_id);
+        $this->assertDatabaseHas('training_athletes', [
+            'treino_id' => $result['created'][0]->id,
+            'user_id' => $athlete->id,
+            'individual_microcycle_id' => $individualMicro->id,
+        ]);
     }
 
     public function test_recurrence_uses_canonical_pool_lane_and_does_not_rewrite_generated_session(): void
