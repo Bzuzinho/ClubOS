@@ -134,6 +134,7 @@ final class SportsCaisWorkspaceService
             'sessionGroups.group',
             'sessionGroups.lanes',
             'athleteRecords.atleta:id,name',
+            'athleteRecords.individualMicrocycle:id,semana,mesociclo_id',
             'athleteRecords.atleta.dadosPessoais:id,user_id,nome_completo',
             'scheduleExceptions.recordedBy:id,name',
             'scheduleExceptions.recordedBy.dadosPessoais:id,user_id,nome_completo',
@@ -167,6 +168,7 @@ final class SportsCaisWorkspaceService
                         'status' => $record->estado ?: ($record->presente ? 'presente' : 'ausente'),
                         'lane' => $lane?->name ?: ($lane?->lane_number ? 'Pista '.$lane->lane_number : null),
                         'group' => $assignment?->group?->name,
+                        'individual_microcycle' => $record->individualMicrocycle?->semana,
                         'register' => $register,
                     ];
                 })->filter()->values(),
