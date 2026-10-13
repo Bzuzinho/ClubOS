@@ -14,7 +14,6 @@ use App\Models\TrainingGroup;
 use App\Models\TrainingPlanVersion;
 use App\Models\TrainingRecurrence;
 use App\Models\TrainingRecurrenceGroup;
-use App\Models\TrainingGroupMembership;
 use App\Models\User;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
@@ -139,39 +138,6 @@ final class TrainingRecurrenceService
                 } catch (ValidationException $exception) {
                     $blocked[] = ['date' => $key, 'errors' => $exception->errors()];
                     continue;
-                }
-            }
-
-            // A sessão contém um único microciclo. Não aplicar o do grupo
-            // se algum atleta ativo tiver uma atribuição individual incompatível.
-            if ($resolvedCycle && $groups !== []) {
-                $groupIds = collect($groups)->pluck('training_group_id')->filter()->all();
-                $athleteIds = TrainingGroupMembership::query()
-                    ->where('club_id', $this->clubContext->id())
-                    ->whereIn('training_group_id', $groupIds)
-                    ->activeOn($key)
-                    ->pluck('user_id')->map('strval')->unique()->values()->all();
-                $individualAssignments = DB::table('sports_cycle_assignments')
-                    ->where('club_id', $this->clubContext->id())
-                    ->where('season_id', $recurrence->season_id)
-                    ->where('target_type', 'athlete')
-                    ->whereIn('target_id', $athleteIds)
-                    ->pluck('target_id')->unique()->values()->all();
-                foreach ($individualAssignments as $athleteId) {
-                    try {
-                        $personalCycleId = $this->cycleResolver->resolve(
-                            (string) $recurrence->season_id, $key, [(string) $athleteId], []
-                        );
-                    } catch (ValidationException $exception) {
-                        $blocked[] = ['date' => $key, 'errors' => $exception->errors()];
-                        continue 2;
-                    }
-                    if ($personalCycleId !== null && (string) $personalCycleId !== (string) $resolvedCycle->id) {
-                        $blocked[] = ['date' => $key, 'errors' => [
-                            'microciclo_id' => ['Existe um atleta do grupo com periodização individual diferente. Crie uma sessão separada ou defina explicitamente a exceção.'],
-                        ]];
-                        continue 2;
-                    }
                 }
             }
 
